@@ -1,12 +1,15 @@
 import { execFile as execFileCallback } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import {
   canonicalSnapshotDigest,
   canonicalTimelineMode,
   createProjectSelectionResult,
+  projectSelectionMode,
   assertTimelineTargetReadAfterWrite,
   createTimelineTarget,
   resolveTimelineTarget,
@@ -27,6 +30,7 @@ import {
   type ProjectCatalog,
   type ProjectSelection,
   type ProjectSelectionResult,
+  type ProjectSelectionMode,
   type ProjectSnapshot,
   type RationalTime,
   type TimeRange,
@@ -67,8 +71,9 @@ export interface FinalCutBackgroundCatalogProvider {
 export interface FinalCutCanonicalNativeProviderOptions {
   live: LiveEditorStatePort & {
     getIdentity(): Promise<EditorIdentity>;
-    getCapabilities?(): Promise<RuntimeCapabilities>;
+    getCapabilities?(options?: CapabilityInspectionOptions): Promise<RuntimeCapabilities>;
     listProjects?(): Promise<ProjectCatalog>;
+    selectProject?(selection: ProjectSelection): Promise<ProjectSelectionResult>;
   };
   native: CanonicalNativeMutationPort;
   readSnapshot: () => Promise<ProjectSnapshot>;
@@ -676,7 +681,7 @@ end tell`;
 
 export function createFinalCutNativeTargetResolver(
   native: Pick<NativeFinalCutEditor, "searchMedia" | "locateOccurrence">
-    & Partial<Pick<NativeFinalCutEditor, "selectOccurrence">>,
+    & Partial<Pick<NativeFinalCutEditor, "selectOccurrence" | "searchMediaForCanonicalTarget">>,
 ): CanonicalNativeTargetResolver {
   return async (clip, snapshot) => {
     if (!clip.mediaId) throw new Error(`TARGET_MISMATCH: occurrence ${clip.id} has no media binding`);
@@ -685,7 +690,9 @@ export function createFinalCutNativeTargetResolver(
     const query = sourceBasename(media.source);
     if (!query) throw new Error(`TARGET_MISMATCH: media ${clip.mediaId} has no searchable source basename`);
 
-    const matches = (await native.searchMedia(query)).filter((match) => match.name.toLocaleLowerCase() === query.toLocaleLowerCase());
+    const searchMedia = native.searchMediaForCanonicalTarget ?? native.searchMedia;
+    const matches = (await searchMedia.call(native, query))
+      .filter((match) => match.name.toLocaleLowerCase() === query.toLocaleLowerCase());
     if (matches.length === 0) throw new Error(`TARGET_MISMATCH: Final Cut Browser has no exact media match for ${query}`);
     if (matches.length > 1) throw new Error(`AMBIGUOUS_PROJECT_TARGET: Final Cut Browser has multiple exact media matches for ${query}`);
     const match = matches[0]!;
@@ -750,9 +757,16 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   private readonly readSnapshotSource: () => Promise<ProjectSnapshot>;
   private readonly resolveTarget: CanonicalNativeTargetResolver;
   private readonly backgroundCatalog?: FinalCutBackgroundCatalogProvider;
-  private canonicalSnapshotAvailable = false;
   private lastDigest?: string;
+  private lastLiveRevision?: Pick<ContextRevision, "id" | "sequence">;
+  private readonly revisionEpoch = randomUUID();
   private lastSnapshot?: ProjectSnapshot;
+  /** Reuse a capability probe's export once, only while its live target revision still matches. */
+  private probedSnapshot?: {
+    snapshot: ProjectSnapshot;
+    liveRevision: Pick<ContextRevision, "id" | "sequence">;
+  };
+  private selectedTarget?: { projectId: string; sequenceId: string };
   private revisionSequence = 0;
   private revision?: ContextRevision;
   private pending?: PendingNativeOperation;
@@ -772,16 +786,17 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
 
   public async getCapabilities(options: CapabilityInspectionOptions = {}): Promise<RuntimeCapabilities> {
     const backgroundCatalog = await this.resolveBackgroundCatalog();
-    const snapshotProbe = backgroundCatalog && options.probeCanonicalSnapshot !== false
-      ? await this.probeCanonicalSnapshot()
-      : {
-          available: false as const,
-          reason: backgroundCatalog
-            ? "canonical snapshot availability was not checked"
-            : "canonical timeline snapshot requires a background project catalog",
-        };
+    const liveSelection = await this.projectSelectionCapability();
+    const snapshotProbe = !backgroundCatalog
+      ? { available: false as const, reason: "canonical timeline snapshot requires a background project catalog" }
+      : options.probeCanonicalSnapshot !== false
+        ? await this.probeCanonicalSnapshot()
+        : await this.cachedCanonicalSnapshotAvailability();
+    const selection = liveSelection.available ? liveSelection : backgroundCatalog && snapshotProbe.available
+      ? { available: true, mode: "active-target-only" as const }
+      : liveSelection;
     const canonicalSnapshotCapability = snapshotProbe.available
-      ? true
+      ? { available: true, backend: "final-cut-native-canonical", guarantee: "canonical-read" as const, evidenceTier: "headed-native" as const }
       : unavailableCanonicalSnapshot(snapshotProbe.reason);
     const capabilities = withCapabilityFamilies({
       editor: {
@@ -798,8 +813,8 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         frameCapture: false,
         playbackControl: false,
         projectCatalogRead: Boolean(backgroundCatalog),
-        projectSelection: Boolean(backgroundCatalog && snapshotProbe.available),
-        projectSelectionMode: backgroundCatalog && snapshotProbe.available ? "active-target-only" : "unavailable",
+        projectSelection: selection.available,
+        projectSelectionMode: selection.mode,
         backgroundLibraryInspection: Boolean(backgroundCatalog),
         compositeTransactions: snapshotProbe.available,
         semanticOperations: {
@@ -821,7 +836,9 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
       connectionBackend: "workflow-extension-ipc",
       canonicalDocument: {
         read: canonicalSnapshotCapability,
-        write: canonicalSnapshotCapability,
+        write: snapshotProbe.available
+          ? { available: true, backend: "final-cut-native-canonical", guarantee: "canonical-write", evidenceTier: "headed-native" }
+          : canonicalSnapshotCapability,
         artifactWrite: false,
       },
       observation: {
@@ -852,7 +869,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         },
       }, {
         canonicalDocument: {
-          read: true,
+          read: canonicalSnapshotCapability,
           write: false,
           artifactWrite: false,
         },
@@ -875,13 +892,36 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     });
   }
 
+  private async cachedCanonicalSnapshotAvailability(): Promise<{ available: true } | { available: false; reason: string }> {
+    if (!this.lastSnapshot || !this.lastLiveRevision) {
+      return { available: false, reason: "canonical snapshot availability was not checked" };
+    }
+    try {
+      const live = await this.live.readLiveState();
+      if ((!this.selectedTarget || (live.project?.id === this.selectedTarget.projectId
+          && live.sequence?.id === this.selectedTarget.sequenceId))
+        && live.project?.id === this.lastSnapshot.projectId
+        && live.sequence?.id === this.lastSnapshot.timeline.id
+        && live.revision?.id === this.lastLiveRevision.id
+        && live.revision.sequence === this.lastLiveRevision.sequence) return { available: true };
+    } catch {
+      // A missing live observation cannot validate the cached target.
+    }
+    return { available: false, reason: "canonical snapshot evidence is stale or live state is unavailable" };
+  }
+
   private async probeCanonicalSnapshot(): Promise<{ available: true } | { available: false; reason: string }> {
     try {
-      await this.readSnapshotSource();
-      this.canonicalSnapshotAvailable = true;
+      const snapshot = await this.readProject();
+      if (this.lastLiveRevision) {
+        this.probedSnapshot = {
+          snapshot: structuredClone(snapshot),
+          liveRevision: { ...this.lastLiveRevision },
+        };
+      }
       return { available: true };
     } catch (error) {
-      this.canonicalSnapshotAvailable = false;
+      this.probedSnapshot = undefined;
       const detail = error instanceof Error ? error.message : String(error);
       return {
         available: false,
@@ -895,14 +935,38 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   }
 
   public async readProject(): Promise<ProjectSnapshot> {
+    const probed = this.probedSnapshot;
+    this.probedSnapshot = undefined;
+    if (probed) {
+      const live = await this.live.readLiveState();
+      if (live.project?.id === probed.snapshot.projectId
+        && live.sequence?.id === probed.snapshot.timeline.id
+        && live.revision?.id === probed.liveRevision.id
+        && live.revision.sequence === probed.liveRevision.sequence) {
+        this.assertSelectedTarget(live);
+        return structuredClone(probed.snapshot);
+      }
+    }
+
+    const beforeLive = await this.live.readLiveState();
+    this.assertSelectedTarget(beforeLive);
     const snapshot = await this.readSnapshotSource();
-    await this.assertActiveTarget(snapshot);
+    const live = await this.assertActiveTarget(snapshot);
+    if (!beforeLive.project?.id || !beforeLive.sequence?.id
+      || beforeLive.project.id !== live.project?.id || beforeLive.sequence.id !== live.sequence?.id
+      || !beforeLive.revision?.id || beforeLive.revision.id !== live.revision.id
+      || beforeLive.revision.sequence !== live.revision.sequence) {
+      throw new Error("FINAL_CUT_CANONICAL_TARGET_STALE: live target or revision changed during snapshot export");
+    }
     const digest = canonicalSnapshotDigest(snapshot);
-    if (digest !== this.lastDigest || !this.revision) {
+    if (digest !== this.lastDigest || !this.revision
+      || live.revision.id !== this.lastLiveRevision?.id
+      || live.revision.sequence !== this.lastLiveRevision.sequence) {
       this.revisionSequence = Math.max(this.revisionSequence + 1, snapshot.revision.sequence + 1);
       this.lastDigest = digest;
+      this.lastLiveRevision = { id: live.revision.id, sequence: live.revision.sequence };
       this.revision = {
-        id: `canonical:${digest}`,
+        id: `canonical:${this.revisionEpoch}:${this.revisionSequence}:${digest}`,
         sequence: this.revisionSequence,
         timestamp: new Date().toISOString(),
       };
@@ -933,6 +997,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   }
 
   public async apply(operation: EditOperation, expectedRevision: ContextRevision): Promise<ContextRevision> {
+    const baselineLive = await this.live.readLiveState();
     const before = await this.readProject();
     assertSameRevision(expectedRevision, before.revision);
     const supported = supportedCanonicalOperation([operation]);
@@ -957,6 +1022,14 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     resolveTimelineTarget(before, timelineTarget);
     if (targetClip) await this.resolveTarget(targetClip, before);
     assertCanonicalOperationAvailable(this.native, supported);
+    const currentLive = await this.live.readLiveState();
+    if (!baselineLive.project?.id || !baselineLive.sequence?.id
+      || baselineLive.project.id !== before.projectId || baselineLive.sequence.id !== before.timeline.id
+      || currentLive.project?.id !== baselineLive.project.id || currentLive.sequence?.id !== baselineLive.sequence.id
+      || !baselineLive.revision?.id || currentLive.revision?.id !== baselineLive.revision.id
+      || currentLive.revision.sequence !== baselineLive.revision.sequence) {
+      throw new Error("FINAL_CUT_CANONICAL_TARGET_STALE: live target or revision changed during edit preparation");
+    }
     const nativeResult = supported.type === "rename-clip"
       ? await this.native.renameSelectedClip(supported.name)
       : supported.type === "trim-clip"
@@ -1088,37 +1161,72 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   }
 
   public async selectProject(selection: ProjectSelection): Promise<ProjectSelectionResult> {
-    if (!this.canonicalSnapshotAvailable) await this.probeCanonicalSnapshot();
-    if (!this.canonicalSnapshotAvailable) {
-      throw new Error("CAPABILITY_UNAVAILABLE: active-target-only rebind requires a complete canonical snapshot");
+    const capability = await this.projectSelectionCapability();
+    if (!capability.available || !this.live.selectProject) {
+      if (!(await this.cachedCanonicalSnapshotAvailability()).available) {
+        throw new Error("CAPABILITY_UNAVAILABLE: active-target-only rebind requires a current canonical snapshot");
+      }
+      const catalog = await this.listProjects();
+      const project = catalog.projects.find((candidate) => candidate.id === selection.projectId);
+      if (!project || catalog.activeProjectId !== selection.projectId) {
+        throw new Error("TARGET_MISMATCH: requested project is not the active catalog target");
+      }
+      const sequenceId = selection.sequenceId ?? (project.sequences.length === 1 ? project.sequences[0]?.id : undefined);
+      if (!sequenceId) throw new Error("AMBIGUOUS_PROJECT_TARGET: sequenceId is required");
+      if (!project.sequences.some((sequence) => sequence.id === sequenceId) || catalog.activeSequenceId !== sequenceId) {
+        throw new Error("TARGET_MISMATCH: requested sequence is not the active catalog target");
+      }
+      if (!(await this.cachedCanonicalSnapshotAvailability()).available) {
+        throw new Error("STALE_CONTEXT: canonical snapshot changed during active target rebind");
+      }
+      const live = await this.live.readLiveState();
+      if (live.project?.id !== selection.projectId || live.sequence?.id !== sequenceId
+        || !live.revision || live.revision.id !== this.lastLiveRevision?.id
+        || live.revision.sequence !== this.lastLiveRevision.sequence) {
+        throw new Error("STALE_CONTEXT: active target changed during rebind");
+      }
+      this.selectedTarget = { projectId: selection.projectId, sequenceId };
+      return createProjectSelectionResult(catalog, this.selectedTarget, live.revision);
     }
+    if (!selection.projectId.trim()) throw new Error("INVALID_PROJECT_SELECTION: projectId is required");
+    if (selection.sequenceId !== undefined && !selection.sequenceId.trim()) {
+      throw new Error("INVALID_PROJECT_SELECTION: sequenceId cannot be empty");
+    }
+
     const catalog = await this.listProjects();
-    if (catalog.activeProjectId !== selection.projectId) {
-      throw new Error(
-        `TARGET_MISMATCH: active-only rebind requires requested target ${selection.projectId}/${selection.sequenceId ?? "<any>"}; observed ${catalog.activeProjectId ?? "<unavailable>"}/${catalog.activeSequenceId ?? "<unavailable>"}`,
-      );
+    const project = catalog.projects.find((candidate) => candidate.id === selection.projectId);
+    if (!project) throw new Error(`TARGET_MISMATCH: selected project ${selection.projectId} is absent from the project catalog`);
+    const sequenceId = selection.sequenceId ?? (project.sequences.length === 1 ? project.sequences[0]?.id : undefined);
+    if (!sequenceId) throw new Error(`AMBIGUOUS_PROJECT_TARGET: sequenceId is required for project ${selection.projectId}`);
+    if (!project.sequences.some((sequence) => sequence.id === sequenceId)) {
+      throw new Error(`TARGET_MISMATCH: selected sequence ${sequenceId} is absent from project ${selection.projectId}`);
     }
-    const selectedProject = catalog.projects.find(({ id }) => id === selection.projectId);
-    if (!selectedProject) {
-      throw new Error(`TARGET_MISMATCH: active project ${selection.projectId} is missing from the background catalog`);
+
+    const target = { projectId: selection.projectId, sequenceId };
+    const result = await this.live.selectProject(target);
+    validateProjectCatalog(result);
+    if (result.activeProjectId !== target.projectId || result.activeSequenceId !== target.sequenceId
+      || result.observedActiveTarget.projectId !== target.projectId
+      || result.observedActiveTarget.sequenceId !== target.sequenceId
+      || result.requestedTarget.projectId !== target.projectId
+      || result.requestedTarget.sequenceId !== target.sequenceId) {
+      throw new Error("TARGET_MISMATCH: live project selection did not confirm the requested project and sequence");
     }
-    if (selection.sequenceId === undefined && selectedProject.sequences.length !== 1) {
-      throw new Error("AMBIGUOUS_PROJECT_TARGET: sequenceId is required unless the project has exactly one sequence");
+
+    const live = await this.live.readLiveState();
+    if (live.project?.id !== target.projectId || live.sequence?.id !== target.sequenceId) {
+      throw new Error("TARGET_MISMATCH: active project or sequence differs from the selected target");
     }
-    const selectedSequenceId = selection.sequenceId ?? selectedProject.sequences[0]!.id;
-    if (catalog.activeSequenceId !== selectedSequenceId) {
-      throw new Error(
-        `TARGET_MISMATCH: active-only rebind requires requested target ${selection.projectId}/${selectedSequenceId}; observed ${catalog.activeProjectId ?? "<unavailable>"}/${catalog.activeSequenceId ?? "<unavailable>"}`,
-      );
+    if (!live.revision?.id || !Number.isSafeInteger(live.revision.sequence)) {
+      throw new Error("FINAL_CUT_CANONICAL_REVISION_UNAVAILABLE: live revision is incomplete after project selection");
     }
-    const snapshot = await this.readProject();
-    if (snapshot.projectId !== selection.projectId
-      || snapshot.timeline.id !== selectedSequenceId) {
-      throw new Error(
-        `TARGET_MISMATCH: canonical snapshot does not match active-only rebind target ${selection.projectId}/${selectedSequenceId}`,
-      );
+    if (result.observedRevision.id !== live.revision.id || result.observedRevision.sequence !== live.revision.sequence) {
+      throw new Error("STALE_CONTEXT: live revision changed during project selection");
     }
-    return createProjectSelectionResult(catalog, selection, snapshot.revision);
+
+    this.selectedTarget = target;
+    this.probedSnapshot = undefined;
+    return structuredClone(result);
   }
 
   public async readLiveState(): Promise<EditorLiveState> {
@@ -1129,8 +1237,9 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     return this.live.liveChangesSince(revision, waitMs);
   }
 
-  private async assertActiveTarget(snapshot: ProjectSnapshot): Promise<void> {
+  private async assertActiveTarget(snapshot: ProjectSnapshot): Promise<EditorLiveState> {
     const live = await this.live.readLiveState();
+    this.assertSelectedTarget(live);
     if (!live.project || live.project.id !== snapshot.projectId) {
       throw new Error(`TARGET_MISMATCH: active project identity ${live.project?.id ?? "<unavailable>"} does not match exported project ${snapshot.projectId}`);
     }
@@ -1143,13 +1252,17 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     if (live.sequence.name !== snapshot.timeline.name) {
       throw new Error(`TARGET_MISMATCH: exported sequence ${snapshot.timeline.name} is not active Final Cut sequence ${live.sequence.name}`);
     }
+    if (!live.revision?.id || !Number.isSafeInteger(live.revision.sequence)) {
+      throw new Error("FINAL_CUT_CANONICAL_REVISION_UNAVAILABLE: live revision is incomplete");
+    }
+    return live;
   }
 
   private async resolveBackgroundCatalog(): Promise<FinalCutBackgroundCatalogProvider | undefined> {
     if (this.backgroundCatalog) return this.backgroundCatalog;
     if (!this.live.listProjects || !this.live.getCapabilities) return undefined;
     try {
-      const capabilities = await this.live.getCapabilities();
+      const capabilities = await this.live.getCapabilities({ probeCanonicalSnapshot: false });
       if (!capabilities.editor.projectCatalogRead) return undefined;
       const identity = await this.live.getIdentity();
       return {
@@ -1161,12 +1274,38 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     }
   }
 
+  private async projectSelectionCapability(): Promise<{ available: boolean; mode: ProjectSelectionMode }> {
+    if (!this.live.selectProject || !this.live.getCapabilities) return { available: false, mode: "unavailable" };
+    try {
+      const capabilities = await this.live.getCapabilities({ probeCanonicalSnapshot: false });
+      const mode = projectSelectionMode(capabilities.editor);
+      const available = capabilities.editor.projectSelection === true && mode !== "unavailable";
+      return {
+        available,
+        mode: available ? mode : "unavailable",
+      };
+    } catch {
+      return { available: false, mode: "unavailable" };
+    }
+  }
+
+  private assertSelectedTarget(live: EditorLiveState): void {
+    if (this.selectedTarget && (live.project?.id !== this.selectedTarget.projectId
+      || live.sequence?.id !== this.selectedTarget.sequenceId)) {
+      throw new Error(`TARGET_MISMATCH: active project or sequence differs from the explicitly selected target ${this.selectedTarget.projectId}/${this.selectedTarget.sequenceId}`);
+    }
+  }
+
   private async readBackgroundCatalog(provider: FinalCutBackgroundCatalogProvider): Promise<ProjectCatalog> {
     const before = await this.readLiveStateSafely();
     const catalog = await provider.listProjects();
     validateProjectCatalog(catalog);
     const after = await this.readLiveStateSafely();
     const liveIdentity = before && after ? await this.live.getIdentity() : undefined;
+    const liveSelection = await this.projectSelectionCapability();
+    const cached = await this.cachedCanonicalSnapshotAvailability();
+    const selection = liveSelection.available ? liveSelection : cached.available
+      ? { available: true, mode: "active-target-only" as const } : liveSelection;
     return reconcileProjectCatalog(catalog, {
       ...(before && after ? { before, after } : {}),
       provenance: {
@@ -1183,10 +1322,10 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
           },
         } : {}),
         selection: {
-          available: this.canonicalSnapshotAvailable,
-          mode: this.canonicalSnapshotAvailable ? "active-target-only" : "unavailable",
-          ...(!this.canonicalSnapshotAvailable ? {
-            unavailableReason: "active-target-only rebind requires a complete canonical snapshot; the provider does not activate projects",
+          available: selection.available,
+          mode: selection.mode,
+          ...(!selection.available ? {
+            unavailableReason: "project selection is not exposed by the background provider",
           } : {}),
         },
       },
@@ -1456,12 +1595,14 @@ function canonicalRippleRange(snapshot: ProjectSnapshot, range: TimeRange): { st
     throw new Error("INVALID_OPERATION: ripple-delete range must have positive duration");
   }
   const end = addRational(start, duration);
-  if (!isFrameAligned(start, zeroRational(), frameDuration) || !isFrameAligned(end, zeroRational(), frameDuration)) {
-    throw new Error("INVALID_OPERATION: ripple-delete range must be frame-aligned");
-  }
   const timelineDuration = snapshot.timeline.durationTime ?? secondsToRational(snapshot.timeline.duration, frameDuration);
   if (compareRational(start, zeroRational()) < 0 || compareRational(end, timelineDuration) > 0) {
-    throw new Error("INVALID_OPERATION: ripple-delete range must fit inside the active timeline");
+    throw new Error(
+      `INVALID_OPERATION: ripple-delete range [${range.start}, ${range.end}) must fit timeline bounds [0, ${rationalSeconds(timelineDuration)})`,
+    );
+  }
+  if (!isFrameAligned(start, zeroRational(), frameDuration) || !isFrameAligned(end, zeroRational(), frameDuration)) {
+    throw new Error("INVALID_OPERATION: ripple-delete range must be frame-aligned");
   }
   return { start, end };
 }
@@ -1817,12 +1958,11 @@ async function readCanonicalExport(
 }
 
 function sourceBasename(source: string): string {
-  const withoutQuery = source.split(/[?#]/, 1)[0] ?? source;
   try {
-    const url = new URL(withoutQuery);
-    return basename(decodeURIComponent(url.pathname));
+    const url = new URL(source);
+    return basename(url.protocol === "file:" ? fileURLToPath(url) : decodeURIComponent(url.pathname));
   } catch {
-    return basename(withoutQuery.replace(/^file:\/\//, ""));
+    return basename(source);
   }
 }
 

@@ -83,6 +83,7 @@ interface RenderableElement {
   resourceId?: string;
   sourceStartTime?: { value: string; timescale: string };
   role?: "audio" | "music";
+  nativeAudioRole?: string;
   gainDb?: number;
   enabled?: boolean;
   text?: string;
@@ -563,6 +564,7 @@ function renderOccurrence(
     resourceId: resource,
     ...(occurrence.sourceStartTime ? { sourceStartTime: occurrence.sourceStartTime } : {}),
     ...(occurrence.role === "audio" || occurrence.role === "music" ? { role: occurrence.role } : {}),
+    ...(occurrence.nativeAudioRole ? { nativeAudioRole: occurrence.nativeAudioRole } : {}),
     ...(occurrence.gainDb !== undefined ? { gainDb: occurrence.gainDb } : {}),
     ...(occurrence.enabled !== undefined ? { enabled: occurrence.enabled } : {}),
   };
@@ -622,7 +624,7 @@ function renderElements(elements: RenderableElement[]): string[] {
             ...(element.sourceStartTime ? [`start="${formatRational(element.sourceStartTime, `${element.id}.sourceStartTime`)}"`] : []),
             `duration="${formatRational(element.durationTime, `${element.id}.durationTime`)}"`,
             ...(element.lane !== undefined ? [`lane="${String(element.lane)}"`] : []),
-            ...(element.role ? [`audioRole="${element.role}"`] : []),
+            ...(element.nativeAudioRole || element.role ? [`audioRole="${xmlEscape(element.nativeAudioRole ?? element.role!)}"`] : []),
             ...(element.enabled !== undefined ? [`enabled="${element.enabled ? "1" : "0"}"`] : []),
           ]
         : element.kind === "title"

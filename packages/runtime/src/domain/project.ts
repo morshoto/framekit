@@ -53,6 +53,8 @@ export interface Clip {
   fadeOut?: number;
   enabled?: boolean;
   role?: "video" | "audio" | "music" | "title";
+  /** Exact native audio role, including its subrole. */
+  nativeAudioRole?: string;
   attachedTo?: string;
   position?: PictureInPicturePosition;
   scale?: number;

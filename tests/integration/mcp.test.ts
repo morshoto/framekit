@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { buildSkillToolCatalog } from "../../apps/mcp-server/src/tools/skills/catalog.js";
+import { SKILL_TOOL_METADATA } from "../../apps/mcp-server/src/tools/skills/metadata.js";
 
 function textFrom(result: unknown): string {
   const content = (result as { content?: unknown }).content;
@@ -16,9 +20,11 @@ function textFrom(result: unknown): string {
 
 test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
   const here = dirname(fileURLToPath(import.meta.url));
+  const stateDirectory = await mkdtemp(join(os.tmpdir(), "framekit-mcp-stdio-state-"));
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: ["--import", "tsx", join(here, "../../apps/mcp-server/src/main.ts")],
+    env: { ...process.env, FRAMEKIT_STATE_DIR: stateDirectory, FRAMEKIT_EDITOR: "fixture", FRAMEKIT_AUTO_CONNECT: "0" },
     stderr: "pipe",
   });
   const client = new Client({ name: "phase-0-test-client", version: "0.1.0" });
@@ -29,6 +35,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     serverPid = transport.pid;
     assert.equal(typeof serverPid, "number");
     const tools = await client.listTools();
+    assert.deepEqual(buildSkillToolCatalog(SKILL_TOOL_METADATA, tools.tools).errors, []);
     assert.deepEqual(
       tools.tools.map((tool) => tool.name).sort(),
       [
@@ -187,6 +194,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     assert.ok(artifactPublishPreviewTool?.inputSchema.properties?.headlessExecutionId);
     const artifactPublishExecuteTool = tools.tools.find((tool) => tool.name === "artifact.publish.execute");
     assert.deepEqual(artifactPublishExecuteTool?.inputSchema.required?.slice().sort(), ["confirm", "jobId"]);
+    assert.ok(artifactPublishExecuteTool?.inputSchema.properties?.confirmVerification);
     const artifactPublishStatusTool = tools.tools.find((tool) => tool.name === "artifact.publish.status");
     assert.deepEqual(artifactPublishStatusTool?.inputSchema.required?.slice().sort(), ["jobId"]);
     const nativeEditTool = tools.tools.find((tool) => tool.name === "editor.native.edit");
@@ -374,9 +382,50 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
 
     const undone = await client.callTool({ name: "edit.undo", arguments: { transactionId: markerTransaction.id } });
     assert.equal(JSON.parse(textFrom(undone)).timeline.clips[0].name, "Interview - Clean");
+
+    const availableSkills = JSON.parse(textFrom(await client.callTool({ name: "skill.list", arguments: {} }))) as Array<{ id: string }>;
+    assert.deepEqual(availableSkills.map(({ id }) => id), [
+      "audio-noise-reduction",
+      "color-correction",
+      "dialogue-normalization",
+      "filler-removal",
+    ]);
+    const inspectedSkill = JSON.parse(textFrom(await client.callTool({
+      name: "skill.inspect",
+      arguments: { skill: "color-correction" },
+    }))) as { id: string; availability: { available: boolean } };
+    assert.equal(inspectedSkill.id, "color-correction");
+    assert.equal(inspectedSkill.availability.available, true);
+
+    const skillBaseline = JSON.parse(textFrom(await client.callTool({ name: "project.inspect", arguments: {} })));
+    const malformedSkillPreview = await client.callTool({
+      name: "skill.preview",
+      arguments: {
+        skill: "color-correction",
+        arguments: { baseRevision: { id: "stale", sequence: -1, timestamp: "" }, clipId: "clip-1" },
+      },
+    });
+    assert.equal(malformedSkillPreview.isError, true);
+    assert.equal(JSON.parse(textFrom(malformedSkillPreview)).code, "SKILL_INPUT_INVALID");
+    const skillPreview = JSON.parse(textFrom(await client.callTool({
+      name: "skill.preview",
+      arguments: {
+        skill: "color-correction",
+        arguments: { baseRevision: skillBaseline.revision, clipId: "clip-1", preset: "warm" },
+      },
+    }))) as { previewToken: string; plan: { skillId: string; operations: unknown[] } };
+    assert.equal(skillPreview.plan.skillId, "color-correction");
+    assert.equal(skillPreview.plan.operations.length, 1);
+    assert.deepEqual(JSON.parse(textFrom(await client.callTool({ name: "project.inspect", arguments: {} }))).revision, skillBaseline.revision);
+    const skillExecution = JSON.parse(textFrom(await client.callTool({
+      name: "skill.execute",
+      arguments: { previewToken: skillPreview.previewToken },
+    }))) as { status: string };
+    assert.equal(skillExecution.status, "VERIFIED");
   } finally {
     await client.close();
     await transport.close();
+    await rm(stateDirectory, { recursive: true, force: true });
     if (serverPid !== null) {
       assert.throws(() => process.kill(serverPid as number, 0), /ESRCH/);
     }

@@ -113,7 +113,7 @@ export class ProjectService {
   }
 
   public async selectProject(selection: ProjectSelection): Promise<ProjectSelectionResult> {
-    const capabilities = await this.adapter.getCapabilities();
+    const capabilities = await this.adapter.getCapabilities({ probeCanonicalSnapshot: false });
     if (!capabilities.editor.projectSelection || !this.adapter.selectProject) {
       const identity = await this.adapter.getIdentity();
       throw new CapabilityUnavailableError("project.select", "editor.projectSelection", {

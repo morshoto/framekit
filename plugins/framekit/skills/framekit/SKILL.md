@@ -52,25 +52,34 @@ and project revision. `CAPABILITY_UNAVAILABLE` or an unavailable analyzer is a
 real limitation; do not fill in missing analysis. Headless rendering and
 FCPXML generation do not contact Final Cut.
 
-## Separate native delivery
+## Optional native handoff (experimental; not guaranteed in v0.1.18)
 
 The plugin's server cannot import into Final Cut because it starts with native
-writes disabled. A native handoff requires a separately configured headed
-Framekit server, a ready Final Cut session, and `artifactPublish` capability.
-Follow the native setup in the runbook. If readiness or capability is missing,
-report the specific blocker and keep the verified local artifacts available.
+writes disabled. The separate native publishing path is experimental and is
+not a v0.1.18 release guarantee. A native handoff requires a separately
+configured headed Framekit server, a ready Final Cut session, and
+`artifactPublish` capability. A non-activating document-open acknowledgment
+means only that dispatch was accepted; do not claim a native project was
+created unless the same job reaches `verified` with matching created-target
+readback. Follow the native setup in the runbook. If readiness or capability is
+missing, report the specific blocker and keep the verified local artifacts
+available.
 
 Call `artifact.publish.preview` with the exact FCPXML `artifactPath`,
 `headlessExecutionId`, and a new absolute `.fcpbundle` `targetLibraryPath`
 whose parent directory exists. Show the user its source proof, artifact digest,
 target project/sequence, and new library path. Require explicit user authorization for that
 import before calling `artifact.publish.execute` with the returned `jobId` and
-`confirm: true`. Verify the same job with `artifact.publish.status`.
+`confirm: true`. Inspect the same job with `artifact.publish.status`. For a
+`verification-pending` job, obtain separate user authorization for headed
+semantic readback of that exact job, target, and artifact digest before calling
+`artifact.publish.execute` again with `confirm: true` and
+`confirmVerification: true`.
 
 If the job is `awaiting-final-cut`, report that it is pending and wait until the
 user makes Final Cut ready; inspect the same job before retrying it. If the job
-is `verification-pending`, continue verification for that job and never create
-a second import job. Claim successful delivery only when status is `verified`
+is `verification-pending`, request the separate readback authorization above
+and never create a second import job. Claim successful delivery only when status is `verified`
 and includes matching target readback. Never infer an import from a queued,
 pending, dispatched, or unverifiable result.
 

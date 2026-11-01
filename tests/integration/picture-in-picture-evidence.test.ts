@@ -17,12 +17,3 @@ test("headed PIP runner preserves native evidence boundaries", async () => {
   assert.match(runner, /target:\s*\{\s*sequenceId:\s*anchorOccurrence\.sequenceId/);
   assert.doesNotMatch(runner, /masking|cutout|tracking/);
 });
-
-test("PIP documentation separates canonical, artifact, and headed-native evidence", async () => {
-  const documentation = await readFile(join(process.cwd(), "docs/final-cut/picture-in-picture.md"), "utf8");
-  assert.match(documentation, /Fixture evidence/);
-  assert.match(documentation, /FCPXML evidence/);
-  assert.match(documentation, /Headed-native evidence/);
-  assert.match(documentation, /masking, tracking/);
-  assert.match(documentation, /test:final-cut-pip-headed/);
-});

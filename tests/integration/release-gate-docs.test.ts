@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("release gate documentation records commands and evidence boundaries", async () => {
-  const documentation = await readFile("docs/tests/release-gate.md", "utf8");
+  const documentation = await readFile("docs/testing.md", "utf8");
 
   assert.match(documentation, /pnpm run test:release-gate/);
   assert.match(documentation, /pnpm run release-gate --output-dir/);
@@ -26,7 +26,7 @@ test("release gate documentation records commands and evidence boundaries", asyn
 });
 
 test("release gate documentation lists every required headed-native runner", async () => {
-  const documentation = await readFile("docs/tests/release-gate.md", "utf8");
+  const documentation = await readFile("docs/testing.md", "utf8");
 
   for (const command of [
     "test:final-cut-canonical-headed",
@@ -42,41 +42,29 @@ test("release gate documentation lists every required headed-native runner", asy
   assert.match(documentation, /mkdir -p artifacts\/final-cut-headed/);
   assert.match(documentation, /sanitized/i);
   assert.match(documentation, /disposable project/i);
-  assert.match(documentation, /dialogue normalization.*complete declared Skill capability/i);
+  assert.match(documentation, /dialogue normalization.*complete declared Skill\s+capability/is);
 });
 
-test("Skill documentation describes only the generic MCP workflow", async () => {
-  const documentation = await readFile("docs/mcp/skills.md", "utf8");
+test("architecture documentation describes the generic MCP Skill lifecycle", async () => {
+  const documentation = await readFile("docs/architecture.md", "utf8");
 
   for (const tool of ["skill.list", "skill.inspect", "skill.preview", "skill.execute"]) {
     assert.match(documentation, new RegExp("`" + tool.replaceAll(".", "\\.") + "`"));
   }
-  assert.match(documentation, /filler-removal/);
-  assert.match(documentation, /dialogue-normalization/);
-  assert.match(documentation, /audio-noise-reduction/);
-  assert.match(documentation, /color-correction/);
-  assert.match(documentation, /Final Cut-specific commands/i);
-  assert.match(documentation, /preview/);
-  assert.match(documentation, /rollback/);
-  assert.match(documentation, /targetLufs.*-16/);
-  assert.match(documentation, /occurrenceId/);
-  assert.match(documentation, /selectedCandidateIds/);
-  assert.match(documentation, /verified no-op/i);
-  assert.match(documentation, /candidate provenance/);
+  assert.match(documentation, /exact preview target and revision/);
+  assert.match(documentation, /verification and rollback status/);
 });
 
-test("compatibility and release documentation identify the v0.1.6 gate", async () => {
-  const compatibility = await readFile("docs/COMPATIBILITY.md", "utf8");
-  const release = await readFile("docs/releasing.md", "utf8");
+test("architecture and release docs state evidence and release provenance boundaries", async () => {
+  const architecture = await readFile("docs/architecture.md", "utf8");
+  const testing = await readFile("docs/testing.md", "utf8");
+  const release = await readFile("docs/release.md", "utf8");
   const readme = await readFile("docs/README.md", "utf8");
 
-  assert.match(compatibility, /v0\.0\.3/);
-  assert.match(compatibility, /v0\.1\.6/);
-  assert.match(compatibility, /fixture/i);
-  assert.match(compatibility, /metadata-only/i);
+  assert.match(architecture, /metadata-only/i);
+  assert.match(testing, /v0\.1\.6/);
   assert.match(release, /release gate/i);
   assert.match(release, /pnpm run release-gate --output-dir/);
-  assert.match(release, /v0\.1\.6/);
   assert.match(release, /checksum/i);
-  assert.match(readme, /release-gate/);
+  assert.match(readme, /\[Release\]\(\.\/release\.md\)/);
 });

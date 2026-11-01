@@ -14,65 +14,21 @@ import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { BASIC_EDITING_MVP_FIXTURE, BASIC_MVP_FIXTURE_BYTES, BASIC_MVP_MEDIA, BASIC_MVP_TITLE_ASSET } from "../fixtures/basic-editing-mvp.js";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
-const contractPath = resolve("docs/final-cut/basic-editing-mvp.md");
+const contractPath = resolve("docs/architecture.md");
 
-test("Basic Final Cut editing MVP has an executable design contract", async () => {
+test("Basic Final Cut editing uses the canonical headless contract", async () => {
   const contract = await readFile(contractPath, "utf8");
 
   assert.equal(BASIC_MVP_MEDIA.video.sourceDigest, `sha256:${createHash("sha256").update(BASIC_MVP_FIXTURE_BYTES.video).digest("hex")}`);
   assert.equal(BASIC_MVP_MEDIA.music.sourceDigest, `sha256:${createHash("sha256").update(BASIC_MVP_FIXTURE_BYTES.music).digest("hex")}`);
 
-  assert.match(contract, /^# Basic Final Cut Editing MVP/m);
-  for (const stage of [
-    "Understand the active project",
-    "Import local media",
-    "Make a basic edit",
-    "Add music and a title",
-    "Export the result",
-    "Verify the output",
-  ]) {
-    assert.match(contract, new RegExp(`## .*${stage}`));
-  }
-
-  for (const tool of [
-    "connection.status",
-    "editor.inspect",
-    "project.inspect",
-    "context.inspect",
-    "media.import",
-    "media.inspect",
-    "artifact.edit",
-    "artifact.publish",
-    "editor.timeline.edit",
-    "timeline.media.add",
-    "timeline.title.add",
-    "editor.timeline.edit.preview",
-    "editor.timeline.edit.execute",
-    "editor.assets",
-    "timeline.export",
-    "edit.diff",
-    "edit.verify",
-    "edit.undo",
-  ]) {
-    assert.match(contract, new RegExp("`" + tool + "`"));
-  }
-
-  assert.match(contract, /base revision/i);
+  assert.match(contract, /Framekit-owned editing path is headless/i);
+  assert.match(contract, /Timeline IR/);
   assert.match(contract, /CAPABILITY_UNAVAILABLE/);
-  assert.match(contract, /TARGET_MISMATCH/);
-  assert.match(contract, /deterministic fixture/i);
-  assert.match(contract, /live Final Cut/i);
-  assert.match(contract, /success metrics/i);
-  assert.match(contract, /100%/);
-  assert.match(contract, /rollback/i);
-  assert.match(contract, /ordered operation list/i);
-  assert.match(contract, /targetLane/);
-  assert.match(contract, /verification\.assertions/);
-  assert.match(contract, /expected versus observed/i);
-  assert.match(contract, /status.*unavailable/i);
-  assert.match(contract, /audio stream.*audible/i);
-  assert.match(contract, /source identity/i);
-  assert.match(contract, /semantic export/i);
+  assert.match(contract, /FCPXML editing is an explicit artifact operation/i);
+  assert.match(contract, /exact project, sequence, occurrence, and\s+revision/i);
+  assert.match(contract, /canonical readback/i);
+  assert.match(contract, /verify Undo or rollback/i);
 });
 
 function textFrom(result: unknown): string {

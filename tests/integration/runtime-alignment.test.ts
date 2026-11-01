@@ -570,7 +570,9 @@ test("serves a verified native target after the publisher restarts", async () =>
       artifactPath: sourcePath,
       artifactDigest: createHash("sha256").update(source).digest("hex"),
     });
-    const verified = await firstPublisher.executePublishJob(prepared.jobId, true);
+    const dispatched = await firstPublisher.executePublishJob(prepared.jobId, true);
+    assert.equal(dispatched.state, "verification-pending");
+    const verified = await firstPublisher.executePublishJob(prepared.jobId, true, true);
     assert.equal(verified.state, "verified");
 
     const restartedPublisher = new FinalCutProjectPublisher(publisherOptions);

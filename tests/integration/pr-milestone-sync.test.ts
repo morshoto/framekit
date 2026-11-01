@@ -23,21 +23,48 @@ test('selects the single milestone shared by linked issues', () => {
 	);
 });
 
-test('leaves the PR unchanged when links have no milestone or disagree', () => {
-	const first = { id: 21, number: 21, title: 'Release for v0.1.18' };
-	const second = { id: 22, number: 22, title: 'Release for v0.1.19' };
+test('leaves the PR unchanged when links have no milestone', () => {
 	assert.deepEqual(resolvePullRequestMilestone([], null), { action: 'skip', reason: 'no-linked-issues' });
 	assert.deepEqual(
 		resolvePullRequestMilestone([{ number: 123, milestone: null }], null),
 		{ action: 'skip', reason: 'no-linked-milestone' },
 	);
-	assert.deepEqual(
-		resolvePullRequestMilestone([
-			{ number: 123, milestone: first },
-			{ number: 456, milestone: second },
-		], null),
-		{ action: 'skip', reason: 'conflicting-milestones' },
-	);
+});
+
+test('selects the lowest milestone number regardless of issue order', () => {
+	const first = { id: 99, number: 21, title: 'First' };
+	const second = { id: 1, number: 22, title: 'Second' };
+	for (const milestones of [[second, first, null, first], [first, null, second, first]]) {
+		const issues = milestones.map((milestone, index) => ({ number: index + 1, milestone }));
+		assert.deepEqual(resolvePullRequestMilestone(issues, null), { action: 'update', milestone: first });
+		assert.deepEqual(resolvePullRequestMilestone(issues, first), { action: 'unchanged', milestone: first });
+		assert.deepEqual(resolvePullRequestMilestone(issues, second), { action: 'update', milestone: first });
+	}
+});
+
+test('updates the PR with the lowest linked milestone number', async () => {
+	const patches: unknown[] = [];
+	const fetchImpl = async (input: RequestInfo | URL, init: RequestInit = {}) => {
+		const url = String(input);
+		const method = init.method ?? 'GET';
+		if (url.endsWith('/issues/22') && method === 'PATCH') {
+			patches.push(JSON.parse(String(init.body)));
+			return jsonResponse({});
+		}
+		if (url.endsWith('/issues/22')) return jsonResponse({ pull_request: {}, milestone: { number: 30 } });
+		if (url.endsWith('/issues/123')) return jsonResponse({ milestone: { number: 22 } });
+		if (url.endsWith('/issues/456')) return jsonResponse({ milestone: { number: 21 } });
+		if (url.includes('/timeline?')) return jsonResponse([{
+			event: 'cross-referenced', source: { issue: { number: 22, pull_request: {} } },
+		}]);
+		throw new Error(`Unexpected request: ${method} ${url}`);
+	};
+	const result = await syncPullRequestMilestone({
+		repository: 'acme/framekit', pullRequestNumber: 22, body: 'Refs #123 and #456',
+		token: 'test-token', apiUrl: 'https://api.github.com', fetchImpl,
+	});
+	assert.deepEqual(result, { action: 'updated', milestoneNumber: 21 });
+	assert.deepEqual(patches, [{ milestone: 21 }]);
 });
 
 test('does not write when the PR already has the resolved milestone', () => {
@@ -154,15 +181,15 @@ test('ignores body references that GitHub has not linked to the PR', async () =>
 	assert.equal(requests.some(({ method }) => method === 'PATCH'), false);
 });
 
-test('rechecks PR body edits with write permission for milestones', async () => {
+test('rechecks same-repository PR body edits with write permission for milestones', async () => {
 	const workflow = await readFile(new URL('../../.github/workflows/assign.yml', import.meta.url), 'utf8');
-	assert.match(workflow, /types:\s*\[[^\]]*edited/);
-	assert.match(workflow, /pull_request_target:\s*\n\s+types:/);
-	assert.match(workflow, /sync-pull-request-milestone:/);
-	assert.match(workflow, /head\.repo\.full_name == github\.repository/);
-	assert.match(workflow, /head\.repo\.full_name != github\.repository/);
-	assert.match(workflow, /ref:\s*\$\{\{\s*github\.sha\s*\}\}/);
-	assert.match(workflow, /pull-requests:\s*write/);
+	const activeWorkflow = workflow.replace(/^[ \t]*#.*$/gm, '');
+	assert.match(activeWorkflow, /pull_request:\s*\n\s+types:\s*\[[^\]]*edited/);
+	assert.doesNotMatch(activeWorkflow, /^[ \t]+pull_request_target:/m);
+	assert.match(activeWorkflow, /sync-pull-request-milestone:/);
+	assert.match(activeWorkflow, /head\.repo\.full_name == github\.repository/);
+	assert.match(activeWorkflow, /ref:\s*\$\{\{\s*github\.sha\s*\}\}/);
+	assert.match(activeWorkflow, /pull-requests:\s*write/);
 });
 
 function jsonResponse(value: unknown): Response {

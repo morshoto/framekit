@@ -21,7 +21,7 @@ session. Confirm the plugin manifest version and MCP build fingerprint so the
 session's provenance identifies the code under test.
 
 Before starting Codex, configure an executable local speech analyzer and its
-version. Use the [local speech setup](https://github.com/morshoto/framekit/blob/main/docs/speech-analysis.md) if needed. A
+version. Use the [local speech setup](https://github.com/morshoto/framekit/blob/main/docs/getting-started.md#optional-analysis-providers) if needed. A
 configured audio analyzer is optional; the workflow must report it as
 unavailable when absent. Set an isolated state directory for this run if you
 want a disposable project:
@@ -125,15 +125,17 @@ The headless leg must not invoke `artifact.publish.execute`, native Final Cut
 tools, or UI automation. The result is a verified local video and an editable
 FCPXML artifact; it is not a Final Cut import.
 
-## Native delivery after separate authorization
+## Optional native handoff (experimental; not guaranteed in v0.1.18)
 
-Completing this handoff with the current packaged Codex workflow and headed
-Final Cut readback is tracked in #541. The steps below document the guarded
-contract; the headless acceptance for #520 does not claim that this native leg
-ran.
+This native path is not part of the artifact-only v0.1.18 guarantee. Native
+dispatch/result separation continues in #598; actual library creation and
+authoritative semantic readback are tracked in #599. Passing #599 is a
+prerequisite for later #551 restart/rebind QA. The steps below document the
+guarded contract; artifact-only acceptance in #597 does not claim that native
+import or readback ran.
 
 Native delivery uses a separate headed MCP server. Follow
-[Final Cut installation](https://github.com/morshoto/framekit/blob/main/docs/final-cut/installation.md) to configure a headed
+[Final Cut installation](https://github.com/morshoto/framekit/blob/main/docs/getting-started.md#connect-codex) to configure a headed
 server with `FRAMEKIT_EDITOR=final-cut-live`,
 `FRAMEKIT_FINAL_CUT_HEADLESS=0`, `FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1`, the exact
 `FRAMEKIT_FCPXML_PATH`, and the intended new `targetLibraryPath` for the
@@ -160,8 +162,12 @@ In the headed session:
 3. Show those details and ask the user to authorize importing that artifact
    into that library. Then call `artifact.publish.execute` with the returned
    `jobId` and literal `confirm: true`.
-4. Read `artifact.publish.status` for that same job. Report successful delivery
-   only when status is `verified` and includes a target-matching live readback.
+4. Read `artifact.publish.status` for that same job. If verification is pending,
+   obtain separate authorization for headed semantic readback of the exact job,
+   artifact digest, and target. Then call `artifact.publish.execute` for the same
+   job with `confirm: true` and `confirmVerification: true`.
+5. Report successful delivery only when status is `verified` and includes a
+   target-matching live readback.
 
 If the job is `awaiting-final-cut`, retain its `jobId`, report that delivery is
 pending, and wait until the user makes Final Cut ready. Inspect that same job
@@ -172,9 +178,10 @@ when verification has not reached `verified`.
 
 ## Record the run
 
-For issue #541, keep one evidence record for the exact tested checkout and
-package. Record the repository commit; Codex CLI version; installed plugin
-version and content fingerprint; MCP package version, commit, package digest,
+For the artifact-only v0.1.18 gate #597, keep one evidence record for the
+exact tested checkout and package. Record the repository commit; Codex CLI
+version; installed plugin version and content fingerprint; MCP package
+version, commit, package digest,
 and build fingerprint; Workflow Extension version and fingerprint; and macOS
 and Final Cut versions. Do not infer an installed runtime or extension identity
 from the source checkout.
@@ -202,10 +209,11 @@ Link a sanitized Codex/MCP transcript and approval records. Remove credentials,
 private media, and user-specific paths from shared evidence. Include recovery
 evidence for rejected approval, stale input, unavailable or mismatched
 capability, interruption, and verification-pending behavior; mark scenarios
-that were not run as `not run` instead of inferring an outcome. Link the
-sanitized report to #517. A successful headless result does not establish
-native delivery; fixture tests and this runbook do not establish headed Final
-Cut acceptance by themselves.
+that were not run as `not run` instead of inferring an outcome. Link
+artifact-only release evidence to #597 and native creation/readback evidence
+to #599. A successful headless result does not establish native delivery;
+fixture tests and this runbook do not establish headed Final Cut acceptance by
+themselves.
 
 ## Failure checks
 

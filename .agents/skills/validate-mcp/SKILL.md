@@ -12,7 +12,9 @@ pnpm install --frozen-lockfile
 .agents/skills/validate-mcp/scripts/validate-contract.sh
 ```
 
-Use `--full` to include the complete repository test suite. Then read `docs/tests/mcp-qa-prompt.md` and inspect the current tool schemas before making real MCP calls.
+Use `--full` to include the complete repository test suite. Read the evidence
+boundaries in `docs/testing.md` and inspect current tool schemas before making
+real MCP calls.
 
 ## Live QA order
 

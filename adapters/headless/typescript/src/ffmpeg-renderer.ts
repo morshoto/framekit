@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { createReadStream } from "node:fs";
-import { access, link, lstat, mkdtemp, rename, rm, unlink } from "node:fs/promises";
+import { access, link, lstat, mkdtemp, rename, rm, unlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { HEADLESS_AUDIO_CHANNELS, HEADLESS_AUDIO_CODEC, HEADLESS_AUDIO_SAMPLE_RATE } from "./audio-output.js";
 import {
   createFramekitRenderResult,
   type FramekitRenderCapabilityReport,
@@ -101,10 +102,11 @@ export class FfmpegTimelineRenderer implements FramekitRenderProvider {
     const stagingDirectory = await mkdtemp(join(outputDirectory, ".framekit-render-"));
     const stagingPath = join(stagingDirectory, `render.${plan.parameters.format}`);
     try {
-      const args = buildFfmpegArguments(model, stagingPath, this.fontFile);
+      const titleTextFiles = await writeTitleTextFiles(model.timeline.sequence.titles ?? [], stagingDirectory);
+      const args = buildFfmpegArguments(model, stagingPath, this.fontFile, titleTextFiles);
       try {
         await execFileAsync(this.ffmpegPath, args, {
-          cwd: process.cwd(),
+          cwd: stagingDirectory,
           env: this.environment,
           maxBuffer: 8 * 1024 * 1024,
         });
@@ -338,7 +340,12 @@ async function assertSourcesUnchanged(model: RenderModel): Promise<void> {
   }
 }
 
-function buildFfmpegArguments(model: RenderModel, stagingPath: string, fontFile?: string): string[] {
+function buildFfmpegArguments(
+  model: RenderModel,
+  stagingPath: string,
+  fontFile: string | undefined,
+  titleTextFiles: readonly string[],
+): string[] {
   const filters: string[] = [];
   const inputArguments: string[] = [];
   const videoLabels: string[] = [];
@@ -367,7 +374,7 @@ function buildFfmpegArguments(model: RenderModel, stagingPath: string, fontFile?
     if (hasAudio) {
       const audioLabel = `clipa${index}`;
       const gain = occurrence.gainDb ?? 0;
-      filters.push(`${`[${index}:a]`}atrim=start=${formatNumber(sourceStart)}:duration=${formatNumber(duration)},asetpts=PTS-STARTPTS,aresample=48000,volume=${formatNumber(Math.pow(10, gain / 20))}[${audioLabel}]`);
+      filters.push(`${`[${index}:a]`}atrim=start=${formatNumber(sourceStart)}:duration=${formatNumber(duration)},asetpts=PTS-STARTPTS,aresample=${HEADLESS_AUDIO_SAMPLE_RATE},volume=${formatNumber(Math.pow(10, gain / 20))}[${audioLabel}]`);
       audioLabels.push(`[${audioLabel}]`);
     }
   }
@@ -378,16 +385,16 @@ function buildFfmpegArguments(model: RenderModel, stagingPath: string, fontFile?
     const start = rationalSeconds(occurrence.startTime, `${occurrence.id}.startTime`);
     const duration = rationalSeconds(occurrence.durationTime, `${occurrence.id}.durationTime`);
     const gain = occurrence.gainDb ?? 0;
-    const delaySamples = Math.round(start * 48_000);
+    const delaySamples = Math.round(start * HEADLESS_AUDIO_SAMPLE_RATE);
     const audioLabel = `bed-audio${index}`;
-    filters.push(`[${index}:a]atrim=start=${formatNumber(sourceStart)}:duration=${formatNumber(duration)},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=mono,volume=${formatNumber(Math.pow(10, gain / 20))},adelay=${delaySamples}S:all=1,apad,atrim=duration=${formatNumber(model.duration)},asetpts=PTS-STARTPTS[${audioLabel}]`);
+    filters.push(`[${index}:a]atrim=start=${formatNumber(sourceStart)}:duration=${formatNumber(duration)},asetpts=PTS-STARTPTS,aresample=${HEADLESS_AUDIO_SAMPLE_RATE},aformat=channel_layouts=mono,volume=${formatNumber(Math.pow(10, gain / 20))},adelay=${delaySamples}S:all=1,apad=whole_dur=${formatNumber(model.duration)},asetpts=PTS-STARTPTS[${audioLabel}]`);
     musicLabels.push(`[${audioLabel}]`);
   }
 
   const transition = model.timeline.sequence.transitions?.[0];
   const videoBase = addVideoComposition(filters, videoLabels, model, transition);
   const videoWithTail = addBlackVideoTail(filters, videoBase, model.tailDuration);
-  const videoOutput = addTitleOverlays(filters, videoWithTail, model, fontFile);
+  const videoOutput = addTitleOverlays(filters, videoWithTail, model, fontFile, titleTextFiles);
   let audioOutput: string | undefined;
   if (audioLabels.length > 0) audioOutput = addAudioComposition(filters, audioLabels, model, transition);
   if (musicLabels.length > 0) {
@@ -397,7 +404,7 @@ function buildFfmpegArguments(model: RenderModel, stagingPath: string, fontFile?
   const args = ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", ...inputArguments, "-filter_complex", filters.join(";")];
   args.push("-map", `[${videoOutput}]`, "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-pix_fmt", "yuv420p", "-r", fps);
   if (audioOutput) {
-    args.push("-map", `[${audioOutput}]`, "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "1");
+    args.push("-map", `[${audioOutput}]`, "-c:a", HEADLESS_AUDIO_CODEC, "-b:a", "128k", "-ar", String(HEADLESS_AUDIO_SAMPLE_RATE), "-ac", String(HEADLESS_AUDIO_CHANNELS));
   }
   args.push("-map_metadata", "-1", "-t", formatNumber(model.duration), "-movflags", "+faststart", stagingPath);
   return args;
@@ -466,9 +473,31 @@ function addAudioComposition(
   return output;
 }
 
-function addTitleOverlays(filters: string[], input: string, model: RenderModel, fontFile?: string): string {
-  let current = input;
-  for (const [index, title] of (model.timeline.sequence.titles ?? []).entries()) {
+async function writeTitleTextFiles(
+  titles: readonly { text: string }[],
+  stagingDirectory: string,
+): Promise<string[]> {
+  const files: string[] = [];
+  for (const [index, title] of titles.entries()) {
+    const filename = `title-${index}.txt`;
+    await writeFile(join(stagingDirectory, filename), title.text, "utf8");
+    files.push(filename);
+  }
+  return files;
+}
+
+function addTitleOverlays(
+  filters: string[],
+  input: string,
+  model: RenderModel,
+  fontFile: string | undefined,
+  titleTextFiles: readonly string[],
+): string {
+  const titles = model.timeline.sequence.titles ?? [];
+  if (titles.length === 0) return input;
+  filters.push(`[${input}]format=yuv420p[video-titles-base]`);
+  let current = "video-titles-base";
+  for (const [index, title] of titles.entries()) {
     const start = rationalSeconds(title.startTime, `${title.id}.startTime`);
     const end = start + rationalSeconds(title.durationTime, `${title.id}.durationTime`);
     const style = title.style;
@@ -482,7 +511,9 @@ function addTitleOverlays(filters: string[], input: string, model: RenderModel, 
       : "(h-text_h)/2";
     const output = `title-${index}`;
     const font = fontFile ? `fontfile='${escapeFilterValue(fontFile)}':` : "";
-    filters.push(`[${current}]drawtext=${font}text='${escapeFilterValue(title.text)}':fontcolor=${color}:fontsize=${size}:x=${x}:y=${y}:enable='between(t,${formatNumber(start)},${formatNumber(end)})'[${output}]`);
+    const textFile = titleTextFiles[index];
+    if (!textFile) throw new FfmpegRenderError("HEADLESS_RENDER_FAILED", `title text file is missing: ${index}`);
+    filters.push(`[${current}]drawtext=${font}textfile='${textFile}':expansion=none:fontcolor=${color}:fontsize=${size}:x=${x}:y=${y}:enable='between(t,${formatNumber(start)},${formatNumber(end)})'[${output}]`);
     current = output;
   }
   return current;
@@ -628,7 +659,7 @@ function formatNumber(value: number): string {
 }
 
 function escapeFilterValue(value: string): string {
-  return value.replaceAll("\\", "\\\\").replaceAll("'", "\\'").replaceAll(":", "\\:").replaceAll(",", "\\,").replaceAll("[", "\\[").replaceAll("]", "\\]").replaceAll("\n", "\\n");
+  return value.replaceAll("\\", "\\\\").replaceAll("'", "'\\''").replaceAll(":", "\\:").replaceAll(",", "\\,").replaceAll("[", "\\[").replaceAll("]", "\\]").replaceAll("\n", "\\n");
 }
 
 function resolveFontFile(preferred?: string): string | undefined {

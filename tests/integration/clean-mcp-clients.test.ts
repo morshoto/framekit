@@ -434,9 +434,9 @@ test("dirty clean-client evidence cannot report a GO release candidate", () => {
 	);
 });
 
-test("checked-in clean MCP evidence keeps a complete historical workflow snapshot", async () => {
+test("sanitized clean MCP fixture keeps a complete historical workflow snapshot", async () => {
   const evidence = JSON.parse(
-    await readFile(resolve(repository, "docs/tests/evidence/2026-08-28-clean-mcp-clients.json"), "utf8"),
+    await readFile(resolve(repository, "tests/fixtures/release-evidence/clean-mcp-clients-2026-08-28.json"), "utf8"),
   ) as { clients?: Array<{ name?: string; workflow?: { tools?: unknown[] } }> };
 
   assert.deepEqual(evidence.clients?.map((client) => client.name), ["Codex", "Claude Code"]);
@@ -444,7 +444,7 @@ test("checked-in clean MCP evidence keeps a complete historical workflow snapsho
 });
 
 test("issue 521 pretag evidence records a passing clean workflow and release blockers", async () => {
-  const evidencePath = "docs/release-evidence/v0.1.18/issue-521-clean-mcp-codex-pretag-2026-10-24.json";
+  const evidencePath = "tests/fixtures/release-evidence/issue-521-clean-mcp-pretag-2026-10-24.json";
   const evidence = JSON.parse(await readFile(resolve(repository, evidencePath), "utf8")) as {
     passed?: boolean;
     environment?: { gitCommit?: string; sourceClean?: boolean };
@@ -480,13 +480,13 @@ test("issue 521 pretag evidence records a passing clean workflow and release blo
   assert.match(artifacts.mcpServer?.reason ?? "", /does not match target 0\.1\.18/);
   assert.match(artifacts.nativeExtension?.reason ?? "", /signed native release provenance was not supplied/);
 
-  const documentation = await readFile(resolve(repository, "docs/tests/clean-mcp-clients.md"), "utf8");
-  assert.match(documentation, new RegExp(escapeRegExp(evidencePath.split("/").at(-1) ?? "")));
 });
 
 test("clean MCP client instructions document both supported registration paths", async () => {
-  const documentation = await readFile(resolve(repository, "docs/tests/clean-mcp-clients.md"), "utf8");
-  const readme = await readFile(resolve(repository, "docs/tests/README.md"), "utf8");
+  const gettingStarted = await readFile(resolve(repository, "docs/getting-started.md"), "utf8");
+  const testing = await readFile(resolve(repository, "docs/testing.md"), "utf8");
+  const documentation = `${gettingStarted}\n${testing}`;
+  const readme = await readFile(resolve(repository, "README.md"), "utf8");
   const packageManifest = JSON.parse(await readFile(resolve(repository, "package.json"), "utf8")) as {
     scripts?: Record<string, string>;
   };
@@ -507,8 +507,8 @@ test("clean MCP client instructions document both supported registration paths",
   ]) {
     assert.match(documentation, new RegExp(escapeRegExp(expected), "i"));
   }
-  assert.doesNotMatch(documentation, /mcp --editor final-cut-live/);
-  assert.match(readme, /clean MCP client/i);
+  assert.doesNotMatch(testing, /mcp --editor final-cut-live/);
+  assert.match(readme, /\[Testing\]\(\.\/docs\/testing\.md\)/);
   assert.equal(packageManifest.scripts?.["test:clean-mcp-clients"], "node scripts/clean-mcp-client-smoke.mjs");
 });
 

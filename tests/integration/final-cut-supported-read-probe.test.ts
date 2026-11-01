@@ -188,12 +188,3 @@ test("fails closed when the app or its supported dictionary cannot be inspected"
   assert.equal(report.classification.completeSnapshotCandidate, false);
   assert.equal(report.classification.canonicalCapabilityPromoted, false);
 });
-
-test("documents the advisory probe and its #415/#452 decision boundary", async () => {
-  const documentation = await readFile(new URL("../../docs/final-cut/ui-free-read-capability-probe.md", import.meta.url), "utf8");
-
-  assert.match(documentation, /pnpm run probe:final-cut-read/);
-  assert.match(documentation, /#415/);
-  assert.match(documentation, /#452/);
-  assert.match(documentation, /never promotes `canonicalDocument\.read`/);
-});

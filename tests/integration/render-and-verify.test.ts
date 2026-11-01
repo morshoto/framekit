@@ -96,6 +96,54 @@ test("render-and-verify returns verified provenance and independent artifact met
   }
 });
 
+test("render-and-verify accepts 44.1 kHz source audio normalized to 48 kHz", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-render-44100-"));
+  try {
+    const sourcePath = join(directory, "source-44100.mp4");
+    await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", [
+      "-v", "error", "-f", "lavfi", "-i", "color=c=red:s=320x180:r=30:d=2",
+      "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100:duration=2",
+      "-map", "0:v:0", "-map", "1:a:0", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1",
+      "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", sourcePath,
+    ], { cwd: repositoryRoot, env: process.env });
+    const timeline = minimalTimeline();
+    timeline.sequence.occurrences[0]!.durationTime = { value: "2", timescale: "1" };
+    timeline.resources = [fixtureResource("media-source", sourcePath, await digest(sourcePath), 44_100)];
+    const request = createFramekitRenderRequest({
+      timeline,
+      target: { projectId: timeline.project.id, sequenceId: timeline.sequence.id },
+      parameters: renderParameters(join(directory, "rendered.mp4")),
+    });
+    const renderer = new FfmpegTimelineRenderer({ ffmpegPath: process.env.FFMPEG_BIN || "ffmpeg" });
+    const verifier = new FfmpegRenderVerifier({ ffprobePath: process.env.FFPROBE_BIN || "ffprobe" });
+    const outcome = await renderAndVerifyFramekitProject(request, renderer, verifier);
+    assert.equal(outcome.status, "passed", JSON.stringify(outcome.verification?.checks));
+    const audio = outcome.verification?.artifact?.streams.find((stream) => stream.kind === "audio");
+    assert.equal(audio?.sampleRate, 48_000);
+    assert.equal(audio?.channels, 1);
+    assert.equal(audio?.codec, "aac");
+    assert.deepEqual(outcome.verification?.checks.find((check) => check.name === "audio-stream")?.expected, {
+      sampleRate: 48_000,
+      channels: 1,
+      codec: "aac",
+    });
+    const sourceRequest = createFramekitRenderRequest({
+      timeline,
+      target: { projectId: timeline.project.id, sequenceId: timeline.sequence.id },
+      parameters: renderParameters(sourcePath),
+    });
+    const sourcePlan = createFramekitRenderPlan(sourceRequest, renderer.capabilities(sourceRequest));
+    const sourceAsOutput = createFramekitRenderResult(sourcePlan, { path: sourcePath, format: "mp4" });
+    const wrongRate = await verifier.verify(sourcePlan, sourceAsOutput);
+    const wrongRateAudio = wrongRate.checks.find((check) => check.name === "audio-stream");
+    assert.equal(wrongRate.status, "failed", "an actual 44.1 kHz output must still fail verification");
+    assert.equal(wrongRateAudio?.passed, false);
+    assert.equal((wrongRateAudio?.observed as { sample_rate?: string }).sample_rate, "44100");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("render-and-verify does not report provider success when independent verification fails", async () => {
   const timeline = minimalTimeline();
   const request = createFramekitRenderRequest({
@@ -209,13 +257,62 @@ test("ffprobe verifier accepts renderer audio resampling", async () => {
       parameters: renderParameters(outputPath),
     });
     const plan = createFramekitRenderPlan(request, {
-      renderer: { id: "fixture-provider", version: "1" },
+      renderer: { id: "ffmpeg-headless", version: "1" },
       features: { "local-media": "supported", "structural-edits": "supported" },
     });
     const result = createFramekitRenderResult(plan, { path: outputPath, format: plan.parameters.format });
     const verification = await new FfmpegRenderVerifier({ ffprobePath: process.env.FFPROBE_BIN || "ffprobe" }).verify(plan, result);
     assert.equal(verification.status, "passed");
     assert.equal(verification.artifact?.streams.find((stream) => stream.kind === "audio")?.sampleRate, 48_000);
+
+    const otherProviderPlan = createFramekitRenderPlan(request, {
+      renderer: { id: "fixture-provider", version: "1" },
+      features: { "local-media": "supported", "structural-edits": "supported" },
+    });
+    const otherProviderResult = createFramekitRenderResult(otherProviderPlan, { path: outputPath, format: otherProviderPlan.parameters.format });
+    const otherProviderVerification = await new FfmpegRenderVerifier({ ffprobePath: process.env.FFPROBE_BIN || "ffprobe" }).verify(otherProviderPlan, otherProviderResult);
+    assert.equal(otherProviderVerification.status, "failed", "other renderers retain the source metadata expectation");
+    assert.deepEqual(otherProviderVerification.checks.find((check) => check.name === "audio-stream")?.expected, {
+      sampleRate: 22_050,
+      channels: 1,
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("ffprobe verifier requires AAC for FFmpeg headless renders", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-render-verifier-codec-"));
+  try {
+    const outputPath = join(directory, "non-aac.mp4");
+    await writeFile(outputPath, "fixture output");
+    const ffprobePath = join(directory, "ffprobe-non-aac.mjs");
+    const probeResult = {
+      streams: [
+        { codec_type: "video", codec_name: "h264", width: 320, height: 180, r_frame_rate: "30/1" },
+        { codec_type: "audio", codec_name: "mp3", sample_rate: "48000", channels: 1 },
+      ],
+      format: { format_name: "mp4", duration: "2" },
+    };
+    await writeFile(ffprobePath, `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(JSON.stringify(probeResult))});\n`);
+    await chmod(ffprobePath, 0o755);
+    const timeline = minimalTimeline();
+    const request = createFramekitRenderRequest({
+      timeline,
+      target: { projectId: timeline.project.id, sequenceId: timeline.sequence.id },
+      parameters: renderParameters(outputPath),
+    });
+    const plan = createFramekitRenderPlan(request, {
+      renderer: { id: "ffmpeg-headless", version: "1" },
+      features: { "local-media": "supported", "structural-edits": "supported" },
+    });
+    const result = createFramekitRenderResult(plan, { path: outputPath, format: plan.parameters.format });
+    const verification = await new FfmpegRenderVerifier({ ffprobePath }).verify(plan, result);
+    const audioCheck = verification.checks.find((check) => check.name === "audio-stream");
+    assert.equal(verification.status, "failed");
+    assert.equal(audioCheck?.passed, false);
+    assert.deepEqual(audioCheck?.expected, { sampleRate: 48_000, channels: 1, codec: "aac" });
+    assert.equal((audioCheck?.observed as { codec_name?: string }).codec_name, "mp3");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -326,7 +423,7 @@ function minimalTimeline(): TimelineIr {
   };
 }
 
-function fixtureResource(id: string, source: string, sourceDigest: string) {
+function fixtureResource(id: string, source: string, sourceDigest: string, sampleRate = 48_000) {
   return {
     id,
     name: id,
@@ -338,7 +435,7 @@ function fixtureResource(id: string, source: string, sourceDigest: string) {
       durationTime: { value: "2", timescale: "1" },
       streams: [
         { kind: "video" as const, width: 320, height: 180, frameRate: { value: "30", timescale: "1" } },
-        { kind: "audio" as const, sampleRate: 48000, channels: 1 },
+        { kind: "audio" as const, sampleRate, channels: 1 },
       ],
     },
   };

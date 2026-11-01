@@ -15,16 +15,23 @@
       forSystem = system:
         let
           pkgs = import nixpkgs { inherit system; };
+          pnpmShim = pkgs.writeShellScriptBin "pnpm" ''
+            exec ${pkgs.nodejs_22}/bin/corepack pnpm "$@"
+          '';
         in pkgs.mkShell {
           packages = with pkgs; [
             bash
             git
             nodejs_22
+            pnpmShim
+            ffmpeg
+            sqlite
           ];
 
           shellHook = ''
             export FRAMEKIT_XCODE_MANIFEST="${./xcode-version.json}"
             echo "Framekit shell: Node $(node --version)"
+            echo "Fixture/headless tools: pnpm from packageManager, FFmpeg/ffprobe, SQLite"
             echo "Native target: Xcode ${manifest.target.xcode.version}, macOS SDK ${manifest.target.macOSSDK}"
             echo "Run: bash nix/check-xcode.sh"
           '';

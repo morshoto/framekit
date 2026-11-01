@@ -427,7 +427,14 @@ export class FcpxmlDocumentAdapter implements EditorPort {
       }
       case "ripple-delete":
         if (operation.timelineId !== timelineId) throw new Error(`TIMELINE_NOT_FOUND: ${operation.timelineId}`);
-        this.applyRippleDelete(spine, operation.range.start, operation.range.end);
+        this.applyRippleDelete(
+          spine,
+          operation.range.start,
+          operation.range.end,
+          attribute(sequence, "duration") === undefined
+            ? rationalSeconds(timelineDuration(timelineEntries(spine)))
+            : rationalSeconds(parseRational(attribute(sequence, "duration"))),
+        );
         break;
       case "add-marker": {
         this.applyMarker(spine, timelineId, operation);
@@ -794,9 +801,14 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     }
   }
 
-  private applyRippleDelete(spine: XmlNode, start: number, end: number): void {
-    if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) {
+  private applyRippleDelete(spine: XmlNode, start: number, end: number, sequenceDuration: number): void {
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
       throw new Error("INVALID_OPERATION: ripple-delete range must be finite and increasing");
+    }
+    if (start < 0 || end > sequenceDuration) {
+      throw new Error(
+        `INVALID_OPERATION: ripple-delete range [${start}, ${end}) must fit timeline bounds [0, ${sequenceDuration})`,
+      );
     }
     const direct = storyEntries(spine)
       .map(({ kind, node }) => timelineEntries(spine).find((entry) => entry.node === node && entry.kind === kind))
@@ -983,10 +995,12 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     const visual = pictureInPictureProperties(node);
     const fades = audioFadeProperties(node);
     const roleAttributeName = kind === "audio" ? "role" : kind === "asset-clip" ? "audioRole" : undefined;
-    const roleAttribute = roleAttributeName === undefined ? undefined : attribute(node, roleAttributeName);
-    const role = kind === "audio" || roleAttribute === "audio" || roleAttribute === "music"
+    const rawRoleAttribute = roleAttributeName === undefined ? undefined : attribute(node, roleAttributeName);
+    const roleAttribute = rawRoleAttribute === undefined ? undefined : String(rawRoleAttribute);
+    const audioRole = kind === "audio" || roleAttribute !== undefined
       ? audioRoleFromXml(node, roleAttributeName ?? "role")
       : undefined;
+    const role = kind === "asset-clip" && roleAttribute?.startsWith("dialogue.") ? undefined : audioRole;
     const sourceStartValue = attribute(node, "start");
     const sourceStartTime = sourceStartValue === undefined ? undefined : parseRational(sourceStartValue);
     const sourceStart = sourceStartTime === undefined ? undefined : rationalSeconds(sourceStartTime);
@@ -1000,6 +1014,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
       ...(sourceStart !== undefined ? { sourceStart, sourceStartTime } : {}),
       track: Number(attribute(node, "lane") ?? 0),
       ...(role !== undefined ? { role } : {}),
+      ...(roleAttribute?.startsWith("dialogue.") ? { nativeAudioRole: roleAttribute } : {}),
       ...(attribute(node, "framekit-attached-to") !== undefined ? { attachedTo: String(attribute(node, "framekit-attached-to")) } : {}),
       startTime,
       durationTime,
@@ -1193,8 +1208,9 @@ function audioFadeProperties(node: XmlNode): { fadeIn?: number; fadeOut?: number
 }
 
 function audioRoleFromXml(node: XmlNode, attributeName = "role"): "audio" | "music" {
-  const role = attribute(node, attributeName);
-  if (role === undefined || role === "audio") return "audio";
+  const value = attribute(node, attributeName);
+  const role = value === undefined ? undefined : String(value);
+  if (role === undefined || role === "audio" || /^dialogue\.[^.]+$/.test(role)) return "audio";
   if (role === "music") return "music";
   throw new Error(`FCPXML_UNSUPPORTED_AUDIO_ROLE: ${role}`);
 }

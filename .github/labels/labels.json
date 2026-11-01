@@ -123,5 +123,30 @@
     "name": "Problem: Security",
     "color": "B60205",
     "description": ""
+  },
+  {
+    "name": "Status: Backlog",
+    "color": "8B949E",
+    "description": "This item has not been started."
+  },
+  {
+    "name": "Status: In progress",
+    "color": "D29922",
+    "description": "This item is actively being worked on."
+  },
+  {
+    "name": "Status: In review",
+    "color": "A371F7",
+    "description": "This item is awaiting review or approval."
+  },
+  {
+    "name": "Status: Pending",
+    "color": "F85149",
+    "description": "This item is ready to be picked up."
+  },
+  {
+    "name": "Status: Done",
+    "color": "2EA043",
+    "description": "This item has been completed."
   }
 ]

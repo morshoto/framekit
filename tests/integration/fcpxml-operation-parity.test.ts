@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { WorkflowOperation } from "@framekit/runtime";
-import { AgentVideoRuntime } from "@framekit/runtime";
+import { AgentVideoRuntime, createTimelineIrFromProjectSnapshot } from "@framekit/runtime";
 import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
 
 const documentWithOperations = `<?xml version="1.0" encoding="UTF-8"?>
@@ -38,6 +38,40 @@ async function artifact(contents = documentWithOperations): Promise<{ path: stri
   return { path, adapter: new FcpxmlDocumentAdapter(path) };
 }
 
+test("FCPXML snapshots preserve native dialogue subroles", async () => {
+  const xml = documentWithOperations.replace(
+    '<asset-clip id="clip-a" ref="video-a" offset="0s" start="1s" duration="4s" />',
+    '<audio id="clip-a" ref="audio-a" offset="0s" start="1s" duration="4s" role="dialogue.dialogue-1" />',
+  );
+  const { adapter } = await artifact(xml);
+  const snapshot = await adapter.readProject();
+  const clip = snapshot.timeline.clips.find((item) => item.id === "clip-a");
+  assert.equal(clip?.role, "audio");
+  assert.equal(clip?.nativeAudioRole, "dialogue.dialogue-1");
+  const ir = createTimelineIrFromProjectSnapshot(snapshot);
+  assert.equal(ir.sequence.occurrences.find((item) => item.id === "clip-a")?.nativeAudioRole, "dialogue.dialogue-1");
+});
+
+test("video asset clips retain dialogue subroles without becoming audio-only", async () => {
+  const xml = documentWithOperations.replace(
+    '<asset-clip id="clip-a" ref="video-a" offset="0s" start="1s" duration="4s" />',
+    '<asset-clip id="clip-a" ref="video-a" offset="0s" start="1s" duration="4s" audioRole="dialogue.dialogue-1" />',
+  );
+  const { adapter } = await artifact(xml);
+  const clip = (await adapter.readProject()).timeline.clips.find((item) => item.id === "clip-a");
+  assert.equal(clip?.role, undefined);
+  assert.equal(clip?.nativeAudioRole, "dialogue.dialogue-1");
+});
+
+test("FCPXML rejects unsupported asset clip audio roles", async () => {
+  const xml = documentWithOperations.replace(
+    '<asset-clip id="clip-a" ref="video-a" offset="0s" start="1s" duration="4s" />',
+    '<asset-clip id="clip-a" ref="video-a" offset="0s" start="1s" duration="4s" audioRole="custom.role" />',
+  );
+  const { adapter } = await artifact(xml);
+  await assert.rejects(adapter.readProject(), /FCPXML_UNSUPPORTED_AUDIO_ROLE: custom.role/);
+});
+
 test("FCPXML capabilities advertise only the documented safe operation matrix", async () => {
   const { adapter } = await artifact();
   const capabilities = await adapter.getCapabilities();
@@ -60,30 +94,6 @@ test("FCPXML capabilities advertise only the documented safe operation matrix", 
     "/Titles/Basic.localized/Basic.moti");
   assert.equal(assets.find((asset) => asset.metadata.localId === "transition-effect")?.metadata.identity,
     "/Transitions/Cross.localized/Cross.moti");
-});
-
-test("FCPXML operation coverage has a documented evidence boundary", async () => {
-  const matrix = await readFile("docs/final-cut/fcpxml-operation-matrix.md", "utf8");
-
-  for (const operation of [
-    "timeline.media.add",
-    "timeline.media.move",
-    "timeline.media.replace",
-    "timeline.media.remove",
-    "timeline.audio.fades",
-    "timeline.audio.attach",
-    "timeline.audio.mix",
-    "timeline.title.add",
-    "timeline.transition.add",
-    "ripple-delete",
-    "timeline.mask.add",
-  ]) {
-    assert.match(matrix, new RegExp(operation.replaceAll(".", "\\.")));
-  }
-  assert.match(matrix, /Marker nested under an existing story element/);
-  assert.match(matrix, /Marker range must fit inside a covering gap or clip/);
-  assert.match(matrix, /CAPABILITY_UNAVAILABLE/);
-  assert.match(matrix, /does not prove a live\s+Final Cut timeline change/i);
 });
 
 test("FCPXML media operations preview, execute, verify, diff, and undo", async () => {
@@ -430,6 +440,22 @@ test("FCPXML ripple delete preserves source ranges and rational timing", async (
   );
   assert.equal(transaction.after.timeline.duration, 6);
   assert.match(await readFile(path, "utf8"), /offset="3\/1s"/);
+});
+
+test("FCPXML ripple delete rejects ranges outside sequence bounds before preview", async () => {
+  const { path, adapter } = await artifact();
+  const runtime = new AgentVideoRuntime(adapter);
+  const before = await runtime.inspectProject();
+  const original = await readFile(path, "utf8");
+
+  for (const range of [{ start: -1, end: 1 }, { start: 7, end: 9 }]) {
+    await assert.rejects(runtime.previewEdit({
+      baseRevision: before.revision,
+      operations: [{ type: "ripple-delete", timelineId: before.timeline.id, range }],
+    }), new RegExp(`ripple-delete range \\[${range.start}, ${range.end}\\) must fit timeline bounds \\[0, 8\\)`));
+    assert.deepEqual(await runtime.inspectProject(), before);
+    assert.equal(await readFile(path, "utf8"), original);
+  }
 });
 
 test("FCPXML preview and transaction failures leave bytes unchanged", async () => {

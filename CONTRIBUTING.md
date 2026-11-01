@@ -19,9 +19,12 @@ printed by the guard before retrying.
 
 Requirements:
 
-- Node.js 20 or newer (CI runs Node.js 22);
-- pnpm 12.3.4;
-- Xcode 16.4 and the macOS 15.5 SDK for native work.
+Contributor toolchain: Node.js 22.14.0 and pnpm 12.14.0.
+Consumer runtime: Node.js >=20.
+CI tests this contributor pair; the pre-commit hook accepts Node.js 22.14 or newer.
+Install pnpm 12.14.0 using Corepack or your preferred package manager.
+
+Xcode 16.4 and the macOS 15.5 SDK are required for native work.
 
 Install dependencies and run the standard checks:
 
@@ -31,7 +34,12 @@ pnpm run hooks:install
 pnpm run build
 pnpm run test
 pnpm run check:boundaries
+pnpm run check:docs
 ```
+
+The maintained documentation set is [indexed here](docs/README.md):
+[architecture](docs/architecture.md), [getting started](docs/getting-started.md),
+[testing](docs/testing.md), and [release](docs/release.md).
 
 The deterministic MCP fixture is available with:
 
@@ -51,6 +59,30 @@ pnpm run mcp
 - Put deterministic adapters and analyzer fixtures in `packages/testkit`.
 
 Do not make the runtime depend on MCP SDK or editor-specific adapter code.
+
+## Documentation changes
+
+Update documentation only when a change affects user-facing setup or commands,
+supported public MCP contracts or behavior, production architecture invariants
+or capability boundaries, or the release process. Internal refactors, test
+additions, and bug fixes with unchanged external behavior do not need a docs
+edit. If no tracked documentation file changes, no declaration is required in
+the pull request.
+
+When documentation is needed, update only the canonical document that owns the
+information and the smallest relevant section. Avoid unrelated rewrites, broad
+formatting, duplicate explanations, new ADRs, and one-off feature documents.
+Put implementation rationale in the issue, pull request, review discussion,
+and tests. Keep durable QA and release evidence linked from issues, pull
+requests, workflow artifacts, or releases so its source and status remain
+auditable. Keep TDD plans, detailed QA transcripts, run logs, generated tool
+catalogs, and ephemeral evidence out of tracked docs; retain them in tests,
+workflow artifacts, issues, pull requests, or releases according to their
+audit needs. Preserve required user-facing, safety, compatibility, legal,
+security, and release provenance information.
+
+For the one-time documentation consolidation, follow the five-file target and
+evidence-retention requirements in issue #572.
 
 ## Native Final Cut work
 
@@ -114,6 +146,18 @@ colors and animation.
 
 
 ## Pull requests
+
+Start PRs as Draft, including agent-created PRs. Mark Ready for review once
+
+implementation and fast CI are complete; this triggers CodeQL. The
+JavaScript/TypeScript results are evaluated by the trusted `security.yml`
+workflow after CodeQL completes. Its `CodeQL PR policy` status fails on new
+error or high-or-higher security alerts and becomes the required CodeQL merge
+check during the fast-CI rollout. During the transition, Swift CodeQL runs for
+Swift-affecting paths, including native and CodeQL extraction inputs; it also
+runs if change detection returns no paths or fails. The Security workflow runs
+both scans after pushes to `main`, weekly, and on manual request.
+
 
 Every pull request should explain the behavior or structure being changed,
 include the commands used for validation, and call out MCP, package, or native

@@ -13,16 +13,15 @@ export function extractIssueReferences(body) {
 export function resolvePullRequestMilestone(linkedIssues, currentMilestone) {
 	if (linkedIssues.length === 0) return { action: 'skip', reason: 'no-linked-issues' };
 
-	const milestones = new Map();
+	let milestone;
 	for (const issue of linkedIssues) {
-		if (issue.milestone?.number !== undefined) {
-			milestones.set(issue.milestone.number, issue.milestone);
+		if (issue.milestone?.number !== undefined
+			&& (!milestone || issue.milestone.number < milestone.number)) {
+			milestone = issue.milestone;
 		}
 	}
-	if (milestones.size === 0) return { action: 'skip', reason: 'no-linked-milestone' };
-	if (milestones.size > 1) return { action: 'skip', reason: 'conflicting-milestones' };
+	if (!milestone) return { action: 'skip', reason: 'no-linked-milestone' };
 
-	const [milestone] = milestones.values();
 	if (currentMilestone?.number === milestone.number) return { action: 'unchanged', milestone };
 	return { action: 'update', milestone };
 }

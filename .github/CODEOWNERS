@@ -1,0 +1,10 @@
+# Security and release policy changes require the repository owner's review.
+/.github/CODEOWNERS @morshoto
+/.github/codeql/ @morshoto
+/.github/workflows/codeql.yml @morshoto
+/.github/workflows/security.yml @morshoto
+/.github/workflows/ci.yml @morshoto
+/.github/workflows/release.yml @morshoto
+/.github/action/test/ @morshoto
+/scripts/test-suites.mjs @morshoto
+/scripts/test-suite-manifest.json @morshoto

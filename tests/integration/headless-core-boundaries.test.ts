@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
-const contractPath = join(repositoryRoot, "docs/architecture/headless-core-ssot.md");
+const contractPath = join(repositoryRoot, "docs/architecture.md");
 const domainPath = join(repositoryRoot, "packages/runtime/src/domain");
 
 async function readContract(): Promise<string> {
@@ -46,7 +46,7 @@ function hasRuntimeSpecifiers(clause: string): boolean {
 test("headless SSoT contract documents the canonical flow and ownership boundaries", async () => {
   const contract = await readContract();
 
-  assert.match(contract, /# Headless Core and Source of Truth/);
+  assert.match(contract, /^# Architecture/m);
   for (const term of [
     "Framekit Project",
     "Timeline IR",
@@ -58,9 +58,9 @@ test("headless SSoT contract documents the canonical flow and ownership boundari
   ]) {
     assert.match(contract, new RegExp(term));
   }
-  assert.match(contract, /Final Cut Pro is closed/);
+  assert.match(contract, /Final Cut Pro is\s+closed/);
   assert.match(contract, /Final Cut Pro is not installed/);
-  assert.match(contract, /never silently fall back/i);
+  assert.match(contract, /does not silently fall back/i);
 });
 
 test("headless SSoT contract separates project revision from history commits", async () => {

@@ -237,15 +237,14 @@ test("headed runner covers observe drift and reconciliation", async () => {
   );
 });
 
-test("publishes the v0.1.13 incremental synchronization command", async () => {
+test("documents the target for headed incremental synchronization", async () => {
   const packageJson = JSON.parse(await readFile(join(process.cwd(), "package.json"), "utf8"));
   assert.equal(
     packageJson.scripts["test:final-cut-incremental-sync-headed"],
     "node --import tsx scripts/final-cut-incremental-sync-headed-e2e.mjs",
   );
-  const validation = await readFile(join(process.cwd(), "docs/validation/README.md"), "utf8");
+  const validation = await readFile(join(process.cwd(), "docs/testing.md"), "utf8");
   for (const requirement of [
-    "v0.1.13 incremental synchronization",
     "FRAMEKIT_FINAL_CUT_E2E_PROJECT",
     "FRAMEKIT_FINAL_CUT_E2E_PROJECT_ID",
     "FRAMEKIT_FINAL_CUT_E2E_SEQUENCE_ID",

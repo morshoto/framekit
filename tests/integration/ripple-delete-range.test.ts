@@ -37,7 +37,7 @@ test("in-memory preview rejects ripple-delete ranges outside the timeline", asyn
   const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter(fixture));
   const before = await runtime.inspectProject();
 
-  for (const range of [{ start: 9, end: 11 }, { start: 11, end: 12 }]) {
+  for (const range of [{ start: 9, end: 11 }, { start: 11, end: 12 }, { start: -1, end: 1 }]) {
     await assert.rejects(
       runtime.previewEdit({ baseRevision: before.revision, operations: [rippleDelete(range.start, range.end)] }),
       new RegExp(`ripple delete range \\[${range.start}, ${range.end}\\) must fit timeline bounds \\[0, 10\\)`),
@@ -61,21 +61,23 @@ test("stdio MCP rejects an out-of-bounds ripple-delete before issuing a token", 
     await client.connect(transport);
     const beforeResult = await client.callTool({ name: "project.inspect", arguments: {} });
     const before = JSON.parse(textFrom(beforeResult));
-    const result = await client.callTool({
-      name: "editor.timeline.edit.preview",
-      arguments: {
-        projectId: before.projectId,
-        sequenceId: before.timeline.id,
-        baseRevision: before.revision,
-        operations: [rippleDelete(9, 11, before.timeline.id)],
-        path: "headed",
-      },
-    });
+    for (const range of [{ start: 9, end: 11 }, { start: -1, end: 1 }]) {
+      const result = await client.callTool({
+        name: "editor.timeline.edit.preview",
+        arguments: {
+          projectId: before.projectId,
+          sequenceId: before.timeline.id,
+          baseRevision: before.revision,
+          operations: [rippleDelete(range.start, range.end, before.timeline.id)],
+          path: "headed",
+        },
+      });
 
-    assert.equal(result.isError, true);
-    assert.match(textFrom(result), /ripple delete range \[9, 11\) must fit timeline bounds \[0, 10\)/);
-    const after = JSON.parse(textFrom(await client.callTool({ name: "project.inspect", arguments: {} })));
-    assert.deepEqual(after, before);
+      assert.equal(result.isError, true);
+      assert.match(textFrom(result), new RegExp(`ripple delete range \\[${range.start}, ${range.end}\\) must fit timeline bounds \\[0, 10\\)`));
+      const after = JSON.parse(textFrom(await client.callTool({ name: "project.inspect", arguments: {} })));
+      assert.deepEqual(after, before);
+    }
   } finally {
     await client.close();
   }

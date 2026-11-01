@@ -6,7 +6,7 @@ test("rough-cut headed acceptance is wired as an opt-in MCP runner", async () =>
   const [packageJson, runner, documentation] = await Promise.all([
     readFile("package.json", "utf8").then((value) => JSON.parse(value) as { scripts?: Record<string, string> }),
     readFile("scripts/final-cut-rough-cut-headed-e2e.mjs", "utf8"),
-    readFile("docs/tests/final-cut-live-e2e.md", "utf8"),
+    readFile("docs/testing.md", "utf8"),
   ]);
 
   assert.equal(packageJson.scripts?.["test:final-cut-rough-cut-headed"], "node scripts/final-cut-rough-cut-headed-e2e.mjs");

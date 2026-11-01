@@ -360,23 +360,6 @@ test("MCP project.list returns structured background inspection failures", async
   }
 });
 
-test("documents the background library inspection safety boundary", async () => {
-  const documentation = await readFile(join(repositoryRoot, "docs/final-cut/background-library-inspection.md"), "utf8");
-  const finalCutGuide = await readFile(join(repositoryRoot, "docs/final-cut/README.md"), "utf8");
-  const liveGuide = await readFile(join(repositoryRoot, "docs/mcp/final-cut-live.md"), "utf8");
-  const compatibility = await readFile(join(repositoryRoot, "docs/COMPATIBILITY.md"), "utf8");
-
-  assert.match(documentation, /com\.apple\.FinalCut\.library\.inspection/);
-  assert.match(documentation, /direct Apple Events/);
-  assert.match(documentation, /System Events/);
-  assert.match(documentation, /metadata-only/);
-  assert.match(documentation, /FINAL_CUT_LIBRARY_INSPECTION_UNAVAILABLE/);
-  assert.match(documentation, /Final Cut Pro 10\.7\.1/);
-  assert.match(finalCutGuide, /background-library-inspection\.md/);
-  assert.match(liveGuide, /background library inspection contract/);
-  assert.match(compatibility, /bundled Workflow Extension \+ background library/);
-});
-
 const headedLibraryInspectionTest = process.env.FRAMEKIT_FINAL_CUT_LIBRARY_HEADED === "1" ? test : test.skip;
 
 headedLibraryInspectionTest("read-only library inspection preserves frontmost application", async () => {

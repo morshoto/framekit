@@ -11,7 +11,7 @@ import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
-import { HeadlessProjectService } from "../../apps/mcp-server/src/headless-projects.js";
+import { HeadlessProjectService } from "@framekit/headless-application";
 import {
   BACKGROUND_ARTIFACT_WORKFLOW,
   EDITOR_FIRST_WORKFLOW,
@@ -243,6 +243,30 @@ test("routing reports Undo observation without blocking native mutation", () => 
     retryable: false,
     guidance: "Native edit will verify operation-specific Undo after mutation",
   });
+});
+
+test("routing exposes native target resolution state", () => {
+  const selected = resolveEditingRoute({ operation: "editor.native.edit" }, context({
+    native: { selectionEdit: true, timelineFocus: true, undo: true },
+    nativeReadiness: {
+      ...readyNativeReadiness,
+      targetKind: "selected-clip",
+      targetBound: true,
+    },
+  }));
+  assert.equal(selected.readiness?.targetKind, "selected-clip");
+  assert.equal(selected.readiness?.targetBound, true);
+
+  const unresolved = resolveEditingRoute({ operation: "editor.native.edit" }, context({
+    native: { selectionEdit: true, timelineFocus: true, undo: true },
+    nativeReadiness: {
+      ...readyNativeReadiness,
+      targetKind: "playhead",
+      targetBound: false,
+    },
+  }));
+  assert.equal(unresolved.readiness?.targetKind, "playhead");
+  assert.equal(unresolved.readiness?.targetBound, false);
 });
 
 test("routing fails closed when the expected editor is unavailable", () => {
@@ -996,42 +1020,6 @@ test("MCP does not advertise headed publishing in headless mode", async () => {
   } finally {
     await client.close();
     await server.close();
-  }
-});
-
-test("MCP documentation describes one consistent editor-first policy", async () => {
-  const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-  const [overview, tools, errors] = await Promise.all([
-    readFile(resolve(repository, "docs/mcp/README.md"), "utf8"),
-    readFile(resolve(repository, "docs/mcp/tools.md"), "utf8"),
-    readFile(resolve(repository, "docs/mcp/capabilities-and-errors.md"), "utf8"),
-  ]);
-
-  for (const content of [overview, tools, errors]) {
-    assert.match(content, /editor-first/i);
-    assert.match(content, /editing\.route/);
-    assert.match(content, /external-renderer/);
-    assert.match(content, /CAPABILITY_UNAVAILABLE/);
-  }
-  assert.match(tools, /project\.list/);
-  assert.match(tools, /observation\.library/);
-  assert.match(errors, /background API support/);
-  assert.match(errors, /canonical snapshot support/);
-  assert.match(errors, /native UI access/);
-  const explicitHeadedDocs = [overview, tools].map((content) => {
-    const marker = content.indexOf("Explicit headed/editor-first");
-    return marker >= 0 ? content.slice(marker) : content;
-  });
-  for (const [before, after] of [
-    ["connection.status", "editor.inspect"],
-    ["editor.inspect", "project.inspect"],
-    ["project.inspect", "editing.route"],
-    ["editing.route", "preview"],
-    ["preview", "execute"],
-    ["execute", "edit.diff"],
-    ["edit.diff", "edit.verify"],
-  ]) {
-    assert.ok(explicitHeadedDocs.every((content) => content.indexOf(before) < content.indexOf(after)), `${before} must precede ${after}`);
   }
 });
 

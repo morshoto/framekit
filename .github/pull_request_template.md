@@ -30,11 +30,20 @@ Native changes should also include the relevant macOS/Xcode validation.
 ## Architecture and compatibility
 
 - [ ] Runtime remains independent of MCP and editor-specific implementations.
-- [ ] Public MCP behavior or package interfaces are documented if changed.
+- [ ] Supported public MCP behavior is documented when changed.
 - [ ] Existing adapters and test fixtures remain compatible, or the migration is explained above.
+
+<!-- When documentation files change, replace this comment with:
+Documentation intent: intentional
+Documentation paths:
+- path/to/changed-document.md
+Documentation purpose: Explain why the documentation change is needed.
+Documentation minimality: Explain why these are the smallest necessary edits.
+List every changed documentation path. Use docs/** only for the one-time migration linked to issue #572.
+When no documentation files change, no declaration is needed. -->
 
 ## Safety
 
 - [ ] No credentials, private media, raw crash dumps, or user-specific local paths were added.
 - [ ] Generated files and build artifacts are excluded.
-- [ ] Documentation reflects any changed commands, paths, or environment variables.
+- [ ] Docs: not needed (state why), or changed docs have a matching declaration with paths, purpose, and minimal scope.

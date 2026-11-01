@@ -176,6 +176,8 @@ export class UnixSocketFinalCutLiveTransport implements FinalCutLiveTransport {
 }
 
 export class FinalCutLiveAdapter implements LiveEditorStatePort {
+  private selectedTarget?: { projectId: string; sequenceId: string };
+
   public constructor(
     private readonly transport: FinalCutLiveTransport,
     private readonly socketPath = "configured-socket",
@@ -215,6 +217,11 @@ export class FinalCutLiveAdapter implements LiveEditorStatePort {
     if (!response.snapshot) throw new Error("FINAL_CUT_LIVE_PROTOCOL: snapshot response was empty");
     validateCanonicalSnapshot(response.snapshot);
     validateSnapshotTarget(response.snapshot, await this.listProjects());
+    if (this.selectedTarget
+      && (response.snapshot.projectId !== this.selectedTarget.projectId
+        || response.snapshot.timeline.id !== this.selectedTarget.sequenceId)) {
+      throw new Error("TARGET_MISMATCH: live canonical snapshot differs from the explicitly selected project and sequence");
+    }
     return response.snapshot;
   }
 
@@ -224,6 +231,7 @@ export class FinalCutLiveAdapter implements LiveEditorStatePort {
     if (capabilities.editor.canonicalTimelineMode !== "canonical-write") {
       throw new Error("CAPABILITY_UNAVAILABLE: live Final Cut canonical mutation");
     }
+    await this.assertSelectedTargetActive();
     const response = await this.request({ method: "apply", operation, expectedRevision });
     if (!response.revision) throw new Error("FINAL_CUT_LIVE_PROTOCOL: apply response revision was empty");
     validateRevision(response.revision, "apply response revision");
@@ -240,6 +248,10 @@ export class FinalCutLiveAdapter implements LiveEditorStatePort {
     const capabilities = await this.getCapabilities();
     if (capabilities.editor.canonicalTimelineMode !== "canonical-write") {
       throw new Error("CAPABILITY_UNAVAILABLE: live Final Cut canonical rollback");
+    }
+    await this.assertSelectedTargetActive();
+    if (this.selectedTarget && (snapshot.projectId !== this.selectedTarget.projectId || snapshot.timeline.id !== this.selectedTarget.sequenceId)) {
+      throw new Error("TARGET_MISMATCH: rollback snapshot differs from the explicitly selected project and sequence");
     }
     await this.request({ method: "restore", snapshot, expectedRevision });
   }
@@ -297,7 +309,19 @@ export class FinalCutLiveAdapter implements LiveEditorStatePort {
     validateProjectSelection(response.catalog, selection);
     if (!response.revision) throw new Error("FINAL_CUT_LIVE_PROTOCOL: project selection response revision was empty");
     validateRevision(response.revision, "project selection response revision");
-    return createProjectSelectionResult(response.catalog, selection, response.revision);
+    const result = createProjectSelectionResult(response.catalog, selection, response.revision);
+    this.selectedTarget = { ...result.observedActiveTarget };
+    return result;
+  }
+
+  private async assertSelectedTargetActive(): Promise<void> {
+    const selected = this.selectedTarget;
+    if (!selected) return;
+    const catalog = await this.listProjects();
+    if (this.selectedTarget !== selected
+      || catalog.activeProjectId !== selected.projectId || catalog.activeSequenceId !== selected.sequenceId) {
+      throw new Error("TARGET_MISMATCH: active project and sequence differ from the explicitly selected target");
+    }
   }
 
   private async request(input: Pick<FinalCutLiveRequest, "method" | "afterSequence" | "waitMs" | "projectId" | "sequenceId" | "artifactPath" | "targetLibraryLocation" | "activates" | "operation" | "expectedRevision" | "snapshot">) {

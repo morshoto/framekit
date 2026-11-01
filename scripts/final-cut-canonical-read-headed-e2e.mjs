@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { evidenceEnvironment, sanitizeCanonicalReadEvidence } from "./final-cut-evidence.mjs";
+import { readBoundNativeProject } from "./final-cut-bound-native-read.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const expectedProject = process.env.FRAMEKIT_FINAL_CUT_E2E_PROJECT;
@@ -30,36 +31,11 @@ const client = new Client({ name: "framekit-canonical-read-headed-e2e", version:
 
 try {
   await client.connect(transport);
+  const { catalog, project, sequence, snapshot } = await readBoundNativeProject(callJson, expectedProject, expectedSequence);
   const editor = await callJson("editor.inspect");
   const mode = editor.capabilities?.editor?.canonicalTimelineMode;
   if (mode !== "canonical-read" && mode !== "canonical-write") {
     throw new Error(`CAPABILITY_UNAVAILABLE: live bridge reported ${mode ?? "unknown"}; canonical-read is required`);
-  }
-
-  const catalog = await callJson("project.list");
-  if (catalog.activeProjectId === undefined || catalog.activeSequenceId === undefined) {
-    throw new Error("TARGET_UNAVAILABLE: active project and sequence identities are required");
-  }
-  const project = catalog.projects?.find(({ id }) => id === catalog.activeProjectId);
-  if (!project) throw new Error("TARGET_MISMATCH: active project is absent from the project catalog");
-  if (project.name !== expectedProject) {
-    throw new Error(`FINAL_CUT_E2E_PROJECT_MISMATCH: expected ${expectedProject}, observed ${project.name}`);
-  }
-  if (!expectedSequence && project.sequences?.length !== 1) {
-    throw new Error("AMBIGUOUS_PROJECT_TARGET: set FRAMEKIT_FINAL_CUT_E2E_SEQUENCE_ID for a multi-sequence project");
-  }
-  if (expectedSequence && catalog.activeSequenceId !== expectedSequence) {
-    throw new Error(`FINAL_CUT_E2E_SEQUENCE_MISMATCH: expected ${expectedSequence}, observed ${catalog.activeSequenceId}`);
-  }
-  const sequence = project.sequences?.find(({ id }) => id === catalog.activeSequenceId);
-  if (!sequence) throw new Error("TARGET_MISMATCH: active sequence is absent from the active project");
-
-  const snapshot = await callJson("project.inspect");
-  if (snapshot.projectName !== expectedProject) {
-    throw new Error(`FINAL_CUT_E2E_PROJECT_MISMATCH: expected ${expectedProject}, observed ${snapshot.projectName ?? "unknown"}`);
-  }
-  if (snapshot.projectId !== catalog.activeProjectId || snapshot.timeline?.id !== catalog.activeSequenceId) {
-    throw new Error("TARGET_MISMATCH: canonical snapshot does not match the active catalog target");
   }
 
   const evidence = sanitizeCanonicalReadEvidence({

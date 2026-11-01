@@ -40,6 +40,8 @@ export interface EditorCapabilities {
   artifactPublish?: boolean;
   /** How a managed artifact can be handed back to the editor. */
   artifactPublishMode?: ArtifactPublishMode;
+  /** The immediate artifact handoff response is dispatch-only and unverified. */
+  artifactPublishDispatchGuarantee?: "requested-unverified";
   /** Legacy alias for artifactPublish used by editor-first routing. */
   timelinePublishNewProject?: boolean;
   /** The backend can enumerate stable project and sequence identities. */
