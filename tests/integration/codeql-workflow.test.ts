@@ -157,13 +157,16 @@ test('CodeQL waits for remote processing before policy evaluation', async () => 
 	assert.doesNotMatch(javascriptJob, /wait-for-processing: false/);
 });
 
-test('the required JavaScript CodeQL job evaluates PR security findings', async () => {
+test('the pull request CodeQL job does not execute its policy from PR code', async () => {
 	const workflow = await readRepositoryFile('.github/workflows/codeql.yml');
 	const job = getJob(workflow, 'analyze');
 	assert.ok(job);
-	assert.match(job, /if: \$\{\{ github\.event_name == 'pull_request' \}\}/);
-	assert.match(job, /node \.github\/codeql\/verify-policy\.mjs/);
-	assert.match(job, /PR_NUMBER: \$\{\{ github\.event\.pull_request\.number \}\}/);
+	assert.doesNotMatch(job, /verify-policy\.mjs/);
+	const security = await readRepositoryFile('.github/workflows/security.yml');
+	const gate = getJob(security, 'pull-request-policy');
+	assert.ok(gate, 'trusted pull-request policy job should be present');
+	assert.match(gate, /node \.github\/codeql\/post-codeql-policy-check\.mjs/);
+	assert.match(gate, /checks: write/);
 });
 
 test('a Swift-only finding does not block the JavaScript PR policy', async () => {
@@ -250,6 +253,8 @@ test('post-merge security calls reusable CodeQL and release publishing requires 
 	assert.match(security, /^\s+push:/m);
 	assert.match(security, /^\s+schedule:/m);
 	assert.match(security, /^\s+workflow_dispatch:/m);
+	assert.match(security, /^\s+workflow_run:/m);
+	assert.match(security, /^\s+workflows:\s*\n\s+- CodeQL$/m);
 	assert.match(security, /uses: \.\/\.github\/workflows\/codeql\.yml/);
 	assert.match(security, /issues: write/);
 	assert.match(security, /queue: max/);
@@ -264,13 +269,14 @@ test('security failure reporting identifies repeated attempts without duplicatin
 		new URL('../../.github/codeql/report-security-failure.mjs', import.meta.url).href
 	) as {
 		failureReport: (input: Record<string, string>) => string;
-		hasReportedAttempt: (comments: Array<{ body?: string }>, runId: string, attempt: string) => boolean;
+		hasReportedAttempt: (comments: Array<{ body?: string; user?: { login?: string } }>, runId: string, attempt: string) => boolean;
 	};
 	const body = failureReport({ sha: 'abc123', runId: '42', attempt: '2', serverUrl: 'https://github.com', repository: 'owner/repo', codeql: 'failure', deep: 'success', consumer: 'success' });
 	assert.match(body, /abc123/);
 	assert.match(body, /https:\/\/github\.com\/owner\/repo\/actions\/runs\/42/);
-	assert.equal(hasReportedAttempt([{ body }], '42', '2'), true);
-	assert.equal(hasReportedAttempt([{ body }], '42', '3'), false);
+	assert.equal(hasReportedAttempt([{ body, user: { login: 'github-actions[bot]' } }], '42', '2'), true);
+	assert.equal(hasReportedAttempt([{ body, user: { login: 'contributor' } }], '42', '2'), false);
+	assert.equal(hasReportedAttempt([{ body, user: { login: 'github-actions[bot]' } }], '42', '3'), false);
 });
 
 test('CodeQL policy accepts a current JavaScript scan when Swift is unchanged', async () => {
