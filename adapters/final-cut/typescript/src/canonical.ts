@@ -894,7 +894,9 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     }
     try {
       const live = await this.live.readLiveState();
-      if (live.project?.id === this.lastSnapshot.projectId
+      if ((!this.selectedTarget || (live.project?.id === this.selectedTarget.projectId
+          && live.sequence?.id === this.selectedTarget.sequenceId))
+        && live.project?.id === this.lastSnapshot.projectId
         && live.sequence?.id === this.lastSnapshot.timeline.id
         && live.revision?.id === this.lastLiveRevision.id
         && live.revision.sequence === this.lastLiveRevision.sequence) return { available: true };

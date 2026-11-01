@@ -19,9 +19,12 @@ printed by the guard before retrying.
 
 Requirements:
 
-- Node.js 20 or newer (CI runs Node.js 22);
-- pnpm 12.3.4;
-- Xcode 16.4 and the macOS 15.5 SDK for native work.
+Contributor toolchain: Node.js 22.14.0 and pnpm 12.14.0.
+Consumer runtime: Node.js >=20.
+CI tests this contributor pair; the pre-commit hook accepts Node.js 22.14 or newer.
+Install pnpm 12.14.0 using Corepack or your preferred package manager.
+
+Xcode 16.4 and the macOS 15.5 SDK are required for native work.
 
 Install dependencies and run the standard checks:
 
@@ -143,6 +146,18 @@ colors and animation.
 
 
 ## Pull requests
+
+Start PRs as Draft, including agent-created PRs. Mark Ready for review once
+
+implementation and fast CI are complete; this triggers CodeQL. The
+JavaScript/TypeScript results are evaluated by the trusted `security.yml`
+workflow after CodeQL completes. Its `CodeQL PR policy` status fails on new
+error or high-or-higher security alerts and becomes the required CodeQL merge
+check during the fast-CI rollout. During the transition, Swift CodeQL runs for
+Swift-affecting paths, including native and CodeQL extraction inputs; it also
+runs if change detection returns no paths or fails. The Security workflow runs
+both scans after pushes to `main`, weekly, and on manual request.
+
 
 Every pull request should explain the behavior or structure being changed,
 include the commands used for validation, and call out MCP, package, or native

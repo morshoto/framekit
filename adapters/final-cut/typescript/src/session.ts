@@ -392,12 +392,13 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
     validateProjectCatalog(catalog);
     const after = await optionalLiveState(this.options.live);
     const identity = before && after ? await optionalIdentity(this.options.live) : undefined;
-    const selectionCapabilities = await optionalCapabilities(this.options.live, { probeCanonicalSnapshot: false });
+    const selectionProvider = this.options.snapshot ?? this.options.live;
+    const selectionCapabilities = await optionalCapabilities(selectionProvider, { probeCanonicalSnapshot: false });
     const selectionMode = selectionCapabilities
       ? projectSelectionMode(selectionCapabilities.editor)
       : "unavailable";
     const selectionAvailable = Boolean(
-      this.options.live?.selectProject
+      selectionProvider?.selectProject
       && selectionCapabilities?.editor.projectSelection
       && selectionMode !== "unavailable",
     );
@@ -473,7 +474,7 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
 }
 
 async function optionalCapabilities(
-  live: FinalCutSessionOptions["live"],
+  live: Pick<EditorPort, "getCapabilities"> | undefined,
   options: CapabilityInspectionOptions = {},
 ): Promise<RuntimeCapabilities | undefined> {
   if (!live) return undefined;

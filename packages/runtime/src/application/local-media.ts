@@ -4,8 +4,8 @@ import { lstat } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import type { ContextRevision } from "../domain/primitives.js";
 import {
-  FramekitProjectStore,
   type FramekitProjectDocument,
+  type ProjectStore,
 } from "./project-store.js";
 import type {
   TimelineIrMediaMetadata,
@@ -49,7 +49,7 @@ export class LocalMediaRegistrar {
   private readonly clock: () => string;
 
   public constructor(
-    private readonly store: FramekitProjectStore,
+    private readonly store: ProjectStore,
     private readonly metadataProbe: LocalMediaMetadataProbe,
     options: { clock?: () => string } = {},
   ) {

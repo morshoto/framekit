@@ -23,7 +23,7 @@ import { sameRevision } from "../context/revision.js";
 import { MediaAnalysisService, type PostWriteAnalysisRequirements } from "../application/media-analysis-service.js";
 import { ProjectService } from "../application/project-service.js";
 import type { RuntimeOptions } from "../application/runtime-options.js";
-import { TransactionStore } from "../application/transaction-store.js";
+import type { TransactionStore } from "../application/transaction-store.js";
 import { parseRational } from "../timeline/rational-time.js";
 import { assertValidVerificationPolicy } from "../verification/verification.js";
 

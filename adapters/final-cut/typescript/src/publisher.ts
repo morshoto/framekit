@@ -1,5 +1,5 @@
 import { execFile as execFileCallback } from "node:child_process";
-import { chmodSync, constants, createReadStream, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, constants, createReadStream, fsyncSync, ftruncateSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { access, lstat, mkdtemp, open, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
@@ -70,6 +70,7 @@ export interface FinalCutProjectPublishRequest {
   artifactDigest: string;
   targetLibraryPath?: string;
   confirm: boolean;
+  confirmVerification?: boolean;
 }
 
 export interface FinalCutProjectPublishPreparationRequest {
@@ -104,7 +105,7 @@ export type FinalCutProjectPublishJobState =
   | "verified"
   | "failed";
 
-export type FinalCutProjectPublishJobAction = "confirm" | "retry" | "status" | "none";
+export type FinalCutProjectPublishJobAction = "confirm" | "confirm-verification" | "retry" | "status" | "none";
 
 export interface FinalCutProjectPublishJob {
   jobId: string;
@@ -129,6 +130,10 @@ export interface FinalCutProjectPublishJob {
     backgroundSupported: boolean;
     reason: string;
   };
+  /** Dispatch acknowledgement alone does not prove a native project exists. */
+  delivery?: FinalCutProjectPublishDelivery;
+  /** Matching live target observation; this does not prove semantic readback. */
+  observedTarget?: FinalCutProjectPublishTargetBinding;
   createdTarget?: FinalCutProjectPublishResult["createdTarget"];
   result?: FinalCutProjectPublishResult;
   error?: {
@@ -190,6 +195,7 @@ interface PublishJobRuntime {
   importedPath?: string;
   importedDigest?: string;
   delivery?: FinalCutProjectPublishDelivery;
+  observedTarget?: FinalCutProjectPublishTargetBinding;
   reservationPath?: string;
   reservationId?: string;
   importAttempted?: boolean;
@@ -324,6 +330,7 @@ export class FinalCutProjectPublisher {
   public async executePublishJob(
     jobId: string,
     confirm: boolean,
+    confirmVerification = false,
   ): Promise<FinalCutProjectPublishJob> {
     const storedJob = this.publishJobs.get(jobId);
     if (!storedJob) throw new Error(`PUBLISH_JOB_NOT_FOUND: unknown publish job ${jobId}`);
@@ -331,6 +338,28 @@ export class FinalCutProjectPublisher {
     if (job.state === "verified") return clonePublishJob(job);
     if (job.state === "failed" && !job.retryable) return clonePublishJob(job);
     if (!confirm) throw new Error("PUBLISH_CONFIRMATION_REQUIRED: set confirm=true to create a new Final Cut project");
+
+    // Once a dispatch may have occurred, unavailable providers must never
+    // transition the job back to a state that can dispatch again.
+    if (job.state === "verification-pending") {
+      if (!confirmVerification) {
+        job.nextAction = "confirm-verification";
+        job.retryable = false;
+        this.persistPublishJob(job);
+        return clonePublishJob(job);
+      }
+      if (!this.enabled || !this.liveState || !this.targetBinding || !this.readCanonicalSnapshot) {
+        job.nextAction = "retry";
+        job.retryable = true;
+        job.error = {
+          code: "FINAL_CUT_PUBLISH_VERIFICATION_UNAVAILABLE",
+          message: "Verification is unavailable; retain this job and resume verification without dispatching again",
+        };
+        this.persistPublishJob(job);
+        return clonePublishJob(job);
+      }
+      return this.resumePublishVerification(job);
+    }
 
     if (!this.enabled) {
       job.state = "awaiting-final-cut";
@@ -353,8 +382,6 @@ export class FinalCutProjectPublisher {
     if (!this.readCanonicalSnapshot) {
       return this.markFailed(job, new Error("FINAL_CUT_PUBLISH_READBACK_UNAVAILABLE: headed canonical timeline readback is not configured; no import was attempted"));
     }
-
-    if (job.state === "verification-pending") return this.resumePublishVerification(job);
 
     let validated: Awaited<ReturnType<FinalCutProjectPublisher["readValidatedSource"]>>;
     try {
@@ -418,6 +445,14 @@ export class FinalCutProjectPublisher {
         runtime,
         job,
       );
+      if (!result) {
+        job.state = "verification-pending";
+        job.nextAction = "confirm-verification";
+        job.retryable = false;
+        delete job.error;
+        this.persistPublishJob(job);
+        return clonePublishJob(job);
+      }
       return this.markVerified(job, result);
     } catch (error) {
       const normalized = publishError(error);
@@ -438,6 +473,7 @@ export class FinalCutProjectPublisher {
   public async publishNewProject(request: FinalCutProjectPublishRequest): Promise<FinalCutProjectPublishResult> {
     if (!this.enabled) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing is disabled; configure FRAMEKIT_EDITOR=final-cut-live and FRAMEKIT_FCPXML_PATH, and ensure Final Cut is reachable through FRAMEKIT_FINAL_CUT_SOCKET");
     if (!request.confirm) throw new Error("PUBLISH_CONFIRMATION_REQUIRED: set confirm=true to create a new Final Cut project");
+    if (!request.confirmVerification) throw new Error("PUBLISH_VERIFICATION_CONFIRMATION_REQUIRED: separately confirm headed semantic readback before direct publish");
     if (request.sourceTransactionId.startsWith("headless-rough-cut:")) {
       throw new Error("HEADLESS_ROUGH_CUT_PUBLISH_JOB_REQUIRED: use artifact.publish.preview and artifact.publish.execute to preserve the approved target binding");
     }
@@ -462,7 +498,9 @@ export class FinalCutProjectPublisher {
       ...(targetLibraryPath ? { targetLibraryPath } : {}),
     };
     try {
-      return await this.importAndVerify({ ...request, ...(targetLibraryPath ? { targetLibraryPath } : {}) }, source, identity, beforeLive, runtime);
+      const result = await this.importAndVerify({ ...request, ...(targetLibraryPath ? { targetLibraryPath } : {}) }, source, identity, beforeLive, runtime);
+      if (!result) throw new Error("FINAL_CUT_PUBLISH_VERIFICATION_PENDING: separate verification is required");
+      return result;
     } catch (error) {
       if (!runtime.importAttempted) throw error;
 
@@ -481,6 +519,8 @@ export class FinalCutProjectPublisher {
         projectName: identity.projectName,
         sequenceName: identity.sequenceName,
         confirmationRequired: false,
+        ...(runtime.delivery ? { delivery: structuredClone(runtime.delivery) } : {}),
+        ...(runtime.observedTarget ? { observedTarget: structuredClone(runtime.observedTarget) } : {}),
         handoff: {
           mode: "headed-only",
           route: this.publishRoute,
@@ -540,7 +580,7 @@ export class FinalCutProjectPublisher {
     beforeLive: EditorLiveState,
     runtime?: PublishJobRuntime,
     publishJob?: FinalCutProjectPublishJob,
-  ): Promise<FinalCutProjectPublishResult> {
+  ): Promise<FinalCutProjectPublishResult | undefined> {
     if (!this.liveState) throw new Error("FINAL_CUT_PUBLISH_VERIFICATION_UNAVAILABLE: live project and sequence state is required");
     if (!this.targetBinding) throw new Error("FINAL_CUT_PUBLISH_TARGET_BINDING_UNAVAILABLE: no native provider can bind the imported artifact to a created target; no import was attempted");
     if (!this.readCanonicalSnapshot) throw new Error("FINAL_CUT_PUBLISH_READBACK_UNAVAILABLE: headed canonical timeline readback is not configured; no import was attempted");
@@ -622,7 +662,9 @@ export class FinalCutProjectPublisher {
         throw new Error("FINAL_CUT_DELIVERY_UNAVAILABLE: selected background document-open route is not configured; no import was attempted");
       }
       if (runtime) runtime.delivery = delivery;
+      if (publishJob) publishJob.delivery = structuredClone(delivery);
       this.persistRuntimeForJob(publishJob, runtime);
+      if (publishJob) return undefined;
       const verifiedTarget = await waitForImportedProject(
         this.liveState,
         async (targetPath, targetIdentity) => {
@@ -634,6 +676,7 @@ export class FinalCutProjectPublisher {
         this.verificationTimeoutMs,
         this.pollIntervalMs,
       );
+      if (runtime) runtime.observedTarget = structuredClone(verifiedTarget.targetBinding);
       await assertSourceMediaUnchanged(sourceMediaDigests);
       const semanticReadback = await this.readAndVerifyCanonicalTarget(
         expectedSnapshot,
@@ -690,6 +733,8 @@ export class FinalCutProjectPublisher {
         this.verificationTimeoutMs,
         this.pollIntervalMs,
       );
+      job.observedTarget = structuredClone(verifiedTarget.targetBinding);
+      this.persistPublishJob(job);
       await assertSourceMediaUnchanged(runtime.sourceMediaDigests);
       const semanticReadback = await this.readAndVerifyCanonicalTarget(
         runtime.expectedSnapshot,
@@ -823,6 +868,7 @@ export class FinalCutProjectPublisher {
       if (job.handoff.route !== "background-document-open" && job.handoff.route !== "headed-apple-event") {
         throw new Error(`PUBLISH_JOB_STORE_INVALID: invalid publish route in ${path}`);
       }
+      if (!job.delivery && persisted.runtime?.delivery) job.delivery = structuredClone(persisted.runtime.delivery);
       this.publishJobs.set(job.jobId, job);
       if (persisted.runtime) this.publishJobRuntime.set(job.jobId, persisted.runtime);
     }
@@ -845,6 +891,7 @@ export class FinalCutProjectPublisher {
       runtime.importAttempted = false;
       throw error;
     }
+    markReservationDispatchAttempt(runtime);
   }
 
   private persistPublishJob(job: FinalCutProjectPublishJob): void {
@@ -1031,6 +1078,7 @@ async function reserveTargetLibraryPath(targetLibraryPath: string): Promise<{ pa
   const reservationContents = JSON.stringify({
     reservationId,
     targetLibraryPath: canonicalTarget,
+    phase: "reserved",
     pid: process.pid,
     createdAt: new Date().toISOString(),
   });
@@ -1106,13 +1154,14 @@ async function reclaimAbandonedTargetLibraryReservation(
     return false;
   }
 
-  let reservation: { reservationId?: unknown; targetLibraryPath?: unknown; pid?: unknown };
+  let reservation: { reservationId?: unknown; targetLibraryPath?: unknown; pid?: unknown; phase?: unknown };
   try {
     reservation = JSON.parse(reservationContents) as typeof reservation;
   } catch {
     return false;
   }
-  if (typeof reservation.reservationId !== "string" || !reservation.reservationId
+  if (reservation.phase !== "reserved"
+    || typeof reservation.reservationId !== "string" || !reservation.reservationId
     || typeof reservation.targetLibraryPath !== "string"
     || resolve(reservation.targetLibraryPath) !== requestedTarget
     || !Number.isSafeInteger(reservation.pid) || (reservation.pid as number) <= 0
@@ -1155,6 +1204,28 @@ function processIsRunning(pid: number): boolean {
     return true;
   } catch (error) {
     return (error as NodeJS.ErrnoException)?.code !== "ESRCH";
+  }
+}
+
+function markReservationDispatchAttempt(runtime: PublishJobRuntime): void {
+  if (!runtime.reservationPath || !runtime.reservationId) return;
+  const fd = openSync(runtime.reservationPath, constants.O_RDWR | constants.O_NOFOLLOW);
+  try {
+    const reservation = JSON.parse(readFileSync(fd, "utf8")) as { reservationId?: unknown; phase?: unknown };
+    if (reservation.reservationId !== runtime.reservationId || reservation.phase !== "reserved") {
+      throw new Error("PUBLISH_TARGET_LIBRARY_RESERVED: reservation changed before dispatch");
+    }
+    const content = Buffer.from(JSON.stringify({ ...reservation, phase: "dispatch-attempted" }));
+    ftruncateSync(fd, 0);
+    let written = 0;
+    while (written < content.length) {
+      const count = writeSync(fd, content, written, content.length - written, written);
+      if (count <= 0) throw new Error("PUBLISH_TARGET_RESERVATION_WRITE_FAILED: unable to persist dispatch marker");
+      written += count;
+    }
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
   }
 }
 

@@ -165,7 +165,19 @@ background catalog access alone does not make a project selectable.
 FCPXML editing is an explicit artifact operation. Publishing an artifact to a
 new `.fcpbundle` is a separate operation with an explicit destination and
 confirmation; a dispatch acknowledgment is not proof that Final Cut imported
-it. Native acceptance requires matching project and sequence readback.
+it. Pending publish status may include a `delivery` dispatch acknowledgment;
+that evidence remains unverified and does not include a created target or
+verified result. A pending job may report an `observedTarget` after matching
+live identity; that observation alone is not semantic verification. A second,
+explicit confirmation on the same job authorizes
+headed semantic readback; direct publishing requires separate creation and
+readback confirmation fields. A reservation with an attempted or unknown
+dispatch cannot be reclaimed just because its owner exited or the library has
+not appeared. Native acceptance requires matching project and
+sequence readback. `editor.inspect` reports `artifactPublishDispatchGuarantee`
+as `requested-unverified`; the publishing capability's `native-verified`
+guarantee describes the evidence required for a completed handoff, not the
+result of its dispatch step.
 
 ## Persistence and synchronization
 
@@ -176,3 +188,12 @@ or uncertain source state blocks materialization and publication until the
 caller obtains a new observation or resolves the conflict. Background library
 and SQLite observations retain their provider provenance and do not become a
 canonical timeline solely because they contain familiar fields.
+
+Application services depend on narrow storage contracts. `ProjectStore` is
+implemented by `FramekitProjectStore`, which remains the default schema-versioned
+JSON adapter and preserves the existing project path, atomic writes, and revision
+checks. `TransactionStore` is implemented by the in-memory transaction store
+used by the runtime. Session persistence and semantic media indexing keep
+separate contracts and adapters; the semantic media index already follows this
+pattern, while session persistence can adopt it in its own change without
+changing project storage.
