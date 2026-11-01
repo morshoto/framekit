@@ -882,6 +882,22 @@ test("failed verification recovery blocks subsequent canonical edits", async () 
   await assert.rejects(provider.apply(operation, before.revision), /FINAL_CUT_CANONICAL_ROLLBACK_FAILED/);
   const observed = await provider.readProject();
   await assert.rejects(provider.apply(operation, observed.revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  await assert.rejects(provider.previewTransaction([operation], observed.revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  assert.deepEqual(calls, ["edit", "undo"]);
+});
+
+test("unverified explicit Undo blocks subsequent canonical edits", async () => {
+  const original = snapshot("Original");
+  const renamed = snapshot("Renamed");
+  const calls: string[] = [];
+  const provider = providerFor([original, original, renamed, renamed, renamed, renamed], calls, undefined, liveState(), undefined, {
+    undo: async () => { calls.push("undo"); return { undone: false, verification: { verified: false } }; },
+  });
+  const before = await provider.readProject();
+  const operation = { type: "rename-clip" as const, clipId: "final-cut:occurrence:clip-1", name: "Renamed" };
+  const revision = await provider.apply(operation, before.revision);
+  await assert.rejects(provider.restore(before, revision), /FINAL_CUT_CANONICAL_UNDO_FAILED/);
+  await assert.rejects(provider.apply(operation, revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   assert.deepEqual(calls, ["edit", "undo"]);
 });
 
