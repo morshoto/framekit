@@ -684,3 +684,44 @@ test("canonical headed runner captures source hashes before editing and after un
   assert.ok(undo > edit && restoredHash > undo);
   assert.match(runner, /sourceIntegrity:\s*\{\s*before:\s*sourceHashesBefore,\s*restored:\s*sourceHashesRestored\s*\}/);
 });
+
+test("canonical write target is bound before selection and every headed read", async () => {
+  const { selectCanonicalWriteTarget, readCanonicalWriteTarget } = await import("../../scripts/final-cut-canonical-write-target.mjs");
+  const calls: Array<[string, unknown]> = [];
+  const expected = { projectId: "p", projectName: "Disposable", sequenceId: "s" };
+  const call = async (name: string, args?: unknown) => {
+    calls.push([name, args]);
+    if (name === "project.list") return { activeProjectId: "p", activeSequenceId: "s", projects: [{ id: "p", name: "Disposable", sequences: [{ id: "s" }] }] };
+    if (name === "project.select") return { activeProjectId: "p", activeSequenceId: "s" };
+    if (name === "project.inspect") return { projectId: "p", projectName: "Disposable", timeline: { id: "s" } };
+    throw new Error(`unexpected ${name}`);
+  };
+  await selectCanonicalWriteTarget(call, expected);
+  await readCanonicalWriteTarget(call, expected);
+  await readCanonicalWriteTarget(call, expected);
+  assert.deepEqual(calls, [
+    ["project.list", undefined],
+    ["project.select", { projectId: "p", sequenceId: "s" }],
+    ...Array(2).fill(["project.inspect", { confirmHeadedRead: true, expectedTarget: { projectId: "p", sequenceId: "s" } }]),
+  ]);
+});
+
+test("canonical write target rejects different or ambiguous catalog identities before selection", async () => {
+  const { selectCanonicalWriteTarget } = await import("../../scripts/final-cut-canonical-write-target.mjs");
+  const expected = { projectId: "p", projectName: "Disposable", sequenceId: "s" };
+  for (const catalog of [
+    { activeProjectId: "other", activeSequenceId: "s", projects: [] },
+    { activeProjectId: "p", activeSequenceId: "other", projects: [] },
+    { activeProjectId: "p", activeSequenceId: "s", projects: [{ id: "p", name: "Disposable", sequences: [{ id: "s" }] }, { id: "p", name: "Disposable", sequences: [{ id: "s" }] }] },
+    { activeProjectId: "p", activeSequenceId: "s", projects: [{ id: "p", name: "Other", sequences: [{ id: "s" }] }] },
+  ]) {
+    const calls: string[] = [];
+    await assert.rejects(selectCanonicalWriteTarget(async (name: string) => { calls.push(name); return catalog; }, expected), /TARGET_MISMATCH/);
+    assert.deepEqual(calls, ["project.list"]);
+  }
+});
+
+test("canonical write read rejects a snapshot from another target", async () => {
+  const { readCanonicalWriteTarget } = await import("../../scripts/final-cut-canonical-write-target.mjs");
+  await assert.rejects(readCanonicalWriteTarget(async () => ({ projectId: "p", projectName: "Disposable", timeline: { id: "other" } }), { projectId: "p", projectName: "Disposable", sequenceId: "s" }), /TARGET_MISMATCH/);
+});
