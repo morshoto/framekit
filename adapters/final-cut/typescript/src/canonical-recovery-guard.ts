@@ -50,14 +50,15 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
   }
 
   /** Atomically reserve the same path used by canonical checkpoints. */
-  public async beginNative(operation: string): Promise<{ release(): Promise<void> }> {
+  public async beginNative(operation: string): Promise<{ reservationId: string; release(): Promise<void> }> {
     if (!/^[a-z][a-z0-9.-]{0,127}$/.test(operation)) throw new Error("INVALID_OPERATION: invalid native reservation operation");
     await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
     const owner = randomUUID();
+    const contents = JSON.stringify({ version: 2, kind: "native-operation", owner, operation }) + "\n";
     let handle;
     try {
       handle = await open(this.path, "wx", 0o600);
-      await handle.writeFile(JSON.stringify({ version: 2, kind: "native-operation", owner, operation }) + "\n", "utf8");
+      await handle.writeFile(contents, "utf8");
       await handle.sync();
     } catch (error) {
       throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot create exclusive native reservation", { cause: error });
@@ -65,7 +66,7 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
       await handle?.close();
     }
     let released = false;
-    return { release: async () => {
+    return { reservationId: createHash("sha256").update(contents).digest("hex"), release: async () => {
       if (released) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: native reservation was already released");
       await this.completeOwned(owner, 2);
       released = true;
