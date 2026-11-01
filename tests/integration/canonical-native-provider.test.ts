@@ -2756,3 +2756,63 @@ test("canonical resolver distinguishes equal names only with complete exact sour
     }
   }
 });
+
+test("MCP canonical preview tokens fail closed after expiry, reuse, or external drift", async () => {
+  let now = 1_000;
+  let currentSnapshot = snapshot("Original");
+  const active = liveState();
+  const calls: string[] = [];
+  const provider = new FinalCutCanonicalNativeProvider({
+    live: {
+      ...liveWithoutBackgroundCatalog(),
+      readLiveState: async () => structuredClone(active),
+      getCapabilities: async () => ({ editor: { projectSelection: true, projectSelectionMode: "headed-only" } }) as never,
+      selectProject: async () => { throw new Error("selection is not needed in this test"); },
+    },
+    native: {
+      renameSelectedClip: async () => { calls.push("edit"); return { operationId: "edit", undoAvailable: true }; },
+      undo: async () => { calls.push("undo"); return { undone: true, verification: { verified: true } }; },
+    },
+    readSnapshot: async () => structuredClone(currentSnapshot),
+    resolveTarget: Object.assign(async () => {}, { sourceBindingAvailable: true }),
+    backgroundCatalog: { listProjects: async () => ({ projects: [{ id: active.project!.id, name: active.project!.name, sequences: [{ id: active.sequence!.id, name: active.sequence!.name }] }], activeProjectId: active.project!.id, activeSequenceId: active.sequence!.id }) },
+  });
+  const runtime = new Runtime(new FinalCutSessionAdapter({ live: provider }), { now: () => now, previewTtlMs: 10 });
+  const server = createMcpServer(runtime, { processMode: "headed" });
+  const client = new Client({ name: "canonical-preview-token-test", version: "1" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const before = await runtime.inspectProject();
+    const operation = { type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "Renamed" };
+    const preview = async () => {
+      const result = await client.callTool({ name: "editor.timeline.edit.preview", arguments: { projectId: before.projectId, sequenceId: before.timeline.id, baseRevision: before.revision, operations: [operation], path: "headed" } });
+      assert.equal(result.isError ?? false, false, textFrom(result));
+      return JSON.parse(textFrom(result)).previewToken as string;
+    };
+    const wrongTarget = await client.callTool({ name: "editor.timeline.edit.preview", arguments: { projectId: "wrong-project", sequenceId: before.timeline.id, baseRevision: before.revision, operations: [operation], path: "headed" } });
+    assert.equal(wrongTarget.isError, true);
+    assert.match(textFrom(wrongTarget), /TARGET_MISMATCH/);
+    const expired = await preview();
+    now += 11;
+    const expiredResult = await client.callTool({ name: "editor.timeline.edit.execute", arguments: { previewToken: expired, path: "headed" } });
+    assert.equal(expiredResult.isError, true);
+    assert.match(textFrom(expiredResult), /PREVIEW_TOKEN_EXPIRED/);
+    const reusedResult = await client.callTool({ name: "editor.timeline.edit.execute", arguments: { previewToken: expired, path: "headed" } });
+    assert.equal(reusedResult.isError, true);
+    assert.match(textFrom(reusedResult), /PREVIEW_TOKEN_INVALID/);
+    const stale = await preview();
+    currentSnapshot = snapshot("External change");
+    const staleResult = await client.callTool({ name: "editor.timeline.edit.execute", arguments: { previewToken: stale, path: "headed" } });
+    assert.equal(staleResult.isError, true);
+    assert.match(textFrom(staleResult), /STALE_CONTEXT/);
+    const staleReuse = await client.callTool({ name: "editor.timeline.edit.execute", arguments: { previewToken: stale, path: "headed" } });
+    assert.equal(staleReuse.isError, true);
+    assert.match(textFrom(staleReuse), /PREVIEW_TOKEN_INVALID/);
+    assert.equal((await runtime.inspectProject()).timeline.clips[0]?.name, "External change");
+    assert.deepEqual(calls, []);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
