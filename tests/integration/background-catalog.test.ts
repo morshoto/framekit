@@ -165,7 +165,7 @@ test("canonical provider fails closed when background project selection is unava
 
   await assert.rejects(
     provider.selectProject({ projectId: "background-project", sequenceId: "background-sequence" }),
-    /CAPABILITY_UNAVAILABLE: Final Cut project selection is not exposed by the background provider/,
+    /CAPABILITY_UNAVAILABLE: Final Cut project selection is not exposed by the live provider/,
   );
 });
 
