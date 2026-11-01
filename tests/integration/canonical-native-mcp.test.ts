@@ -935,3 +935,30 @@ test("direct disposable execute and undo exclude canonical checkpoints", async (
     }
   }
 });
+
+test("disposable routes retain unverified outcomes but release pre-dispatch failures", async () => {
+  for (const scenario of ["invalid-restore", "failed-after-dispatch", "failed-before-dispatch"] as const) {
+    const directory = await mkdtemp(join(tmpdir(), "framekit-disposable-uncertain-"));
+    const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+    const workflow = {
+      trackNativeDispatch: async (call: () => Promise<unknown>, onDispatch: () => void) => {
+        if (scenario === "failed-after-dispatch") onDispatch();
+        return call();
+      },
+      undo: async () => {
+        if (scenario !== "invalid-restore") throw new Error("simulated failure");
+        return { undone: true, beforeDigest: "a".repeat(64), restoredDigest: "b".repeat(64), verification: { passed: true } };
+      },
+    } as unknown as NonNullable<Parameters<typeof createMcpServer>[1]>["disposableNative"];
+    const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, disposableNative: workflow });
+    try {
+      await client.callTool({ name: "editor.native.disposable.undo", arguments: { operationId: "operation-1" } });
+      if (scenario === "failed-before-dispatch") await guard.assertClear();
+      else assert.equal((await guard.inspectNativeReservation())?.operation, "native.disposable.undo", scenario);
+    } finally {
+      await client.close();
+      await server.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+});
