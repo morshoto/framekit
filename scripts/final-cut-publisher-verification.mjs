@@ -1,3 +1,29 @@
+export async function runPublishStages(call, input, onStage) {
+  const { artifactDigest, ...previewInput } = input;
+  const preview = await call("artifact.publish.preview", previewInput);
+  if (!preview.jobId || preview.state !== "awaiting-confirmation"
+    || preview.artifactDigest !== artifactDigest || preview.targetLibraryPath !== input.targetLibraryPath) {
+    throw new Error("PUBLISH_PREVIEW_MISMATCH: prepared job does not match the approved artifact and destination");
+  }
+  onStage("prepared", preview);
+  let dispatched;
+  try {
+    dispatched = await call("artifact.publish.execute", { jobId: preview.jobId, confirm: true });
+  } catch (cause) {
+    throw new Error(`PUBLISH_DISPATCH_UNCERTAIN: job ${preview.jobId}; inspect its status and do not redispatch`, { cause });
+  }
+  onStage("dispatched", dispatched);
+  if (dispatched.jobId !== preview.jobId || dispatched.state !== "verification-pending") {
+    throw new Error(`PUBLISH_DISPATCH_INCOMPLETE: job ${preview.jobId} is ${dispatched.state}; inspect status and do not redispatch`);
+  }
+  const verified = await call("artifact.publish.execute", { jobId: preview.jobId, confirm: true, confirmVerification: true });
+  if (verified.jobId !== preview.jobId || verified.state !== "verified" || verified.result?.verified !== true) {
+    throw new Error(`PUBLISH_VERIFICATION_INCOMPLETE: job ${preview.jobId} is ${verified.state}; inspect status without redispatching`);
+  }
+  onStage("verified", verified);
+  return verified;
+}
+
 export function verifyPublishedTarget({ result, beforeLive, afterLive, expectedProject, expectedSequence, sourceSequence }) {
   if (result.verified !== true || result.createdTarget?.projectName !== expectedProject) {
     throw new Error("FINAL_CUT_E2E_PUBLISH_VERIFICATION_FAILED: publisher did not return the requested project identity");
