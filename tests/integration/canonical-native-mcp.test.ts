@@ -8,6 +8,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import {
   FinalCutCanonicalNativeProvider,
+  FinalCutNativeAutomationAdapter,
   FileCanonicalRecoveryGuard,
   type NativeFinalCutEditor,
   FinalCutSessionAdapter,
@@ -824,5 +825,25 @@ test("uncertain direct native outcomes retain their reservation", async () => {
       await server.close();
       await rm(directory, { recursive: true, force: true });
     }
+  }
+});
+
+test("a direct edit rejected before native dispatch releases its reservation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-direct-validation-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  let reservations = 0;
+  const beginNative = guard.beginNative.bind(guard);
+  guard.beginNative = async (operation) => { reservations += 1; return beginNative(operation); };
+  const nativeEditor = new FinalCutNativeAutomationAdapter({ enabled: false });
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, nativeEditor });
+  try {
+    const result = await client.callTool({ name: "editor.native.edit", arguments: { type: "add-marker-at-playhead", name: "Review" } });
+    assert.equal(result.isError, true);
+    assert.equal(reservations, 1);
+    await guard.assertClear();
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
   }
 });
