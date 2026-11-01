@@ -742,3 +742,37 @@ test("confirmed headed context inspection fails when the canonical snapshot prob
     await server.close();
   }
 });
+
+test("an in-flight direct native edit excludes a canonical checkpoint", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-race-"));
+  const path = join(directory, "pending.json");
+  const directGuard = new FileCanonicalRecoveryGuard(path);
+  const canonicalGuard = new FileCanonicalRecoveryGuard(path);
+  let entered!: () => void;
+  let finish!: () => void;
+  const started = new Promise<void>((resolve) => { entered = resolve; });
+  const held = new Promise<void>((resolve) => { finish = resolve; });
+  const nativeEditor = {
+    capabilities: () => ({}),
+    edit: async () => {
+      entered();
+      await held;
+      return { operationId: "native-edit" };
+    },
+  } as unknown as NativeFinalCutEditor;
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: directGuard, nativeEditor });
+  const request = client.callTool({ name: "editor.native.edit", arguments: { type: "add-marker-at-playhead", name: "Review" } });
+  try {
+    await started;
+    await assert.rejects(
+      canonicalGuard.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "b".repeat(64), operation: "rename-clip" }),
+      /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/,
+    );
+  } finally {
+    finish();
+    await request;
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
