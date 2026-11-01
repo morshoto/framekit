@@ -694,6 +694,7 @@ test("materialization excludes canonical edits and never retries an uncertain pu
       const running = payload(await connected.client.callTool({ name: "session.materialize.status", arguments: { jobId: runningJobId } }));
       assert.equal(running.state, "publishing");
       assert.equal(running.evidence.providerRequested, true);
+      assert.equal(running.providerRequestPhase, "dispatch-intent");
       await assert.rejects(other.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "a".repeat(64), operation: "rename-clip" }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     } finally { finish(); }
     const result = payload(await execution);
