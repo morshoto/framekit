@@ -150,7 +150,7 @@ colors and animation.
 Start PRs as Draft, including agent-created PRs. Mark Ready for review once
 implementation and fast CI are complete; this triggers CodeQL. The
 JavaScript/TypeScript results are evaluated by the trusted `security.yml`
-workflow after CodeQL completes. Its `CodeQL policy gate` check fails on new
+workflow after CodeQL completes. Its `CodeQL PR policy` status fails on new
 error or high-or-higher security alerts and becomes the required CodeQL merge
 check during the fast-CI rollout. During the transition, Swift CodeQL runs for
 Swift-affecting paths, including native and CodeQL extraction inputs; it also
