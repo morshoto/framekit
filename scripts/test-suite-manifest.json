@@ -618,6 +618,15 @@
       "requires": []
     },
     {
+      "path": "tests/integration/fixture-mcp-smoke.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
       "path": "tests/integration/frame-capture.test.ts",
       "owner": "shared",
       "tags": [
