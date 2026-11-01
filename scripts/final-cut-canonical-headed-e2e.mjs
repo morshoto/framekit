@@ -1,9 +1,8 @@
-import { createHash } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { evidenceEnvironment, sanitizeCanonicalEvidence } from "./final-cut-evidence.mjs";
+import { canonicalEvidenceDigest as canonicalDigest, evidenceEnvironment, hashCanonicalSourceMedia, sanitizeCanonicalEvidence } from "./final-cut-evidence.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const expectedProject = process.env.FRAMEKIT_FINAL_CUT_E2E_PROJECT;
@@ -60,6 +59,7 @@ try {
   const target = before.timeline?.clips?.find((clip) => clip.id === clipId);
   if (!target) throw new Error(`FINAL_CUT_E2E_CLIP_MISMATCH: ${clipId} is not in the selected timeline`);
   const beforeDigest = canonicalDigest(before);
+  const sourceHashesBefore = await hashCanonicalSourceMedia(before);
 
   await expectToolError("editor.timeline.edit", {
     projectId: before.projectId,
@@ -112,6 +112,7 @@ try {
   if (restoredDigest !== beforeDigest) {
     throw new Error("FINAL_CUT_E2E_ROLLBACK_DIGEST_MISMATCH: undo did not restore the pre-edit canonical digest");
   }
+  const sourceHashesRestored = await hashCanonicalSourceMedia(restored);
 
   const evidence = sanitizeCanonicalEvidence({
     passed: true,
@@ -127,6 +128,7 @@ try {
     diff: transaction.diff,
     restored,
     digests: { before: beforeDigest, restored: restoredDigest },
+    sourceIntegrity: { before: sourceHashesBefore, restored: sourceHashesRestored },
   }, await evidenceEnvironment(root));
   process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`);
 } catch (error) {
@@ -161,28 +163,6 @@ async function expectToolError(name, arguments_, expectedCode) {
   if (!text.includes(expectedCode)) {
     throw new Error(`${name} returned the wrong failure code; expected ${expectedCode}`);
   }
-}
-
-function canonicalDigest(snapshot) {
-  return createHash("sha256").update(stableJson({
-    projectId: snapshot.projectId,
-    projectName: snapshot.projectName,
-    timeline: snapshot.timeline,
-    media: snapshot.media.map(({ mediaId, source }) => ({ mediaId, source })),
-  })).digest("hex");
-}
-
-function stableJson(value) {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  const entries = Object.entries(value)
-    .filter(([, child]) => child !== undefined)
-    .sort(([left], [right]) => compareText(left, right));
-  return `{${entries.map(([key, child]) => `${JSON.stringify(key)}:${stableJson(child)}`).join(",")}}`;
-}
-
-function compareText(left, right) {
-  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function sameRevision(left, right) {

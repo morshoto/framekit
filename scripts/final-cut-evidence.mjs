@@ -1,7 +1,10 @@
 import { execFile as execFileCallback } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { constants } from "node:fs";
+import { lstat, open, readFile } from "node:fs/promises";
 import os from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
@@ -31,6 +34,7 @@ const editorCapabilityKeys = [
 ];
 
 const analyzerCapabilityKeys = ["speechTranscribe", "speechVad", "audioLoudness", "visualTrack"];
+const canonicalSemanticOperationKeys = ["rename-clip", "trim-clip", "add-marker", "ripple-delete", "set-gain"];
 const requiredToolResults = [
   ["editor.inspect", "passed"],
   ["project.list", "passed"],
@@ -118,26 +122,49 @@ export function sanitizeCanonicalEvidence(run, environment) {
   assert(run.editor, "editor identity is missing");
   assert(run.capabilities, "capability payload is missing");
   assert(run.capabilities.editor?.canonicalTimelineMode === "canonical-write", "canonical-write capability is required");
+  assert(run.capabilities.editor?.semanticOperations?.["rename-clip"] === true, "rename-clip capability is required");
   assert(run.project && run.target, "project or target identity is missing");
   assert(run.before && run.after && run.restored && run.diff, "canonical snapshots or diff are missing");
   assert(run.digests?.before && run.digests?.restored, "canonical digests are missing");
   const beforeDigest = requireSha256Digest(run.digests.before, "before digest");
   const restoredDigest = requireSha256Digest(run.digests.restored, "restored digest");
   assert(beforeDigest === restoredDigest, "restored digest does not match the pre-edit digest");
+  assert(run.target.mediaId && typeof run.target.mediaId === "string", "target media identity is missing");
+  let targetSource;
+  for (const [label, snapshot] of [["before", run.before], ["after", run.after], ["restored", run.restored]]) {
+    assert(snapshot.projectId === run.project.id && snapshot.projectName === run.project.name
+      && snapshot.timeline?.id === run.project.sequenceId, `${label} snapshot target differs from the approved project or sequence`);
+    assert(Array.isArray(snapshot.timeline?.clips) && Array.isArray(snapshot.media), `${label} snapshot target data is unavailable`);
+    const clips = snapshot.timeline.clips.filter((clip) => clip?.id === run.target.occurrenceId);
+    assert(clips.length === 1 && clips[0].mediaId === run.target.mediaId, `${label} snapshot occurrence or media identity differs from the approved target`);
+    const sources = snapshot.media.filter((media) => media?.mediaId === run.target.mediaId);
+    assert(sources.length === 1 && isNonEmptyString(sources[0].source), `${label} snapshot source binding is missing or ambiguous`);
+    if (targetSource === undefined) targetSource = sources[0].source;
+    else assert(sources[0].source === targetSource, `${label} snapshot source binding changed`);
+  }
+  assert(canonicalEvidenceDigest(run.before) === beforeDigest, "before digest does not match the canonical snapshot");
+  assert(canonicalEvidenceDigest(run.restored) === restoredDigest, "restored digest does not match the canonical snapshot");
   const beforeRevision = summarizeRevision(run.before.revision);
   const afterRevision = summarizeRevision(run.after.revision);
   const restoredRevision = summarizeRevision(run.restored.revision);
-  assert(afterRevision.sequence > beforeRevision.sequence, "canonical mutation revision did not advance");
+  assert(afterRevision.sequence > beforeRevision.sequence && afterRevision.id !== beforeRevision.id, "canonical mutation revision did not advance");
+  assert(restoredRevision.sequence > afterRevision.sequence && restoredRevision.id !== afterRevision.id, "canonical restoration revision did not advance");
 
   const beforeTarget = findTarget(run.before, run.target.occurrenceId);
   const afterTarget = findTarget(run.after, run.target.occurrenceId);
   const restoredTarget = findTarget(run.restored, run.target.occurrenceId);
   assert(beforeTarget && afterTarget && restoredTarget, "target occurrence is missing from a canonical snapshot");
+  assert(isNonEmptyString(beforeTarget.name) && isNonEmptyString(afterTarget.name), "target names are unavailable");
   assert(beforeTarget.name !== afterTarget.name, "canonical mutation did not change the target occurrence");
   assert(beforeTarget.name === restoredTarget.name, "restored target occurrence does not match the pre-edit state");
+  const expectedAfter = structuredClone(run.before);
+  expectedAfter.timeline.clips.find((clip) => clip.id === run.target.occurrenceId).name = afterTarget.name;
+  assert(canonicalEvidenceDigest(normalizeEvidenceTimes(expectedAfter)) === canonicalEvidenceDigest(normalizeEvidenceTimes(run.after)),
+    "canonical mutation included collateral timeline or media changes");
 
   const modifiedItemIds = (run.diff.modified ?? []).map((change) => change?.itemId).filter(isNonEmptyString);
   assert(modifiedItemIds.includes(run.target.occurrenceId), "canonical diff does not identify the target occurrence");
+  const sourceMediaIntegrity = verifyCanonicalSourceIntegrity(run.before, run.sourceIntegrity);
 
   return {
     schemaVersion: 1,
@@ -156,6 +183,7 @@ export function sanitizeCanonicalEvidence(run, environment) {
       occurrenceId: requireString(run.target.occurrenceId, "occurrence id"),
       ...(isNonEmptyString(run.target.mediaId) ? { mediaId: run.target.mediaId } : {}),
     },
+    sourceMediaIntegrity,
     toolResults: sanitizeToolResults(run.toolResults),
     mutation: {
       operation: "rename-clip",
@@ -185,6 +213,133 @@ export function sanitizeCanonicalEvidence(run, environment) {
       omitted: ["media sources", "raw snapshots", "transaction identifiers", "diagnostics"],
     },
   };
+}
+
+function verifyCanonicalSourceIntegrity(snapshot, integrity) {
+  assert(Array.isArray(snapshot.media) && snapshot.media.length > 0, "source media manifest is unavailable");
+  const mediaIds = snapshot.media.map((media) => media?.mediaId);
+  assert(mediaIds.every(isNonEmptyString) && new Set(mediaIds).size === mediaIds.length, "source media identities are missing or ambiguous");
+  const readHashes = (entries, phase) => {
+    assert(Array.isArray(entries) && entries.length === mediaIds.length, `${phase} source hashes are incomplete`);
+    const hashes = new Map();
+    for (const entry of entries) {
+      assert(isNonEmptyString(entry?.mediaId) && mediaIds.includes(entry.mediaId) && !hashes.has(entry.mediaId), `${phase} source hashes have an unknown or duplicate identity`);
+      hashes.set(entry.mediaId, requireSha256Digest(entry.sha256, `${phase} source hash`).toLowerCase());
+    }
+    return hashes;
+  };
+  const before = readHashes(integrity?.before, "before");
+  const restored = readHashes(integrity?.restored, "restored");
+  assert(mediaIds.every((id) => before.get(id) === restored.get(id)), "source media hashes changed during the native workflow");
+  return { sourceCount: mediaIds.length, digests: [...before.values()].sort() };
+}
+
+/** Match the runtime canonical snapshot digest while omitting revisions and analysis. */
+export function canonicalEvidenceDigest(snapshot) {
+  const canonical = {
+    projectId: snapshot.projectId,
+    projectName: snapshot.projectName,
+    timeline: snapshot.timeline,
+    media: snapshot.media.map(({ mediaId, source }) => ({ mediaId, source })),
+  };
+  return createHash("sha256").update(stableCanonicalJson(canonical)).digest("hex");
+}
+
+/** Hash source files without following final-component symlinks or exposing paths. */
+export async function hashCanonicalSourceMedia(snapshot) {
+  const unavailable = () => new Error("FINAL_CUT_E2E_SOURCE_HASH_UNAVAILABLE: source media cannot be safely hashed");
+  if (!Array.isArray(snapshot?.media) || snapshot.media.length === 0) throw unavailable();
+  const seen = new Set();
+  const hashes = [];
+  for (const media of snapshot.media) {
+    if (!isNonEmptyString(media?.mediaId) || seen.has(media.mediaId) || !isNonEmptyString(media.source)) throw unavailable();
+    seen.add(media.mediaId);
+    let handle;
+    try {
+      let path = media.source;
+      if (path.startsWith("file:")) {
+        const decoded = decodeURIComponent(path);
+        if (/(?:^|\/)\.{1,2}(?:\/|$)/.test(decoded)) throw unavailable();
+        const url = new URL(path);
+        if (url.protocol !== "file:" || url.search || url.hash) throw unavailable();
+        path = fileURLToPath(url);
+      }
+      if (!isAbsolute(path) || path.includes("\0") || /(?:^|\/)\.{1,2}(?:\/|$)/.test(path)) throw unavailable();
+      handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      const before = await handle.stat({ bigint: true });
+      const namedBefore = await lstat(path, { bigint: true });
+      if (!before.isFile() || !namedBefore.isFile() || !sameSourceFile(before, namedBefore)) throw unavailable();
+      const hash = createHash("sha256");
+      const buffer = Buffer.allocUnsafe(1024 * 1024);
+      while (true) {
+        const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+        if (bytesRead === 0) break;
+        hash.update(buffer.subarray(0, bytesRead));
+      }
+      const after = await handle.stat({ bigint: true });
+      const namedAfter = await lstat(path, { bigint: true });
+      if (!namedAfter.isFile() || !sameSourceFile(before, after) || !sameSourceFile(after, namedAfter)) throw unavailable();
+      hashes.push({ mediaId: media.mediaId, sha256: hash.digest("hex") });
+    } catch {
+      throw unavailable();
+    } finally {
+      await handle?.close();
+    }
+  }
+  return hashes.sort((left, right) => left.mediaId < right.mediaId ? -1 : left.mediaId > right.mediaId ? 1 : 0);
+}
+
+function sameSourceFile(left, right) {
+  return left.dev === right.dev && left.ino === right.ino && left.size === right.size
+    && left.mtimeNs === right.mtimeNs && left.ctimeNs === right.ctimeNs;
+}
+
+function stableCanonicalJson(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableCanonicalJson).join(",")}]`;
+  const entries = Object.entries(value)
+    .filter(([, child]) => child !== undefined)
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
+  return `{${entries.map(([key, child]) => `${JSON.stringify(key)}:${stableCanonicalJson(child)}`).join(",")}}`;
+}
+
+function normalizeEvidenceTimes(snapshot) {
+  const normalized = structuredClone(snapshot);
+  const timeline = normalized.timeline;
+  assert(timeline && Array.isArray(timeline.clips) && Array.isArray(timeline.storyElements)
+    && Array.isArray(timeline.markers) && Array.isArray(timeline.captions), "canonical timeline structure is incomplete");
+  for (const key of ["durationTime", "frameDuration"]) {
+    if (timeline[key] !== undefined) timeline[key] = normalizeEvidenceTime(timeline[key]);
+  }
+  for (const [collection, fields] of [
+    ["clips", ["startTime", "durationTime", "sourceStartTime"]],
+    ["storyElements", ["startTime", "durationTime"]],
+    ["markers", ["startTime", "durationTime"]],
+    ["captions", ["startTime", "durationTime"]],
+  ]) {
+    timeline[collection] = timeline[collection].map((item) => {
+      assert(item && typeof item === "object", `canonical ${collection} entry is invalid`);
+      const result = { ...item };
+      for (const field of fields) if (result[field] !== undefined) result[field] = normalizeEvidenceTime(result[field]);
+      return result;
+    });
+  }
+  return normalized;
+}
+
+function normalizeEvidenceTime(value) {
+  assert(value && typeof value.value === "string" && /^-?\d+$/.test(value.value)
+    && typeof value.timescale === "string" && /^\d+$/.test(value.timescale), "canonical rational time is invalid");
+  let numerator = BigInt(value.value);
+  let denominator = BigInt(value.timescale);
+  assert(denominator > 0n, "canonical rational time has a nonpositive timescale");
+  let left = numerator < 0n ? -numerator : numerator;
+  let right = denominator;
+  while (right !== 0n) [left, right] = [right, left % right];
+  const divisor = left || 1n;
+  numerator /= divisor;
+  denominator /= divisor;
+  return { value: numerator.toString(), timescale: denominator.toString() };
 }
 
 export function sanitizeDisposableNativeEvidence(run, environment) {
@@ -1100,6 +1255,15 @@ function sanitizeCapabilities(capabilities) {
   }
   for (const key of analyzerCapabilityKeys) {
     if (analyzers[key] !== undefined) assert(typeof analyzers[key] === "boolean", `${key} capability must be boolean`);
+  }
+  if (capabilities.editor?.semanticOperations !== undefined) {
+    const operations = capabilities.editor.semanticOperations;
+    assert(operations && typeof operations === "object" && !Array.isArray(operations), "semanticOperations capability must be an object");
+    const safeOperations = pickKnown(operations, canonicalSemanticOperationKeys);
+    for (const [key, value] of Object.entries(safeOperations)) {
+      assert(typeof value === "boolean", `${key} capability must be boolean`);
+    }
+    editor.semanticOperations = safeOperations;
   }
   return {
     editor,
