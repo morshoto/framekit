@@ -2592,6 +2592,7 @@ test("canonical source binding is enabled only for an explicitly capable nonsele
   const { locateOccurrenceForCanonicalTarget: _removed, ...withoutDedicatedLocator } = native;
   assert.equal(createFinalCutNativeTargetResolver(withoutDedicatedLocator).sourceBindingAvailable, false);
   assert.equal(createFinalCutNativeTargetResolver({ ...native, capabilities: () => ({ timelineOccurrenceSourceBinding: false }) as never }).sourceBindingAvailable, false);
+  assert.equal(createFinalCutNativeTargetResolver({ ...native, capabilities: () => { throw new Error("provider unavailable"); } }).sourceBindingAvailable, false);
 });
 
 test("loss of source binding during preparation prevents canonical dispatch", async () => {
@@ -2607,6 +2608,30 @@ test("loss of source binding during preparation prevents canonical dispatch", as
     await assert.rejects(provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED.*source/i);
     assert.deepEqual(calls, []);
     await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("independently bound source evidence permits a canonical edit in a deterministic provider", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-source-capable-provider-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const calls: string[] = [];
+  const occurrence = { handle: "occurrence-handle", mediaHandle: "media-handle", name: "Original", identity: "native-1", sourceIdentity: "browser-source-1", start: "0/24", duration: "96/24", sequenceId: "final-cut:sequence:sequence-1" };
+  const native = {
+    capabilities: () => ({ timelineOccurrenceSourceBinding: true }) as never,
+    searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1" }],
+    locateOccurrence: async () => ({ status: "unique" as const, occurrences: [occurrence] }),
+    locateOccurrenceForCanonicalTarget: async () => ({ status: "unique" as const, occurrences: [occurrence] }),
+    selectOccurrence: async () => ({ target: { kind: "selected-clip", identity: "native-1" } }) as never,
+  };
+  const resolver = createFinalCutNativeTargetResolver(native);
+  const provider = providerFor([snapshot("Original"), snapshot("Original"), snapshot("Renamed")], calls, resolver, liveState(), undefined, {}, guard);
+  try {
+    const before = await provider.readProject();
+    await provider.apply({ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "Renamed" }, before.revision);
+    assert.deepEqual(calls, ["edit"]);
+    await guard.assertClear();
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

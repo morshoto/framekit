@@ -4189,6 +4189,7 @@ test("canonical native occurrence discovery does not select before target valida
   const [match] = await adapter.searchMedia("Interview");
   const located = await adapter.locateOccurrenceForCanonicalTarget(match.handle);
   assert.equal(located.status, "unique");
+  assert.equal(adapter.capabilities().timelineOccurrenceSourceBinding, false);
   assert.equal(located.occurrences[0]?.identity, "native-occurrence-1");
   assert.equal(mouseCalls, 0);
   assert.doesNotMatch(discoveryScript, /candidateRole & \(ASCII character 31\) & sourceIdentity &/);
