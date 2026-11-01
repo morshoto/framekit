@@ -169,14 +169,16 @@ confirmation; a dispatch acknowledgment is not proof that Final Cut imported
 it. Pending publish status may include a `delivery` dispatch acknowledgment;
 that evidence remains unverified and does not include a created target or
 verified result. An unacknowledged import attempt retains its `dispatchError`
-even if a later verification produces a different error. A pending job may report an `observedTarget` after matching
-live identity; that observation alone is not semantic verification. A second,
+even if a later verification produces a different error. A pending job may
+report an `observedTarget` after matching live identity; that observation alone
+is not semantic verification. A second,
 explicit confirmation on the same job authorizes
 headed semantic readback; direct publishing requires separate creation and
 readback confirmation fields. A reservation with an attempted or unknown
 dispatch cannot be reclaimed just because its owner exited or the library has
-not appeared. Native acceptance requires matching project and
-sequence readback. `editor.inspect` reports `artifactPublishDispatchGuarantee`
+not appeared. The dispatched FCPXML stays available while an import attempt
+is unresolved and is removed after successful verification. Native acceptance
+requires matching project and sequence readback. `editor.inspect` reports `artifactPublishDispatchGuarantee`
 as `requested-unverified`; the publishing capability's `native-verified`
 guarantee describes the evidence required for a completed handoff, not the
 result of its dispatch step.

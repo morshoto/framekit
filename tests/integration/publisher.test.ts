@@ -1567,6 +1567,7 @@ test("FCPXML publish jobs resume verification after publisher restart", async ()
   await writeFile(sourcePath, source);
   let deliveryCalls = 0;
   let persistedJobId = "";
+  let deliveryPath = "";
   const beforeState: EditorLiveState = {
     project: { id: "project-before", name: "Existing" },
     sequence: {
@@ -1600,8 +1601,9 @@ test("FCPXML publish jobs resume verification after publisher restart", async ()
     verificationTimeoutMs: 0,
     pollIntervalMs: 0,
     documentDelivery: {
-      deliverFcpxml: async ({ targetLibraryLocation, activates }: { targetLibraryLocation?: string; activates: boolean }) => {
+      deliverFcpxml: async ({ artifactPath, targetLibraryLocation, activates }: { artifactPath: string; targetLibraryLocation?: string; activates: boolean }) => {
         deliveryCalls += 1;
+        deliveryPath = artifactPath;
         const persisted = JSON.parse(await readFile(join(publishJobsDirectory, `${persistedJobId}.json`), "utf8")) as {
           runtime: { importAttempted: boolean; targetLibraryPath: string; reservationId?: string };
         };
@@ -1650,6 +1652,7 @@ test("FCPXML publish jobs resume verification after publisher restart", async ()
   assert.equal(pending.createdTarget, undefined);
   assert.equal(pending.result, undefined);
   assert.equal(deliveryCalls, 1);
+  assert.match(await readFile(deliveryPath, "utf8"), /<fcpxml/);
   const disabledPublisher = createPublisherForTest({
     ...publisherOptions,
     enabled: false,
@@ -1674,6 +1677,7 @@ test("FCPXML publish jobs resume verification after publisher restart", async ()
   const resumed = await restartedPublisher.executePublishJob(prepared.jobId, true, true);
 
   assert.equal(resumed.state, "verified");
+  await assert.rejects(readFile(deliveryPath, "utf8"), { code: "ENOENT" });
   assert.deepEqual(resumed.createdTarget, {
     kind: "editor.project",
     projectId: "project-created",
