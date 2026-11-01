@@ -2444,3 +2444,23 @@ test("direct publish exposes dispatch evidence while readback is pending", async
   assert.equal(job.observedTarget?.sequenceId, "observed-sequence");
   assert.equal(calls, 1);
 });
+
+test("publisher restart rejects persisted states that could replay or fake verification", async () => {
+  for (const corruption of ["rearmed", "unproven"] as const) {
+    const fixture = await createCheckpointFailureFixture(`framekit-publisher-${corruption}-`);
+    try {
+      const dispatched = await fixture.publisher.executePublishJob(fixture.job.jobId, true);
+      assert.equal(dispatched.state, "verification-pending");
+      const path = join(fixture.publishJobsDirectory, `${fixture.job.jobId}.json`);
+      const record = JSON.parse(await readFile(path, "utf8"));
+      assert.equal(record.runtime.importAttempted, true);
+      if (corruption === "rearmed") record.job.state = "awaiting-confirmation";
+      else record.job.state = "verified";
+      await writeFile(path, JSON.stringify(record));
+      assert.throws(() => createPublisherForTest({ enabled: false, publishJobsDirectory: fixture.publishJobsDirectory }), /PUBLISH_JOB_STORE_INVALID/);
+      assert.equal(fixture.deliveryCalls(), 1);
+    } finally {
+      await rm(fixture.directory, { recursive: true, force: true });
+    }
+  }
+});
