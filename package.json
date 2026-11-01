@@ -73,6 +73,8 @@
     "hooks:install": "node scripts/install-git-hooks.mjs",
     "check:git-config": "node scripts/check-git-config.mjs",
     "mcp": "tsx apps/mcp-server/src/main.ts",
+    "mcp:skill-catalog": "tsx scripts/skill-tool-catalog.ts",
+    "check:skill-tools": "tsx scripts/skill-tool-catalog.ts --check",
     "framekit": "node ./bin/framekit.mjs",
     "check:scripts": "node scripts/check-script-references.mjs",
     "package:final-cut-release": "bash scripts/package-final-cut-release.sh",

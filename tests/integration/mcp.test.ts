@@ -6,6 +6,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { buildSkillToolCatalog } from "../../apps/mcp-server/src/tools/skills/catalog.js";
+import { SKILL_TOOL_METADATA } from "../../apps/mcp-server/src/tools/skills/metadata.js";
 
 function textFrom(result: unknown): string {
   const content = (result as { content?: unknown }).content;
@@ -33,6 +35,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
     serverPid = transport.pid;
     assert.equal(typeof serverPid, "number");
     const tools = await client.listTools();
+    assert.deepEqual(buildSkillToolCatalog(SKILL_TOOL_METADATA, tools.tools).errors, []);
     assert.deepEqual(
       tools.tools.map((tool) => tool.name).sort(),
       [
