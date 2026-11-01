@@ -199,6 +199,7 @@ function providerFor(
   activeState: EditorLiveState = liveState(),
   backgroundCatalog?: FinalCutBackgroundCatalogProvider,
   nativeOverrides: Partial<CanonicalNativeMutationPort> = {},
+  recoveryGuard?: { assertClear(): Promise<void>; begin(): Promise<void>; complete(): Promise<void> },
 ) {
   const native = {
     renameSelectedClip: async () => {
@@ -227,6 +228,7 @@ function providerFor(
     },
     resolveTarget,
     ...(backgroundCatalog ? { backgroundCatalog } : {}),
+    ...(recoveryGuard ? { recoveryGuard } : {}),
   });
 }
 
@@ -909,6 +911,27 @@ test("uncertain native edit failure blocks another mutation", async () => {
   const operation = { type: "rename-clip" as const, clipId: "final-cut:occurrence:clip-1", name: "Renamed" };
   await assert.rejects(provider.apply(operation, before.revision), /native dispatch failed after possible mutation/);
   await assert.rejects(provider.apply(operation, before.revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  assert.deepEqual(calls, ["edit"]);
+});
+
+test("uncertain edit remains blocked after provider restart", async () => {
+  let pending = false;
+  const recoveryGuard = {
+    assertClear: async () => { if (pending) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: unresolved native edit"); },
+    begin: async () => { if (pending) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: unresolved native edit"); pending = true; },
+    complete: async () => { pending = false; },
+  };
+  const original = snapshot("Original");
+  const calls: string[] = [];
+  const failed = providerFor([original, original], calls, undefined, liveState(), undefined, {
+    renameSelectedClip: async () => { calls.push("edit"); throw new Error("uncertain dispatch"); },
+  }, recoveryGuard);
+  const before = await failed.readProject();
+  const operation = { type: "rename-clip" as const, clipId: "final-cut:occurrence:clip-1", name: "Renamed" };
+  await assert.rejects(failed.apply(operation, before.revision), /uncertain dispatch/);
+  const restarted = providerFor([original, original, original], calls, undefined, liveState(), undefined, {}, recoveryGuard);
+  const rebound = await restarted.readProject();
+  await assert.rejects(restarted.apply(operation, rebound.revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   assert.deepEqual(calls, ["edit"]);
 });
 
