@@ -72,7 +72,9 @@ revision, and the affected media or occurrence identity when applicable.
 `frameDuration` and timeline times preserve frame-accurate values.
 `playheadTime` describes the editor playhead; it is not a substitute for a
 stable target or timeline revision. Read-after-write verifies a mutation
-against the same target and revision contract. Canonical Final Cut reads reject
+against the same target and revision contract. Canonical native rename, trim,
+marker, ripple-delete, and gain readback reject collateral changes outside the
+supported operation projection and attempt verified recovery. Canonical Final Cut reads reject
 live target or revision changes during export; native edits recheck the live
 revision after target resolution. If a native edit has an uncertain outcome or
 Undo cannot be verified, the canonical provider blocks further previews and

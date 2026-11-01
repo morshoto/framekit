@@ -1125,17 +1125,20 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         if (readback.beforeDigest !== this.pending.beforeDigest) {
           throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: canonical before digest changed during verification");
         }
+        assertExactCanonicalProjection(before, after, supported);
       } else if (supported.type === "trim-clip") {
         const afterClip = after.timeline.clips.find(({ id }) => id === supported.clipId);
         if (!afterClip || !sameRational(afterClip.startTime, clip!.startTime)
           || !sameRational(afterClip.durationTime, trimDuration!)) {
           throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: trimmed occurrence range was not read back from Final Cut");
         }
+        assertExactCanonicalProjection(before, after, supported);
       } else if (supported.type === "set-gain") {
         const afterClip = after.timeline.clips.find(({ id }) => id === supported.clipId);
         if (!afterClip || (afterClip.gainDb ?? 0) !== supported.gainDb) {
           throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: gain was not read back from Final Cut");
         }
+        assertExactCanonicalProjection(before, after, supported);
       } else if (supported.type === "ripple-delete") {
         assertRippleDeleteReadback(before, after, rippleTarget!.clip, rippleTarget!.range!);
       } else {
@@ -1532,6 +1535,17 @@ function projectCanonicalOperation(snapshot: ProjectSnapshot, operation: Canonic
   };
 }
 
+function assertExactCanonicalProjection(
+  before: ProjectSnapshot,
+  after: ProjectSnapshot,
+  operation: Extract<CanonicalOperation, { type: "rename-clip" | "trim-clip" | "set-gain" }>,
+): void {
+  const expected = projectCanonicalOperation(before, operation);
+  if (canonicalSnapshotDigest(normalizeCanonicalSnapshot(after)) !== canonicalSnapshotDigest(normalizeCanonicalSnapshot(expected))) {
+    throw new Error(`FINAL_CUT_CANONICAL_READBACK_FAILED: ${operation.type} readback differed from the exact canonical projection`);
+  }
+}
+
 function projectCanonicalRippleDelete(
   snapshot: ProjectSnapshot,
   range: { start: RationalTime; end: RationalTime },
@@ -1684,7 +1698,7 @@ function assertRippleDeleteReadback(
   range: { start: RationalTime; end: RationalTime },
 ): void {
   const expected = projectCanonicalRippleDelete(before, range);
-  if (canonicalSnapshotDigest(normalizeRippleSnapshot(after)) !== canonicalSnapshotDigest(normalizeRippleSnapshot(expected))) {
+  if (canonicalSnapshotDigest(normalizeCanonicalSnapshot(after)) !== canonicalSnapshotDigest(normalizeCanonicalSnapshot(expected))) {
     throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: ripple-delete readback differed from the exact canonical projection");
   }
   if (!after.timeline.durationTime || !expected.timeline.durationTime
@@ -1712,15 +1726,19 @@ function assertRippleDeleteReadback(
   }
 }
 
-function normalizeRippleSnapshot(snapshot: ProjectSnapshot): ProjectSnapshot {
+function normalizeCanonicalSnapshot(snapshot: ProjectSnapshot): ProjectSnapshot {
   const normalized = structuredClone(snapshot);
   normalized.timeline.durationTime = normalized.timeline.durationTime
     ? normalizeRationalTime(normalized.timeline.durationTime)
     : normalized.timeline.durationTime;
+  normalized.timeline.frameDuration = normalized.timeline.frameDuration
+    ? normalizeRationalTime(normalized.timeline.frameDuration)
+    : normalized.timeline.frameDuration;
   normalized.timeline.clips = normalized.timeline.clips.map((clip) => ({
     ...clip,
     startTime: normalizeRationalTime(clip.startTime),
     durationTime: normalizeRationalTime(clip.durationTime),
+    ...(clip.sourceStartTime ? { sourceStartTime: normalizeRationalTime(clip.sourceStartTime) } : {}),
   }));
   normalized.timeline.storyElements = normalized.timeline.storyElements.map((element) => ({
     ...element,
@@ -1781,6 +1799,23 @@ function assertMarkerReadback(
     && sameRational(candidate.durationTime ?? secondsToRational(candidate.duration), range.duration));
   if (matches.length !== beforeMatches.length + 1) {
     throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: native marker was not uniquely read back at the requested rational position");
+  }
+  const priorIds = new Set(before.timeline.markers.map(({ id }) => id));
+  const added = after.timeline.markers.filter(({ id }) => !priorIds.has(id));
+  if (priorIds.size !== before.timeline.markers.length
+    || new Set(after.timeline.markers.map(({ id }) => id)).size !== after.timeline.markers.length
+    || added.length !== 1 || !matches.includes(added[0]!)) {
+    throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: native marker identity is ambiguous");
+  }
+  const expected = projectCanonicalOperation(before, { type: "add-marker", timelineId: before.timeline.id, marker });
+  expected.timeline.markers = expected.timeline.markers.map((candidate) => candidate.id === marker.id
+    ? { ...candidate, id: added[0]!.id } : candidate);
+  const normalizedExpected = normalizeCanonicalSnapshot(expected);
+  const normalizedAfter = normalizeCanonicalSnapshot(after);
+  normalizedExpected.timeline.markers.sort((left, right) => left.id.localeCompare(right.id));
+  normalizedAfter.timeline.markers.sort((left, right) => left.id.localeCompare(right.id));
+  if (canonicalSnapshotDigest(normalizedAfter) !== canonicalSnapshotDigest(normalizedExpected)) {
+    throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: marker readback differed from the exact canonical projection");
   }
 }
 
