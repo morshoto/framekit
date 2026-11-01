@@ -2258,6 +2258,36 @@ test("dispatch and headed readback require separate confirmations", async () => 
   assert.equal(deliveries, 1);
 });
 
+test("an uncertain dispatch retains its error through verification and restart", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-dispatch-evidence-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const source = '<fcpxml version="1.11"><library><event><project uid="p" name="Separate"><sequence uid="s" name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let attempts = 0;
+  const options = {
+    enabled: true, sourcePath, publishJobsDirectory: join(directory, "jobs"), verificationTimeoutMs: 0, pollIntervalMs: 0,
+    executor: async () => { attempts++; throw new Error("FINAL_CUT_DELIVERY_TIMEOUT: acknowledgment unavailable"); },
+    targetBinding: async () => { throw new Error("FINAL_CUT_PUBLISH_TARGET_PENDING: target unavailable"); },
+    liveState: async () => ({
+      project: { id: "before", name: "Before" },
+      sequence: { id: "before-sequence", name: "Before", startTime: { value: "0", timescale: "1" }, duration: { value: "1", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+      revision: { id: "before", sequence: 1, timestamp: new Date(0).toISOString() },
+    }),
+  };
+  const publisher = createPublisherForTest(options);
+  const job = await publisher.preparePublish({ sourceTransactionId: "txn", artifactPath: sourcePath, artifactDigest: digest(source) });
+  const uncertain = await publisher.executePublishJob(job.jobId, true);
+  assert.equal(uncertain.state, "verification-pending");
+  assert.equal(uncertain.dispatchError?.code, "FINAL_CUT_DELIVERY_TIMEOUT");
+  const verification = await publisher.executePublishJob(job.jobId, true, true);
+  assert.equal(verification.error?.code, "FINAL_CUT_PUBLISH_TARGET_PENDING");
+  assert.equal(verification.dispatchError?.code, "FINAL_CUT_DELIVERY_TIMEOUT");
+  const restarted = createPublisherForTest(options).getPublishJob(job.jobId);
+  assert.equal(restarted.dispatchError?.code, "FINAL_CUT_DELIVERY_TIMEOUT");
+  assert.equal(restarted.error?.code, "FINAL_CUT_PUBLISH_TARGET_PENDING");
+  assert.equal(attempts, 1);
+});
+
 test("direct publish refuses import without explicit readback authorization", async () => {
   let calls = 0;
   const publisher = createPublisherForTest({
