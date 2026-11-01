@@ -737,6 +737,7 @@ export type NativeFinalCutExecutor = (
 export type NativeFinalCutMouseExecutor = (source: string) => Promise<void>;
 
 export interface NativeFinalCutEditor {
+  trackNativeDispatch?<T>(operation: () => Promise<T>, onDispatch: () => void): Promise<T>;
   capabilities(): NativeFinalCutCapabilities;
   inspect(options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;
   focusTimeline(options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;
@@ -804,6 +805,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly mediaImportDiscoveryTimeoutMs: number;
   private readonly mediaImportPollMs: number;
   private readonly requestContext = new AsyncLocalStorage<NativeFinalCutRequestOptions>();
+  private readonly dispatchContext = new AsyncLocalStorage<() => void>();
   private nativeUiDepth = 0;
   private readonly operations = new Map<string, NativeOperationRecord>();
   private latestOperationId?: string;
@@ -1057,6 +1059,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
 
   public async edit(operation: NativeFinalCutEdit, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutEditResult> {
     return this.withNativeUi(() => this.editNative(operation), options.signal);
+  }
+
+  public async trackNativeDispatch<T>(operation: () => Promise<T>, onDispatch: () => void): Promise<T> {
+    return this.dispatchContext.run(onDispatch, operation);
   }
 
   public async trimSelectedClipToRange(
@@ -3458,6 +3464,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
 
   private async executeNativeMouseScript(source: string): Promise<void> {
     if (this.nativeMouseExecutor) {
+      this.dispatchContext.getStore()?.();
       await this.nativeMouseExecutor(source);
       return;
     }
@@ -3488,6 +3495,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         requestSignal.addEventListener("abort", cancelListener, { once: true });
       })
       : undefined;
+    this.dispatchContext.getStore()?.();
     const execution = execFile("swift", ["-e", source], { signal: controller.signal });
     try {
       await Promise.race([execution, timeout, ...(cancellation ? [cancellation] : [])]);
@@ -3538,6 +3546,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         requestSignal.addEventListener("abort", cancelListener, { once: true });
       })
       : undefined;
+    this.dispatchContext.getStore()?.();
     const execution = this.executor(script, { signal: controller.signal });
     try {
       return await Promise.race([execution, timeout, ...(cancellation ? [cancellation] : [])]);

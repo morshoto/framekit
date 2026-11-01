@@ -84,9 +84,12 @@ continues to block sessions that use that directory after a restart. Live-mode
 MCP processes consult the configured state directory even when their canonical
 native provider is disabled. Direct native edits, native jobs, and native publishing routes check for an existing
 checkpoint before dispatch, while status, cancellation, and inspection remain
-available. Those entry checks do not serialize a concurrently starting direct
-native operation with checkpoint creation; the shared exclusion boundary is not
-proven. Restarting or changing state directories does not establish that recovery succeeded. There
+available. Direct `editor.native.edit` and `editor.native.undo` also reserve that checkpoint path while
+its provider call is in progress; an unverified result or a failure after native
+dispatch retains the reservation. A failure before dispatch releases it. Other
+direct operations and background jobs still use entry checks, so shared exclusion
+across all native routes is not proven. Native command acceptance does not prove
+later native quiescence. Restarting or changing state directories does not establish that recovery succeeded. There
 is no automatic checkpoint reset or supported recovery flow yet. The read-only
 `editor.native.recovery.inspect` MCP tool reports a canonical checkpoint or a
 native-operation reservation without inventing a target or baseline digest, in the

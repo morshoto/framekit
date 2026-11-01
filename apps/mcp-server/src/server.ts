@@ -961,7 +961,7 @@ export interface McpServerOptions {
   disposableNative?: Pick<DisposableNativeEditWorkflow, "preview" | "execute" | "undo">;
   nativeOperationSession?: Pick<NativeOperationSession, "submit" | "status" | "retry" | "cancel">;
   projectPublisher?: FinalCutProjectPublisher;
-  canonicalRecovery?: Pick<FileCanonicalRecoveryGuard, "inspectVersioned" | "inspectNativeReservation" | "assertClear">;
+  canonicalRecovery?: Pick<FileCanonicalRecoveryGuard, "inspectVersioned" | "inspectNativeReservation" | "assertClear" | "beginNative">;
   videoExporter?: FinalCutVideoExporter;
   backgroundRenderer?: BackgroundRenderExportProvider;
   buildFingerprint?: FramekitBuildFingerprint;
@@ -1009,7 +1009,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     options = {
       ...options,
       ...(options.nativeEditor
-        ? { nativeEditor: withRecoveryCheckpointGuard(options.nativeEditor, recovery, ["capabilities", "inspect"]) }
+        ? { nativeEditor: withRecoveryCheckpointGuard(options.nativeEditor, recovery, ["capabilities", "inspect"], ["edit", "undo"]) }
         : {}),
       ...(options.disposableNative
         ? { disposableNative: withRecoveryCheckpointGuard(options.disposableNative, recovery) }
@@ -3021,16 +3021,37 @@ async function assertRequiredBuildAlignment(runtime: AgentVideoRuntime, options:
 
 function withRecoveryCheckpointGuard<T extends object>(
   provider: T,
-  recovery: Pick<FileCanonicalRecoveryGuard, "assertClear">,
+  recovery: Pick<FileCanonicalRecoveryGuard, "assertClear" | "beginNative">,
   allowedMethods: readonly PropertyKey[] = [],
+  reservedMethods: readonly PropertyKey[] = [],
 ): T {
   const allowed = new Set(allowedMethods);
+  const reserved = new Set(reservedMethods);
   return new Proxy(provider, {
     get(target, property) {
       const value = Reflect.get(target, property, target) as unknown;
       if (typeof value !== "function") return value;
       if (allowed.has(property)) return value.bind(target);
       return async (...args: unknown[]) => {
+        if (reserved.has(property)) {
+          const reservation = await recovery.beginNative(`native.${String(property).toLowerCase()}`);
+          const track = Reflect.get(target, "trackNativeDispatch", target) as unknown;
+          let dispatched = typeof track !== "function";
+          try {
+            const invoke = async () => Reflect.apply(value, target, args) as Promise<unknown>;
+            const result: unknown = typeof track === "function"
+              ? await Reflect.apply(track, target, [invoke, () => { dispatched = true; }])
+              : await invoke();
+            const verification = (result as { verification?: { verified?: unknown } } | null)?.verification;
+            if (verification?.verified === true && (property !== "undo" || (result as { undone?: unknown }).undone === true)) {
+              await reservation.release();
+            }
+            return result;
+          } catch (error) {
+            if (!dispatched) await reservation.release();
+            throw error;
+          }
+        }
         await recovery.assertClear();
         return Reflect.apply(value, target, args);
       };
