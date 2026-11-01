@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { sanitizeDisposableNativeEvidence } from "./final-cut-evidence.mjs";
+import { readBoundNativeProject } from "./final-cut-bound-native-read.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const execFile = promisify(execFileCallback);
@@ -41,8 +42,9 @@ let operationId;
 
 try {
   await client.connect(transport);
+  const { snapshot: before } = await readBoundNativeProject(callJson, expectedProject, process.env.FRAMEKIT_FINAL_CUT_E2E_SEQUENCE_ID);
   const editor = await callJson("editor.inspect");
-  const toolResults = [{ name: "editor.inspect", status: "passed" }];
+  const toolResults = [{ name: "project.inspect", status: "passed" }, { name: "editor.inspect", status: "passed" }];
   const canonicalMode = editor.capabilities?.editor?.canonicalTimelineMode;
   if (canonicalMode !== "canonical-read" && canonicalMode !== "canonical-write") {
     throw new Error(`CAPABILITY_UNAVAILABLE: live bridge reported ${canonicalMode ?? "unknown"}; canonical live reads are required`);
@@ -51,15 +53,28 @@ try {
     throw new Error("CAPABILITY_UNAVAILABLE: native selection edit and Undo are required");
   }
 
-  const before = await callJson("project.inspect");
-  toolResults.push({ name: "project.inspect", status: "passed" });
-  if (before.projectName !== expectedProject) {
-    throw new Error(`FINAL_CUT_E2E_PROJECT_MISMATCH: expected ${expectedProject}, observed ${before.projectName ?? "unknown"}`);
-  }
   const target = before.timeline?.clips?.find((clip) => clip.id === clipId);
   if (!target) throw new Error(`FINAL_CUT_E2E_CLIP_MISMATCH: ${clipId} is not in the selected timeline`);
   const beforeDigest = canonicalDigest(before);
   const name = `${target.name} [Framekit Disposable E2E]`;
+
+  const focused = await callJson("editor.native.focus");
+  toolResults.push({ name: "editor.native.focus", status: "passed" });
+  if (
+    !focused.available
+    || !focused.frontmost
+    || !focused.timelineWindowAvailable
+    || !focused.timelineFocused
+    || focused.target?.kind !== "selected-clip"
+    || focused.readiness?.targetKind !== "selected-clip"
+    || focused.readiness?.targetBound !== true
+    || !focused.target?.identity
+    || focused.target.projectId !== before.projectId
+    || focused.target.sequenceId !== before.timeline.id
+    || focused.target.revision?.id !== before.revision?.id
+  ) {
+    throw new Error("FINAL_CUT_E2E_TARGET_RESOLUTION_FAILED: headed focus did not resolve a bound selected occurrence");
+  }
 
   const preview = await callJson("editor.native.disposable.preview", {
     clipId,
