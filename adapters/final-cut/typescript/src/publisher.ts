@@ -526,6 +526,7 @@ export class FinalCutProjectPublisher {
         sequenceName: identity.sequenceName,
         confirmationRequired: false,
         ...(runtime.delivery ? { delivery: structuredClone(runtime.delivery) } : {}),
+        ...(!runtime.delivery ? { dispatchError: structuredClone(normalized) } : {}),
         ...(runtime.observedTarget ? { observedTarget: structuredClone(runtime.observedTarget) } : {}),
         handoff: {
           mode: "headed-only",
