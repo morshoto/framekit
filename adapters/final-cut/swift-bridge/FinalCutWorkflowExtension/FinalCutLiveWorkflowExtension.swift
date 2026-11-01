@@ -21,6 +21,10 @@ func unavailableLiveTimeFields(_ fields: [(String, CMTime)]) -> [String] {
     }
 }
 
+func validatedLivePlayhead(_ time: CMTime) -> CMTime? {
+    unavailableLiveTimeFields([("timeline.playheadTime", time)]).isEmpty ? time : nil
+}
+
 private struct BuildFingerprint: Codable {
     let version: String
     let commit: String
@@ -659,7 +663,7 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
         let range = timeline.sequenceTimeRange
         let unavailable = unavailableLiveTimeFields([
             ("sequence.startTime", sequence.startTime), ("sequence.duration", sequence.duration),
-            ("sequence.frameDuration", sequence.frameDuration), ("timeline.playheadTime", playhead),
+            ("sequence.frameDuration", sequence.frameDuration),
             ("timeline.sequenceTimeRange.start", range.start), ("timeline.sequenceTimeRange.duration", range.duration),
         ])
         guard unavailable.isEmpty else {
@@ -680,7 +684,7 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
         let liveSequence = LiveState.Sequence(id: sequenceID, name: sequenceName, startTime: RationalTime(sequence.startTime), duration: RationalTime(sequence.duration), frameDuration: RationalTime(sequence.frameDuration))
         let selectedRange = RationalTimeRange(start: RationalTime(range.start), duration: RationalTime(range.duration))
         let currentRevision = stateLock.withLock { revision }
-        return LiveState(project: project, sequence: liveSequence, playheadTime: RationalTime(playhead), sequenceTimeRange: selectedRange, revision: Revision(id: "rev-\(currentRevision)", sequence: currentRevision, timestamp: ISO8601DateFormatter().string(from: Date())))
+        return LiveState(project: project, sequence: liveSequence, playheadTime: validatedLivePlayhead(playhead).map(RationalTime.init), sequenceTimeRange: selectedRange, revision: Revision(id: "rev-\(currentRevision)", sequence: currentRevision, timestamp: ISO8601DateFormatter().string(from: Date())))
     }
 
     private func stableProject(_ project: FCPXProject) -> LiveState.Project? {
