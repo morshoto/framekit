@@ -82,9 +82,13 @@ changes during it, the checkpoint remains for recovery. The production resolver
 uses nonselecting occurrence discovery, validates the discovered identity and
 sequence, then checks that selection reports the same identity. The current
 Accessibility timeline scan cannot independently observe an occurrence's source
-identity. It does not treat the requested Browser identity as an observation;+native media targeting and canonical source-bound rename, trim, ripple-delete,
-and gain operations remain unavailable until that binding can be proven. If a native edit has an uncertain outcome or
-Undo cannot be verified, the canonical provider blocks further previews and
+identity. It does not treat the requested Browser identity as an observation.
+Native media targeting and canonical source-bound rename, trim, ripple-delete,
+and gain remain unavailable until that binding can be proven. Source-bound
+operations require an explicit source-observation capability and nonselecting
+discovery; capability loss during target preparation prevents the edit. The
+bundled native adapter reports that capability unavailable. If a native edit has
+an uncertain outcome or Undo cannot be verified, the canonical provider blocks further previews and
 edits. Production native sessions create an exclusive checkpoint under the
 configured Framekit state directory before mutation; an unresolved checkpoint
 continues to block sessions that use that directory after a restart. Live-mode

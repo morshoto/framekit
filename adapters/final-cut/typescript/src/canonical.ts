@@ -699,7 +699,7 @@ end tell`;
 
 export function createFinalCutNativeTargetResolver(
   native: Pick<NativeFinalCutEditor, "searchMedia" | "locateOccurrence">
-    & Partial<Pick<NativeFinalCutEditor, "selectOccurrence" | "locateOccurrenceForCanonicalTarget" | "searchMediaForCanonicalTarget" | "trackNativeDispatch">>,
+    & Partial<Pick<NativeFinalCutEditor, "capabilities" | "selectOccurrence" | "locateOccurrenceForCanonicalTarget" | "searchMediaForCanonicalTarget" | "trackNativeDispatch">>,
 ): CanonicalNativeTargetResolver {
   const resolve: CanonicalNativeTargetResolver = async (clip, snapshot) => {
     if (!clip.mediaId) throw new Error(`TARGET_MISMATCH: occurrence ${clip.id} has no media binding`);
@@ -757,8 +757,17 @@ export function createFinalCutNativeTargetResolver(
       throw new Error(`TARGET_MISMATCH: selected native occurrence identity changed for ${clip.id}`);
     }
   };
-  // The current Accessibility scan cannot independently observe an occurrence's source binding.
-  resolve.sourceBindingAvailable = false;
+  // Only an explicit source-observation capability with nonselecting discovery can enable source-bound edits.
+  Object.defineProperty(resolve, "sourceBindingAvailable", {
+    get: () => {
+      try {
+        return Boolean(native.locateOccurrenceForCanonicalTarget
+          && native.capabilities?.().timelineOccurrenceSourceBinding === true);
+      } catch {
+        return false;
+      }
+    },
+  });
   if (native.trackNativeDispatch) resolve.trackNativeDispatch = native.trackNativeDispatch.bind(native);
   return resolve;
 }
@@ -1058,7 +1067,10 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     });
     resolveTimelineTarget(before, timelineTarget);
     assertCanonicalOperationAvailable(this.native, supported);
-    if (targetClip && !this.recoveryGuard) await this.resolveTarget(targetClip, before);
+    if (targetClip && !this.recoveryGuard) {
+      await this.resolveTarget(targetClip, before);
+      assertCanonicalSourceBindingAvailable(this.resolveTarget, supported);
+    }
     const currentLive = await this.live.readLiveState();
     if (!baselineLive.project?.id || !baselineLive.sequence?.id
       || baselineLive.project.id !== before.projectId || baselineLive.sequence.id !== before.timeline.id
@@ -1094,6 +1106,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
           } else {
             await resolve();
           }
+          assertCanonicalSourceBindingAvailable(this.resolveTarget, supported);
           const afterTarget = await this.live.readLiveState();
           if (afterTarget.project?.id !== currentLive.project.id
             || afterTarget.sequence?.id !== currentLive.sequence.id
@@ -1109,6 +1122,13 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
           this.recoveryRequired = true;
           const detail = error instanceof Error ? error.message : String(error);
           throw new Error(`FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: native target preparation outcome is uncertain: ${detail}`, { cause: error });
+        }
+      } else {
+        try {
+          assertCanonicalSourceBindingAvailable(this.resolveTarget, supported);
+        } catch (error) {
+          await this.recoveryGuard.complete();
+          throw error;
         }
       }
     }

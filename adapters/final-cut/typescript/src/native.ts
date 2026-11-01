@@ -589,6 +589,8 @@ export interface NativeFinalCutCapabilities {
   mediaSelection: boolean;
   mediaAppendSelected: boolean;
   timelineOccurrenceLocate: boolean;
+  /** True only when occurrence results independently observe their source identity. */
+  timelineOccurrenceSourceBinding?: boolean;
   bladeAtPlayhead: boolean;
   deleteRange: boolean;
   trimToDuration: boolean;
@@ -908,6 +910,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       mediaSelection: this.enabled,
       mediaAppendSelected: this.enabled,
       timelineOccurrenceLocate: this.enabled,
+      timelineOccurrenceSourceBinding: false,
       bladeAtPlayhead: this.enabled,
       deleteRange: this.enabled,
       trimToDuration: this.enabled,
