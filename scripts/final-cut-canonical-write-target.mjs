@@ -1,5 +1,5 @@
 /** Check the explicitly approved active target before selecting it. */
-export async function selectCanonicalWriteTarget(callJson, expected) {
+export async function selectCanonicalWriteTarget(callJson, expected, expectedRevision) {
   const catalog = await callJson("project.list");
   const projects = catalog.projects?.filter((project) => project.id === expected.projectId) ?? [];
   if (catalog.activeProjectId !== expected.projectId || catalog.activeSequenceId !== expected.sequenceId
@@ -7,10 +7,15 @@ export async function selectCanonicalWriteTarget(callJson, expected) {
     || projects[0].sequences?.filter((sequence) => sequence.id === expected.sequenceId).length !== 1) {
     throw new Error("TARGET_MISMATCH: active catalog differs from the approved target");
   }
+  const initial = await readCanonicalWriteTarget(callJson, expected);
+  if (!expectedRevision || initial.revision?.id !== expectedRevision) {
+    throw new Error("STALE_CONTEXT: initial canonical snapshot differs from the approved revision");
+  }
   const selected = await callJson("project.select", { projectId: expected.projectId, sequenceId: expected.sequenceId });
   if (selected.activeProjectId !== expected.projectId || selected.activeSequenceId !== expected.sequenceId) {
     throw new Error("TARGET_MISMATCH: selection differs from the approved target");
   }
+  return initial;
 }
 
 /** Confirm each headed read against the same approved target. */

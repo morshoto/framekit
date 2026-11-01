@@ -38,6 +38,7 @@ const canonicalSemanticOperationKeys = ["rename-clip", "trim-clip", "add-marker"
 const requiredToolResults = [
   ["editor.inspect", "passed"],
   ["project.list", "passed"],
+  ["project.inspect", "passed"],
   ["project.select", "passed"],
   ["project.inspect", "passed"],
   ["editor.inspect", "passed"],

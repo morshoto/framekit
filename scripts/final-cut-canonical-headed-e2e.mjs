@@ -53,11 +53,13 @@ try {
     || preflight.preflight?.nativeHandoffReadiness?.status !== "ready") {
     throw new Error("FINAL_CUT_E2E_PREFLIGHT_UNAVAILABLE: candidate, loaded extension, or native handoff readiness does not match");
   }
-  await selectCanonicalWriteTarget(callJson, approvedTarget);
-  toolResults.push({ name: "project.list", status: "passed" }, { name: "project.select", status: "passed" });
+  const initial = await selectCanonicalWriteTarget(callJson, approvedTarget, approvedRevision);
+  toolResults.push({ name: "project.list", status: "passed" }, { name: "project.inspect", status: "passed" }, { name: "project.select", status: "passed" });
   const before = await readCanonicalWriteTarget(callJson, approvedTarget);
   toolResults.push({ name: "project.inspect", status: "passed" });
-  if (before.revision?.id !== approvedRevision) throw new Error("STALE_CONTEXT: canonical baseline differs from the approved revision");
+  if (!sameRevision(before.revision, initial.revision) || canonicalDigest(before) !== canonicalDigest(initial)) {
+    throw new Error("STALE_CONTEXT: canonical state changed during target selection");
+  }
   const editor = await callJson("editor.inspect");
   toolResults.push({ name: "editor.inspect", status: "passed" });
   if (editor.capabilities?.editor?.canonicalTimelineMode !== "canonical-write"

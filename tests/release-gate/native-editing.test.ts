@@ -484,7 +484,7 @@ function canonicalRenameEvidence() {
     capabilities: { editor: { canonicalTimelineMode: "canonical-write", semanticOperations: { "rename-clip": true } } },
     sourceMediaIntegrity: { sourceCount: 1, digests: ["c".repeat(64)] },
     toolResults: [
-      ["editor.inspect", "passed"], ["project.list", "passed"], ["project.select", "passed"],
+      ["editor.inspect", "passed"], ["project.list", "passed"], ["project.inspect", "passed"], ["project.select", "passed"],
       ["project.inspect", "passed"], ["editor.inspect", "passed"],
       ["editor.timeline.edit", "rejected-stale-context"], ["project.inspect", "unchanged"],
       ["editor.timeline.edit", "rejected-target-mismatch"], ["project.inspect", "unchanged"],

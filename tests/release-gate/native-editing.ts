@@ -268,7 +268,7 @@ function assertCanonicalRenameEvidence(raw: Record<string, any>): void {
     && source.digests.length === source.sourceCount && source.digests.every((digest: unknown) => typeof digest === "string" && /^[a-f0-9]{64}$/i.test(digest)),
     "source integrity is incomplete");
   const required = [
-    ["editor.inspect", "passed"], ["project.list", "passed"], ["project.select", "passed"],
+    ["editor.inspect", "passed"], ["project.list", "passed"], ["project.inspect", "passed"], ["project.select", "passed"],
     ["project.inspect", "passed"], ["editor.inspect", "passed"],
     ["editor.timeline.edit", "rejected-stale-context"], ["project.inspect", "unchanged"],
     ["editor.timeline.edit", "rejected-target-mismatch"], ["project.inspect", "unchanged"],
