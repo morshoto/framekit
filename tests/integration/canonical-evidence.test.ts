@@ -561,3 +561,23 @@ function snapshot(name: string, revision: { id: string; sequence: number; timest
     revision,
   };
 }
+
+test("canonical evidence rejects fabricated restoration and mismatched target bindings", () => {
+  const environment = {
+    framekitVersion: "0.1.0", finalCutVersion: "10.7.1", gitCommit: "0123456789abcdef0123456789abcdef01234567",
+    nodeVersion: "v22.15.0", platform: "darwin", architecture: "arm64", osVersion: "Darwin",
+  };
+  const cases = [
+    (run: typeof rawRun) => { run.restored.media[0]!.source = "/different/secret-footage.mov"; },
+    (run: typeof rawRun) => { run.after.projectId = "different-project"; },
+    (run: typeof rawRun) => { run.after.timeline.id = "different-sequence"; },
+    (run: typeof rawRun) => { run.after.timeline.clips[0]!.mediaId = "different-media"; },
+    (run: typeof rawRun) => { run.after.media[0]!.source = "/different/secret-footage.mov"; },
+    (run: typeof rawRun) => { run.after.timeline.clips.push(structuredClone(run.after.timeline.clips[0]!)); },
+  ];
+  for (const corrupt of cases) {
+    const run = structuredClone(rawRun);
+    corrupt(run);
+    assert.throws(() => sanitizeCanonicalEvidence(run, environment), /FINAL_CUT_E2E_EVIDENCE_INCOMPLETE/);
+  }
+});
