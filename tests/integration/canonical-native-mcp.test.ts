@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import {
   FinalCutCanonicalNativeProvider,
   FileCanonicalRecoveryGuard,
@@ -22,6 +23,7 @@ import {
 } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
+import { finalCutMcpEnvironment } from "./final-cut-test-env.js";
 
 const identity: EditorIdentity = {
   name: "Final Cut Pro",
@@ -378,6 +380,39 @@ test("MCP recovery preview does not promote a fixture provider", async () => {
   } finally {
     await client.close();
     await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("live MCP observes checkpoints when the canonical provider is disabled", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-live-config-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "canonical-recovery", "pending.json"));
+  const checkpoint = { projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "b".repeat(64), operation: "rename-clip" };
+  await guard.begin(checkpoint);
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: ["--import", "tsx", join(process.cwd(), "apps/mcp-server/src/main.ts")],
+    env: finalCutMcpEnvironment({
+      FRAMEKIT_STATE_DIR: directory,
+      FRAMEKIT_FINAL_CUT_HEADLESS: "1",
+      FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
+      FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER: "",
+      FRAMEKIT_FINAL_CUT_CANONICAL_REQUIRED: "0",
+      FRAMEKIT_FCPXML_PATH: "",
+      FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"),
+    }),
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "recovery-live-config-test", version: "0.1.0" });
+  try {
+    await client.connect(transport);
+    const response = await client.callTool({ name: "editor.native.recovery.inspect", arguments: {} });
+    assert.equal(response.isError ?? false, false, textFrom(response));
+    const result = JSON.parse(textFrom(response));
+    assert.equal(result.status, "recovery-required");
+    assert.deepEqual(result.checkpoint, checkpoint);
+  } finally {
+    await client.close();
     await rm(directory, { recursive: true, force: true });
   }
 });
