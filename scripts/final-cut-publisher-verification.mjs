@@ -1,6 +1,15 @@
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
+export function verifyPublisherPreflight(editor, expectedCommit) {
+  if (!/^[a-f0-9]{40}$/.test(expectedCommit ?? "") || editor?.capabilities?.editor?.artifactPublish !== true
+    || editor.preflight?.fingerprint?.commit !== expectedCommit
+    || editor.preflight?.buildAlignment?.status !== "matched"
+    || editor.preflight?.nativeHandoffReadiness?.status !== "ready") {
+    throw new Error("PUBLISH_PREFLIGHT_UNAVAILABLE: candidate, loaded extension, or native handoff readiness does not match");
+  }
+}
+
 export function verifyAcceptanceFixture(snapshot) {
   const fail = () => { throw new Error("PUBLISH_FIXTURE_MISMATCH: artifact does not contain the independently specified acceptance edit"); };
   const seconds = (time, expected) => {

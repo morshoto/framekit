@@ -1,12 +1,14 @@
 import { basename, isAbsolute } from "node:path";
 import { createHash } from "node:crypto";
+import { execFile as execFileCallback } from "node:child_process";
 import { readFile, stat } from "node:fs/promises";
+import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { FcpxmlDocumentAdapter } from "../adapters/final-cut/typescript/src/fcpxml.ts";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { runPublishStages, verifyAcceptanceFixture, verifyPublishedTarget } from "./final-cut-publisher-verification.mjs";
+import { runPublishStages, verifyAcceptanceFixture, verifyPublishedTarget, verifyPublisherPreflight } from "./final-cut-publisher-verification.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const artifactPath = process.env.FRAMEKIT_FINAL_CUT_E2E_FCPXML_PATH;
@@ -15,6 +17,7 @@ const expectedSequence = process.env.FRAMEKIT_FINAL_CUT_E2E_PUBLISH_SEQUENCE;
 const targetLibraryPath = process.env.FRAMEKIT_FINAL_CUT_E2E_LIBRARY_PATH;
 const approvedDigest = process.env.FRAMEKIT_FINAL_CUT_E2E_APPROVED_DIGEST;
 const executionId = process.env.FRAMEKIT_FINAL_CUT_E2E_EXECUTION_ID;
+const candidateCommit = process.env.FRAMEKIT_FINAL_CUT_E2E_CANDIDATE_COMMIT;
 
 if (process.argv.includes("--help")) {
   process.stdout.write([
@@ -26,6 +29,7 @@ if (process.argv.includes("--help")) {
     "  FRAMEKIT_FINAL_CUT_E2E_LIBRARY_PATH=/absolute/path/to/new-library.fcpbundle",
     "  FRAMEKIT_FINAL_CUT_E2E_APPROVED_DIGEST=sha256-of-approved-artifact",
     "  FRAMEKIT_FINAL_CUT_E2E_EXECUTION_ID=verified-headless-rough-cut-execution-id",
+    "  FRAMEKIT_FINAL_CUT_E2E_CANDIDATE_COMMIT=exact-clean-candidate-commit",
     "  FRAMEKIT_FINAL_CUT_E2E_ALLOW_MUTATION=1 (separate authorization for import and readback)",
     "Optional:",
     "  FRAMEKIT_FINAL_CUT_E2E_PUBLISH_SEQUENCE=exact-imported-sequence-name",
@@ -36,9 +40,13 @@ if (process.argv.includes("--help")) {
   process.exit(0);
 }
 
-if (!artifactPath || !isAbsolute(artifactPath) || !expectedProject || !targetLibraryPath || !isAbsolute(targetLibraryPath) || !targetLibraryPath.endsWith(".fcpbundle") || !executionId || !/^[a-f0-9]{64}$/.test(approvedDigest ?? "") || process.env.FRAMEKIT_FINAL_CUT_E2E_ALLOW_MUTATION !== "1") {
+if (!artifactPath || !isAbsolute(artifactPath) || !expectedProject || !targetLibraryPath || !isAbsolute(targetLibraryPath) || !targetLibraryPath.endsWith(".fcpbundle") || !executionId || !/^[a-f0-9]{40}$/.test(candidateCommit ?? "") || !/^[a-f0-9]{64}$/.test(approvedDigest ?? "") || process.env.FRAMEKIT_FINAL_CUT_E2E_ALLOW_MUTATION !== "1") {
   throw new Error("FINAL_CUT_E2E_AUTHORIZATION_REQUIRED: provide absolute artifact and new library paths, project, verified execution ID, approved SHA-256 and separate mutation authorization");
 }
+const execFile = promisify(execFileCallback);
+const head = (await execFile("git", ["rev-parse", "HEAD"], { cwd: root })).stdout.trim();
+const dirty = (await execFile("git", ["status", "--porcelain"], { cwd: root })).stdout.trim();
+if (head !== candidateCommit || dirty) throw new Error("FINAL_CUT_E2E_CANDIDATE_MISMATCH: checkout must be clean and match the approved candidate");
 try {
   await stat(targetLibraryPath);
   throw new Error("FINAL_CUT_E2E_LIBRARY_EXISTS: destination must be new");
@@ -66,9 +74,7 @@ const client = new Client({ name: "framekit-publisher-headed-e2e", version: "0.1
 try {
   await client.connect(transport);
   const editor = await callJson("editor.inspect");
-  if (editor.capabilities?.editor?.artifactPublish !== true) {
-    throw new Error("CAPABILITY_UNAVAILABLE: artifact publishing is not advertised by the live editor");
-  }
+  verifyPublisherPreflight(editor, candidateCommit);
 
   const artifact = await callJson("artifact.inspect");
   if (artifact.path !== artifactPath || artifact.format !== "fcpxml") {
@@ -104,6 +110,7 @@ try {
   process.stdout.write(`${JSON.stringify({
     passed: true,
     workflow: "fcpxml-publisher",
+    candidateCommit,
     artifact: basename(artifactPath),
     sourceTarget: { kind: result.sourceTarget.kind, artifactPath: basename(result.sourceTarget.artifactPath) },
     createdTarget: result.createdTarget,

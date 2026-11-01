@@ -13,3 +13,4 @@ export declare function verifyPublishedTarget(input: {
   targetLibraryPath?: string;
 }): void;
 export declare function verifyAcceptanceFixture(snapshot: any): void;
+export declare function verifyPublisherPreflight(editor: any, expectedCommit: string): void;
