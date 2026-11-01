@@ -111,7 +111,7 @@ function createRuntime(
       },
     },
     readSnapshot: snapshotReader,
-    resolveTarget: async () => undefined,
+    resolveTarget: Object.assign(async () => undefined, { sourceBindingAvailable: true }),
     backgroundCatalog: {
       backend: "final-cut-background-library",
       listProjects: async () => ({

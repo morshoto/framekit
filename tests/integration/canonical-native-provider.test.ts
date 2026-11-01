@@ -196,7 +196,7 @@ function textFrom(result: unknown): string {
 function providerFor(
   snapshots: Array<ProjectSnapshot | Error>,
   calls: string[],
-  resolveTarget: CanonicalNativeTargetResolver = async () => {},
+  resolveTarget: CanonicalNativeTargetResolver = Object.assign(async () => {}, { sourceBindingAvailable: true }),
   activeState: EditorLiveState = liveState(),
   backgroundCatalog?: FinalCutBackgroundCatalogProvider,
   nativeOverrides: Partial<CanonicalNativeMutationPort> = {},
@@ -501,7 +501,7 @@ test("canonical native provider previews and applies a revision-guarded trim", a
       if (!next) throw new Error("snapshot queue exhausted");
       return structuredClone(next);
       },
-    resolveTarget: async () => undefined,
+    resolveTarget: Object.assign(async () => undefined, { sourceBindingAvailable: true }),
   });
   const before = await provider.readProject();
   const operation = {
@@ -1275,9 +1275,9 @@ test("canonical native provider rejects collateral changes in rename readback", 
 
 test("canonical native provider rejects ambiguous occurrence bindings before edit", async () => {
   const calls: string[] = [];
-  const resolveTarget: CanonicalNativeTargetResolver = async () => {
+  const resolveTarget: CanonicalNativeTargetResolver = Object.assign(async () => {
     throw new Error("AMBIGUOUS_PROJECT_TARGET: occurrence binding is not unique");
-  };
+  }, { sourceBindingAvailable: true });
   const provider = providerFor([snapshot("Original"), snapshot("Original")], calls, resolveTarget);
   const before = await provider.readProject();
 
@@ -1836,9 +1836,9 @@ test("canonical native edit rejects live revision drift during target resolution
       undo: async () => ({ undone: true, verification: { verified: true } }),
     },
     readSnapshot: async () => snapshot("Original"),
-    resolveTarget: async () => {
+    resolveTarget: Object.assign(async () => {
       current = { ...current, revision: { id: "externally-changed", sequence: 2, timestamp: new Date(2).toISOString() } };
-    },
+    }, { sourceBindingAvailable: true }),
   });
   const before = await provider.readProject();
   await assert.rejects(provider.apply({ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "New", baseRevision: before.revision }, before.revision), /STALE|TARGET_MISMATCH/);
@@ -1859,7 +1859,7 @@ test("canonical native edit allows refreshed observation timestamps for the same
       undo: async () => ({ undone: true, verification: { verified: true } }),
     },
     readSnapshot: async () => snapshot(edited ? "New" : "Original"),
-    resolveTarget: async () => {},
+    resolveTarget: Object.assign(async () => {}, { sourceBindingAvailable: true }),
   });
   const before = await provider.readProject();
   await provider.apply({ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "New", baseRevision: before.revision }, before.revision);
@@ -2376,10 +2376,10 @@ test("canonical target preparation is protected by the recovery checkpoint", asy
   let finish!: () => void;
   const started = new Promise<void>((resolve) => { entered = resolve; });
   const held = new Promise<void>((resolve) => { finish = resolve; });
-  const provider = providerFor([snapshot("Original"), snapshot("Original"), snapshot("Renamed")], [], async () => {
+  const provider = providerFor([snapshot("Original"), snapshot("Original"), snapshot("Renamed")], [], Object.assign(async () => {
     entered();
     await held;
-  }, liveState(), undefined, {}, guard);
+  }, { sourceBindingAvailable: true }), liveState(), undefined, {}, guard);
   const before = await provider.readProject();
   const edit = provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision);
   try {
@@ -2400,9 +2400,9 @@ test("uncertain target preparation keeps its checkpoint without dispatching an e
   const directory = await mkdtemp(join(tmpdir(), "framekit-target-preparation-failure-"));
   const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
   const calls: string[] = [];
-  const provider = providerFor([snapshot("Original"), snapshot("Original")], calls, async () => {
+  const provider = providerFor([snapshot("Original"), snapshot("Original")], calls, Object.assign(async () => {
     throw new Error("native selection outcome unknown");
-  }, liveState(), undefined, {}, guard);
+  }, { sourceBindingAvailable: true }), liveState(), undefined, {}, guard);
   try {
     const before = await provider.readProject();
     await assert.rejects(provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
@@ -2418,6 +2418,7 @@ test("target validation that fails before native dispatch releases its checkpoin
   const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
   const calls: string[] = [];
   const resolveTarget = Object.assign(async () => { throw new Error("TARGET_MISMATCH: missing media binding"); }, {
+    sourceBindingAvailable: true,
     trackNativeDispatch: async <T>(operation: () => Promise<T>) => operation(),
   });
   const provider = providerFor([snapshot("Original"), snapshot("Original")], calls, resolveTarget, liveState(), undefined, {}, guard);
@@ -2436,9 +2437,9 @@ test("target preparation revision drift remains blocked before canonical dispatc
   const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
   const calls: string[] = [];
   const active = liveState();
-  const provider = providerFor([snapshot("Original"), snapshot("Original")], calls, async () => {
+  const provider = providerFor([snapshot("Original"), snapshot("Original")], calls, Object.assign(async () => {
     active.revision.id = "changed-during-target-preparation";
-  }, active, undefined, {}, guard);
+  }, { sourceBindingAvailable: true }), active, undefined, {}, guard);
   try {
     const before = await provider.readProject();
     await assert.rejects(provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED.*TARGET_STALE/);
@@ -2561,6 +2562,13 @@ test("source capability limits only source-bound operations when canonical readi
   for (const operation of ["rename-clip", "trim-clip", "ripple-delete", "set-gain"] as const) {
     assert.equal(capabilities.editor.semanticOperations?.[operation], false, operation);
   }
+  delete (resolveTarget as CanonicalNativeTargetResolver).sourceBindingAvailable;
+  const undeclared = await provider.getCapabilities({ probeCanonicalSnapshot: true });
+  assert.equal(undeclared.editor.semanticOperations?.["rename-clip"], false);
+  Object.defineProperty(resolveTarget, "sourceBindingAvailable", { get: () => { throw new Error("provider unavailable"); } });
+  const unavailable = await provider.getCapabilities({ probeCanonicalSnapshot: true });
+  assert.equal(unavailable.editor.semanticOperations?.["rename-clip"], false);
+  assert.equal(unavailable.editor.semanticOperations?.["add-marker"], true);
 });
 
 test("production canonical resolver reports source binding unavailable", () => {
