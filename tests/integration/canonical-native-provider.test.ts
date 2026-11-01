@@ -2305,3 +2305,33 @@ test("MCP canonical session resync requires headed target confirmation", async (
     await rm(sessionDirectory, { recursive: true, force: true });
   }
 });
+
+test("native reservations share the canonical checkpoint and survive lost owners", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-native-reservation-"));
+  try {
+    const path = join(directory, "pending.json");
+    const direct = new FileCanonicalRecoveryGuard(path);
+    const other = new FileCanonicalRecoveryGuard(path);
+    const checkpoint = { projectId: "project-1", sequenceId: "sequence-1", baseRevision: "rev-1", beforeDigest: "a".repeat(64), operation: "rename-clip" };
+    const reservation = await direct.beginNative("editor.native.edit");
+    const evidence = await other.inspectNativeReservation();
+    assert.equal(evidence?.operation, "editor.native.edit");
+    assert.match(evidence!.reservationId, /^[a-f0-9]{64}$/);
+    await assert.rejects(other.begin(checkpoint), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await assert.rejects(other.beginNative("editor.native.undo"), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await assert.rejects(other.complete(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await reservation.release();
+    await other.begin(checkpoint);
+    await assert.rejects(direct.beginNative("editor.native.edit"), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await other.complete();
+    await direct.beginNative("editor.native.edit");
+    const restarted = new FileCanonicalRecoveryGuard(path);
+    assert.equal((await restarted.inspectNativeReservation())?.operation, "editor.native.edit");
+    await assert.rejects(restarted.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    const record = JSON.parse(await readFile(path, "utf8"));
+    await writeFile(path, JSON.stringify({ ...record, operation: "../unsafe" }));
+    await assert.rejects(restarted.inspectNativeReservation(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
