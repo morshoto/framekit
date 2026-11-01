@@ -157,6 +157,186 @@ test('JavaScript CodeQL uploads without waiting on remote processing', async () 
 	);
 });
 
+test('CodeQL policy accepts a current JavaScript scan when Swift is unchanged', async () => {
+	const { evaluateCodeQLPolicy } = await import(
+		new URL('../../.github/codeql/verify-policy.mjs', import.meta.url).href
+	) as {
+		evaluateCodeQLPolicy: (input: {
+			workflowHeadSha: string;
+			pullRequestHeadSha: string;
+			mergeSha: string;
+			swiftRequired: boolean;
+			analyses: Array<Record<string, unknown>>;
+			pullRequestAlerts: Array<Record<string, unknown>>;
+			baseAlerts: Array<Record<string, unknown>>;
+		}) => { pass: boolean; reasons: string[] };
+	};
+	const result = evaluateCodeQLPolicy({
+		workflowHeadSha: 'head-sha',
+		pullRequestHeadSha: 'head-sha',
+		mergeSha: 'merge-sha',
+		swiftRequired: false,
+		analyses: [{
+			ref: 'refs/pull/7/merge',
+			commit_sha: 'merge-sha',
+			category: '/language:javascript-typescript',
+			error: '',
+			rules_count: 87,
+			tool: { name: 'CodeQL' },
+		}],
+		pullRequestAlerts: [],
+		baseAlerts: [],
+	});
+
+	assert.deepEqual(result, { pass: true, reasons: [] });
+});
+
+test('CodeQL policy requires current successful analysis for every affected language', async () => {
+	const { evaluateCodeQLPolicy } = await import(
+		new URL('../../.github/codeql/verify-policy.mjs', import.meta.url).href
+	) as {
+		evaluateCodeQLPolicy: (input: {
+			workflowHeadSha: string;
+			pullRequestHeadSha: string;
+			mergeSha: string;
+			swiftRequired: boolean;
+			analyses: Array<Record<string, unknown>>;
+			pullRequestAlerts: Array<Record<string, unknown>>;
+			baseAlerts: Array<Record<string, unknown>>;
+		}) => { pass: boolean; reasons: string[] };
+	};
+	const javascript = {
+		ref: 'refs/pull/7/merge',
+		commit_sha: 'merge-sha',
+		category: '/language:javascript-typescript',
+		error: '',
+		rules_count: 87,
+		tool: { name: 'CodeQL' },
+	};
+	const swift = {
+		ref: 'refs/pull/7/merge',
+		commit_sha: 'merge-sha',
+		category: '/language:swift',
+		error: '',
+		rules_count: 73,
+		tool: { name: 'CodeQL' },
+	};
+	const result = evaluateCodeQLPolicy({
+		workflowHeadSha: 'head-sha',
+		pullRequestHeadSha: 'head-sha',
+		mergeSha: 'merge-sha',
+		swiftRequired: true,
+		analyses: [javascript],
+		pullRequestAlerts: [],
+		baseAlerts: [],
+	});
+
+	assert.equal(result.pass, false);
+	assert.match(result.reasons.join('\n'), /swift/i);
+	assert.deepEqual(evaluateCodeQLPolicy({
+		workflowHeadSha: 'head-sha',
+		pullRequestHeadSha: 'head-sha',
+		mergeSha: 'merge-sha',
+		swiftRequired: true,
+		analyses: [javascript, swift],
+		pullRequestAlerts: [],
+		baseAlerts: [],
+	}), { pass: true, reasons: [] });
+});
+
+test('CodeQL policy rejects stale scans and newly introduced blocking alerts', async () => {
+	const { evaluateCodeQLPolicy } = await import(
+		new URL('../../.github/codeql/verify-policy.mjs', import.meta.url).href
+	) as {
+		evaluateCodeQLPolicy: (input: {
+			workflowHeadSha: string;
+			pullRequestHeadSha: string;
+			mergeSha: string;
+			swiftRequired: boolean;
+			analyses: Array<Record<string, unknown>>;
+			pullRequestAlerts: Array<Record<string, unknown>>;
+			baseAlerts: Array<Record<string, unknown>>;
+		}) => { pass: boolean; reasons: string[] };
+	};
+	const javascript = {
+		ref: 'refs/pull/7/merge',
+		commit_sha: 'old-merge-sha',
+		category: '/language:javascript-typescript',
+		error: '',
+		rules_count: 87,
+		tool: { name: 'CodeQL' },
+	};
+	const stale = evaluateCodeQLPolicy({
+		workflowHeadSha: 'old-head-sha',
+		pullRequestHeadSha: 'head-sha',
+		mergeSha: 'merge-sha',
+		swiftRequired: false,
+		analyses: [javascript],
+		pullRequestAlerts: [],
+		baseAlerts: [],
+	});
+	assert.equal(stale.pass, false);
+	assert.match(stale.reasons.join('\n'), /head|current/i);
+
+	const newHighAlert = evaluateCodeQLPolicy({
+		workflowHeadSha: 'head-sha',
+		pullRequestHeadSha: 'head-sha',
+		mergeSha: 'merge-sha',
+		swiftRequired: false,
+		analyses: [{ ...javascript, commit_sha: 'merge-sha' }],
+		pullRequestAlerts: [{
+			number: 9,
+			state: 'open',
+			rule: { severity: 'warning', security_severity_level: 'high' },
+		}],
+		baseAlerts: [],
+	});
+	assert.equal(newHighAlert.pass, false);
+	assert.match(newHighAlert.reasons.join('\n'), /alert/i);
+});
+
+test('CodeQL policy ignores inherited alerts below current thresholds', async () => {
+	const { evaluateCodeQLPolicy } = await import(
+		new URL('../../.github/codeql/verify-policy.mjs', import.meta.url).href
+	) as {
+		evaluateCodeQLPolicy: (input: {
+			workflowHeadSha: string;
+			pullRequestHeadSha: string;
+			mergeSha: string;
+			swiftRequired: boolean;
+			analyses: Array<Record<string, unknown>>;
+			pullRequestAlerts: Array<Record<string, unknown>>;
+			baseAlerts: Array<Record<string, unknown>>;
+		}) => { pass: boolean; reasons: string[] };
+	};
+	const result = evaluateCodeQLPolicy({
+		workflowHeadSha: 'head-sha',
+		pullRequestHeadSha: 'head-sha',
+		mergeSha: 'merge-sha',
+		swiftRequired: false,
+		analyses: [{
+			ref: 'refs/pull/7/merge',
+			commit_sha: 'merge-sha',
+			category: '/language:javascript-typescript',
+			error: '',
+			rules_count: 87,
+			tool: { name: 'CodeQL' },
+		}],
+		pullRequestAlerts: [{
+			number: 11,
+			state: 'open',
+			rule: { severity: 'warning', security_severity_level: 'medium' },
+		}],
+		baseAlerts: [{
+			number: 11,
+			state: 'open',
+			rule: { severity: 'warning', security_severity_level: 'medium' },
+		}],
+	});
+
+	assert.deepEqual(result, { pass: true, reasons: [] });
+});
+
 test('Swift CodeQL extraction uses the checked-in shim only', async () => {
 	const workflow = await readRepositoryFile('.github/workflows/codeql.yml');
 	const project = await readRepositoryFile(
