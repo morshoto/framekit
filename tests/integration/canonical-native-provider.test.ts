@@ -2933,3 +2933,68 @@ test("MCP canonical verification failure restores or retains recovery checkpoint
     }
   }
 });
+
+test("MCP canonical operations verify exact semantics and restore after failures", async () => {
+  const trimBefore = snapshot("Original");
+  const trimAfter = structuredClone(trimBefore);
+  trimAfter.timeline.duration = 3;
+  trimAfter.timeline.durationTime = { value: "72", timescale: "24" };
+  trimAfter.timeline.clips[0] = { ...trimAfter.timeline.clips[0]!, duration: 3, durationTime: { value: "72", timescale: "24" } };
+  trimAfter.timeline.storyElements[0] = { ...trimAfter.timeline.storyElements[0]!, duration: 3, durationTime: { value: "72", timescale: "24" } };
+  const marker = markerSnapshots();
+  const ripple = rippleSnapshots();
+  const gain = gainSnapshots();
+  const cases = [
+    { label: "trim-clip", before: trimBefore, after: trimAfter, operation: { type: "trim-clip", clipId: trimBefore.timeline.clips[0]!.id, duration: 3, durationTime: { value: "72", timescale: "24" } } },
+    { label: "add-marker", before: marker.before, after: marker.after, operation: { type: "add-marker", timelineId: marker.before.timeline.id, marker: marker.after.timeline.markers[0] } },
+    { label: "ripple-delete", before: ripple.before, after: ripple.after, operation: { type: "ripple-delete", timelineId: ripple.before.timeline.id, range: { start: 2, end: 4, startTime: { value: "48", timescale: "24" }, durationTime: { value: "48", timescale: "24" } }, candidateId: "filler-1", reason: "remove verified filler" } },
+    { label: "set-gain", before: gain.before, after: gain.after, operation: { type: "set-gain", clipId: gain.before.timeline.clips[0]!.id, gainDb: 3 } },
+  ];
+  for (const scenario of cases) for (const verificationFails of [false, true]) {
+    const directory = await mkdtemp(join(tmpdir(), "framekit-canonical-mcp-matrix-"));
+    const guard = new FileCanonicalRecoveryGuard(join(directory, "recovery.json"));
+    const active = liveState();
+    let current = structuredClone(scenario.before);
+    const calls: string[] = [];
+    const mutate = async () => { calls.push(scenario.label); current = structuredClone(scenario.after); return { operationId: "native-1", undoAvailable: true }; };
+    const provider = new FinalCutCanonicalNativeProvider({
+      live: { ...liveWithoutBackgroundCatalog(), readLiveState: async () => structuredClone(active), getCapabilities: async () => ({ editor: { projectSelection: true, projectSelectionMode: "headed-only" } }) as never, selectProject: async () => { throw new Error("selection is not needed in this test"); } },
+      native: { renameSelectedClip: mutate, trimSelectedClipToRange: mutate, addMarkerAtTime: mutate, rippleDeleteRange: mutate, setSelectedClipGain: mutate, undo: async () => { calls.push("undo"); current = structuredClone(scenario.before); return { undone: true, verification: { verified: true } }; } },
+      readSnapshot: async () => structuredClone(current),
+      resolveTarget: Object.assign(async () => {}, { sourceBindingAvailable: true }),
+      backgroundCatalog: { listProjects: async () => ({ projects: [{ id: active.project!.id, name: active.project!.name, sequences: [{ id: active.sequence!.id, name: active.sequence!.name }] }], activeProjectId: active.project!.id, activeSequenceId: active.sequence!.id }) },
+      recoveryGuard: guard,
+    });
+    const runtime = new Runtime(new FinalCutSessionAdapter({ live: provider }), verificationFails ? { verificationEngine: { verify: async () => ({ passed: false, checks: [{ name: "fixture-failure", passed: false, detail: "simulated verification failure" }] }) } } : {});
+    const server = createMcpServer(runtime, { processMode: "headed", canonicalRecovery: guard });
+    const client = new Client({ name: "canonical-mcp-matrix", version: "1" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const call = async (name: string, arguments_: Record<string, unknown>) => {
+      const response = await client.callTool({ name, arguments: arguments_ });
+      assert.equal(response.isError ?? false, false, `${scenario.label} ${name}: ${textFrom(response)}`);
+      return JSON.parse(textFrom(response));
+    };
+    try {
+      await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+      const before = await runtime.inspectProject();
+      const beforeDigest = canonicalSnapshotDigest(before);
+      const preview = await call("editor.timeline.edit.preview", { projectId: before.projectId, sequenceId: before.timeline.id, baseRevision: before.revision, operations: [scenario.operation], path: "headed" });
+      assert.equal(canonicalSnapshotDigest(await runtime.inspectProject()), beforeDigest, scenario.label);
+      assert.deepEqual(calls, []);
+      const transaction = await call("editor.timeline.edit.execute", { previewToken: preview.previewToken, path: "headed" });
+      assert.equal(transaction.status, verificationFails ? "ROLLED_BACK" : "VERIFIED", `${scenario.label}: ${JSON.stringify(transaction.verification)}`);
+      assert.equal(canonicalSnapshotDigest(transaction.attemptedAfter), canonicalSnapshotDigest(scenario.after), scenario.label);
+      if (!verificationFails) {
+        assert.ok(transaction.after.revision.sequence > before.revision.sequence, scenario.label);
+        await call("edit.undo", { transactionId: transaction.id });
+      }
+      assert.equal(canonicalSnapshotDigest(await runtime.inspectProject()), beforeDigest, scenario.label);
+      assert.deepEqual(calls, [scenario.label, "undo"]);
+      await guard.assertClear();
+    } finally {
+      await client.close();
+      await server.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+});
