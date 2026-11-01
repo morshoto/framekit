@@ -112,3 +112,18 @@ test("publisher headed E2E rejects mismatched semantic readback", () => {
     sourceSequence: "Main",
   }), /FINAL_CUT_E2E_PUBLISH_SEMANTIC_READBACK_FAILED/);
 });
+
+test("publisher headed E2E rejects incomplete semantic coverage", () => {
+  assert.throws(() => verifyPublishedTarget({
+    result: {
+      verified: true,
+      semanticReadback: { verified: true, expectedDigest: "a".repeat(64), observedDigest: "a".repeat(64), checked: ["clip-order-and-source-ranges"] },
+      sourceMediaIntegrity: { unchanged: true, digests: [] },
+      createdTarget: { projectName: "Imported", sequenceName: "Main", projectId: "project", sequenceId: "sequence" },
+      activeProject: { before: { id: "before" }, after: { id: "project" } },
+    },
+    beforeLive: { project: { id: "before" }, sequence: { id: "before-sequence" } },
+    afterLive: { project: { id: "project" }, sequence: { id: "sequence" } },
+    expectedProject: "Imported", expectedSequence: "Main", sourceSequence: "Main",
+  }), /PUBLISH_SEMANTIC_COVERAGE_INCOMPLETE/);
+});
