@@ -1341,6 +1341,15 @@
       "requires": []
     },
     {
+      "path": "tests/integration/skill-tool-metadata.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
       "path": "tests/integration/staged-content.test.ts",
       "owner": "shared",
       "tags": [

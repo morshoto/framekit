@@ -1,22 +1,20 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod/v3";
 import type { AgentVideoRuntime, SkillPreview } from "@framekit/runtime";
+import { SKILL_TOOL_METADATA, skillRevisionValueSchema, type SkillToolMetadata, type SkillToolName } from "./metadata.js";
 
 /** Runtime capability and availability resolution stays behind this injected port. */
 export type SkillToolsRuntime = Pick<AgentVideoRuntime,
   "listSkillAvailability" | "inspectSkillAvailability" | "previewSkill" | "executeSkill"
 >;
 
-const revisionValueSchema = z.object({
-  id: z.string(),
-  sequence: z.number().int().nonnegative(),
-  timestamp: z.string(),
-});
+const metadataByName = new Map(SKILL_TOOL_METADATA.map((metadata) => [metadata.name, metadata]));
 
 export function registerSkillTools(server: McpServer, runtime: SkillToolsRuntime): void {
-  server.registerTool("skill.list", {
-    description: "List registered versioned Framekit Skills with current capability availability.",
-    inputSchema: {},
+  const list = toolMetadata("skill.list");
+  server.registerTool(list.name, {
+    description: list.description,
+    inputSchema: list.inputSchema,
   }, async () => {
     try {
       return jsonResult((await runtime.listSkillAvailability()).map(({ manifest, availability }) => ({
@@ -28,9 +26,10 @@ export function registerSkillTools(server: McpServer, runtime: SkillToolsRuntime
     }
   });
 
-  server.registerTool("skill.inspect", {
-    description: "Inspect one registered Framekit Skill version and its current capability availability.",
-    inputSchema: { skill: z.string().min(1), version: z.string().min(1).optional() },
+  const inspect = toolMetadata("skill.inspect");
+  server.registerTool(inspect.name, {
+    description: inspect.description,
+    inputSchema: inspect.inputSchema,
   }, async ({ skill, version }) => {
     try {
       const { manifest, availability } = await runtime.inspectSkillAvailability(skill, version);
@@ -40,16 +39,13 @@ export function registerSkillTools(server: McpServer, runtime: SkillToolsRuntime
     }
   });
 
-  server.registerTool("skill.preview", {
-    description: "Validate and preview a registered Skill without mutating the editor.",
-    inputSchema: {
-      skill: z.string().min(1),
-      version: z.string().min(1).optional(),
-      arguments: z.record(z.unknown()),
-    },
+  const preview = toolMetadata("skill.preview");
+  server.registerTool(preview.name, {
+    description: preview.description,
+    inputSchema: preview.inputSchema,
   }, async ({ skill, version, arguments: skillArguments }) => {
     try {
-      const baseRevision = revisionValueSchema.parse(skillArguments.baseRevision);
+      const baseRevision = skillRevisionValueSchema.parse(skillArguments.baseRevision);
       const { baseRevision: _baseRevision, ...input } = skillArguments;
       return skillPreviewResult(await runtime.previewSkill({
         skillId: skill,
@@ -62,11 +58,10 @@ export function registerSkillTools(server: McpServer, runtime: SkillToolsRuntime
     }
   });
 
-  server.registerTool("skill.execute", {
-    description: "Execute only a runtime-issued Skill preview token and return verification/rollback evidence.",
-    inputSchema: {
-      previewToken: z.string().min(1),
-    },
+  const execute = toolMetadata("skill.execute");
+  server.registerTool(execute.name, {
+    description: execute.description,
+    inputSchema: execute.inputSchema,
   }, async ({ previewToken }) => {
     try {
       return jsonResult(await runtime.executeSkill(previewToken));
@@ -74,6 +69,12 @@ export function registerSkillTools(server: McpServer, runtime: SkillToolsRuntime
       return skillErrorResult(error);
     }
   });
+}
+
+function toolMetadata(name: SkillToolName): SkillToolMetadata {
+  const metadata = metadataByName.get(name);
+  if (!metadata) throw new Error(`SKILL_TOOL_METADATA_MISSING: ${name}`);
+  return metadata;
 }
 
 function jsonResult(value: unknown) {
