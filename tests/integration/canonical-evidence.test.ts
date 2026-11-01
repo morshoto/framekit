@@ -3,7 +3,8 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { join } from "node:path";
 import { buildFinalCutCanonicalExportScript } from "../../adapters/final-cut/typescript/src/canonical.js";
-import { sanitizeCanonicalEvidence, sanitizeCanonicalReadEvidence } from "../../scripts/final-cut-evidence.mjs";
+import { canonicalSnapshotDigest } from "../../packages/runtime/src/timeline/snapshot-digest.js";
+import { canonicalEvidenceDigest, sanitizeCanonicalEvidence, sanitizeCanonicalReadEvidence } from "../../scripts/final-cut-evidence.mjs";
 
 test("canonical export resolves the Final Cut save field by stable accessibility id", () => {
   const script = buildFinalCutCanonicalExportScript("/tmp/framekit/active.fcpxml");
@@ -51,6 +52,7 @@ test("canonical headed read runner publishes a read-only sanitized evidence cont
 });
 
 test("canonical headed evidence keeps mutation proof while omitting private snapshot data", () => {
+  assert.equal(canonicalEvidenceDigest(rawRun.before), canonicalSnapshotDigest(rawRun.before as never));
   const evidence = sanitizeCanonicalEvidence(rawRun, {
     framekitVersion: "0.1.0",
     finalCutVersion: "10.7.1",
@@ -144,8 +146,8 @@ test("canonical headed evidence keeps mutation proof while omitting private snap
       operation: "edit.undo",
       status: "VERIFIED",
       restored: true,
-      beforeDigest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-      restoredDigest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      beforeDigest: canonicalEvidenceDigest(rawRun.before),
+      restoredDigest: canonicalEvidenceDigest(rawRun.restored),
       restoredRevision: { id: "rev-12", sequence: 12, timestamp: "2026-08-26T10:00:03.000Z" },
     },
     sanitization: {
@@ -450,8 +452,8 @@ const rawRun = {
   },
   restored: snapshot("Interview", baseRevision("rev-12", 12, "2026-08-26T10:00:03.000Z")),
   digests: {
-    before: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-    restored: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    before: canonicalEvidenceDigest(snapshot("Interview", baseRevision("rev-10", 10, "2026-08-26T10:00:01.000Z"))),
+    restored: canonicalEvidenceDigest(snapshot("Interview", baseRevision("rev-12", 12, "2026-08-26T10:00:03.000Z"))),
   },
   transactionId: "transaction-secret",
 };
@@ -580,4 +582,21 @@ test("canonical evidence rejects fabricated restoration and mismatched target bi
     corrupt(run);
     assert.throws(() => sanitizeCanonicalEvidence(run, environment), /FINAL_CUT_E2E_EVIDENCE_INCOMPLETE/);
   }
+});
+
+test("canonical evidence rejects collateral edits and accepts equivalent rational time", () => {
+  const environment = {
+    framekitVersion: "0.1.0", finalCutVersion: "10.7.1", gitCommit: "0123456789abcdef0123456789abcdef01234567",
+    nodeVersion: "v22.15.0", platform: "darwin", architecture: "arm64", osVersion: "Darwin",
+  };
+  const equivalent = structuredClone(rawRun);
+  equivalent.after.timeline.clips[0]!.durationTime = { value: "60", timescale: "2" };
+  assert.doesNotThrow(() => sanitizeCanonicalEvidence(equivalent, environment));
+  const trimmed = structuredClone(rawRun);
+  trimmed.after.timeline.clips[0]!.duration = 29;
+  trimmed.after.timeline.clips[0]!.durationTime = { value: "29", timescale: "1" };
+  assert.throws(() => sanitizeCanonicalEvidence(trimmed, environment), /FINAL_CUT_E2E_EVIDENCE_INCOMPLETE.*collateral/i);
+  const extraMarker = structuredClone(rawRun);
+  (extraMarker.after.timeline.markers as unknown[]).push({ id: "unexpected", start: 1, duration: 0, name: "unexpected" });
+  assert.throws(() => sanitizeCanonicalEvidence(extraMarker, environment), /FINAL_CUT_E2E_EVIDENCE_INCOMPLETE.*collateral/i);
 });
