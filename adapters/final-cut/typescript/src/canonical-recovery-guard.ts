@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, mkdir, open, readFile, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { CanonicalRecoveryGuard } from "./canonical.js";
+import type { CanonicalRecoveryCheckpoint, CanonicalRecoveryGuard } from "./canonical.js";
 
 /** A durable, exclusive checkpoint; unresolved checkpoints are never cleared automatically. */
 export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
@@ -21,7 +21,7 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
   }
 
   /** Return evidence only; inspection never clears or claims recovery. */
-  public async inspect(): Promise<{ projectId: string; sequenceId: string; baseRevision: string; beforeDigest: string; operation: string } | undefined> {
+  public async inspect(): Promise<CanonicalRecoveryCheckpoint | undefined> {
     let handle;
     try {
       handle = await open(this.path, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -34,15 +34,17 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
         throw new Error("invalid checkpoint record");
       }
       const checkpoint = record.checkpoint as Record<string, unknown>;
-      const { projectId, sequenceId, baseRevision, beforeDigest, operation } = checkpoint;
+      const { projectId, sequenceId, baseRevision, beforeDigest, operation, expectedRestoreDigest } = checkpoint;
       if (typeof projectId !== "string" || !projectId.trim()
         || typeof sequenceId !== "string" || !sequenceId.trim()
         || typeof baseRevision !== "string" || !baseRevision.trim()
         || typeof beforeDigest !== "string" || !/^[a-f0-9]{64}$/i.test(beforeDigest)
-        || typeof operation !== "string" || !["rename-clip", "trim-clip", "add-marker", "ripple-delete", "set-gain", "undo"].includes(operation)) {
+        || typeof operation !== "string" || !["rename-clip", "trim-clip", "add-marker", "ripple-delete", "set-gain", "undo"].includes(operation)
+        || (expectedRestoreDigest !== undefined && (typeof expectedRestoreDigest !== "string" || !/^[a-f0-9]{64}$/i.test(expectedRestoreDigest)))) {
         throw new Error("incomplete checkpoint evidence");
       }
-      return { projectId, sequenceId, baseRevision, beforeDigest, operation };
+      return { projectId, sequenceId, baseRevision, beforeDigest, operation,
+        ...(typeof expectedRestoreDigest === "string" ? { expectedRestoreDigest } : {}) };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
       throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot inspect recovery evidence", { cause: error });
@@ -51,7 +53,7 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
     }
   }
 
-  public async begin(checkpoint: { projectId: string; sequenceId: string; baseRevision: string; beforeDigest: string; operation: string }): Promise<void> {
+  public async begin(checkpoint: CanonicalRecoveryCheckpoint): Promise<void> {
     await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
     let handle;
     try {

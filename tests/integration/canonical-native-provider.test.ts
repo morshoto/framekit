@@ -922,7 +922,7 @@ test("recovery checkpoint inspection reports the bound evidence and rejects corr
     const owner = new FileCanonicalRecoveryGuard(path);
     const observer = new FileCanonicalRecoveryGuard(path);
     assert.equal(await observer.inspect(), undefined);
-    const checkpoint = { projectId: "project-1", sequenceId: "sequence-1", baseRevision: "rev-1", beforeDigest: "a".repeat(64), operation: "rename-clip" };
+    const checkpoint = { projectId: "project-1", sequenceId: "sequence-1", baseRevision: "rev-1", beforeDigest: "a".repeat(64), operation: "undo", expectedRestoreDigest: "b".repeat(64) };
     await owner.begin(checkpoint);
     assert.deepEqual(await observer.inspect(), checkpoint);
     await writeFile(path, JSON.stringify({ version: 1, owner: "invalid", checkpoint: { ...checkpoint, beforeDigest: "invalid" } }));

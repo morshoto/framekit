@@ -84,7 +84,8 @@ is no automatic checkpoint reset or supported recovery flow yet. The read-only
 `editor.native.recovery.inspect` MCP tool reports the checkpoint in the
 configured state directory without contacting Final Cut or clearing it; a
 clear result is point-in-time and does not establish recovery or the state of
-other directories. Canonical
+other directories. An Undo checkpoint also records the digest of the state it
+was intended to restore. Canonical
 revision tokens are scoped to the provider session and change when the live revision changes. Where live project
 selection is supported, subsequent canonical reads remain bound to the selected
 project and sequence until an explicit new selection succeeds. Passive MCP

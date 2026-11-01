@@ -68,9 +68,18 @@ export interface FinalCutBackgroundCatalogProvider {
   backend?: string;
 }
 
+export interface CanonicalRecoveryCheckpoint {
+  projectId: string;
+  sequenceId: string;
+  baseRevision: string;
+  beforeDigest: string;
+  operation: string;
+  expectedRestoreDigest?: string;
+}
+
 export interface CanonicalRecoveryGuard {
   assertClear(): Promise<void>;
-  begin(checkpoint: { projectId: string; sequenceId: string; baseRevision: string; beforeDigest: string; operation: string }): Promise<void>;
+  begin(checkpoint: CanonicalRecoveryCheckpoint): Promise<void>;
   complete(): Promise<void>;
 }
 
@@ -1199,7 +1208,8 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
       }
       await this.recoveryGuard.begin({
         projectId: current.projectId, sequenceId: current.timeline.id,
-        baseRevision: current.revision.id, beforeDigest: canonicalSnapshotDigest(current), operation: "undo",
+        baseRevision: current.revision.id, beforeDigest: canonicalSnapshotDigest(current),
+        operation: "undo", expectedRestoreDigest: pending.beforeDigest,
       });
       try {
         const afterCheckpoint = await this.live.readLiveState();
