@@ -1,6 +1,11 @@
 import type { EditTransaction } from "../domain/editing.js";
 
-export class TransactionStore {
+export interface TransactionStore {
+  set(transaction: EditTransaction): void;
+  get(transactionId: string): EditTransaction;
+}
+
+export class InMemoryTransactionStore implements TransactionStore {
   private readonly transactions = new Map<string, EditTransaction>();
 
   public set(transaction: EditTransaction): void {
