@@ -200,7 +200,7 @@ function providerFor(
   activeState: EditorLiveState = liveState(),
   backgroundCatalog?: FinalCutBackgroundCatalogProvider,
   nativeOverrides: Partial<CanonicalNativeMutationPort> = {},
-  recoveryGuard?: { assertClear(): Promise<void>; begin(checkpoint: { projectId: string; sequenceId: string; baseRevision: string; beforeDigest: string; operation: string }): Promise<void>; complete(): Promise<void> },
+  recoveryGuard?: { assertClear(): Promise<void>; begin(checkpoint: { projectId: string; sequenceId: string; baseRevision: string; beforeDigest: string; operation: string; expectedRestoreDigest?: string }): Promise<void>; complete(): Promise<void> },
 ) {
   const native = {
     renameSelectedClip: async () => {
@@ -990,6 +990,25 @@ test("target drift during Undo checkpoint acquisition prevents native Undo", asy
   const revision = await provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision);
   await assert.rejects(provider.restore(before, revision), /FINAL_CUT_CANONICAL_TARGET_STALE/);
   assert.deepEqual(calls, ["edit", "checkpoint-cleared", "checkpoint-cleared"]);
+});
+
+test("Undo checkpoint retains the intended restoration digest", async () => {
+  const original = snapshot("Original");
+  const renamed = snapshot("Renamed");
+  const calls: string[] = [];
+  const checkpoints: Array<{ beforeDigest: string; operation: string; expectedRestoreDigest?: string }> = [];
+  const guard = {
+    assertClear: async () => {},
+    begin: async (checkpoint: { beforeDigest: string; operation: string; expectedRestoreDigest?: string }) => { checkpoints.push(checkpoint); },
+    complete: async () => {},
+  };
+  const provider = providerFor([original, original, renamed, renamed, original], calls, undefined, liveState(), undefined, {}, guard);
+  const before = await provider.readProject();
+  const revision = await provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision);
+  await provider.restore(before, revision);
+  assert.equal(checkpoints[1]?.operation, "undo");
+  assert.equal(checkpoints[1]?.beforeDigest, canonicalSnapshotDigest(renamed));
+  assert.equal(checkpoints[1]?.expectedRestoreDigest, canonicalSnapshotDigest(before));
 });
 
 test("verified canonical edit clears its checkpoint", async () => {
