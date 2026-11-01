@@ -962,3 +962,43 @@ test("disposable routes retain unverified outcomes but release pre-dispatch fail
     }
   }
 });
+
+test("native timeline command routes hold the shared checkpoint until verification", async () => {
+  const commands = [
+    ["editor.native.blade.execute", "executeBlade"],
+    ["editor.native.mask.execute", "executeMask"],
+    ["editor.native.title.add.execute", "executeTitleAdd"],
+    ["editor.native.transition.add.execute", "executeTransitionAdd"],
+    ["editor.native.media.append.execute", "executeAppendMedia"],
+    ["editor.native.media.append.selected.execute", "executeAppendSelectedMedia"],
+    ["editor.native.media.insert.execute", "executeInsertMedia"],
+    ["editor.native.delete-range.execute", "executeDeleteRange"],
+    ["editor.native.trim-to-duration.execute", "executeTrimToDuration"],
+  ] as const;
+  for (const [tool, method] of commands) {
+    const directory = await mkdtemp(join(tmpdir(), "framekit-command-reservation-"));
+    const path = join(directory, "pending.json");
+    const guard = new FileCanonicalRecoveryGuard(path);
+    const other = new FileCanonicalRecoveryGuard(path);
+    let entered!: () => void;
+    let finish!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const held = new Promise<void>((resolve) => { finish = resolve; });
+    const nativeEditor = { capabilities: () => ({}), [method]: async () => { entered(); await held; return { verification: { verified: true } }; } } as unknown as NativeFinalCutEditor;
+    const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, nativeEditor });
+    const request = client.callTool({ name: tool, arguments: { previewToken: "token" } });
+    try {
+      await started;
+      await assert.rejects(other.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "b".repeat(64), operation: "rename-clip" }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/, tool);
+      finish();
+      assert.equal((await request).isError ?? false, false, tool);
+      await guard.assertClear();
+    } finally {
+      finish();
+      await request;
+      await client.close();
+      await server.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+});
