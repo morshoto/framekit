@@ -12,6 +12,7 @@ import {
 } from "@framekit/final-cut";
 import {
   AgentVideoRuntime,
+  canonicalSnapshotDigest,
   type ContextRevision,
   type EditorChange,
   type EditorIdentity,
@@ -156,6 +157,45 @@ test("MCP recovery inspection reports checkpoint evidence without touching the e
     const invalid = await client.callTool({ name: "editor.native.recovery.inspect", arguments: {} });
     assert.equal(invalid.isError, true);
     assert.match(textFrom(invalid), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    assert.deepEqual(calls, []);
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("MCP recovery preview requires exact consent and never clears the checkpoint", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-mcp-recovery-preview-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const calls: string[] = [];
+  let reads = 0;
+  const original = snapshot("Original");
+  const target = { projectId: original.projectId, sequenceId: original.timeline.id };
+  const checkpoint = { ...target, baseRevision: "baseline", beforeDigest: canonicalSnapshotDigest(original), operation: "rename-clip" };
+  await guard.begin(checkpoint);
+  const checkpointId = (await guard.inspectVersioned())!.checkpointId;
+  const { client, server } = await connect(createRuntime(calls, async () => { reads += 1; return structuredClone(original); }), { canonicalRecovery: guard });
+  try {
+    const missing = await client.callTool({ name: "editor.native.recovery.preview", arguments: { expectedTarget: target, expectedCheckpointId: checkpointId } });
+    assert.equal(missing.isError, true);
+    assert.match(textFrom(missing), /HEADED_READ_CONFIRMATION_REQUIRED/);
+    const wrong = await client.callTool({ name: "editor.native.recovery.preview", arguments: { confirmHeadedRead: true, expectedTarget: { ...target, sequenceId: "other" }, expectedCheckpointId: checkpointId } });
+    assert.equal(wrong.isError, true);
+    assert.match(textFrom(wrong), /TARGET_MISMATCH/);
+    const stale = await client.callTool({ name: "editor.native.recovery.preview", arguments: { confirmHeadedRead: true, expectedTarget: target, expectedCheckpointId: "0".repeat(64) } });
+    assert.equal(stale.isError, true);
+    assert.match(textFrom(stale), /CHECKPOINT_MISMATCH/);
+    assert.equal(reads, 0);
+    const result = await client.callTool({ name: "editor.native.recovery.preview", arguments: { confirmHeadedRead: true, expectedTarget: target, expectedCheckpointId: checkpointId } });
+    assert.equal(result.isError ?? false, false, textFrom(result));
+    const evidence = JSON.parse(textFrom(result));
+    assert.equal(evidence.checkpointId, checkpointId);
+    assert.equal(evidence.comparison, "matches-before");
+    assert.equal(evidence.quiescence, "unproven");
+    assert.equal(evidence.checkpointCleared, false);
+    assert.ok(reads > 0);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     assert.deepEqual(calls, []);
   } finally {
     await client.close();
