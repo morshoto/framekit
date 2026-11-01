@@ -2464,3 +2464,24 @@ test("publisher restart rejects persisted states that could replay or fake verif
     }
   }
 });
+
+test("pending dispatch wins over a verified legacy record on restart", async () => {
+  const fixture = await createCheckpointFailureFixture("framekit-publisher-conflicting-stores-");
+  try {
+    const pending = await fixture.publisher.executePublishJob(fixture.job.jobId, true);
+    assert.equal(pending.state, "verification-pending");
+    const path = join(fixture.publishJobsDirectory, `${fixture.job.jobId}.json`);
+    const pendingRecord = await readFile(path, "utf8");
+    const verified = await fixture.publisher.executePublishJob(fixture.job.jobId, true, true);
+    assert.equal(verified.state, "verified");
+    await writeFile(join(fixture.publishJobsDirectory, `${digest(verified.jobId)}.json`), JSON.stringify(verified));
+    await writeFile(path, pendingRecord);
+    const restarted = createPublisherForTest({ enabled: false, publishJobDirectory: fixture.publishJobsDirectory, publishJobsDirectory: fixture.publishJobsDirectory });
+    assert.equal((await restarted.loadPublishJob(fixture.job.jobId)).state, "verification-pending");
+    await assert.rejects(restarted.verifyCreatedTarget(fixture.job.jobId), /FINAL_CUT_PUBLISH_TARGET_UNVERIFIED/);
+    assert.equal((await restarted.executePublishJob(fixture.job.jobId, true)).state, "verification-pending");
+    assert.equal(fixture.deliveryCalls(), 1);
+  } finally {
+    await rm(fixture.directory, { recursive: true, force: true });
+  }
+});

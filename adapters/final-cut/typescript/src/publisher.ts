@@ -1005,6 +1005,12 @@ export class FinalCutProjectPublisher {
       if (job.state === "verification-pending" && !persisted.runtime) {
         throw new Error(`PUBLISH_JOB_STORE_INVALID: pending job is missing recovery state ${path}`);
       }
+      if (persisted.runtime?.importAttempted === true && job.state !== "verification-pending" && job.state !== "verified") {
+        throw new Error(`PUBLISH_JOB_STORE_INVALID: spent import has a re-dispatchable state ${path}`);
+      }
+      if (job.state === "verified" && !isVerifiedPublishJob(job, job.jobId)) {
+        throw new Error(`PUBLISH_JOB_STORE_INVALID: verified job is missing consistent native target proof ${path}`);
+      }
       job.handoff.route ??= "background-document-open";
       if (job.handoff.route !== "background-document-open" && job.handoff.route !== "headed-apple-event") {
         throw new Error(`PUBLISH_JOB_STORE_INVALID: invalid publish route in ${path}`);
