@@ -76,7 +76,14 @@ against the same target and revision contract. Canonical native rename, trim,
 marker, ripple-delete, and gain readback reject collateral changes outside the
 supported operation projection and attempt verified recovery. Canonical Final Cut reads reject
 live target or revision changes during export; native edits recheck the live
-revision after target resolution. If a native edit has an uncertain outcome or
+revision after target resolution. The canonical checkpoint is acquired before
+native target preparation; if dispatched preparation fails or the revision
+changes during it, the checkpoint remains for recovery. The production resolver
+uses nonselecting occurrence discovery, validates the discovered identity and
+sequence, then checks that selection reports the same identity. The current
+Accessibility timeline scan cannot independently observe an occurrence's source
+identity. It does not treat the requested Browser identity as an observation;+native media targeting and canonical source-bound rename, trim, ripple-delete,
+and gain operations remain unavailable until that binding can be proven. If a native edit has an uncertain outcome or
 Undo cannot be verified, the canonical provider blocks further previews and
 edits. Production native sessions create an exclusive checkpoint under the
 configured Framekit state directory before mutation; an unresolved checkpoint
@@ -90,6 +97,8 @@ dispatch retains the reservation. A failure before dispatch releases it. Direct
 disposable execute and Undo and disposable native session jobs also reserve the
 same path through canonical verification or verified rollback. Native timeline
 command executions use the reservation through their native verification. Native
+focus, search, selection, and preview calls also reserve it while they can change
+UI state; their previews do not write the timeline. Native
 media imports also reserve it; an incomplete or partial import keeps the
 reservation. Publishing retains its reservation after dispatch, including after
 verified readback, because native quiescence remains unproven. The originating

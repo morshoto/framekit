@@ -1014,10 +1014,14 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
             "edit", "undo", "executeBlade", "executeMask", "executeTitleAdd", "executeTransitionAdd",
             "executeAppendMedia", "executeAppendSelectedMedia", "executeInsertMedia", "executeDeleteRange",
             "executeTrimToDuration", "executePictureInPicture", "importMedia", "executeImportMediaDirectory",
+            "focusTimeline", "selectMedia", "selectOccurrence", "selectCanonicalOccurrence", "targetMedia",
+            "searchMedia", "searchMediaForCanonicalTarget", "searchTitles", "searchTransitions", "locateOccurrence", "locateOccurrenceForCanonicalTarget",
+            "previewBlade", "previewMask", "previewDeleteRange", "previewTrimToDuration", "previewAppendMedia",
+            "previewAppendSelectedMedia", "previewInsertMedia", "previewTitleAdd", "previewPictureInPicture", "previewTransitionAdd",
           ]) }
         : {}),
       ...(options.disposableNative
-        ? { disposableNative: withRecoveryCheckpointGuard(options.disposableNative, recovery, [], ["execute", "undo"], "disposable") }
+        ? { disposableNative: withRecoveryCheckpointGuard(options.disposableNative, recovery, [], ["preview", "execute", "undo"], "disposable") }
         : {}),
       ...(options.nativeOperationSession
         ? { nativeOperationSession: withRecoveryCheckpointGuard(options.nativeOperationSession, recovery, ["status", "cancel"]) }
@@ -3100,6 +3104,8 @@ function withRecoveryCheckpointGuard<T extends object>(
 ): T {
   const allowed = new Set(allowedMethods);
   const reserved = new Set(reservedMethods);
+  const contextMethods = new Set<PropertyKey>(["focusTimeline", "selectMedia", "selectOccurrence", "selectCanonicalOccurrence"]);
+  const searchMethods = new Set<PropertyKey>(["searchMedia", "searchMediaForCanonicalTarget", "searchTitles", "searchTransitions"]);
   return new Proxy(provider, {
     get(target, property) {
       const value = Reflect.get(target, property, target) as unknown;
@@ -3145,7 +3151,14 @@ function withRecoveryCheckpointGuard<T extends object>(
               }
               return expected.size === 0;
             };
-            const verified = property === "importMedia" ? media(result)
+            const preview = typeof property === "string" && property.startsWith("preview");
+            const prepared = result as { previewToken?: unknown; available?: unknown; status?: unknown; occurrences?: unknown; selected?: unknown } | null;
+            const verified = preview ? typeof prepared?.previewToken === "string" && prepared.previewToken.length > 0
+              : contextMethods.has(property) ? prepared?.available === true
+              : searchMethods.has(property) ? Array.isArray(result)
+              : property === "locateOccurrence" || property === "locateOccurrenceForCanonicalTarget" ? ["none", "unique", "ambiguous"].includes(String(prepared?.status)) && Array.isArray(prepared?.occurrences)
+              : property === "targetMedia" ? prepared?.status === "unique" && prepared.selected === true
+              : property === "importMedia" ? media(result)
               : property === "executeImportMediaDirectory" ? verifiedDirectory()
               : reservationKind === "disposable"
               ? property === "undo"
@@ -3153,7 +3166,7 @@ function withRecoveryCheckpointGuard<T extends object>(
                 : (evidence?.status === "VERIFIED" && evidence.verification?.passed === true)
                   || (evidence?.status === "ROLLED_BACK" && restored)
               : evidence?.verification?.verified === true && (property !== "undo" || evidence.undone === true);
-            if (verified) {
+            if (verified || (!dispatched && contextMethods.has(property) && prepared?.available === false)) {
               await reservation.release();
             }
             return result;

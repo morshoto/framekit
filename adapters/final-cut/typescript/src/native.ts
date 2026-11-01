@@ -753,6 +753,7 @@ export interface NativeFinalCutEditor {
   searchMediaForCanonicalTarget?(query: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutMediaMatch[]>;
   selectMedia(handle: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;
   locateOccurrence(mediaHandle: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutOccurrenceSearchResult>;
+  locateOccurrenceForCanonicalTarget?(mediaHandle: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutOccurrenceSearchResult>;
   selectOccurrence(occurrenceHandle: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;
   selectCanonicalOccurrence(name: string, occurrenceIndex: number, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;
   targetMedia(query: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutTargetResult>;
@@ -1578,6 +1579,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return this.withNativeUi(() => this.locateOccurrenceNative(mediaHandle), options.signal);
   }
 
+  public async locateOccurrenceForCanonicalTarget(mediaHandle: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutOccurrenceSearchResult> {
+    return this.withNativeUi(() => this.locateOccurrenceNative(mediaHandle, false, false), options.signal);
+  }
+
   public async selectOccurrence(occurrenceHandle: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutContext> {
     return this.withNativeUi(() => this.selectOccurrenceNative(occurrenceHandle), options.signal);
   }
@@ -1614,6 +1619,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       throw new Error("FINAL_CUT_NATIVE_PLAYHEAD_UNAVAILABLE: deterministic targeting requires live playhead state");
     }
     const occurrence = located.occurrences[0]!;
+    if (!occurrence.sourceIdentity || occurrence.sourceIdentity !== media.sourceIdentity) {
+      throw new Error("FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: timeline occurrence source identity was not independently observed");
+    }
     const occurrenceIdentity = occurrence.identity ?? occurrence.nativeIdentity;
     if (!occurrenceIdentity) {
       throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_IDENTITY_UNAVAILABLE: timeline occurrence has no stable identity");
@@ -1630,10 +1638,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       revision: structuredClone(live.revision),
       timelineStartTime: structuredClone(live.sequence.startTime),
       frameDuration: structuredClone(live.sequence.frameDuration),
-      mediaId: occurrence.sourceIdentity ?? media.sourceIdentity,
+      mediaId: occurrence.sourceIdentity,
       occurrence: {
         id: occurrenceIdentity,
-        mediaId: occurrence.sourceIdentity ?? media.sourceIdentity,
+        mediaId: occurrence.sourceIdentity,
         startTime: parseRationalString(occurrence.start, "occurrence start"),
         durationTime: parseRationalString(occurrence.duration, "occurrence duration"),
       },
@@ -1650,7 +1658,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     };
   }
 
-  private async locateOccurrenceNative(mediaHandle: string, scanAll = false): Promise<NativeFinalCutOccurrenceSearchResult> {
+  private async locateOccurrenceNative(mediaHandle: string, scanAll = false, selectForIdentity = true): Promise<NativeFinalCutOccurrenceSearchResult> {
     this.assertEnabled();
     const match = this.mediaHandles.get(mediaHandle);
     if (!match) throw new Error(`FINAL_CUT_NATIVE_MEDIA_HANDLE_STALE: unknown media handle ${mediaHandle}`);
@@ -1671,7 +1679,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       }
       const occurrences = parseOccurrences(occurrenceOutput, mediaHandle);
       normalizeOccurrenceTimes(occurrences, liveBefore?.sequence);
-      if (occurrences.length === 1 && this.canDriveNativeMouse) {
+      if (selectForIdentity && occurrences.length === 1 && this.canDriveNativeMouse) {
         const timelineOffset = occurrences[0]?.timelineOffset;
         if (timelineOffset === undefined) {
           throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_POSITION_UNAVAILABLE: unique timeline occurrence has no selectable position");
@@ -1718,6 +1726,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const context = await this.requireTimelineContext();
     if (context.target.kind !== "selected-clip") {
       throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_SELECTION_UNAVAILABLE: Final Cut did not expose the selected occurrence");
+    }
+    const expectedIdentity = occurrence.nativeIdentity ?? occurrence.identity;
+    if (expectedIdentity && context.target.identity !== expectedIdentity) {
+      throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: selected native occurrence identity changed");
     }
     if (context.target.identity) occurrence.nativeIdentity = context.target.identity;
     return context;
@@ -5748,7 +5760,7 @@ function locateOccurrenceScript(match: NativeFinalCutMediaMatch, scanAll: boolea
               set candidateIdentity to value of attribute "AXIdentifier" of candidate as text
             end try
             if candidateIdentity is "" then error "FINAL_CUT_NATIVE_OCCURRENCE_ID_UNAVAILABLE: timeline clip has no AXIdentifier"
-            set output to output & targetName & (ASCII character 31) & candidateRole & (ASCII character 31) & sourceIdentity & (ASCII character 31) & (candidateOffset as text) & (ASCII character 31) & candidateStart & (ASCII character 31) & candidateDuration & (ASCII character 31) & candidateIdentity & (ASCII character 30)
+            set output to output & targetName & (ASCII character 31) & candidateRole & (ASCII character 31) & "" & (ASCII character 31) & (candidateOffset as text) & (ASCII character 31) & candidateStart & (ASCII character 31) & candidateDuration & (ASCII character 31) & candidateIdentity & (ASCII character 30)
             end if
           else
             set shouldDescend to false

@@ -58,10 +58,13 @@ export interface CanonicalNativeMutationPort {
   undo(operationId: string): Promise<{ undone: boolean; verification?: { verified: boolean } }>;
 }
 
-export type CanonicalNativeTargetResolver = (
+export type CanonicalNativeTargetResolver = ((
   clip: ProjectSnapshot["timeline"]["clips"][number],
   snapshot: ProjectSnapshot,
-) => Promise<void>;
+) => Promise<void>) & {
+  trackNativeDispatch?<T>(operation: () => Promise<T>, onDispatch: () => void): Promise<T>;
+  sourceBindingAvailable?: boolean;
+};
 
 export interface FinalCutBackgroundCatalogProvider {
   listProjects(): Promise<ProjectCatalog>;
@@ -696,9 +699,9 @@ end tell`;
 
 export function createFinalCutNativeTargetResolver(
   native: Pick<NativeFinalCutEditor, "searchMedia" | "locateOccurrence">
-    & Partial<Pick<NativeFinalCutEditor, "selectOccurrence" | "searchMediaForCanonicalTarget">>,
+    & Partial<Pick<NativeFinalCutEditor, "selectOccurrence" | "locateOccurrenceForCanonicalTarget" | "searchMediaForCanonicalTarget" | "trackNativeDispatch">>,
 ): CanonicalNativeTargetResolver {
-  return async (clip, snapshot) => {
+  const resolve: CanonicalNativeTargetResolver = async (clip, snapshot) => {
     if (!clip.mediaId) throw new Error(`TARGET_MISMATCH: occurrence ${clip.id} has no media binding`);
     const media = snapshot.media.find(({ mediaId }) => mediaId === clip.mediaId);
     if (!media?.source) throw new Error(`TARGET_MISMATCH: media ${clip.mediaId} has no source binding`);
@@ -713,7 +716,8 @@ export function createFinalCutNativeTargetResolver(
     const match = matches[0]!;
     if (!match.sourceIdentity) throw new Error("TARGET_MISMATCH: exact Browser media has no stable source identity");
 
-    const located = await native.locateOccurrence(match.handle);
+    const locate = native.locateOccurrenceForCanonicalTarget ?? native.locateOccurrence;
+    const located = await locate.call(native, match.handle);
     if (located.status === "none" || located.occurrences.length === 0) {
       throw new Error(`TARGET_MISMATCH: Final Cut timeline has no occurrence for ${query}`);
     }
@@ -728,9 +732,8 @@ export function createFinalCutNativeTargetResolver(
       throw new Error(`AMBIGUOUS_PROJECT_TARGET: Final Cut timeline occurrence coordinates are not unique for ${clip.id}`);
     }
     const occurrence = matchingOccurrences[0]!;
-    await native.selectOccurrence?.(occurrence.handle);
     const occurrenceIdentity = occurrence.identity ?? occurrence.nativeIdentity;
-    if (!occurrenceIdentity && !native.selectOccurrence) {
+    if (!occurrenceIdentity) {
       throw new Error(`TARGET_MISMATCH: native occurrence has no stable identity for ${clip.id}`);
     }
     if (!occurrence.sequenceId) {
@@ -739,8 +742,8 @@ export function createFinalCutNativeTargetResolver(
     if (occurrence.sequenceId !== snapshot.timeline.id) {
       throw new Error(`TARGET_MISMATCH: native occurrence sequence changed for ${clip.id}`);
     }
-    if (occurrence.sourceIdentity && occurrence.sourceIdentity !== match.sourceIdentity) {
-      throw new Error(`TARGET_MISMATCH: native occurrence source identity changed for ${clip.id}`);
+    if (!occurrence.sourceIdentity || occurrence.sourceIdentity !== match.sourceIdentity) {
+      throw new Error(`TARGET_MISMATCH: native occurrence source identity is unavailable or changed for ${clip.id}`);
     }
     if (!occurrence.start || !occurrence.duration || !clip.startTime || !clip.durationTime) {
       throw new Error(`TARGET_MISMATCH: exact timeline coordinates are unavailable for ${clip.id}`);
@@ -748,7 +751,16 @@ export function createFinalCutNativeTargetResolver(
     if (!sameRationalText(occurrence.start, clip.startTime) || !sameRationalText(occurrence.duration, clip.durationTime)) {
       throw new Error(`TARGET_MISMATCH: native occurrence coordinates changed for ${clip.id}`);
     }
+    const expectedSelectedIdentity = occurrence.nativeIdentity ?? occurrence.identity;
+    const selected = await native.selectOccurrence?.(occurrence.handle);
+    if (native.selectOccurrence && selected?.target?.identity !== expectedSelectedIdentity) {
+      throw new Error(`TARGET_MISMATCH: selected native occurrence identity changed for ${clip.id}`);
+    }
   };
+  // The current Accessibility scan cannot independently observe an occurrence's source binding.
+  resolve.sourceBindingAvailable = false;
+  if (native.trackNativeDispatch) resolve.trackNativeDispatch = native.trackNativeDispatch.bind(native);
+  return resolve;
 }
 
 interface PendingNativeOperation {
@@ -813,6 +825,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     const canonicalSnapshotCapability = snapshotProbe.available
       ? { available: true, backend: "final-cut-native-canonical", guarantee: "canonical-read" as const, evidenceTier: "headed-native" as const }
       : unavailableCanonicalSnapshot(snapshotProbe.reason);
+    const sourceBindingAvailable = this.resolveTarget.sourceBindingAvailable !== false;
     const capabilities = withCapabilityFamilies({
       editor: {
         projectRead: snapshotProbe.available,
@@ -833,11 +846,11 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         backgroundLibraryInspection: Boolean(backgroundCatalog),
         compositeTransactions: snapshotProbe.available,
         semanticOperations: {
-          "rename-clip": snapshotProbe.available,
-          "trim-clip": snapshotProbe.available && Boolean(this.native.trimSelectedClipToRange),
+          "rename-clip": snapshotProbe.available && sourceBindingAvailable,
+          "trim-clip": snapshotProbe.available && sourceBindingAvailable && Boolean(this.native.trimSelectedClipToRange),
           "add-marker": snapshotProbe.available && Boolean(this.native.addMarkerAtTime),
-          "ripple-delete": snapshotProbe.available && Boolean(this.native.rippleDeleteRange),
-          "set-gain": snapshotProbe.available && Boolean(this.native.setSelectedClipGain),
+          "ripple-delete": snapshotProbe.available && sourceBindingAvailable && Boolean(this.native.rippleDeleteRange),
+          "set-gain": snapshotProbe.available && sourceBindingAvailable && Boolean(this.native.setSelectedClipGain),
         },
       },
       analyzers: {
@@ -1000,6 +1013,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     const before = await this.readProject();
     assertSameRevision(expectedRevision, before.revision);
     const operation = supportedCanonicalOperation(operations);
+    assertCanonicalSourceBindingAvailable(this.resolveTarget, operation);
     assertCanonicalOperationAvailable(this.native, operation);
     const preview = projectCanonicalOperation(before, operation);
     preview.revision = previewRevision(preview, before.revision);
@@ -1020,6 +1034,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     const before = await this.readProject();
     assertSameRevision(expectedRevision, before.revision);
     const supported = supportedCanonicalOperation([operation]);
+    assertCanonicalSourceBindingAvailable(this.resolveTarget, supported);
     if (supported.type === "add-marker" && before.timeline.markers.some(({ id }) => id === supported.marker.id)) {
       throw new Error(`MARKER_ALREADY_EXISTS: ${supported.marker.id}`);
     }
@@ -1042,8 +1057,8 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         : {}),
     });
     resolveTimelineTarget(before, timelineTarget);
-    if (targetClip) await this.resolveTarget(targetClip, before);
     assertCanonicalOperationAvailable(this.native, supported);
+    if (targetClip && !this.recoveryGuard) await this.resolveTarget(targetClip, before);
     const currentLive = await this.live.readLiveState();
     if (!baselineLive.project?.id || !baselineLive.sequence?.id
       || baselineLive.project.id !== before.projectId || baselineLive.sequence.id !== before.timeline.id
@@ -1069,6 +1084,32 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         // No native command has been dispatched, so this checkpoint is safe to release.
         await this.recoveryGuard.complete();
         throw error;
+      }
+      if (targetClip) {
+        let dispatched = typeof this.resolveTarget.trackNativeDispatch !== "function";
+        try {
+          const resolve = () => this.resolveTarget(targetClip, before);
+          if (this.resolveTarget.trackNativeDispatch) {
+            await this.resolveTarget.trackNativeDispatch(resolve, () => { dispatched = true; });
+          } else {
+            await resolve();
+          }
+          const afterTarget = await this.live.readLiveState();
+          if (afterTarget.project?.id !== currentLive.project.id
+            || afterTarget.sequence?.id !== currentLive.sequence.id
+            || afterTarget.revision?.id !== currentLive.revision.id
+            || afterTarget.revision.sequence !== currentLive.revision.sequence) {
+            throw new Error("FINAL_CUT_CANONICAL_TARGET_STALE: live target or revision changed during target preparation");
+          }
+        } catch (error) {
+          if (!dispatched) {
+            await this.recoveryGuard.complete();
+            throw error;
+          }
+          this.recoveryRequired = true;
+          const detail = error instanceof Error ? error.message : String(error);
+          throw new Error(`FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: native target preparation outcome is uncertain: ${detail}`, { cause: error });
+        }
       }
     }
     let nativeResult: { operationId: string; undoAvailable: boolean };
@@ -1418,6 +1459,12 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
 }
 
 type CanonicalOperation = Extract<WorkflowOperation, { type: "rename-clip" | "trim-clip" | "add-marker" | "ripple-delete" | "set-gain" }>;
+
+function assertCanonicalSourceBindingAvailable(resolver: CanonicalNativeTargetResolver, operation: CanonicalOperation): void {
+  if (operation.type !== "add-marker" && resolver.sourceBindingAvailable === false) {
+    throw new Error("CAPABILITY_UNAVAILABLE: native occurrence source binding cannot be independently observed");
+  }
+}
 
 function supportedCanonicalOperation(operations: WorkflowOperation[]): CanonicalOperation {
   if (operations.length !== 1 || (operations[0]?.type !== "rename-clip" && operations[0]?.type !== "trim-clip" && operations[0]?.type !== "add-marker" && operations[0]?.type !== "ripple-delete" && operations[0]?.type !== "set-gain")) {
