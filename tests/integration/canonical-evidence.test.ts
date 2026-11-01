@@ -817,3 +817,10 @@ test("canonical write checks the approved revision before selection", async () =
   await assert.rejects(selectCanonicalWriteTarget(call, { projectId: "p", projectName: "Disposable", sequenceId: "s" }, "approved"), /STALE_CONTEXT/);
   assert.deepEqual(calls, ["project.list", "project.inspect"]);
 });
+
+test("canonical headed runner configures existing-socket-only connections", async () => {
+  const runner = await readFile(join(process.cwd(), "scripts/final-cut-canonical-headed-e2e.mjs"), "utf8");
+  const server = await readFile(join(process.cwd(), "apps/mcp-server/src/main.ts"), "utf8");
+  assert.match(runner, /FRAMEKIT_FINAL_CUT_EXISTING_SOCKET_ONLY:\s*"1"/);
+  assert.match(server, /existingSocketOnly:\s*process\.env\.FRAMEKIT_FINAL_CUT_EXISTING_SOCKET_ONLY === "1"/);
+});
