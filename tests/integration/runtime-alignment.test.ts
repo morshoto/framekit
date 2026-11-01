@@ -90,6 +90,11 @@ function handoffPublisher(jobs: Record<string, unknown> = {}) {
       if (!job) throw new Error(`FINAL_CUT_PUBLISH_JOB_NOT_FOUND: ${jobId}`);
       return job;
     },
+    loadPublishJob: async (jobId: string) => {
+      const job = jobs[jobId];
+      if (!job) throw new Error(`FINAL_CUT_PUBLISH_JOB_NOT_FOUND: ${jobId}`);
+      return job;
+    },
     verifyCreatedTarget: async (jobId: string) => {
       const job = jobs[jobId] as { result?: { createdTarget?: unknown } } | undefined;
       const target = job?.result?.createdTarget;
@@ -654,6 +659,21 @@ test("serves a verified native target after the publisher restarts", async () =>
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("publish status exposes distinct dispatch and verification errors", async () => {
+  const publisher = handoffPublisher({
+    pending: {
+      jobId: "pending", state: "verification-pending", nextAction: "retry", retryable: true,
+      dispatchError: { code: "FINAL_CUT_DELIVERY_TIMEOUT", message: "Dispatch acknowledgment timed out" },
+      error: { code: "FINAL_CUT_PUBLISH_TARGET_PENDING", message: "Target not observed" },
+    },
+  });
+  await withClient(metadataOnlyRuntime(), async (client) => {
+    const status = JSON.parse(textFrom(await client.callTool({ name: "artifact.publish.status", arguments: { jobId: "pending" } })));
+    assert.equal(status.dispatchError.code, "FINAL_CUT_DELIVERY_TIMEOUT");
+    assert.equal(status.error.code, "FINAL_CUT_PUBLISH_TARGET_PENDING");
+  }, { projectPublisher: publisher });
 });
 
 test("required local alignment fails clearly for a stale extension", async () => {

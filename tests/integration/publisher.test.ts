@@ -1590,6 +1590,7 @@ test("FCPXML publish jobs resume verification after publisher restart", async ()
   await writeFile(sourcePath, source);
   let deliveryCalls = 0;
   let persistedJobId = "";
+  let deliveryPath = "";
   const beforeState: EditorLiveState = {
     project: { id: "project-before", name: "Existing" },
     sequence: {
@@ -1623,8 +1624,9 @@ test("FCPXML publish jobs resume verification after publisher restart", async ()
     verificationTimeoutMs: 0,
     pollIntervalMs: 0,
     documentDelivery: {
-      deliverFcpxml: async ({ targetLibraryLocation, activates }: { targetLibraryLocation?: string; activates: boolean }) => {
+      deliverFcpxml: async ({ artifactPath, targetLibraryLocation, activates }: { artifactPath: string; targetLibraryLocation?: string; activates: boolean }) => {
         deliveryCalls += 1;
+        deliveryPath = artifactPath;
         const persisted = JSON.parse(await readFile(join(publishJobsDirectory, `${persistedJobId}.json`), "utf8")) as {
           runtime: { importAttempted: boolean; targetLibraryPath: string; reservationId?: string };
         };
@@ -1673,6 +1675,7 @@ test("FCPXML publish jobs resume verification after publisher restart", async ()
   assert.equal(pending.createdTarget, undefined);
   assert.equal(pending.result, undefined);
   assert.equal(deliveryCalls, 1);
+  assert.match(await readFile(deliveryPath, "utf8"), /<fcpxml/);
   const disabledPublisher = createPublisherForTest({
     ...publisherOptions,
     enabled: false,
@@ -1697,6 +1700,7 @@ test("FCPXML publish jobs resume verification after publisher restart", async ()
   const resumed = await restartedPublisher.executePublishJob(prepared.jobId, true, true);
 
   assert.equal(resumed.state, "verified");
+  await assert.rejects(readFile(deliveryPath, "utf8"), { code: "ENOENT" });
   assert.deepEqual(resumed.createdTarget, {
     kind: "editor.project",
     projectId: "project-created",
@@ -2281,6 +2285,64 @@ test("dispatch and headed readback require separate confirmations", async () => 
   assert.equal(deliveries, 1);
 });
 
+test("an uncertain dispatch retains its error through verification and restart", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-dispatch-evidence-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const source = '<fcpxml version="1.11"><library><event><project uid="p" name="Separate"><sequence uid="s" name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let attempts = 0;
+  const options = {
+    enabled: true, sourcePath, publishJobsDirectory: join(directory, "jobs"), verificationTimeoutMs: 0, pollIntervalMs: 0,
+    executor: async () => { attempts++; throw new Error("FINAL_CUT_DELIVERY_TIMEOUT: acknowledgment unavailable"); },
+    targetBinding: async () => { throw new Error("FINAL_CUT_PUBLISH_TARGET_PENDING: target unavailable"); },
+    liveState: async () => ({
+      project: { id: "before", name: "Before" },
+      sequence: { id: "before-sequence", name: "Before", startTime: { value: "0", timescale: "1" }, duration: { value: "1", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+      revision: { id: "before", sequence: 1, timestamp: new Date(0).toISOString() },
+    }),
+  };
+  const publisher = createPublisherForTest(options);
+  const job = await publisher.preparePublish({ sourceTransactionId: "txn", artifactPath: sourcePath, artifactDigest: digest(source) });
+  const uncertain = await publisher.executePublishJob(job.jobId, true);
+  assert.equal(uncertain.state, "verification-pending");
+  assert.equal(uncertain.dispatchError?.code, "FINAL_CUT_DELIVERY_TIMEOUT");
+  const verification = await publisher.executePublishJob(job.jobId, true, true);
+  assert.equal(verification.error?.code, "FINAL_CUT_PUBLISH_TARGET_PENDING");
+  assert.equal(verification.dispatchError?.code, "FINAL_CUT_DELIVERY_TIMEOUT");
+  const restarted = createPublisherForTest(options).getPublishJob(job.jobId);
+  assert.equal(restarted.dispatchError?.code, "FINAL_CUT_DELIVERY_TIMEOUT");
+  assert.equal(restarted.error?.code, "FINAL_CUT_PUBLISH_TARGET_PENDING");
+  assert.equal(attempts, 1);
+});
+
+test("an uncertain import keeps the dispatched artifact available across restart", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-pending-artifact-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const targetLibraryPath = join(directory, "new.fcpbundle");
+  const source = '<fcpxml version="1.11"><library><event><project uid="p" name="Pending"><sequence uid="s" name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let deliveredPath = "";
+  let attempts = 0;
+  const options = {
+    enabled: true, sourcePath, publishJobsDirectory: join(directory, "jobs"), verificationTimeoutMs: 0, pollIntervalMs: 0,
+    documentDelivery: { deliverFcpxml: async (request: { artifactPath: string }) => { deliveredPath = request.artifactPath; attempts++; throw new Error("FINAL_CUT_DELIVERY_TIMEOUT: acknowledgment unavailable"); } },
+    targetBinding: async () => { throw new Error("FINAL_CUT_PUBLISH_TARGET_PENDING: target unavailable"); },
+    liveState: async () => ({
+      project: { id: "before", name: "Before" },
+      sequence: { id: "before-sequence", name: "Before", startTime: { value: "0", timescale: "1" }, duration: { value: "1", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+      revision: { id: "before", sequence: 1, timestamp: new Date(0).toISOString() },
+    }),
+  };
+  const publisher = createPublisherForTest(options);
+  const prepared = await publisher.preparePublish({ sourceTransactionId: "txn", artifactPath: sourcePath, artifactDigest: digest(source), targetLibraryPath });
+  const pending = await publisher.executePublishJob(prepared.jobId, true);
+  assert.equal(pending.state, "verification-pending");
+  assert.match(await readFile(deliveredPath, "utf8"), /<fcpxml/);
+  assert.equal(createPublisherForTest(options).getPublishJob(prepared.jobId).state, "verification-pending");
+  assert.match(await readFile(deliveredPath, "utf8"), /<fcpxml/);
+  assert.equal(attempts, 1);
+});
+
 test("direct publish refuses import without explicit readback authorization", async () => {
   let calls = 0;
   const publisher = createPublisherForTest({
@@ -2293,6 +2355,31 @@ test("direct publish refuses import without explicit readback authorization", as
     artifactDigest: "digest", confirm: true,
   }), /PUBLISH_VERIFICATION_CONFIRMATION_REQUIRED/);
   assert.equal(calls, 0);
+});
+
+test("direct publish retains an uncertain dispatch error after verification", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-direct-dispatch-error-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const source = '<fcpxml version="1.11"><library><event><project uid="p" name="Pending"><sequence uid="s" name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let attempts = 0;
+  const publisher = createPublisherForTest({
+    enabled: true, sourcePath, verificationTimeoutMs: 0, pollIntervalMs: 0,
+    executor: async () => { attempts++; throw new Error("FINAL_CUT_DELIVERY_TIMEOUT: acknowledgment unavailable"); },
+    targetBinding: async () => { throw new Error("FINAL_CUT_PUBLISH_TARGET_PENDING: target unavailable"); },
+    liveState: async () => ({ revision: { id: "before", sequence: 1, timestamp: new Date(0).toISOString() } }),
+  });
+  let message = "";
+  try {
+    await publisher.publishNewProject({ sourceTransactionId: "txn", artifactPath: sourcePath, artifactDigest: digest(source), confirm: true, confirmVerification: true });
+  } catch (error) { message = String(error); }
+  const jobId = message.match(/publish job ([\w-]+)/)?.[1];
+  assert.ok(jobId);
+  assert.equal(publisher.getPublishJob(jobId).dispatchError?.code, "FINAL_CUT_DELIVERY_TIMEOUT");
+  const pending = await publisher.executePublishJob(jobId, true, true);
+  assert.equal(pending.error?.code, "FINAL_CUT_PUBLISH_TARGET_PENDING");
+  assert.equal(pending.dispatchError?.code, "FINAL_CUT_DELIVERY_TIMEOUT");
+  assert.equal(attempts, 1);
 });
 
 test("a spent import reservation survives publisher death and prevents another dispatch", async () => {
