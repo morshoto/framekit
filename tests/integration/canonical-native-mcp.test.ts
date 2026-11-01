@@ -1004,7 +1004,7 @@ test("native timeline command routes hold the shared checkpoint until verificati
 });
 
 test("native media imports reserve until verified and retain partial outcomes", async () => {
-  for (const scenario of ["single", "directory", "partial"] as const) {
+  for (const scenario of ["single", "directory", "partial", "mismatched"] as const) {
     const directory = await mkdtemp(join(tmpdir(), "framekit-import-reservation-"));
     const path = join(directory, "pending.json");
     const guard = new FileCanonicalRecoveryGuard(path);
@@ -1013,15 +1013,15 @@ test("native media imports reserve until verified and retain partial outcomes", 
     let finish!: () => void;
     const started = new Promise<void>((resolve) => { entered = resolve; });
     const held = new Promise<void>((resolve) => { finish = resolve; });
-    const media = { mediaHandle: "media-1", verification: { verified: true, stage: "post-import-browser-discovery" } };
+    const media = { mediaHandle: "media-1", sourcePath: "/fixture/video.mov", verification: { verified: true, stage: "post-import-browser-discovery" } };
     const nativeEditor = {
       capabilities: () => ({}),
       importMedia: async () => { entered(); await held; return media; },
       executeImportMediaDirectory: async () => {
         entered(); await held;
         return scenario === "partial"
-          ? { status: "partial", partial: true, importedCount: 1, failedCount: 1, files: [{}, {}], results: [{ status: "imported", media }, { status: "failed" }] }
-          : { status: "completed", partial: false, importedCount: 1, failedCount: 0, files: [{}], results: [{ status: "imported", media }] };
+          ? { status: "partial", partial: true, importedCount: 1, failedCount: 1, files: [{ sourcePath: "/fixture/video.mov" }, { sourcePath: "/fixture/second.mov" }], results: [{ status: "imported", sourcePath: "/fixture/video.mov", media }, { status: "failed", sourcePath: "/fixture/second.mov" }] }
+          : { status: "completed", partial: false, importedCount: 1, failedCount: 0, files: [{ sourcePath: "/fixture/video.mov" }], results: [{ status: "imported", sourcePath: scenario === "mismatched" ? "/fixture/other.mov" : "/fixture/video.mov", media }] };
       },
     } as unknown as NativeFinalCutEditor;
     const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, nativeEditor });
@@ -1033,7 +1033,7 @@ test("native media imports reserve until verified and retain partial outcomes", 
       await assert.rejects(other.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "b".repeat(64), operation: "rename-clip" }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/, scenario);
       finish();
       assert.equal((await request).isError ?? false, false, scenario);
-      if (scenario === "partial") assert.equal((await guard.inspectNativeReservation())?.operation, "native.executeimportmediadirectory");
+      if (scenario === "partial" || scenario === "mismatched") assert.equal((await guard.inspectNativeReservation())?.operation, "native.executeimportmediadirectory");
       else await guard.assertClear();
     } finally {
       finish();
