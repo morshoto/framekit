@@ -1190,7 +1190,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }));
 
   server.registerTool("editor.native.recovery.preview", {
-    description: "Compare an explicitly approved, target-bound canonical read with one checkpoint; never clears it or proves native operation quiescence.",
+    description: "Compare a separately authorized headed canonical read with one target-bound checkpoint. Confirmation alone does not establish authorization. Never clears the checkpoint or proves native operation quiescence.",
     inputSchema: {
       confirmHeadedRead: z.boolean().optional(),
       expectedTarget: contextTargetSchema.optional(),
