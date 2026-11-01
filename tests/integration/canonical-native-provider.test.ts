@@ -2500,3 +2500,15 @@ test("canonical resolver rejects identity-free occurrences before selecting", as
   await assert.rejects(createFinalCutNativeTargetResolver(native)(project.timeline.clips[0]!, project), /TARGET_MISMATCH.*stable identity/);
   assert.equal(selected, false);
 });
+
+test("canonical resolver rejects a timeline occurrence without observed source identity", async () => {
+  let selected = false;
+  const native = {
+    searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1" }],
+    locateOccurrence: async () => ({ status: "unique" as const, occurrences: [{ handle: "occurrence-handle", mediaHandle: "media-handle", name: "Original", identity: "native-1", start: "0/24", duration: "96/24", sequenceId: "final-cut:sequence:sequence-1" }] }),
+    selectOccurrence: async () => { selected = true; return { target: { kind: "selected-clip", identity: "native-1" } } as never; },
+  };
+  const project = snapshot("Original");
+  await assert.rejects(createFinalCutNativeTargetResolver(native)(project.timeline.clips[0]!, project), /TARGET_MISMATCH.*source identity/i);
+  assert.equal(selected, false);
+});

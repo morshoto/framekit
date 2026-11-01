@@ -4170,13 +4170,17 @@ test("canonical native occurrence discovery does not select before target valida
   const separator = String.fromCharCode(31);
   const recordSeparator = String.fromCharCode(30);
   let mouseCalls = 0;
+  let discoveryScript = "";
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
     nativeMouseExecutor: async () => { mouseCalls += 1; },
     executor: async (script) => {
       if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview", 1, true);
       if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${recordSeparator}`;
-      if (script.includes("collectTimelineClipMatches")) return `Interview${separator}AXLayoutItem${separator}media-source-1${separator}800${separator}0/1${separator}10/1${separator}native-occurrence-1${recordSeparator}`;
+      if (script.includes("collectTimelineClipMatches")) {
+        discoveryScript = script;
+        return `Interview${separator}AXLayoutItem${separator}media-source-1${separator}800${separator}0/1${separator}10/1${separator}native-occurrence-1${recordSeparator}`;
+      }
       return "";
     },
   });
@@ -4187,4 +4191,5 @@ test("canonical native occurrence discovery does not select before target valida
   assert.equal(located.status, "unique");
   assert.equal(located.occurrences[0]?.identity, "native-occurrence-1");
   assert.equal(mouseCalls, 0);
+  assert.doesNotMatch(discoveryScript, /candidateRole & \(ASCII character 31\) & sourceIdentity &/);
 });
