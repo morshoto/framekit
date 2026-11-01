@@ -71,6 +71,7 @@ export interface V0112TierResult {
   attempted: boolean;
   passed: boolean;
   workflowCount: number;
+  candidateCommit?: string;
   reason?: string;
 }
 
@@ -98,6 +99,7 @@ export interface V0112AcceptanceReport {
 interface RunV0112AcceptanceOptions {
   generatedAt?: string;
   headedEvidenceDirectory?: string;
+  headedCandidateCommit?: string;
 }
 
 const corpusPath = fileURLToPath(new URL("./v0112-acceptance.json", import.meta.url));
@@ -133,6 +135,7 @@ export async function runV0112Acceptance(
   const releaseGate = await runReleaseGate({
     generatedAt: options.generatedAt,
     headedEvidenceDirectory: options.headedEvidenceDirectory,
+    headedCandidateCommit: options.headedCandidateCommit,
   });
   const results = corpus.scenarios.map((scenario) => scenarioResult(scenario, releaseGate));
   const negativeCases = [
@@ -305,6 +308,7 @@ function tierSummary(report: ReleaseGateReport, tier: "canonical-live" | "headed
     attempted: evidence.attempted,
     passed: evidence.passed,
     workflowCount: evidence.workflows.length,
+    ...(evidence.preflight.candidateCommit ? { candidateCommit: evidence.preflight.candidateCommit } : {}),
     ...(evidence.status === "unrun" || evidence.status === "unsupported"
       ? { reason: evidence.preflight.unavailableReason ?? `${tier} evidence was not supplied` }
       : {}),

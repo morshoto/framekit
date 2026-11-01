@@ -78,7 +78,7 @@ test("legacy release runner reaches argument validation before running checks", 
   });
 
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /USAGE: only --output-dir and --headed-evidence-dir are supported/);
+  assert.match(result.stderr, /USAGE: only --output-dir, --headed-evidence-dir, and --headed-candidate-commit are supported/);
 });
 
 test("speech analyzers belong to the MCP app and ship in the clean package", async () => {

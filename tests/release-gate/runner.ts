@@ -136,6 +136,7 @@ export interface ReleaseGateReport {
 export interface RunReleaseGateOptions {
   generatedAt?: string;
   headedEvidenceDirectory?: string;
+  headedCandidateCommit?: string;
   provenance?: Partial<Omit<ReleaseProvenanceInput, "packageManifest" | "pluginManifest" | "serverVersion">>;
   repositoryChecks?: RepositoryChecksReport;
 }
@@ -166,6 +167,7 @@ export interface ReleaseGateEvidence {
     guarantee: string;
     capabilities?: unknown;
     unavailableReason?: string;
+    candidateCommit?: string;
   };
   workflows: Array<{
     workflowId: string;
@@ -233,6 +235,7 @@ export async function runReleaseGate(options: RunReleaseGateOptions = {}): Promi
     fcpxmlWorkflows: fcpxmlArtifact,
     metadataOnly,
     headedEvidenceDirectory: options.headedEvidenceDirectory,
+    headedCandidateCommit: options.headedCandidateCommit,
   });
   const packageManifest = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as {
     name?: string;
@@ -571,6 +574,7 @@ async function collectEvidenceTiers(input: {
   fcpxmlWorkflows: TierWorkflowResult[];
   metadataOnly: MetadataOnlyResult;
   headedEvidenceDirectory?: string;
+  headedCandidateCommit?: string;
 }): Promise<ReleaseGateEvidenceTiers> {
   const deterministic = createTierEvidence(
     "deterministic",
@@ -621,7 +625,7 @@ async function collectEvidenceTiers(input: {
     },
     "unsupported",
   );
-  const headed = await collectHeadedNativeEvidence(input.manifest, input.headedEvidenceDirectory);
+  const headed = await collectHeadedNativeEvidence(input.manifest, input.headedEvidenceDirectory, input.headedCandidateCommit);
   return { deterministic, "fcpxml-artifact": fcpxmlArtifact, "metadata-only": metadataOnly, "canonical-live": canonicalLive, "headed-native": headed };
 }
 
@@ -652,16 +656,18 @@ function createTierEvidence(
 async function collectHeadedNativeEvidence(
   manifest: NativeEditingManifest,
   evidenceDirectory?: string,
+  candidateCommit?: string,
 ): Promise<ReleaseGateEvidence> {
   const preflight: ReleaseGateEvidence["preflight"] = {
     mode: "headed",
     backend: "final-cut-accessibility",
     guarantee: "native-verified",
+    ...(/^[a-f0-9]{40}$/.test(candidateCommit ?? "") ? { candidateCommit } : {}),
     unavailableReason: evidenceDirectory
       ? "no matching headed evidence was supplied for this workflow"
       : "opt-in headed evidence directory was not supplied",
   };
-  const workflows = await readHeadedEvidence(manifest, evidenceDirectory);
+  const workflows = await readHeadedEvidence(manifest, evidenceDirectory, candidateCommit);
   const attempted = workflows.some((workflow) => workflow.status !== "unrun");
   const failed = workflows.some((workflow) => workflow.status === "failed");
   const expectedWorkflows = workflows.filter((workflow) => {
@@ -690,11 +696,17 @@ async function collectHeadedNativeEvidence(
 async function readHeadedEvidence(
   manifest: NativeEditingManifest,
   evidenceDirectory?: string,
+  candidateCommit?: string,
 ): Promise<TierWorkflowResult[]> {
   if (!evidenceDirectory) {
     return manifest.workflows
       .filter((workflow) => workflow.evidenceTiers.includes("headed-native"))
       .map((workflow) => ({ workflowId: workflow.id, status: "unrun", passed: false, reason: "opt-in headed evidence was not requested" }));
+  }
+  if (!/^[a-f0-9]{40}$/.test(candidateCommit ?? "")) {
+    return manifest.workflows
+      .filter((workflow) => workflow.evidenceTiers.includes("headed-native"))
+      .map((workflow) => ({ workflowId: workflow.id, status: "failed", passed: false, reason: "a full headed candidate commit is required" }));
   }
   let files: string[];
   try {
@@ -732,6 +744,7 @@ async function readHeadedEvidence(
     }
     try {
       const summary = summarizeHeadedEvidence(matches[0], workflow);
+      assert.equal(summary.environment.gitCommit, candidateCommit, "headed evidence commit differs from the pinned candidate");
       results.push({
         workflowId: workflow.id,
         status: "verified",

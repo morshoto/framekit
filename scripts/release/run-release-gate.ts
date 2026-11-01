@@ -10,6 +10,7 @@ const options = parseReleaseGateArgs(process.argv.slice(2), defaultOutputDirecto
 const repositoryChecks = await runRepositoryChecks({ rootDirectory: process.cwd() });
 const report = await runReleaseGate({
   headedEvidenceDirectory: options.headedEvidenceDirectory,
+  headedCandidateCommit: options.headedCandidateCommit,
   repositoryChecks,
 });
 const outputDirectory = options.outputDirectory;
@@ -20,4 +21,5 @@ console.log(`output_directory=${resolve(artifacts.outputDirectory)}`);
 console.log(`report=${resolve(artifacts.reportPath)}`);
 console.log(`manifest=${resolve(artifacts.manifestPath)}`);
 
-if (!report.deterministic.passed || !report.repositoryChecks.passed) process.exitCode = 1;
+if (!report.deterministic.passed || !report.repositoryChecks.passed
+  || (options.headedEvidenceDirectory && report.evidenceTiers["headed-native"].status !== "verified")) process.exitCode = 1;

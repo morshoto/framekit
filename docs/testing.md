@@ -97,8 +97,12 @@ pnpm run test:final-cut-title-headed > artifacts/final-cut-headed/built-in-title
 pnpm run test:final-cut-masking-headed > artifacts/final-cut-headed/masking.json
 pnpm run test:final-cut-filler-headed > artifacts/final-cut-headed/filler-removal.json
 pnpm run test:final-cut-dialogue-headed > artifacts/final-cut-headed/dialogue-normalization.json
-pnpm run release-gate --output-dir artifacts/release-gate/headed-run --headed-evidence-dir artifacts/final-cut-headed
+pnpm run release-gate --output-dir artifacts/release-gate/headed-run --headed-evidence-dir artifacts/final-cut-headed --headed-candidate-commit "$FRAMEKIT_FINAL_CUT_E2E_CANDIDATE_COMMIT"
 ```
+
+The headed candidate must be a full lowercase commit SHA; every headed record
+must match it. Missing, mismatched, or incomplete headed evidence makes the
+command fail. This compares declared identities and does not authenticate files.
 
 Only an explicit successful summary containing `headed-native=verified` and
 `headed_native_status=verified` establishes the headed-native tier. The
