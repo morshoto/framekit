@@ -600,3 +600,21 @@ test("canonical evidence rejects collateral edits and accepts equivalent rationa
   (extraMarker.after.timeline.markers as unknown[]).push({ id: "unexpected", start: 1, duration: 0, name: "unexpected" });
   assert.throws(() => sanitizeCanonicalEvidence(extraMarker, environment), /FINAL_CUT_E2E_EVIDENCE_INCOMPLETE.*collateral/i);
 });
+
+test("canonical evidence requires the advertised rename capability and a new restored revision", () => {
+  const environment = {
+    framekitVersion: "0.1.0", finalCutVersion: "10.7.1", gitCommit: "0123456789abcdef0123456789abcdef01234567",
+    nodeVersion: "v22.15.0", platform: "darwin", architecture: "arm64", osVersion: "Darwin",
+  };
+  for (const corrupt of [
+    (run: typeof rawRun) => { (run.capabilities.editor as { semanticOperations?: unknown }).semanticOperations = { "rename-clip": false }; },
+    (run: typeof rawRun) => { delete (run.capabilities.editor as { semanticOperations?: unknown }).semanticOperations; },
+    (run: typeof rawRun) => { run.restored.revision = structuredClone(run.after.revision); },
+    (run: typeof rawRun) => { run.after.projectName = "different project name"; },
+    (run: typeof rawRun) => { run.digests.before = "a".repeat(64); run.digests.restored = "a".repeat(64); },
+  ]) {
+    const run = structuredClone(rawRun);
+    corrupt(run);
+    assert.throws(() => sanitizeCanonicalEvidence(run, environment), /FINAL_CUT_E2E_EVIDENCE_INCOMPLETE/);
+  }
+});
