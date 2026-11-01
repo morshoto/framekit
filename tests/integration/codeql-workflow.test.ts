@@ -345,6 +345,36 @@ test('CodeQL policy rejects stale scans and newly introduced blocking alerts', a
 	assert.equal(newErrorAlert.pass, false);
 });
 
+test('CodeQL policy rejects invalid pull request identity', async () => {
+	const { evaluateCodeQLPolicy } = await import(
+		new URL('../../.github/codeql/verify-policy.mjs', import.meta.url).href
+	) as {
+		evaluateCodeQLPolicy: (input: {
+			workflowHeadSha: string;
+			pullRequestHeadSha: string;
+			pullRequestNumber: number;
+			mergeSha: string;
+			swiftRequired: boolean;
+			analyses: Array<Record<string, unknown>>;
+			pullRequestAlerts: Array<Record<string, unknown>>;
+			baseAlerts: Array<Record<string, unknown>>;
+		}) => { pass: boolean; reasons: string[] };
+	};
+	const result = evaluateCodeQLPolicy({
+		workflowHeadSha: 'head-sha',
+		pullRequestHeadSha: 'head-sha',
+		pullRequestNumber: 0,
+		mergeSha: 'merge-sha',
+		swiftRequired: false,
+		analyses: [],
+		pullRequestAlerts: [],
+		baseAlerts: [],
+	});
+
+	assert.equal(result.pass, false);
+	assert.match(result.reasons.join('\n'), /pull request number/i);
+});
+
 test('CodeQL policy ignores inherited alerts below current thresholds', async () => {
 	const { evaluateCodeQLPolicy } = await import(
 		new URL('../../.github/codeql/verify-policy.mjs', import.meta.url).href

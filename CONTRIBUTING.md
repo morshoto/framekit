@@ -149,8 +149,11 @@ colors and animation.
 
 Start PRs as Draft, including agent-created PRs. Mark Ready for review once
 implementation and fast CI are complete; this triggers CodeQL. Swift CodeQL
-runs only for Swift-related changes on PRs and main pushes; scheduled and
-manual scans still cover Swift.
+runs only for Swift-related changes on PRs and main pushes. The required
+CodeQL policy gate checks that current JavaScript/TypeScript analysis completed,
+requires Swift analysis when Swift-related files change, and blocks new error
+or high-or-higher security alerts. Scheduled and manual scans still cover
+Swift.
 
 Every pull request should explain the behavior or structure being changed,
 include the commands used for validation, and call out MCP, package, or native

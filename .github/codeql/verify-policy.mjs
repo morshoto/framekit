@@ -44,17 +44,17 @@ export function evaluateCodeQLPolicy({
   if (!Array.isArray(pullRequestAlerts) || !Array.isArray(baseAlerts)) {
     reasons.push('CodeQL alert evidence is unavailable.');
   }
-  if (reasons.length > 0) return { pass: false, reasons };
-
-  const expectedRef = `refs/pull/${pullRequestNumber}/merge`;
   if (!Number.isInteger(Number(pullRequestNumber)) || Number(pullRequestNumber) < 1) {
     reasons.push('The pull request number is missing or invalid.');
   }
+  if (reasons.length > 0) return { pass: false, reasons };
+
+  const expectedRef = `refs/pull/${pullRequestNumber}/merge`;
   const requiredCategories = [JAVASCRIPT_CATEGORY];
   if (swiftRequired) requiredCategories.push(SWIFT_CATEGORY);
 
   for (const category of requiredCategories) {
-    const analysis = newestAnalysis(analyses, category, mergeSha, expectedRef || pullRef);
+    const analysis = newestAnalysis(analyses, category, mergeSha, expectedRef);
     if (!analysis) {
       reasons.push(`Missing current ${category} CodeQL analysis.`);
       continue;

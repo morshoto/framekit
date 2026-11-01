@@ -85,8 +85,7 @@ jobs:
               uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
               with:
                   category: /language:${{ matrix.language }}
-                  # Do not block the required check on delayed SARIF processing.
-                  wait-for-processing: false
+                  wait-for-processing: true
 
     analyze-swift:
         name: Analyze (swift)
@@ -129,3 +128,4 @@ jobs:
               uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
               with:
                   category: /language:swift
+                  wait-for-processing: true
