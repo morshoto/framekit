@@ -30,6 +30,16 @@ not launch or activate Final Cut Pro. Keep private media, raw tool output,
 credentials, local filesystem paths, and crash dumps out of committed test
 fixtures and reports.
 
+For publisher QA, `pnpm run test:final-cut-publisher-headed --help` lists the
+approved artifact digest, verified rough-cut execution, clean candidate commit,
+new library destination, and explicit mutation consent required by the runner.
+First use `.agents/skills/verify-final-cut-native/scripts/run-headed-check.sh
+publisher` for a non-mutating console and foreground preflight. The runner
+dispatches once and requests semantic readback separately; if dispatch is
+uncertain, inspect the recorded job rather than dispatching again. Its output
+keeps the issue verdict at NO-GO until the remaining identity and integrity
+evidence has been independently reviewed.
+
 ## Evidence levels
 
 | Level | Reproducible proof | Limit |
