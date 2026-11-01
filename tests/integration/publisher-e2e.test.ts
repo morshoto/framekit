@@ -96,6 +96,8 @@ test("publisher headed E2E is a separate FCPXML workflow", async () => {
   assert.match(publisherRunner, /FRAMEKIT_FINAL_CUT_E2E_ALLOW_MUTATION/);
   assert.match(publisherRunner, /FRAMEKIT_FINAL_CUT_E2E_EXECUTION_ID/);
   assert.doesNotMatch(publisherRunner, /artifact\.edit/);
+  assert.match(publisherRunner, /FcpxmlDocumentAdapter/);
+  assert.doesNotMatch(publisherRunner, /callJson\("project\.inspect"/);
   assert.doesNotMatch(publisherRunner, /edit\.undo/);
   assert.match(publisherRunner, /editor\.live\.inspect/);
   assert.equal(publisherRunner.includes("editor.native."), false);
