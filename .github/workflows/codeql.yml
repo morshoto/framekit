@@ -120,7 +120,7 @@ jobs:
               run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
 
             - name: Capture Swift profiling environment
-              if: ${{ inputs.profile_swift }}
+              if: ${{ github.event_name == 'workflow_dispatch' && inputs.profile_swift }}
               run: |
                   uname -a
                   xcodebuild -version
@@ -139,7 +139,9 @@ jobs:
             # Before CodeQL init, no extractor/tracing environment has been installed.
             # Compare this with the same script after init in the next type-check step.
             - name: Benchmark Swift compiler without CodeQL tracing
-              if: ${{ inputs.profile_swift }}
+              if: ${{ github.event_name == 'workflow_dispatch' && inputs.profile_swift }}
+              env:
+                  FRAMEKIT_SWIFT_TYPECHECK_PROFILE: ${{ github.event_name == 'workflow_dispatch' && inputs.profile_swift && 'true' || 'false' }}
               run: bash .github/codeql/typecheck-swift.sh
 
             - name: Initialize CodeQL

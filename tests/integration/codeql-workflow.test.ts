@@ -569,7 +569,7 @@ test('Swift CodeQL extraction uses the checked-in shim only', async () => {
 	assert.match(compilerScript, /-D FRAMEKIT_CODEQL/);
 	assert.match(compilerScript, /\.github\/codeql\/FinalCutWorkflowExtensionShim\.swift/);
 	assert.match(compilerScript, /FinalCutLiveWorkflowExtension\.swift/);
-	assert.match(swiftJob, /Benchmark Swift compiler without CodeQL tracing\n\s+if: \$\{\{ inputs\.profile_swift \}\}/);
+	assert.match(swiftJob, /Benchmark Swift compiler without CodeQL tracing\n\s+if: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.profile_swift \}\}/);
 	// The opt-in profiling step may query the Xcode version, but never builds.
 	assert.doesNotMatch(compilerScript, /xcodebuild/);
 	assert.doesNotMatch(swiftJob, /-scheme FramekitFinalCutWorkflowExtension/);
