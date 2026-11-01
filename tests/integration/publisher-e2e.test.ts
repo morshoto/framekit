@@ -4,9 +4,19 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { FcpxmlDocumentAdapter } from "../../adapters/final-cut/typescript/src/fcpxml.js";
-import { runPublishStages, verifyAcceptanceFixture, verifyPublishedTarget } from "../../scripts/final-cut-publisher-verification.mjs";
+import { runPublishStages, verifyAcceptanceFixture, verifyPublishedTarget, verifyPublisherPreflight } from "../../scripts/final-cut-publisher-verification.mjs";
 
 const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
+
+test("publisher QA refuses a mismatched loaded extension before dispatch", () => {
+  const commit = "a".repeat(40);
+  const editor = { capabilities: { editor: { artifactPublish: true } }, preflight: { fingerprint: { version: "0.2.0", commit }, buildAlignment: { status: "mismatched" }, nativeHandoffReadiness: { status: "blocked" } } };
+  assert.throws(() => verifyPublisherPreflight(editor, commit), /PUBLISH_PREFLIGHT_UNAVAILABLE/);
+  editor.preflight.buildAlignment.status = "matched";
+  editor.preflight.nativeHandoffReadiness.status = "ready";
+  assert.doesNotThrow(() => verifyPublisherPreflight(editor, commit));
+  assert.throws(() => verifyPublisherPreflight(editor, "b".repeat(40)), /PUBLISH_PREFLIGHT_UNAVAILABLE/);
+});
 
 test("publisher QA rejects a gap-only artifact as the acceptance fixture", () => {
   assert.throws(() => verifyAcceptanceFixture({ timeline: { clips: [], storyElements: [] }, media: [] }), /PUBLISH_FIXTURE_MISMATCH/);
