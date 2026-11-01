@@ -668,3 +668,14 @@ test("canonical source hashing is content-bound and does not follow symlinks", a
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("canonical headed runner captures source hashes before editing and after undo", async () => {
+  const runner = await readFile(join(process.cwd(), "scripts/final-cut-canonical-headed-e2e.mjs"), "utf8");
+  const beforeHash = runner.indexOf("await hashCanonicalSourceMedia(before)");
+  const edit = runner.indexOf("const transaction = await callJson");
+  const undo = runner.indexOf('await callJson("edit.undo"');
+  const restoredHash = runner.indexOf("await hashCanonicalSourceMedia(restored)");
+  assert.ok(beforeHash >= 0 && beforeHash < edit);
+  assert.ok(undo > edit && restoredHash > undo);
+  assert.match(runner, /sourceIntegrity:\s*\{\s*before:\s*sourceHashesBefore,\s*restored:\s*sourceHashesRestored\s*\}/);
+});
