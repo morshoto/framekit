@@ -2636,3 +2636,15 @@ test("independently bound source evidence permits a canonical edit in a determin
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("source-bound edits reject resolvers without an explicit capability", async () => {
+  for (const capability of ["missing", "throws"] as const) {
+    const calls: string[] = [];
+    const resolver = async () => { calls.push("resolve"); };
+    if (capability === "throws") Object.defineProperty(resolver, "sourceBindingAvailable", { get: () => { throw new Error("provider unavailable"); } });
+    const provider = providerFor([snapshot("Original"), snapshot("Original")], calls, resolver);
+    const before = await provider.readProject();
+    await assert.rejects(provider.apply({ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "Renamed" }, before.revision), /CAPABILITY_UNAVAILABLE.*source/i, capability);
+    assert.deepEqual(calls, [], capability);
+  }
+});
