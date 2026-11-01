@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
-import { readFile, readdir } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { chmod, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -127,7 +129,7 @@ test('CodeQL preserves JavaScript analysis and adds a bounded Swift job', async 
 	assert.match(workflow, /timeout-minutes: 25/);
 	assert.match(
 		workflow,
-		/\n[ \t]+- name: Type-check Swift sources for CodeQL extraction\n[ \t]+timeout-minutes: 25\n[ \t]+run: bash \.github\/codeql\/typecheck-swift\.sh/,
+		/\n[ \t]+- name: Type-check Swift sources for CodeQL extraction\n[ \t]+timeout-minutes: 25\n[ \t]+env:\n[ \t]+FRAMEKIT_SWIFT_TYPECHECK_PROFILE:[^\n]+\n[ \t]+run: bash \.github\/codeql\/typecheck-swift\.sh/,
 	);
 });
 
@@ -567,7 +569,7 @@ test('Swift CodeQL extraction uses the checked-in shim only', async () => {
 	assert.match(compilerScript, /-D FRAMEKIT_CODEQL/);
 	assert.match(compilerScript, /\.github\/codeql\/FinalCutWorkflowExtensionShim\.swift/);
 	assert.match(compilerScript, /FinalCutLiveWorkflowExtension\.swift/);
-	assert.match(swiftJob, /Benchmark Swift compiler without CodeQL tracing\n\s+if: \$\{\{ inputs\.profile_swift \}\}/);
+	assert.match(swiftJob, /Benchmark Swift compiler without CodeQL tracing\n\s+if: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.profile_swift \}\}/);
 	// The opt-in profiling step may query the Xcode version, but never builds.
 	assert.doesNotMatch(compilerScript, /xcodebuild/);
 	assert.doesNotMatch(swiftJob, /-scheme FramekitFinalCutWorkflowExtension/);
@@ -585,6 +587,75 @@ test('Swift CodeQL extraction uses the checked-in shim only', async () => {
 		project,
 		/\.github\/codeql\/FinalCutWorkflowExtensionShim\.swift/,
 	);
+});
+
+test('opt-in Swift profiling uses a fresh module cache without changing normal flags', async () => {
+	const workflow = await readRepositoryFile('.github/workflows/codeql.yml');
+	const swiftJob = getJob(workflow, 'analyze-swift');
+	assert.ok(swiftJob, 'Swift CodeQL job should be present');
+	const profilingFlag = /FRAMEKIT_SWIFT_TYPECHECK_PROFILE: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.profile_swift && 'true' \|\| 'false' \}\}/g;
+	assert.equal((swiftJob.match(/FRAMEKIT_SWIFT_TYPECHECK_PROFILE:/g) ?? []).length, 3);
+	assert.match(swiftJob, /- name: Benchmark Swift compiler without CodeQL tracing[\s\S]*?FRAMEKIT_SWIFT_TYPECHECK_PROFILE:[^\n]+/);
+	assert.match(swiftJob, /- name: Type-check Swift sources for CodeQL extraction[\s\S]*?FRAMEKIT_SWIFT_TYPECHECK_PROFILE:[^\n]+/);
+	assert.equal((swiftJob.match(profilingFlag) ?? []).length, 2);
+
+	const temp = await mkdtemp(resolve(tmpdir(), 'framekit-codeql-cache-'));
+	try {
+		const bin = resolve(temp, 'bin');
+		const cache = resolve(temp, 'framekit-swift-module-cache');
+		const argsFile = resolve(temp, 'compiler-args');
+		const xcrun = resolve(bin, 'xcrun');
+		await mkdir(bin);
+		await mkdir(cache);
+		await writeFile(resolve(cache, 'stale.module'), 'stale');
+		await writeFile(
+			xcrun,
+			'#!/bin/bash\nprintf \'%s\\n\' "$@" > "$FRAMEKIT_SWIFT_TEST_ARGS_FILE"\n',
+		);
+		await chmod(xcrun, 0o755);
+
+		const environment = {
+			...process.env,
+			PATH: `${bin}:${process.env.PATH ?? ''}`,
+			RUNNER_TEMP: temp,
+			FRAMEKIT_SWIFT_TEST_ARGS_FILE: argsFile,
+		};
+		const script = resolve(repository, '.github/codeql/typecheck-swift.sh');
+		execFileSync('bash', [script], {
+			cwd: repository,
+			env: { ...environment, FRAMEKIT_SWIFT_TYPECHECK_PROFILE: 'true' },
+		});
+		const profiledArgs = await readFile(argsFile, 'utf8');
+		assert.ok(profiledArgs.includes(`-module-cache-path\n${cache}\n`));
+		await assert.rejects(readFile(resolve(cache, 'stale.module')), { code: 'ENOENT' });
+
+		await writeFile(resolve(cache, 'stale.module'), 'stale');
+		execFileSync('bash', [script], {
+			cwd: repository,
+			env: { ...environment, FRAMEKIT_SWIFT_TYPECHECK_PROFILE: 'false' },
+		});
+		const normalArgs = await readFile(argsFile, 'utf8');
+		assert.doesNotMatch(normalArgs, /-module-cache-path/);
+		assert.equal(await readFile(resolve(cache, 'stale.module'), 'utf8'), 'stale');
+	} finally {
+		await rm(temp, { recursive: true, force: true });
+	}
+});
+
+test('manual Swift profiling emits function timings only on demand', async () => {
+	const workflow = await readRepositoryFile('.github/workflows/codeql.yml');
+	const swiftJob = getJob(workflow, 'analyze-swift');
+	const compilerScript = await readRepositoryFile('.github/codeql/typecheck-swift.sh');
+	assert.ok(swiftJob, 'Swift CodeQL job should be present');
+	assert.match(
+		swiftJob,
+		/- name: Capture Swift profiling environment\n\s+if: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.profile_swift \}\}[\s\S]*?xcrun --sdk macosx swiftc --version/,
+	);
+	assert.match(
+		swiftJob,
+		/- name: Profile Swift compiler functions and expressions\n\s+if: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.profile_swift \}\}[\s\S]*?FRAMEKIT_SWIFT_TYPECHECK_PROFILE: 'true'[\s\S]*?FRAMEKIT_SWIFT_TYPECHECK_DIAGNOSTICS: 'true'[\s\S]*?run: bash \.github\/codeql\/typecheck-swift\.sh/,
+	);
+	assert.match(compilerScript, /args\+=\(-Xfrontend -debug-time-function-bodies\)/);
 });
 
 test('CodeQL substitutes host declarations without changing the native import', async () => {
