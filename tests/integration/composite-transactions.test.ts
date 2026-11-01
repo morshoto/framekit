@@ -546,3 +546,24 @@ test("unadvertised marker identity changes do not satisfy the preview", async ()
   assert.ok(transaction.verification?.checks.some((check) => check.reason === "UNAUTHORIZED_DIFF"));
   assert.deepEqual(projectContent(await runtime.inspectProject()), projectContent(before));
 });
+
+test("a genuinely different rational time still rolls back the transaction", async () => {
+  const { adapter, runtime } = createTrimRuntime();
+  const read = adapter.readProject.bind(adapter);
+  const apply = adapter.applyTransaction.bind(adapter);
+  const restore = adapter.restore.bind(adapter);
+  let altered = false;
+  adapter.readProject = async () => {
+    const result = await read();
+    if (altered) result.timeline.clips[0]!.durationTime = { value: "499", timescale: "100" };
+    return result;
+  };
+  adapter.applyTransaction = async (...args) => { await apply(...args); altered = true; };
+  adapter.restore = async (...args) => { altered = false; await restore(...args); };
+  const before = await runtime.inspectProject();
+  const preview = await runtime.previewEdit({ baseRevision: before.revision, operations: [{ type: "trim-clip", clipId: "clip-video", duration: 5, durationTime: { value: "5", timescale: "1" } }] });
+  const transaction = await runtime.executeEdit(preview.previewToken);
+  assert.equal(transaction.status, "ROLLED_BACK");
+  assert.ok(transaction.verification?.checks.some((check) => check.reason === "UNAUTHORIZED_DIFF"));
+  assert.deepEqual(projectContent(await runtime.inspectProject()), projectContent(before));
+});

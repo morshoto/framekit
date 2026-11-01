@@ -74,7 +74,10 @@ revision, and the affected media or occurrence identity when applicable.
 stable target or timeline revision. Read-after-write verifies a mutation
 against the same target and revision contract. Canonical native rename, trim,
 marker, ripple-delete, and gain readback reject collateral changes outside the
-supported operation projection and attempt verified recovery. Canonical Final Cut reads reject
+supported operation projection and attempt verified recovery. Composite edit
+verification compares equivalent rational times by value. A provider advertising
+`markerIdentityMode: "editor-assigned"` may return a different ID for a uniquely
+added marker; verification still checks its semantics and all other changes. Canonical Final Cut reads reject
 live target or revision changes during export; native edits recheck the live
 revision after target resolution. The canonical checkpoint is acquired before
 native target preparation; if dispatched preparation fails or the revision

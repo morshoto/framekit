@@ -865,6 +865,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         projectSelectionMode: selection.mode,
         backgroundLibraryInspection: Boolean(backgroundCatalog),
         compositeTransactions: snapshotProbe.available,
+        ...(snapshotProbe.available && this.native.addMarkerAtTime ? { markerIdentityMode: "editor-assigned" as const } : {}),
         semanticOperations: {
           "rename-clip": snapshotProbe.available && sourceBindingAvailable,
           "trim-clip": snapshotProbe.available && sourceBindingAvailable && Boolean(this.native.trimSelectedClipToRange),
@@ -915,6 +916,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
           readAfterWrite: false,
           rollback: false,
           compositeTransactions: false,
+          markerIdentityMode: undefined,
           semanticOperations: {},
         },
       }, {

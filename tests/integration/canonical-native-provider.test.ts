@@ -2978,6 +2978,9 @@ test("MCP canonical operations verify exact semantics and restore after failures
     try {
       await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
       const before = await runtime.inspectProject();
+      const capabilities = await call("editor.inspect", {});
+      assert.equal(capabilities.capabilities.editor.semanticOperations[scenario.label], true, scenario.label);
+      if (scenario.label === "add-marker") assert.equal(capabilities.capabilities.editor.markerIdentityMode, "editor-assigned");
       const beforeDigest = canonicalSnapshotDigest(before);
       const preview = await call("editor.timeline.edit.preview", { projectId: before.projectId, sequenceId: before.timeline.id, baseRevision: before.revision, operations: [scenario.operation], path: "headed" });
       assert.equal(canonicalSnapshotDigest(await runtime.inspectProject()), beforeDigest, scenario.label);

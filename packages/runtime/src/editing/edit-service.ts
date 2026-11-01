@@ -17,6 +17,7 @@ import type {
 } from "../domain/editing.js";
 import { assertValidMaskConfiguration } from "../domain/editing.js";
 import type { ProjectSnapshot } from "../domain/project.js";
+import type { RationalTime } from "../domain/primitives.js";
 import type { TimelineDiff } from "../domain/diff.js";
 import type { VerificationCheck, VerificationEngine, VerificationPolicy } from "../domain/verification.js";
 import { sameRevision } from "../context/revision.js";
@@ -24,7 +25,7 @@ import { MediaAnalysisService, type PostWriteAnalysisRequirements } from "../app
 import { ProjectService } from "../application/project-service.js";
 import type { RuntimeOptions } from "../application/runtime-options.js";
 import type { TransactionStore } from "../application/transaction-store.js";
-import { parseRational } from "../timeline/rational-time.js";
+import { addRationalTimes, parseRational } from "../timeline/rational-time.js";
 import { assertValidVerificationPolicy } from "../verification/verification.js";
 
 export class EditService {
@@ -244,7 +245,8 @@ export class EditService {
     }
     this.assertTarget(preview.target, before);
     preview.operations.forEach(assertValidWorkflowOperation);
-    await this.assertCompositeCapabilities(preview.operations, preview.target.kind);
+    const executionCapabilities = (await this.adapter.getCapabilities()).editor;
+    await this.assertCompositeCapabilities(preview.operations, preview.target.kind, executionCapabilities);
     if (!this.adapter.applyTransaction) {
       throw new Error("CAPABILITY_UNAVAILABLE: editor composite transaction execution");
     }
@@ -282,7 +284,14 @@ export class EditService {
       verificationPolicy,
       status: "APPLIED",
     };
-    const authorizedDiffCheck: VerificationCheck | undefined = sameDiffContent(transaction.diff, preview.expectedDiff)
+    const markerOperation = preview.operations.length === 1 && preview.operations[0]?.type === "add-marker"
+      && preview.target.kind === "editor.timeline"
+      && executionCapabilities.markerIdentityMode === "editor-assigned"
+      && executionCapabilities.semanticOperations?.["add-marker"] === true
+      ? preview.operations[0] : undefined;
+    const authorizedDiffCheck: VerificationCheck | undefined = sameDiffContent(
+      transaction.diff, preview.expectedDiff, markerOperation?.marker.id, before.timeline.markers.map((marker) => marker.id),
+    )
       ? undefined
       : {
         name: "authorized-diff",
@@ -545,18 +554,69 @@ function postWriteAnalysisRequirements(policy: VerificationPolicy): PostWriteAna
   };
 }
 
-function sameDiffContent(left: TimelineDiff, right: TimelineDiff): boolean {
+function sameDiffContent(left: TimelineDiff, right: TimelineDiff, requestedMarkerId?: string, existingMarkerIds: string[] = []): boolean {
+  const actual = structuredClone(left);
+  const expectedMarker = right.markerChanges[0];
+  const actualMarker = actual.markerChanges[0];
+  const expectedChange = right.changes.filter((change) => change.scope === "marker");
+  const actualChange = actual.changes.filter((change) => change.scope === "marker");
+  if (requestedMarkerId && right.markerChanges.length === 1 && actual.markerChanges.length === 1
+    && expectedMarker?.type === "MARKER_ADDED" && actualMarker?.type === "MARKER_ADDED"
+    && expectedMarker.itemId === requestedMarkerId && expectedMarker.marker.id === requestedMarkerId
+    && expectedMarker.after?.id === requestedMarkerId && !expectedMarker.before
+    && actualMarker.itemId && actualMarker.marker.id === actualMarker.itemId && actualMarker.after?.id === actualMarker.itemId && !actualMarker.before
+    && !existingMarkerIds.includes(requestedMarkerId) && !existingMarkerIds.includes(actualMarker.itemId)
+    && expectedChange.length === 1 && actualChange.length === 1
+    && expectedChange[0]?.type === "MARKER_ADDED" && expectedChange[0].itemId === requestedMarkerId && expectedChange[0].after?.id === requestedMarkerId
+    && actualChange[0]?.type === "MARKER_ADDED" && actualChange[0].itemId === actualMarker.itemId && actualChange[0].after?.id === actualMarker.itemId) {
+    actualMarker.itemId = requestedMarkerId;
+    actualMarker.marker.id = requestedMarkerId;
+    actualMarker.after.id = requestedMarkerId;
+    actualChange[0].itemId = requestedMarkerId;
+    actualChange[0].after!.id = requestedMarkerId;
+  }
   const comparable = (diff: TimelineDiff) => {
-    const { from: _from, to: _to, provenance, ...content } = diff;
+    const normalized = structuredClone(diff);
+    const normalize = (value: RationalTime): RationalTime => addRationalTimes(value, { value: "0", timescale: "1" }, "INVALID_PROJECT_STATE");
+    const normalizeItem = (value: unknown) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return;
+      const item = value as Record<string, unknown>;
+      for (const key of ["startTime", "durationTime", "sourceStartTime"]) {
+        if (item[key] !== undefined) item[key] = normalize(item[key] as RationalTime);
+      }
+    };
+    for (const change of [...normalized.added, ...normalized.removed, ...normalized.modified]) {
+      normalizeItem(change.before);
+      normalizeItem(change.after);
+    }
+    for (const change of [...normalized.markerChanges, ...normalized.captionChanges, ...normalized.storyElementChanges]) {
+      normalizeItem(change.before);
+      normalizeItem(change.after);
+      if ("marker" in change) normalizeItem(change.marker);
+      if ("caption" in change) normalizeItem(change.caption);
+      if ("element" in change) normalizeItem(change.element);
+    }
+    for (const change of normalized.changes) {
+      if (change.scope !== "media") {
+        normalizeItem(change.before);
+        normalizeItem(change.after);
+      }
+    }
+    for (const range of normalized.affectedRanges) normalizeItem(range);
+    normalized.durationDeltaTime = normalize(normalized.durationDeltaTime);
+    if (normalized.playheadChange?.before) normalized.playheadChange.before = normalize(normalized.playheadChange.before);
+    if (normalized.playheadChange?.after) normalized.playheadChange.after = normalize(normalized.playheadChange.after);
+    const { from: _from, to: _to, provenance, ...content } = normalized;
     return {
-      target: provenance ? {
-        projectId: provenance.projectId,
-        sequenceId: provenance.sequenceId,
-      } : undefined,
+      target: provenance ? { projectId: provenance.projectId, sequenceId: provenance.sequenceId } : undefined,
       ...content,
     };
   };
-  return JSON.stringify(comparable(left)) === JSON.stringify(comparable(right));
+  try {
+    return JSON.stringify(comparable(actual)) === JSON.stringify(comparable(right));
+  } catch {
+    return false;
+  }
 }
 
 function assertValidWorkflowOperation(operation: WorkflowOperation): void {
