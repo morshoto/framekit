@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { join } from "node:path";
 import { buildFinalCutCanonicalExportScript } from "../../adapters/final-cut/typescript/src/canonical.js";
@@ -657,6 +658,10 @@ test("canonical source hashing is content-bound and does not follow symlinks", a
     const hashes = await hashCanonicalSourceMedia(project);
     assert.deepEqual(hashes, [{ mediaId: "final-cut:media:one", sha256: createHash("sha256").update("fixture media").digest("hex") }]);
     assert.doesNotMatch(JSON.stringify(hashes), /fixture\.mov|framekit-evidence-source-hash/);
+    project.media[0]!.source = pathToFileURL(path).href;
+    assert.deepEqual(await hashCanonicalSourceMedia(project), hashes);
+    await writeFile(path, "modified fixture media");
+    assert.notEqual((await hashCanonicalSourceMedia(project))[0]!.sha256, hashes[0]!.sha256);
     project.media[0]!.source = alias;
     await assert.rejects(hashCanonicalSourceMedia(project), /FINAL_CUT_E2E_SOURCE_HASH_UNAVAILABLE/);
     project.media[0]!.source = "https://example.test/fixture.mov";
