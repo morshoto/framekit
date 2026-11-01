@@ -250,6 +250,19 @@ test('contributor guidance limits docs changes to the four stated triggers', asy
 	assert.match(contributing, /smallest relevant section/);
 });
 
+test('runs documentation intent from trusted pull request metadata', async () => {
+	const workflow = await readFile(
+		resolve(repositoryRoot, '.github/workflows/documentation-intent.yml'),
+		'utf8',
+	);
+	assert.match(workflow, /^  pull_request_target:/m);
+	assert.match(workflow, /^\s+- edited$/m);
+	assert.match(workflow, /contents: read\s+pull-requests: read/);
+	assert.match(workflow, /ref: \$\{\{ github\.event\.repository\.default_branch \}\}/);
+	assert.match(workflow, /persist-credentials: false/);
+	assert.match(workflow, /run: node scripts\/check-documentation-intent\.mjs/);
+});
+
 function jsonResponse(value: unknown): Response {
 	return new Response(JSON.stringify(value), {
 		status: 200,

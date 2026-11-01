@@ -12,6 +12,7 @@ export * from "./render/render-and-verify.js";
 export * from "./timeline/drift-reconciliation.js";
 export * from "./timeline/fast-observation.js";
 export * from "./application/project-store.js";
+export * from "./application/transaction-store.js";
 export * from "./application/local-media.js";
 export * from "./application/project-transactions.js";
 export * from "./application/semantic-media-index-store.js";

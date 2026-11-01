@@ -6,13 +6,27 @@ headless fixture; it does not launch or activate Final Cut Pro.
 
 ## Development setup
 
-Requirements are Node.js 20 or newer and the repository-pinned pnpm version.
+Contributor toolchain: Node.js 22.14.0 and pnpm 12.14.0.
+Consumer runtime: Node.js >=20.
+CI tests this contributor pair; the pre-commit hook accepts Node.js 22.14 or newer.
+Install pnpm 12.14.0 using Corepack or your preferred package manager.
 Xcode 16.4 with the macOS 15.5 SDK is required only for native extension work.
-For the pinned shell toolchain, enter the optional Nix environment first:
+The optional Nix environment provides Node.js 22, pinned pnpm, FFmpeg/ffprobe,
+and SQLite for fixture and headless development. Start with the fixture profile;
+it does not require Apple tools or credentials:
 
 ```sh
 nix develop ./nix
+pnpm install --frozen-lockfile
+pnpm run framekit -- doctor dev --profile fixture
+pnpm run build
+pnpm run test:fixtures
+pnpm run smoke:fixture-mcp
 ```
+
+See [the Nix development guide](../nix/README.md) for the Linux bootstrap and
+`headless`/`native` doctor profiles. `doctor finalcut` keeps its existing
+connection check.
 
 Install and validate from the repository root:
 

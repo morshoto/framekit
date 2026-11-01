@@ -58,7 +58,7 @@ import { MediaAnalysisService } from "./application/media-analysis-service.js";
 import { MusicService } from "./editing/music-service.js";
 import { ProjectService } from "./application/project-service.js";
 import type { RuntimeOptions } from "./application/runtime-options.js";
-import { TransactionStore } from "./application/transaction-store.js";
+import { InMemoryTransactionStore } from "./application/transaction-store.js";
 import { DurationPolicyService } from "./application/duration-policy-service.js";
 import { DialogueNormalizationService } from "./editing/dialogue-normalization-service.js";
 import { SkillRuntime } from "./skills/runtime.js";
@@ -86,7 +86,7 @@ export class AgentVideoRuntime {
   ) {
     const context = new ContextEngine(adapter);
     const verificationEngine = options.verificationEngine ?? new DefaultVerificationEngine();
-    const transactions = new TransactionStore();
+    const transactions = new InMemoryTransactionStore();
     this.projects = new ProjectService(adapter, context, options);
     this.contexts = new ContextService(adapter, context);
     this.media = new MediaAnalysisService(this.projects, context, options);

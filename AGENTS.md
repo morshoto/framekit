@@ -53,6 +53,10 @@ xcodebuild -project adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/Fr
 - Do not commit `node_modules`, `dist`, credentials, private media, raw crash
   dumps, or user-specific local paths.
 
+## Pull request workflow
+
+Create agent-authored PRs as Draft by default. Mark Ready for review after implementation and fast CI; CodeQL runs at that point.
+
 ## Testing guidance
 
 Prefer deterministic fixtures for runtime and MCP tests. Native Final Cut

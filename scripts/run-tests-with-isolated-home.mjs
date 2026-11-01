@@ -103,7 +103,7 @@ const environment = {
 };
 
 try {
-  if (suiteName === "all") {
+  if (suiteName === "all" || suiteName === "fast") {
     const documentationTestFiles = (await readdir(path.join(repositoryRoot, "tests/documentation")))
       .filter((file) => file.endsWith(".test.mjs"))
       .map((file) => path.join("tests/documentation", file)).sort();

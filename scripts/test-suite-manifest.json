@@ -10,6 +10,14 @@
       "requires": []
     },
     {
+      "path": "packages/runtime/test/storage-ports.test.ts",
+      "owner": "packages/runtime",
+      "tags": [
+        "unit"
+      ],
+      "requires": []
+    },
+    {
       "path": "tests/evaluation/mcp-evaluation.test.ts",
       "owner": "shared",
       "tags": [
@@ -84,6 +92,7 @@
       "path": "tests/integration/basic-editing-mvp.test.ts",
       "owner": "shared",
       "tags": [
+        "fast-integration",
         "fixture-e2e",
         "integration"
       ],
@@ -150,6 +159,7 @@
       "path": "tests/integration/canonical-provider-readiness.test.ts",
       "owner": "shared",
       "tags": [
+        "fast-integration",
         "fixture-e2e",
         "integration"
       ],
@@ -221,6 +231,15 @@
       "requires": []
     },
     {
+      "path": "tests/integration/cli-dev-doctor.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
       "path": "tests/integration/cli-development.test.ts",
       "owner": "shared",
       "tags": [
@@ -255,6 +274,7 @@
       "path": "tests/integration/codeql-workflow.test.ts",
       "owner": "shared",
       "tags": [
+        "fast-integration",
         "fixture-e2e",
         "integration"
       ],
@@ -283,6 +303,7 @@
       "path": "tests/integration/composite-transactions.test.ts",
       "owner": "shared",
       "tags": [
+        "fast-integration",
         "fixture-e2e",
         "integration"
       ],
@@ -292,6 +313,7 @@
       "path": "tests/integration/connection.test.ts",
       "owner": "shared",
       "tags": [
+        "fast-integration",
         "fixture-e2e",
         "integration"
       ],
@@ -377,6 +399,7 @@
       "path": "tests/integration/editing-intent.test.ts",
       "owner": "shared",
       "tags": [
+        "fast-integration",
         "fixture-e2e",
         "integration"
       ],
@@ -395,6 +418,7 @@
       "path": "tests/integration/editor-first-routing.test.ts",
       "owner": "shared",
       "tags": [
+        "fast-integration",
         "fixture-e2e",
         "integration"
       ],
@@ -601,6 +625,16 @@
     },
     {
       "path": "tests/integration/finalcut-routing.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fast-integration",
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/fixture-mcp-smoke.test.ts",
       "owner": "shared",
       "tags": [
         "fixture-e2e",
@@ -1058,6 +1092,7 @@
       "path": "tests/integration/project-transactions.test.ts",
       "owner": "shared",
       "tags": [
+        "fast-integration",
         "fixture-e2e",
         "integration"
       ],
@@ -1085,6 +1120,7 @@
       "path": "tests/integration/range-validation.test.ts",
       "owner": "shared",
       "tags": [
+        "fast-integration",
         "fixture-e2e",
         "integration"
       ],
@@ -1132,6 +1168,7 @@
       "path": "tests/integration/release-workflow.test.ts",
       "owner": "shared",
       "tags": [
+        "fast-integration",
         "fixture-e2e",
         "integration"
       ],
@@ -1236,6 +1273,7 @@
       "path": "tests/integration/runtime.test.ts",
       "owner": "shared",
       "tags": [
+        "fast-integration",
         "fixture-e2e",
         "integration"
       ],
@@ -1311,6 +1349,15 @@
       "requires": []
     },
     {
+      "path": "tests/integration/skill-tool-metadata.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
       "path": "tests/integration/staged-content.test.ts",
       "owner": "shared",
       "tags": [
@@ -1323,6 +1370,7 @@
       "path": "tests/integration/test-state-isolation.test.ts",
       "owner": "shared",
       "tags": [
+        "fast-integration",
         "fixture-e2e",
         "integration"
       ],

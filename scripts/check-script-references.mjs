@@ -23,11 +23,13 @@ export async function checkScriptReferences(rootDirectory = repositoryRoot) {
     }
   }
 
-  for (const workflow of await listFiles(path.join(rootDirectory, ".github/workflows"))) {
-    if (!/\.ya?ml$/i.test(workflow)) continue;
-    const content = await readFile(workflow, "utf8");
-    const relativeWorkflow = path.relative(rootDirectory, workflow).split(path.sep).join("/");
-    await checkCommandReferences(content, relativeWorkflow, rootDirectory, issues);
+  for (const automationDirectory of [".github/workflows", ".github/action"]) {
+    for (const automationFile of await listFiles(path.join(rootDirectory, automationDirectory))) {
+      if (!/\.ya?ml$/i.test(automationFile)) continue;
+      const content = await readFile(automationFile, "utf8");
+      const relativeFile = path.relative(rootDirectory, automationFile).split(path.sep).join("/");
+      await checkCommandReferences(content, relativeFile, rootDirectory, issues);
+    }
   }
 
   const documents = await listFiles(path.join(rootDirectory, "docs"));
