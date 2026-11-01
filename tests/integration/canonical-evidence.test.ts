@@ -45,8 +45,7 @@ test("canonical headed read runner publishes a read-only sanitized evidence cont
   const runner = await readFile(join(process.cwd(), "scripts/final-cut-canonical-read-headed-e2e.mjs"), "utf8");
 
   assert.match(runner, /sanitizeCanonicalReadEvidence/);
-  assert.match(runner, /project\.list/);
-  assert.match(runner, /project\.inspect/);
+  assert.match(runner, /readBoundNativeProject\(callJson, expectedProject/);
   assert.doesNotMatch(runner, /timeline\.edit/);
   assert.match(runner, /JSON\.stringify\(evidence, null, 2\)/);
 });
