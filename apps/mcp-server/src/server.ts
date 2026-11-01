@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { createHash } from "node:crypto";
 import { resolve as resolvePath } from "node:path";
 import { z } from "zod/v3";
 import {
@@ -1022,7 +1023,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
         ? { nativeOperationSession: withRecoveryCheckpointGuard(options.nativeOperationSession, recovery, ["status", "cancel"]) }
         : {}),
       ...(options.projectPublisher
-        ? { projectPublisher: withRecoveryCheckpointGuard(options.projectPublisher, recovery, ["isAvailable", "inspectReadiness", "executionMode", "getPublishJob", "preparePublish"]) }
+        ? { projectPublisher: withPublishRecoveryGuard(options.projectPublisher, recovery) }
         : {}),
     };
   }
@@ -3021,6 +3022,73 @@ async function assertRequiredBuildAlignment(runtime: AgentVideoRuntime, options:
   if (alignment.status !== "matched") {
     throw new Error(`FRAMEKIT_BUILD_ALIGNMENT_MISMATCH: ${alignment.message}`);
   }
+}
+
+function withPublishRecoveryGuard<T extends object>(
+  provider: T,
+  recovery: Pick<FileCanonicalRecoveryGuard, "assertClear" | "beginNative" | "inspectNativeReservation">,
+): T {
+  const allowed = new Set<PropertyKey>(["isAvailable", "inspectReadiness", "executionMode", "getPublishJob", "preparePublish"]);
+  let current: { jobId?: string; reservation: Awaited<ReturnType<FileCanonicalRecoveryGuard["beginNative"]>>; active: boolean; dispatched: boolean } | undefined;
+  return new Proxy(provider, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target) as unknown;
+      if (typeof value !== "function") return value;
+      if (allowed.has(property)) return value.bind(target);
+      return async (...args: unknown[]) => {
+        if (property !== "executePublishJob" && property !== "publishNewProject") {
+          await recovery.assertClear();
+          return Reflect.apply(value, target, args);
+        }
+        const jobId = property === "executePublishJob" && typeof args[0] === "string" ? args[0] : undefined;
+        let entry = current;
+        if (entry) {
+          if (entry.active || !jobId || entry.jobId !== jobId || args[1] !== true || args[2] !== true
+          ) {
+            throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish reservation only permits verification of its settled pending job");
+          }
+          entry.active = true;
+          try {
+            const observed = await recovery.inspectNativeReservation();
+            const getJob = Reflect.get(target, "getPublishJob", target) as (id: string) => { state?: string };
+            if (observed?.reservationId !== entry.reservation.reservationId || getJob.call(target, jobId).state !== "verification-pending") {
+              throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish reservation or job changed before verification");
+            }
+          } catch (error) {
+            entry.active = false;
+            throw error;
+          }
+        } else {
+          const getJob = Reflect.get(target, "getPublishJob", target) as ((id: string) => { state?: string }) | undefined;
+          const pending = Boolean(jobId && getJob?.call(target, jobId).state === "verification-pending");
+          const operation = jobId
+            ? `native.publish.${createHash("sha256").update(jobId).digest("hex")}`
+            : "native.publish.direct";
+          const reservation = await recovery.beginNative(operation);
+          const track = Reflect.get(target, "trackNativeDispatch", target);
+          entry = { jobId, reservation, active: true, dispatched: pending || typeof track !== "function" };
+          current = entry;
+        }
+        const track = Reflect.get(target, "trackNativeDispatch", target) as unknown;
+        try {
+          const invoke = async () => Reflect.apply(value, target, args) as Promise<unknown>;
+          const result: unknown = typeof track === "function"
+            ? await Reflect.apply(track, target, [invoke, () => { entry!.dispatched = true; }])
+            : await invoke();
+          if (entry.dispatched && result && typeof result === "object" && !Array.isArray(result)) {
+            return { ...result, recoveryReservation: { status: "recovery-required", reservationId: entry.reservation.reservationId, reason: "native-quiescence-unproven" } };
+          }
+          return result;
+        } finally {
+          entry.active = false;
+          if (!entry.dispatched) {
+            await entry.reservation.release();
+            if (current === entry) current = undefined;
+          }
+        }
+      };
+    },
+  });
 }
 
 function withRecoveryCheckpointGuard<T extends object>(

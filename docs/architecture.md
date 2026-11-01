@@ -91,7 +91,15 @@ disposable execute and Undo and disposable native session jobs also reserve the
 same path through canonical verification or verified rollback. Native timeline
 command executions use the reservation through their native verification. Native
 media imports also reserve it; an incomplete or partial import keeps the
-reservation. Other direct operations and background jobs still use entry checks, so shared exclusion
+reservation. Publishing retains its reservation after dispatch, including after
+verified readback, because native quiescence remains unproven. The originating
+MCP process can separately verify the same pending job only after its dispatch
+call returns; it cannot replay the import. Responses after dispatch include the
+reservation ID and report that native quiescence is unproven. A different process
+cannot claim that reservation, and a direct publish cannot transfer its
+reservation to a subsequently created recovery job. Until a supported recovery path exists, even a verified publish
+therefore leaves subsequent guarded operations blocked. Other direct operations
+and background jobs still use entry checks, so shared exclusion
 across all native routes is not proven. Native command acceptance does not prove
 later native quiescence. Restarting or changing state directories does not establish that recovery succeeded. There
 is no automatic checkpoint reset or supported recovery flow yet. The read-only

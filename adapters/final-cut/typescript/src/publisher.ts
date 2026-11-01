@@ -1,4 +1,5 @@
 import { execFile as execFileCallback } from "node:child_process";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { chmodSync, closeSync, constants, createReadStream, fsyncSync, ftruncateSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { access, lstat, mkdtemp, open, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
@@ -212,6 +213,7 @@ interface PersistedPublishJob {
 
 /** Imports a validated FCPXML artifact as a new Final Cut project. */
 export class FinalCutProjectPublisher {
+  private readonly dispatchContext = new AsyncLocalStorage<() => void>();
   private readonly enabled: boolean;
   private readonly sourcePath: string;
   private readonly executor: (script: string) => Promise<string>;
@@ -241,6 +243,10 @@ export class FinalCutProjectPublisher {
     this.verificationTimeoutMs = Math.max(0, options.verificationTimeoutMs ?? 15_000);
     this.pollIntervalMs = Math.max(0, options.pollIntervalMs ?? options.waitMs ?? 100);
     this.loadPersistedPublishJobs();
+  }
+
+  public async trackNativeDispatch<T>(operation: () => Promise<T>, onDispatch: () => void): Promise<T> {
+    return this.dispatchContext.run(onDispatch, operation);
   }
 
   public isAvailable(): boolean {
@@ -891,6 +897,7 @@ export class FinalCutProjectPublisher {
       runtime.importAttempted = false;
       throw error;
     }
+    this.dispatchContext.getStore()?.();
     markReservationDispatchAttempt(runtime);
   }
 
