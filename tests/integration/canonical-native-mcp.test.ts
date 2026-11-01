@@ -391,6 +391,9 @@ test("an unresolved checkpoint blocks direct native edits while allowing inspect
     inspect: async () => ({ available: true }),
     edit: async () => { calls.push("edit"); return { operationId: "native-edit" }; },
     undo: async () => { calls.push("undo"); return { undone: true }; },
+    previewBlade: async () => { calls.push("previewBlade"); return {}; },
+    executeBlade: async () => { calls.push("executeBlade"); return {}; },
+    importMedia: async () => { calls.push("importMedia"); return {}; },
   } as unknown as NativeFinalCutEditor;
   await guard.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "b".repeat(64), operation: "rename-clip" });
   const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, nativeEditor });
@@ -403,11 +406,82 @@ test("an unresolved checkpoint blocks direct native edits while allowing inspect
     const undo = await client.callTool({ name: "editor.native.undo", arguments: { operationId: "native-edit" } });
     assert.equal(undo.isError, true);
     assert.match(textFrom(undo), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    for (const request of [
+      { name: "editor.native.blade.preview", arguments: { occurrenceHandle: "clip-1" } },
+      { name: "editor.native.blade.execute", arguments: { previewToken: "token" } },
+      { name: "editor.native.media.import", arguments: { path: "/fixture/clip.mov" } },
+    ]) {
+      const result = await client.callTool(request);
+      assert.equal(result.isError, true, request.name);
+      assert.match(textFrom(result), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/, request.name);
+    }
     assert.deepEqual(calls, []);
     await guard.complete();
     const allowed = await client.callTool({ name: "editor.native.edit", arguments: { type: "add-marker-at-playhead", name: "Review" } });
     assert.equal(allowed.isError ?? false, false, textFrom(allowed));
     assert.deepEqual(calls, ["edit"]);
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("an unresolved checkpoint blocks native jobs and publishing but permits status", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-routes-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const calls: string[] = [];
+  const nativeOperationSession = {
+    submit: async () => { calls.push("submit"); return { state: "accepted" }; },
+    retry: async () => { calls.push("retry"); return { state: "accepted" }; },
+    status: async () => ({ state: "waiting" }),
+    cancel: async () => ({ state: "cancelled" }),
+  };
+  const disposableNative = {
+    preview: async () => { calls.push("preview"); return {}; },
+    execute: async () => { calls.push("execute"); return {}; },
+    undo: async () => { calls.push("undo"); return {}; },
+  };
+  const projectPublisher = {
+    isAvailable: () => false,
+    getPublishJob: () => ({ state: "verification-pending" }),
+    executePublishJob: async () => { calls.push("publish"); return {}; },
+  };
+  const publisher = { publish: async () => { calls.push("materialize"); return { state: "blocked" }; } };
+  await guard.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "b".repeat(64), operation: "rename-clip" });
+  const options = {
+    canonicalRecovery: guard, nativeOperationSession, disposableNative, projectPublisher,
+    sessionMaterializationPublisher: publisher,
+    sessionDirectory: join(directory, "sessions"), materializationDirectory: join(directory, "materializations"),
+  } as unknown as NonNullable<Parameters<typeof createMcpServer>[1]>;
+  const { client, server } = await connect(createRuntime([]), options);
+  try {
+    const status = await client.callTool({ name: "editor.native.operation.status", arguments: { jobId: "job-1" } });
+    assert.equal(status.isError ?? false, false);
+    const cancel = await client.callTool({ name: "editor.native.operation.cancel", arguments: { jobId: "job-1" } });
+    assert.equal(cancel.isError ?? false, false);
+    const publishStatus = await client.callTool({ name: "artifact.publish.status", arguments: { jobId: "job-1" } });
+    assert.equal(publishStatus.isError ?? false, false);
+    const requests = [
+      { name: "editor.native.operation.submit", arguments: { operation: "disposable.rename-clip", previewToken: "token", projectId: "project-1", sequenceId: "sequence-1", targetIdentity: "clip-1", baseRevision: { id: "revision-1", sequence: 1, timestamp: new Date(0).toISOString() }, idempotencyKey: "key-1" } },
+      { name: "editor.native.operation.retry", arguments: { jobId: "job-1" } },
+      { name: "editor.native.disposable.preview", arguments: { clipId: "clip-1", name: "Review" } },
+      { name: "editor.native.disposable.execute", arguments: { previewToken: "token" } },
+      { name: "editor.native.disposable.undo", arguments: { operationId: "operation-1" } },
+      { name: "artifact.publish.execute", arguments: { jobId: "job-1", confirm: true } },
+      { name: "session.materialize.execute", arguments: { sessionId: "session-1", target: { provider: "final-cut", libraryUid: "library-1", eventUid: "event-1", projectUid: "project-1", sequenceUid: "sequence-1" }, confirm: true } },
+      { name: "session.materialize.retry", arguments: { jobId: "job-1" } },
+    ];
+    for (const request of requests) {
+      const result = await client.callTool(request);
+      assert.equal(result.isError, true, request.name);
+      assert.match(textFrom(result), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/, request.name);
+    }
+    assert.deepEqual(calls, []);
+    await guard.complete();
+    const retry = await client.callTool({ name: "editor.native.operation.retry", arguments: { jobId: "job-1" } });
+    assert.equal(retry.isError ?? false, false, textFrom(retry));
+    assert.deepEqual(calls, ["retry"]);
   } finally {
     await client.close();
     await server.close();

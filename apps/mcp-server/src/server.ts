@@ -961,7 +961,7 @@ export interface McpServerOptions {
   disposableNative?: Pick<DisposableNativeEditWorkflow, "preview" | "execute" | "undo">;
   nativeOperationSession?: Pick<NativeOperationSession, "submit" | "status" | "retry" | "cancel">;
   projectPublisher?: FinalCutProjectPublisher;
-  canonicalRecovery?: Pick<FileCanonicalRecoveryGuard, "inspectVersioned">;
+  canonicalRecovery?: Pick<FileCanonicalRecoveryGuard, "inspectVersioned" | "assertClear">;
   videoExporter?: FinalCutVideoExporter;
   backgroundRenderer?: BackgroundRenderExportProvider;
   buildFingerprint?: FramekitBuildFingerprint;
@@ -1001,6 +1001,24 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
         : {}),
       ...(options.videoExporter
         ? { videoExporter: withBuildAlignmentGuard(options.videoExporter, assertAlignment, ["isAvailable"]) }
+        : {}),
+    };
+  }
+  if (options.canonicalRecovery) {
+    const recovery = options.canonicalRecovery;
+    options = {
+      ...options,
+      ...(options.nativeEditor
+        ? { nativeEditor: withRecoveryCheckpointGuard(options.nativeEditor, recovery, ["capabilities", "inspect"]) }
+        : {}),
+      ...(options.disposableNative
+        ? { disposableNative: withRecoveryCheckpointGuard(options.disposableNative, recovery) }
+        : {}),
+      ...(options.nativeOperationSession
+        ? { nativeOperationSession: withRecoveryCheckpointGuard(options.nativeOperationSession, recovery, ["status", "cancel"]) }
+        : {}),
+      ...(options.projectPublisher
+        ? { projectPublisher: withRecoveryCheckpointGuard(options.projectPublisher, recovery, ["isAvailable", "inspectReadiness", "executionMode", "getPublishJob", "preparePublish"]) }
         : {}),
     };
   }
@@ -1149,7 +1167,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("session.materialize.execute", {
     description: "Confirm, stage, checkpoint, and request publication of a versioned FCPXML project.",
     inputSchema: { sessionId: z.string().min(1), target: sessionMaterializationTargetSchema, confirm: z.boolean() },
-  }, async ({ sessionId, target, confirm }) => sessionResult(async () => requireMaterializations().execute(sessionId, target, confirm)));
+  }, async ({ sessionId, target, confirm }) => sessionResult(async () => {
+    if (options.sessionMaterializationPublisher) await options.canonicalRecovery?.assertClear();
+    return requireMaterializations().execute(sessionId, target, confirm);
+  }));
 
   server.registerTool("session.materialize.status", {
     description: "Inspect a persisted materialization job after completion, blockage, or server restart.",
@@ -1159,7 +1180,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("session.materialize.retry", {
     description: "Resume a retryable persisted materialization job with its verified immutable artifact.",
     inputSchema: { jobId: z.string().min(1) },
-  }, async ({ jobId }) => sessionResult(async () => requireMaterializations().retry(jobId)));
+  }, async ({ jobId }) => sessionResult(async () => {
+    if (options.sessionMaterializationPublisher) await options.canonicalRecovery?.assertClear();
+    return requireMaterializations().retry(jobId);
+  }));
 
   server.registerTool("session.materialize.resync", {
     description: "Read the completed versioned handoff target and create a fresh editing-session baseline for continuation.",
@@ -2986,6 +3010,25 @@ async function assertRequiredBuildAlignment(runtime: AgentVideoRuntime, options:
   if (alignment.status !== "matched") {
     throw new Error(`FRAMEKIT_BUILD_ALIGNMENT_MISMATCH: ${alignment.message}`);
   }
+}
+
+function withRecoveryCheckpointGuard<T extends object>(
+  provider: T,
+  recovery: Pick<FileCanonicalRecoveryGuard, "assertClear">,
+  allowedMethods: readonly PropertyKey[] = [],
+): T {
+  const allowed = new Set(allowedMethods);
+  return new Proxy(provider, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target) as unknown;
+      if (typeof value !== "function") return value;
+      if (allowed.has(property)) return value.bind(target);
+      return async (...args: unknown[]) => {
+        await recovery.assertClear();
+        return Reflect.apply(value, target, args);
+      };
+    },
+  });
 }
 
 function withBuildAlignmentGuard<T extends object>(

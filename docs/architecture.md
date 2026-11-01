@@ -80,8 +80,12 @@ revision after target resolution. If a native edit has an uncertain outcome or
 Undo cannot be verified, the canonical provider blocks further previews and
 edits. Production native sessions create an exclusive checkpoint under the
 configured Framekit state directory before mutation; an unresolved checkpoint
-continues to block sessions that use that directory after a restart. Restarting
-or changing state directories does not establish that recovery succeeded. There
+continues to block sessions that use that directory after a restart. Direct
+native edits, native jobs, and native publishing routes check for an existing
+checkpoint before dispatch, while status, cancellation, and inspection remain
+available. Those entry checks do not serialize a concurrently starting direct
+native operation with checkpoint creation; the shared exclusion boundary is not
+proven. Restarting or changing state directories does not establish that recovery succeeded. There
 is no automatic checkpoint reset or supported recovery flow yet. The read-only
 `editor.native.recovery.inspect` MCP tool reports the checkpoint in the
 configured state directory without contacting Final Cut or clearing it; a
