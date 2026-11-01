@@ -83,7 +83,7 @@ test("publisher headed E2E rejects missing post-import identities", () => {
   assert.throws(() => verifyPublishedTarget({
     result: {
       verified: true,
-      semanticReadback: { verified: true, expectedDigest: "approved", observedDigest: "approved", checked: ["clips"] },
+      semanticReadback: { verified: true, expectedDigest: "approved", observedDigest: "approved", checked: ["timeline-duration-and-frame-rate", "clip-order-and-source-ranges", "editable-title-content-and-timing", "connected-audio-source-role-gain-and-timing", "source-media-bindings"] },
       sourceMediaIntegrity: { unchanged: true, digests: [] },
       createdTarget: { projectName: "Imported", sequenceName: "Main" },
       activeProject: { before: { id: "before-project" }, after: {} },

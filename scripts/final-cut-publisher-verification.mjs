@@ -34,6 +34,10 @@ export function verifyPublishedTarget({ result, beforeLive, afterLive, expectedP
     || result.semanticReadback.expectedDigest !== result.semanticReadback.observedDigest) {
     throw new Error("FINAL_CUT_E2E_PUBLISH_SEMANTIC_READBACK_FAILED: native timeline does not match the approved FCPXML");
   }
+  const requiredChecks = ["timeline-duration-and-frame-rate", "clip-order-and-source-ranges", "editable-title-content-and-timing", "connected-audio-source-role-gain-and-timing", "source-media-bindings"];
+  if (!requiredChecks.every((check) => result.semanticReadback.checked?.includes(check))) {
+    throw new Error("PUBLISH_SEMANTIC_COVERAGE_INCOMPLETE: required semantic checks are unavailable");
+  }
   if (result.sourceMediaIntegrity?.unchanged !== true) {
     throw new Error("FINAL_CUT_E2E_PUBLISH_SOURCE_MEDIA_FAILED: source-media digests were not preserved");
   }
