@@ -2512,3 +2512,18 @@ test("canonical resolver rejects a timeline occurrence without observed source i
   await assert.rejects(createFinalCutNativeTargetResolver(native)(project.timeline.clips[0]!, project), /TARGET_MISMATCH.*source identity/i);
   assert.equal(selected, false);
 });
+
+test("canonical capabilities fail closed when source binding is unavailable", async () => {
+  const calls: string[] = [];
+  const resolveTarget = Object.assign(async () => { calls.push("resolve"); }, { sourceBindingAvailable: false });
+  const provider = providerFor([snapshot("Original"), snapshot("Original"), snapshot("Original")], calls, resolveTarget, liveState(), {
+    listProjects: async () => ({ projects: [{ id: "final-cut:project:project-1", name: "Canonical E2E", sequences: [{ id: "final-cut:sequence:sequence-1", name: "Canonical E2E" }] }], activeProjectId: "final-cut:project:project-1", activeSequenceId: "final-cut:sequence:sequence-1" }),
+  }, { addMarkerAtTime: async () => ({ operationId: "marker-1", undoAvailable: true }) });
+  const capabilities = await provider.getCapabilities({ probeCanonicalSnapshot: true });
+  assert.notEqual(capabilities.editor.semanticOperations?.["rename-clip"], true);
+  assert.notEqual(capabilities.editor.semanticOperations?.["trim-clip"], true);
+  assert.notEqual(capabilities.editor.semanticOperations?.["set-gain"], true);
+  const before = await provider.readProject();
+  await assert.rejects(provider.apply({ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "Renamed" }, before.revision), /CAPABILITY_UNAVAILABLE.*source/i);
+  assert.deepEqual(calls, []);
+});
