@@ -205,6 +205,8 @@ export interface NativeFinalCutOccurrenceSearchResult {
   occurrences: NativeFinalCutOccurrence[];
 }
 
+export type NativeFinalCutTargetKind = "selected-clip" | "browser-media" | "playhead" | "unknown" | "none";
+
 export type NativeFinalCutReadinessState = "ready" | "unavailable" | "timeout" | "cancelled" | "stale";
 export type NativeFinalCutReadinessAction = "none" | "retry" | "queue" | "unavailable";
 export type NativeFinalCutReadinessRequirement =
@@ -225,6 +227,8 @@ export interface NativeFinalCutReadiness {
   frontmost: boolean;
   timelineFocus: boolean;
   selectedTarget: boolean;
+  targetKind?: NativeFinalCutTargetKind;
+  targetBound?: boolean;
   overlay: "clear" | "blocked" | "unknown";
   permission: "granted" | "required" | "unknown";
   undo: "available" | "unavailable" | "unknown";
@@ -556,10 +560,13 @@ export interface NativeFinalCutContext {
   sequence?: string;
   playheadTime?: string;
   target: {
-    kind: "selected-clip" | "browser-media" | "playhead" | "unknown" | "none";
+    kind: NativeFinalCutTargetKind;
     name?: string;
     role?: string;
     identity?: string;
+    projectId?: string;
+    sequenceId?: string;
+    revision?: ContextRevision;
     occurrenceIndex?: number;
   };
   bladeAvailable: boolean;
@@ -944,7 +951,51 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       return unavailableContext("CAPABILITY_UNAVAILABLE", "Final Cut native writes are disabled; set FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1");
     }
     try {
-      return await this.attachLiveState(await this.ensureTimelineReady());
+      const focused = await this.attachLiveState(await this.ensureTimelineReady());
+      if (!this.liveState || focused.target.kind === "selected-clip") return focused;
+
+      // Timeline focus and target selection are separate Accessibility states.
+      // Re-read the bounded selection tree after focus so a selected occurrence
+      // is not reported as a playhead-only target.
+      const reread = await this.inspectRawNative(undefined, passiveTimelinePreflightScript());
+      if (!reread.available) return reread;
+
+      const targetScope = (context: NativeFinalCutContext) => {
+        const target = context.target as NativeFinalCutContext["target"] & {
+          projectId?: string;
+          sequenceId?: string;
+          revision?: { id?: string; sequence?: number };
+        };
+        if (!target.projectId || !target.sequenceId || !target.revision?.id || !Number.isInteger(target.revision.sequence)) {
+          return undefined;
+        }
+        return {
+          projectId: target.projectId,
+          sequenceId: target.sequenceId,
+          revisionId: target.revision.id,
+          revisionSequence: target.revision.sequence,
+        };
+      };
+      const beforeScope = targetScope(focused);
+      const afterScope = targetScope(reread);
+      if (!beforeScope || !afterScope) {
+        return unavailableContext(
+          "FINAL_CUT_NATIVE_TARGET_BINDING_UNAVAILABLE",
+          "Final Cut project, sequence, and revision could not be confirmed across focus recovery",
+          reread,
+        );
+      }
+      if (beforeScope.projectId !== afterScope.projectId
+        || beforeScope.sequenceId !== afterScope.sequenceId
+        || beforeScope.revisionId !== afterScope.revisionId
+        || beforeScope.revisionSequence !== afterScope.revisionSequence) {
+        return unavailableContext(
+          "STALE_CONTEXT",
+          "Final Cut project, sequence, or revision changed while resolving the selected occurrence",
+          reread,
+        );
+      }
+      return reread;
     } catch (error) {
       return unavailableContext(nativeErrorCode(error), nativeErrorMessage(error), preflightContext(error));
     }
@@ -974,9 +1025,18 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       context.playheadTime = live.playheadTime
         ? `${live.playheadTime.value}/${live.playheadTime.timescale}`
         : undefined;
+      if (live.project?.id && live.sequence?.id) {
+        context.target = {
+          ...context.target,
+          projectId: live.project.id,
+          sequenceId: live.sequence.id,
+          revision: structuredClone(live.revision),
+        };
+      }
     } catch {
       // Native UI inspection remains useful when the optional live socket is down.
     }
+    context.readiness = readinessForContext(context);
     return context;
   }
 
@@ -1501,10 +1561,11 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     }
     const after = await this.requireAvailableContext();
     this.selectedMediaHandle = handle;
-    return {
+    const context: NativeFinalCutContext = {
       ...after,
       target: { kind: "browser-media", name: match.name, ...(match.role ? { role: match.role } : {}) },
     };
+    return { ...context, readiness: readinessForContext(context) };
   }
 
   public async locateOccurrence(mediaHandle: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutOccurrenceSearchResult> {
@@ -3012,9 +3073,13 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         : expected.target.occurrenceIndex !== undefined && recovered.target.occurrenceIndex !== undefined
           ? expected.target.occurrenceIndex !== recovered.target.occurrenceIndex
           : true);
+    const scopeChanged = expected.target.projectId !== recovered.target.projectId
+      || expected.target.sequenceId !== recovered.target.sequenceId
+      || expected.target.revision?.id !== recovered.target.revision?.id
+      || expected.target.revision?.sequence !== recovered.target.revision?.sequence;
     const playheadChanged = requirePlayhead
       && (!expected.playheadTime || !recovered.playheadTime || expected.playheadTime !== recovered.playheadTime);
-    if (targetChanged || occurrenceChanged || playheadChanged) {
+    if (targetChanged || occurrenceChanged || scopeChanged || playheadChanged) {
       throw new Error("FINAL_CUT_NATIVE_RETRY_TARGET_CHANGED: Final Cut selection or playhead changed during focus recovery");
     }
   }
@@ -3215,6 +3280,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private assertNativeWriteContext(context: NativeFinalCutContext): void {
     if (!context.readiness.selectedTarget) {
       throw new Error("FINAL_CUT_NATIVE_SELECTION_REQUIRED: position the playhead or select a timeline target in Final Cut Pro");
+    }
+    if (context.target.kind === "selected-clip" && !context.readiness.targetBound) {
+      throw new Error("FINAL_CUT_NATIVE_TARGET_BINDING_UNAVAILABLE: selected occurrence is not bound to the active project, sequence, and revision");
     }
   }
 
@@ -4140,9 +4208,10 @@ using terms from application "System Events"
     return parts
   end splitText
 
-  on selectedTimelineItem(containerItem, depth, mainOrigin, mainSize)
-    if depth > 6 then return ""
-    set output to ""
+  on selectedTimelineSelection(containerItem, depth, mainOrigin, mainSize)
+    if depth > 6 then return {0, ""}
+    set selectedCount to 0
+    set selectedRecord to ""
     repeat with candidateRef in UI elements of containerItem
       try
         set candidate to contents of candidateRef
@@ -4160,32 +4229,37 @@ using terms from application "System Events"
             set candidateSelected to (selected of candidate) is true
           end try
           if candidateSelected then
-            set candidateRole to role of candidate as text
-            set candidateName to ""
-            try
-              set candidateName to description of candidate as text
-            end try
-            if candidateName is "" then
+            set selectedCount to selectedCount + 1
+            if selectedRecord is "" then
+              set candidateRole to role of candidate as text
+              set candidateName to ""
               try
-                set candidateName to value of candidate as text
+                set candidateName to description of candidate as text
               end try
+              if candidateName is "" then
+                try
+                  set candidateName to value of candidate as text
+                end try
+              end if
+              if candidateName is "missing value" then set candidateName to ""
+              set candidateIdentity to ""
+              try
+                set candidateIdentity to value of attribute "AXIdentifier" of candidate as text
+              end try
+              set selectedRecord to candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateIdentity
             end if
-            if candidateName is "missing value" then set candidateName to ""
-            set candidateIdentity to ""
-            try
-              set candidateIdentity to value of attribute "AXIdentifier" of candidate as text
-            end try
-            return candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateIdentity
+          else
+            set nestedSelection to my selectedTimelineSelection(candidate, depth + 1, mainOrigin, mainSize)
+            set selectedCount to selectedCount + (item 1 of nestedSelection)
+            if selectedRecord is "" then set selectedRecord to item 2 of nestedSelection
           end if
-          set output to my selectedTimelineItem(candidate, depth + 1, mainOrigin, mainSize)
-          if output is not "" then return output
         end if
       on error
         -- Ignore inaccessible descendants and continue the bounded scan.
       end try
     end repeat
-    return ""
-  end selectedTimelineItem
+    return {selectedCount, selectedRecord}
+  end selectedTimelineSelection
 
   on selectedTimelineOccurrenceIndex(timelineArea)
     set occurrenceIndex to 0
@@ -4243,14 +4317,15 @@ tell application "System Events"
     try
       set timelineArea to UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of frontWindow
       set selectionLookupAvailable to true
-      set selectedRecord to my selectedTimelineItem(timelineArea, 0, mainOrigin, mainSize)
+      set selectionResult to my selectedTimelineSelection(timelineArea, 0, mainOrigin, mainSize)
+      set selectedCount to item 1 of selectionResult
+      set selectedRecord to item 2 of selectionResult
       set selectedOccurrenceIndex to my selectedTimelineOccurrenceIndex(timelineArea)
-      if selectedRecord is not "" then
+      if selectedCount is 1 and selectedRecord is not "" then
         set selectedFields to my splitText(selectedRecord, ASCII character 31)
         set selectedName to item 1 of selectedFields
         set selectedRole to item 2 of selectedFields
         set selectedIdentity to item 3 of selectedFields
-        set selectedCount to 1
       end if
     end try
     if not selectionLookupAvailable then set selectedCount to -1
@@ -4593,9 +4668,10 @@ function inspectScript(): string {
       return parts
     end splitText
 
-    on selectedTimelineItem(containerItem, depth, mainOrigin, mainSize)
-      if depth > 12 then return ""
-      set output to ""
+    on selectedTimelineSelection(containerItem, depth, mainOrigin, mainSize)
+      if depth > 12 then return {0, ""}
+      set selectedCount to 0
+      set selectedRecord to ""
       repeat with candidateRef in UI elements of containerItem
         try
           set candidate to contents of candidateRef
@@ -4614,32 +4690,37 @@ function inspectScript(): string {
               set candidateSelected to (selected of candidate) is true
             end try
             if candidateSelected then
-              set candidateRole to role of candidate as text
-              set candidateName to ""
-              try
-                set candidateName to description of candidate as text
-              end try
-              if candidateName is "" then
+              set selectedCount to selectedCount + 1
+              if selectedRecord is "" then
+                set candidateRole to role of candidate as text
+                set candidateName to ""
                 try
-                  set candidateName to value of candidate as text
+                  set candidateName to description of candidate as text
                 end try
+                if candidateName is "" then
+                  try
+                    set candidateName to value of candidate as text
+                  end try
+                end if
+                if candidateName is "missing value" then set candidateName to ""
+                set candidateIdentity to ""
+                try
+                  set candidateIdentity to value of attribute "AXIdentifier" of candidate as text
+                end try
+                set selectedRecord to candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateIdentity
               end if
-              if candidateName is "missing value" then set candidateName to ""
-              set candidateIdentity to ""
-              try
-                set candidateIdentity to value of attribute "AXIdentifier" of candidate as text
-              end try
-              return candidateName & (ASCII character 31) & candidateRole & (ASCII character 31) & candidateIdentity
+            else
+              set nestedSelection to my selectedTimelineSelection(candidate, depth + 1, mainOrigin, mainSize)
+              set selectedCount to selectedCount + (item 1 of nestedSelection)
+              if selectedRecord is "" then set selectedRecord to item 2 of nestedSelection
             end if
-            set output to my selectedTimelineItem(candidate, depth + 1, mainOrigin, mainSize)
-            if output is not "" then return output
           end if
         on error
           -- Ignore inaccessible descendants and continue the bounded scan.
         end try
       end repeat
-      return ""
-    end selectedTimelineItem
+      return {selectedCount, selectedRecord}
+    end selectedTimelineSelection
 
     on selectedTimelineOccurrenceIndex(timelineArea)
       set occurrenceIndex to 0
@@ -4723,15 +4804,16 @@ function inspectScript(): string {
     try
     set timelineArea to UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of UI element 1 of frontWindow
       set selectionLookupAvailable to true
-      set selectedRecord to my selectedTimelineItem(timelineArea, 0, mainOrigin, mainSize)
+      set selectionResult to my selectedTimelineSelection(timelineArea, 0, mainOrigin, mainSize)
+      set selectedCount to item 1 of selectionResult
+      set selectedRecord to item 2 of selectionResult
       set selectedOccurrenceIndex to my selectedTimelineOccurrenceIndex(timelineArea)
     end try
-    if selectedRecord is not "" then
+    if selectedCount is 1 and selectedRecord is not "" then
       set selectedFields to my splitText(selectedRecord, ASCII character 31)
       set selectedName to item 1 of selectedFields
       set selectedRole to item 2 of selectedFields
       set selectedIdentity to item 3 of selectedFields
-      set selectedCount to 1
     end if
     set inspectorName to my findInspectorName(frontWindow, 0)
     if inspectorName is not "" and selectedCount is 1 then set selectedName to inspectorName
@@ -6855,8 +6937,10 @@ function parseContext(output: string): NativeFinalCutContext {
       : "none";
   const target = selectedCount < 0
     ? { kind: "unknown" as const }
-    : selectedCount === 1
+    : selectedCount === 1 && (Boolean(targetIdentity) || Boolean(occurrenceIndex && Number.isInteger(occurrenceIndex) && occurrenceIndex > 0))
       ? { kind: "selected-clip" as const, ...(selectedName ? { name: selectedName } : {}), ...(selectedRole ? { role: selectedRole } : {}), ...(targetIdentity ? { identity: targetIdentity } : {}), ...(occurrenceIndex && Number.isInteger(occurrenceIndex) && occurrenceIndex > 0 ? { occurrenceIndex } : {}) }
+      : selectedCount === 1
+        ? { kind: "unknown" as const }
       : selectedCount > 1
         ? { kind: "unknown" as const }
         : (focusedRole === "AXTextField" && (focusedDescription === "text field" || focusedDescription === "Title")
@@ -7265,8 +7349,11 @@ function readinessForContext(context: {
   error?: NativeFinalCutContext["error"];
 }): NativeFinalCutReadiness {
   const selectedTarget = context.target.kind !== "none" && context.target.kind !== "unknown";
+  const targetBound = context.target.kind === "selected-clip"
+    && Boolean(context.target.identity && context.target.projectId && context.target.sequenceId && context.target.revision);
+  const targetReady = selectedTarget && (context.target.kind !== "selected-clip" || targetBound);
   const state = context.error?.state
-    ?? (context.available && context.frontmost && context.timelineWindowAvailable && context.timelineFocused && !context.overlayBlocked && selectedTarget
+    ?? (context.available && context.frontmost && context.timelineWindowAvailable && context.timelineFocused && !context.overlayBlocked && targetReady
       ? "ready"
       : "unavailable");
   const overlay = context.overlayBlocked
@@ -7288,7 +7375,7 @@ function readinessForContext(context: {
             ? "frontmost"
             : !context.timelineFocused
           ? "timeline-focus"
-            : !selectedTarget
+            : !targetReady
               ? "target"
                 : undefined;
   const retryable = context.error?.retryable ?? state !== "ready";
@@ -7307,7 +7394,9 @@ function readinessForContext(context: {
           : firstMissing === "timeline-focus"
             ? "Focus the Final Cut Pro timeline and retry"
             : firstMissing === "target"
-              ? "Select a single timeline target and retry"
+              ? context.target.kind === "selected-clip"
+                ? "Re-read the selected occurrence after its live project, sequence, and revision are available"
+                : "Select a single timeline target and retry"
               : state === "ready"
                 ? "Native Final Cut is ready for a guarded mutation; verify operation-specific Undo after execution"
                 : state === "timeout"
@@ -7325,6 +7414,8 @@ function readinessForContext(context: {
     frontmost: context.frontmost,
     timelineFocus: context.timelineFocused,
     selectedTarget,
+    targetKind: context.target.kind,
+    targetBound,
     overlay,
     permission: context.error?.code.includes("PERMISSION") ? "required" : context.available ? "granted" : "unknown",
     undo: context.available ? context.undoAvailable ? "available" : "unavailable" : "unknown",

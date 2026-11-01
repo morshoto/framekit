@@ -2,8 +2,6 @@ name: CodeQL
 
 on:
     pull_request:
-        branches:
-            - main
         types:
             - opened
             - reopened
@@ -102,7 +100,7 @@ jobs:
         name: Analyze (swift)
         # Swift is scanned by Security and release workflows after PR merge.
         needs: detect-changes
-        if: ${{ github.event_name != 'pull_request' && needs.detect-changes.outputs.run_codeql == 'true' && needs.detect-changes.outputs.swift == 'true' }}
+        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'push' || github.ref == 'refs/heads/main') && needs.detect-changes.outputs.run_codeql == 'true' && needs.detect-changes.outputs.swift == 'true' }}
         runs-on: macos-26
         timeout-minutes: 40
 

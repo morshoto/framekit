@@ -139,7 +139,9 @@ operation. Bind the preview to the exact project, sequence, occurrence, and
 revision; verify the intended target and foreground state before execution;
 require canonical readback; and verify Undo or rollback. If a required capability,
 identity, revision, or readback is missing, stop without claiming success.
-Background inspection must not click, type, activate Final Cut, or select a
+Native readiness reports `targetBound` only for a selected occurrence with a
+stable identity and live project, sequence, and revision. An occurrence index
+alone is not bound-target proof. Background inspection must not click, type, activate Final Cut, or select a
 project through the UI. A locked native console is a blocker; do not retry the
 import or overwrite the target without a fresh approved operation.
 `context.inspect` is passive by default. An explicitly authorized headed
@@ -168,14 +170,18 @@ new `.fcpbundle` is a separate operation with an explicit destination and
 confirmation; a dispatch acknowledgment is not proof that Final Cut imported
 it. Pending publish status may include a `delivery` dispatch acknowledgment;
 that evidence remains unverified and does not include a created target or
-verified result. A pending job may report an `observedTarget` after matching
-live identity; that observation alone is not semantic verification. A second,
+verified result. An unacknowledged import attempt retains its `dispatchError`
+even if a later verification produces a different error. A pending job may
+report an `observedTarget` after matching live identity; that observation alone
+is not semantic verification. A second,
 explicit confirmation on the same job authorizes
 headed semantic readback; direct publishing requires separate creation and
 readback confirmation fields. A reservation with an attempted or unknown
 dispatch cannot be reclaimed just because its owner exited or the library has
-not appeared. Native acceptance requires matching project and
-sequence readback. `editor.inspect` reports `artifactPublishDispatchGuarantee`
+not appeared. The publisher retains the dispatched FCPXML across process
+restarts while the import is unresolved and removes it after successful
+verification. Native acceptance requires matching project and sequence
+readback. `editor.inspect` reports `artifactPublishDispatchGuarantee`
 as `requested-unverified`; the publishing capability's `native-verified`
 guarantee describes the evidence required for a completed handoff, not the
 result of its dispatch step.

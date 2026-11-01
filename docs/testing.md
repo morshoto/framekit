@@ -30,6 +30,16 @@ not launch or activate Final Cut Pro. Keep private media, raw tool output,
 credentials, local filesystem paths, and crash dumps out of committed test
 fixtures and reports.
 
+For publisher QA, `pnpm run test:final-cut-publisher-headed --help` lists the
+approved artifact digest, verified rough-cut execution, clean candidate commit,
+new library destination, and explicit mutation consent required by the runner.
+First use `.agents/skills/verify-final-cut-native/scripts/run-headed-check.sh
+publisher` for a non-mutating console and foreground preflight. The runner
+dispatches once and requests semantic readback separately; if dispatch is
+uncertain, inspect the recorded job rather than dispatching again. Its output
+keeps the issue verdict at NO-GO until the remaining identity and integrity
+evidence has been independently reviewed.
+
 ## Evidence levels
 
 | Level | Reproducible proof | Limit |
@@ -114,3 +124,7 @@ The optional `pnpm run test:final-cut-rough-cut-headed` reports
 disposable target, and records `sourceIdentity` with verified, failed,
 unavailable, or unrun statuses. It does not promote unavailable native
 capabilities into a successful result.
+
+### CodeQL baselines for stacked pull requests
+
+The JavaScript CodeQL policy requires an analysis of the exact base branch commit. Security scans pushes to branches for this baseline; full validation and Swift scanning remain limited to main on push. Existing branches must first contain this workflow change and receive a push, or run the Security workflow manually on that branch. If the child PR scan finishes before its base scan, rerun the child's CodeQL workflow after the base scan completes. Missing or stale baseline evidence fails the policy closed. The trusted policy is loaded from the default branch, so changes to it take effect only after merging.
