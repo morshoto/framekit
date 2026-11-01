@@ -2,6 +2,14 @@
   "schemaVersion": 1,
   "tests": [
     {
+      "path": "packages/runtime/test/project-storage-ports.test.ts",
+      "owner": "packages/runtime",
+      "tags": [
+        "unit"
+      ],
+      "requires": []
+    },
+    {
       "path": "packages/runtime/test/project-store.test.ts",
       "owner": "packages/runtime",
       "tags": [
