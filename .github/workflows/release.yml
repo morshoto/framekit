@@ -4,6 +4,12 @@ on:
     push:
         branches:
             - main
+    pull_request:
+        types: [opened, synchronize, reopened]
+    release:
+        types: [published]
+    repository_dispatch:
+        types: [framekit-native-release-published]
     workflow_dispatch:
         inputs:
             release_tag:
@@ -11,20 +17,18 @@ on:
                 required: true
                 type: string
 
-concurrency:
-    group: release
-    cancel-in-progress: false
-
 permissions:
-    contents: write
-    pull-requests: write
-    issues: write
-    actions: write
-    packages: write
+    contents: read
 
 jobs:
     tagpr:
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        concurrency:
+            group: release
+            cancel-in-progress: false
         runs-on: ubuntu-latest
+        permissions:
+            contents: write
         outputs:
             release-tag: ${{ steps.requested-tag.outputs.tag || steps.existing-tag.outputs.tag || steps.run-tagpr.outputs.tag }}
             milestone-release: ${{ steps.classify.outputs.milestone }}
@@ -446,3 +450,281 @@ jobs:
 
             - name: Validate package and plugin alignment
               run: pnpm run test:codex-plugin
+
+    tagpr-pull-request:
+        if: >-
+            github.event_name == 'pull_request' &&
+            startsWith(github.head_ref, 'tagpr-from-') &&
+            github.event.pull_request.head.repo.full_name == github.repository
+        concurrency:
+            group: release-notes-pr-${{ github.event.pull_request.number }}
+            cancel-in-progress: true
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            pull-requests: write
+        steps:
+            - name: Check out repository
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  persist-credentials: false
+
+            - name: Format generated release notes in tagpr PR
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  original="${RUNNER_TEMP}/release-pr-body.md"
+                  formatted="${RUNNER_TEMP}/release-pr-body-formatted.md"
+                  payload="${RUNNER_TEMP}/release-pr-body.json"
+
+                  gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '.body // ""' > "${original}"
+                  node scripts/format-release-notes.mjs < "${original}" > "${formatted}"
+
+                  if cmp -s "${original}" "${formatted}"; then
+                    exit 0
+                  fi
+
+                  jq -Rs '{body: .}' < "${formatted}" > "${payload}"
+                  gh api --method PATCH \
+                    "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
+                    --input "${payload}" \
+                    --silent
+
+    github-release:
+        if: github.event_name == 'release'
+        concurrency:
+            group: release-notes-${{ github.event.release.tag_name }}
+            cancel-in-progress: true
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+        steps:
+            - name: Check out repository
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  persist-credentials: false
+
+            - name: Format generated release notes in GitHub release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  RELEASE_ID: ${{ github.event.release.id }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  original="${RUNNER_TEMP}/release-body.md"
+                  formatted="${RUNNER_TEMP}/release-body-formatted.md"
+                  payload="${RUNNER_TEMP}/release-body.json"
+
+                  gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" --jq '.body // ""' > "${original}"
+                  node scripts/format-release-notes.mjs < "${original}" > "${formatted}"
+
+                  if cmp -s "${original}" "${formatted}"; then
+                    exit 0
+                  fi
+
+                  jq -Rs '{body: .}' < "${formatted}" > "${payload}"
+                  gh api --method PATCH \
+                    "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
+                    --input "${payload}" \
+                    --silent
+
+    validate-native-release:
+        if: >-
+            (github.event_name == 'release' && github.event.action == 'published') ||
+            (github.event_name == 'repository_dispatch' && github.event.action == 'framekit-native-release-published')
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+        outputs:
+            release-tag: ${{ steps.validate.outputs.tag }}
+        steps:
+            - name: Check out main
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  ref: main
+                  fetch-depth: 0
+                  persist-credentials: false
+
+            - id: validate
+              name: Validate release tag
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+                  RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || github.event.client_payload.release_tag }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  if ! git check-ref-format "refs/tags/${RELEASE_TAG}" \
+                    || ! git rev-parse --verify --quiet "refs/tags/${RELEASE_TAG}^{commit}" >/dev/null; then
+                    echo "Requested release tag does not exist: ${RELEASE_TAG}" >&2
+                    exit 1
+                  fi
+                  if ! git merge-base --is-ancestor "refs/tags/${RELEASE_TAG}^{commit}" origin/main; then
+                    echo "Requested release tag is not reachable from main: ${RELEASE_TAG}" >&2
+                    exit 1
+                  fi
+                  gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null
+                  echo "tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+
+    package-native-assets:
+        name: Package signed native assets
+        needs: validate-native-release
+        concurrency:
+            group: native-release-${{ github.event_name == 'release' && github.event.release.tag_name || github.event.client_payload.release_tag }}
+            cancel-in-progress: false
+        runs-on: [self-hosted, macOS, framekit-release]
+        permissions:
+            contents: write
+        steps:
+            - name: Check out release tag
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  ref: ${{ needs.validate-native-release.outputs.release-tag }}
+                  fetch-depth: 0
+                  persist-credentials: false
+
+            - name: Package signed native release assets
+              env:
+                  FRAMEKIT_CODESIGN_IDENTITY: ${{ secrets.FRAMEKIT_CODESIGN_IDENTITY }}
+                  FRAMEKIT_NOTARY_PROFILE: ${{ vars.FRAMEKIT_NOTARY_PROFILE }}
+                  FRAMEKIT_RELEASE_DIR: ${{ runner.temp }}/framekit-native-release
+                  RELEASE_TAG: ${{ needs.validate-native-release.outputs.release-tag }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  export FRAMEKIT_RELEASE_VERSION="${RELEASE_TAG#v}"
+                  bash scripts/package-final-cut-release.sh
+
+            - name: Upload native release assets
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+                  FRAMEKIT_RELEASE_DIR: ${{ runner.temp }}/framekit-native-release
+                  RELEASE_TAG: ${{ needs.validate-native-release.outputs.release-tag }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  expected_version="${RELEASE_TAG#v}"
+                  archive_name="FramekitFinalCutWorkflow-${expected_version}.zip"
+                  checksum_name="${archive_name}.sha256"
+                  test -s "${FRAMEKIT_RELEASE_DIR}/${archive_name}"
+                  test -s "${FRAMEKIT_RELEASE_DIR}/${checksum_name}"
+                  gh release upload "${RELEASE_TAG}" \
+                    "${FRAMEKIT_RELEASE_DIR}/${archive_name}" \
+                    "${FRAMEKIT_RELEASE_DIR}/${checksum_name}" \
+                    --repo "${GITHUB_REPOSITORY}" \
+                    --clobber
+
+            - name: Verify downloaded native release installation
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+                  RELEASE_TAG: ${{ needs.validate-native-release.outputs.release-tag }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  expected_version="${RELEASE_TAG#v}"
+                  expected_commit="$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"
+                  archive_name="FramekitFinalCutWorkflow-${expected_version}.zip"
+                  checksum_name="${archive_name}.sha256"
+                  verification_dir="$(mktemp -d "${RUNNER_TEMP}/framekit-release-install.XXXXXX")"
+                  trap 'rm -rf "$verification_dir"' EXIT
+                  gh release download "${RELEASE_TAG}" \
+                    --repo "${GITHUB_REPOSITORY}" \
+                    --pattern "$archive_name" \
+                    --pattern "$checksum_name" \
+                    --dir "$verification_dir"
+                  cd "$verification_dir"
+                  shasum -a 256 --check "$checksum_name"
+                  mkdir -p staged Applications
+                  ditto -x -k "$archive_name" staged
+                  staged_app="${verification_dir}/staged/FramekitFinalCutWorkflow.app"
+                  installed_app="${verification_dir}/Applications/FramekitFinalCutWorkflow.app"
+                  test -d "$staged_app"
+                  ditto "$staged_app" "$installed_app"
+                  codesign --verify --deep --strict "$installed_app"
+                  extension_plist="${installed_app}/Contents/PlugIns/FramekitFinalCutWorkflowExtension.appex/Contents/Info.plist"
+                  test -f "$extension_plist"
+                  actual_version="$(/usr/libexec/PlistBuddy -c 'Print :FramekitBuildVersion' "$extension_plist")"
+                  actual_commit="$(/usr/libexec/PlistBuddy -c 'Print :FramekitBuildCommit' "$extension_plist")"
+                  test "$actual_version" = "$expected_version"
+                  test "$actual_commit" = "$expected_commit"
+
+    verify-release-provenance:
+        if: always() && needs.validate-native-release.result == 'success'
+        needs:
+            - validate-native-release
+            - package-native-assets
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            actions: read
+        steps:
+            - name: Check out release tag
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  ref: ${{ needs.validate-native-release.outputs.release-tag }}
+                  fetch-depth: 0
+                  persist-credentials: false
+
+            - name: Set up pnpm
+              uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+            - name: Set up Node.js
+              uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+              with:
+                  node-version: 24.22.1
+                  registry-url: https://registry.npmjs.org
+                  cache: pnpm
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Verify complete release provenance
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+                  RELEASE_TAG: ${{ needs.validate-native-release.outputs.release-tag }}
+                  RELEASE_PROVENANCE_OUTPUT_DIR: artifacts/release-provenance/${{ github.run_id }}
+              run: pnpm run verify-release-provenance
+
+            - name: Upload provenance evidence
+              if: always()
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+              with:
+                  name: release-provenance-${{ github.run_id }}
+                  path: artifacts/release-provenance/${{ github.run_id }}
+                  if-no-files-found: warn
+
+    dispatch-native-release:
+        if: needs.publish-npm.result == 'success' && needs.tagpr.outputs.release-tag != ''
+        needs:
+            - publish-npm
+            - tagpr
+        continue-on-error: true
+        concurrency:
+            group: native-release-dispatch-${{ needs.tagpr.outputs.release-tag }}
+            cancel-in-progress: false
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+        steps:
+            - name: Dispatch native release packaging
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+                  RELEASE_TAG: ${{ needs.tagpr.outputs.release-tag }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  payload="${RUNNER_TEMP}/native-release-dispatch.json"
+                  jq -n \
+                    --arg release_tag "${RELEASE_TAG}" \
+                    '{event_type: "framekit-native-release-published", client_payload: {release_tag: $release_tag}}' \
+                    > "${payload}"
+                  gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" \
+                    --input "${payload}" \
+                    --silent

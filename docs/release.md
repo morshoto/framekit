@@ -1,9 +1,9 @@
 # Release and provenance
 
 The release workflow starts from `main` and coordinates a tagpr release pull
-request, npm publication, the GitHub release, and a separate native extension
-workflow. Package publication does not imply that a signed Final Cut
-Workflow Extension is available.
+request, npm publication, the GitHub release, release-note formatting, and
+native extension packaging. Package publication does not imply that a signed
+Final Cut Workflow Extension is available.
 
 ## npm trusted publishing
 
@@ -35,27 +35,32 @@ npm trust github @morshoto/framekit \
 3. Hosted validation runs the release gate and publishes the package through
    npm Trusted Publishing. It verifies the public registry version and a
    clean client installation before publishing the GitHub release.
-4. Run the separate native release workflow for the published tag when the
-   trusted Final Cut-capable macOS runner is available.
+4. Publishing the GitHub release starts a native packaging run from
+   `release.yml`. Native signing and verification run separately on the trusted
+   Final Cut-capable macOS runner and do not block npm publication.
 5. Download the uploaded extension archive and checksum, verify the archive,
    signature, version, and source commit, then run
    `pnpm run verify-release-provenance`.
 
-The native workflow requires the dedicated self-hosted Mac, Xcode command-line
-tools, Final Cut Pro, and a Developer ID signing identity. Missing native
-assets leave native provenance unverified; they do not delay npm publication.
-The signature, checksum, package, plugin, MCP server, and extension identities
-must match the exact tag before claiming release readiness.
+The native packaging job requires the dedicated self-hosted Mac, Xcode
+command-line tools, Final Cut Pro, and a Developer ID signing identity. Missing
+native assets leave native provenance unverified; they do not delay npm
+publication. The signature, checksum, package, plugin, MCP server, and extension
+identities must match the exact tag before claiming release readiness.
 
 ## Native release assets
 
-Run `native-release.yml` with the exact published tag in its `release_tag`
-input. It first validates that the tag is reachable from `main` and has a
-GitHub release, then packages and signs the extension on a self-hosted macOS
-runner labelled `self-hosted`, `macOS`, and `framekit-release`. Configure the
-`FRAMEKIT_CODESIGN_IDENTITY` secret and, when notarization is used, the
+The `release.published` event starts native validation and packaging. When the
+release workflow publishes a release with `GITHUB_TOKEN`, it also sends a
+`repository_dispatch` event because token-created release events do not start a
+new workflow run. Both paths validate that the exact tag is reachable from
+`main` and has a GitHub release before packaging and signing on the self-hosted
+macOS runner labelled `self-hosted`, `macOS`, and `framekit-release`. Configure
+the `FRAMEKIT_CODESIGN_IDENTITY` secret and, when notarization is used, the
 `FRAMEKIT_NOTARY_PROFILE` variable. A missing or offline runner does not block
 npm publication or the GitHub release.
+
+To retry a failed native job, rerun the failed job from its `release.yml` run.
 
 After upload, verify `FramekitFinalCutWorkflow-<version>.zip` and its
 `.sha256` file from the release. The workflow also downloads and verifies the
