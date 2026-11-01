@@ -52,6 +52,15 @@ function baseTimeline(): TimelineIr {
   };
 }
 
+test("editing sessions retain native audio subroles across serialization", () => {
+  const base = baseTimeline();
+  base.sequence.occurrences[0]!.role = "audio";
+  base.sequence.occurrences[0]!.nativeAudioRole = "dialogue.dialogue-1";
+  const session = EditingSession.create({ base });
+  const restored = EditingSession.fromJSON(session.serialize());
+  assert.equal(restored.desired().sequence.occurrences[0]?.nativeAudioRole, "dialogue.dialogue-1");
+});
+
 test("serializes and loads a provider-neutral session without losing rational identity", () => {
   const session = EditingSession.create({
     base: baseTimeline(),
