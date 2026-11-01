@@ -457,6 +457,7 @@ test("FCPXML publisher previews and dispatches the selected headed route once", 
   const appleScripts: string[] = [];
   let stagedXml = "";
   let backgroundDeliveries = 0;
+  let dispatchMarks = 0;
   const options = {
     enabled: true,
     sourcePath,
@@ -471,6 +472,7 @@ test("FCPXML publisher previews and dispatches the selected headed route once", 
       },
     },
     executor: async (script: string) => {
+      assert.equal(dispatchMarks, 1, "dispatch must be marked before native delivery");
       appleScripts.push(script);
       const stagedPath = /open POSIX file "([^"]+)"/.exec(script)?.[1];
       if (stagedPath) stagedXml = await readFile(stagedPath, "utf8");
@@ -511,8 +513,9 @@ test("FCPXML publisher previews and dispatches the selected headed route once", 
     publishRoute: "background-document-open",
   });
   assert.equal(restartedPublisher.getPublishJob(preview.jobId).handoff.route, "headed-apple-event");
-  assert.equal((await restartedPublisher.executePublishJob(preview.jobId, true)).state, "verification-pending");
-  assert.equal((await restartedPublisher.executePublishJob(preview.jobId, true, true)).state, "verified");
+  assert.equal((await restartedPublisher.trackNativeDispatch(() => restartedPublisher.executePublishJob(preview.jobId, true), () => { dispatchMarks += 1; })).state, "verification-pending");
+  assert.equal((await restartedPublisher.trackNativeDispatch(() => restartedPublisher.executePublishJob(preview.jobId, true, true), () => { dispatchMarks += 1; })).state, "verified");
+  assert.equal(dispatchMarks, 1, "verification must not dispatch a second import");
   assert.equal(backgroundDeliveries, 0);
   assert.equal(appleScripts.length, 1);
   assert.match(appleScripts[0] ?? "", /open POSIX file ".*selected route\.fcpxml"/);
@@ -2440,4 +2443,45 @@ test("direct publish exposes dispatch evidence while readback is pending", async
   assert.equal(job.observedTarget?.projectId, "observed-project");
   assert.equal(job.observedTarget?.sequenceId, "observed-sequence");
   assert.equal(calls, 1);
+});
+
+test("publisher restart rejects persisted states that could replay or fake verification", async () => {
+  for (const corruption of ["rearmed", "unproven"] as const) {
+    const fixture = await createCheckpointFailureFixture(`framekit-publisher-${corruption}-`);
+    try {
+      const dispatched = await fixture.publisher.executePublishJob(fixture.job.jobId, true);
+      assert.equal(dispatched.state, "verification-pending");
+      const path = join(fixture.publishJobsDirectory, `${fixture.job.jobId}.json`);
+      const record = JSON.parse(await readFile(path, "utf8"));
+      assert.equal(record.runtime.importAttempted, true);
+      if (corruption === "rearmed") record.job.state = "awaiting-confirmation";
+      else record.job.state = "verified";
+      await writeFile(path, JSON.stringify(record));
+      assert.throws(() => createPublisherForTest({ enabled: false, publishJobsDirectory: fixture.publishJobsDirectory }), /PUBLISH_JOB_STORE_INVALID/);
+      assert.equal(fixture.deliveryCalls(), 1);
+    } finally {
+      await rm(fixture.directory, { recursive: true, force: true });
+    }
+  }
+});
+
+test("pending dispatch wins over a verified legacy record on restart", async () => {
+  const fixture = await createCheckpointFailureFixture("framekit-publisher-conflicting-stores-");
+  try {
+    const pending = await fixture.publisher.executePublishJob(fixture.job.jobId, true);
+    assert.equal(pending.state, "verification-pending");
+    const path = join(fixture.publishJobsDirectory, `${fixture.job.jobId}.json`);
+    const pendingRecord = await readFile(path, "utf8");
+    const verified = await fixture.publisher.executePublishJob(fixture.job.jobId, true, true);
+    assert.equal(verified.state, "verified");
+    await writeFile(join(fixture.publishJobsDirectory, `${digest(verified.jobId)}.json`), JSON.stringify(verified));
+    await writeFile(path, pendingRecord);
+    const restarted = createPublisherForTest({ enabled: false, publishJobDirectory: fixture.publishJobsDirectory, publishJobsDirectory: fixture.publishJobsDirectory });
+    assert.equal((await restarted.loadPublishJob(fixture.job.jobId)).state, "verification-pending");
+    await assert.rejects(restarted.verifyCreatedTarget(fixture.job.jobId), /FINAL_CUT_PUBLISH_TARGET_UNVERIFIED/);
+    assert.equal((await restarted.executePublishJob(fixture.job.jobId, true)).state, "verification-pending");
+    assert.equal(fixture.deliveryCalls(), 1);
+  } finally {
+    await rm(fixture.directory, { recursive: true, force: true });
+  }
 });

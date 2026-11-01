@@ -11,6 +11,7 @@ import {
   FinalCutConnectionManager,
   assertCanonicalProviderConfiguration,
   FinalCutCanonicalNativeProvider,
+  FileCanonicalRecoveryGuard,
   FinalCutCanonicalSnapshotSource,
   FinalCutLibraryInspectionProvider,
   FinalCutNativeAutomationAdapter,
@@ -80,6 +81,7 @@ const fixture = new InMemoryEditorAdapter({
   }],
 });
 
+const framekitStateDirectory = process.env.FRAMEKIT_STATE_DIR ?? join(homedir(), ".framekit");
 const liveMode = process.env.FRAMEKIT_EDITOR === "final-cut-live";
 const headlessFinalCut = liveMode && process.env.FRAMEKIT_FINAL_CUT_HEADLESS === "1";
 const fcpxmlPath = liveMode ? process.env.FRAMEKIT_FCPXML_PATH : undefined;
@@ -95,7 +97,11 @@ const canonicalProviderRequired = liveMode
   && !canonicalNativeProviderEnabled;
 assertCanonicalProviderConfiguration({ required: canonicalProviderRequired || canonicalNativeProviderEnabled, fcpxmlPath });
 const connection = liveMode
-  ? new FinalCutConnectionManager({ headless: headlessFinalCut, canonicalProviderRequired })
+  ? new FinalCutConnectionManager({
+      headless: headlessFinalCut,
+      canonicalProviderRequired,
+      existingSocketOnly: process.env.FRAMEKIT_FINAL_CUT_EXISTING_SOCKET_ONLY === "1",
+    })
   : undefined;
 const autoConnect = liveMode && process.env.FRAMEKIT_AUTO_CONNECT !== "0";
 if (autoConnect) connection?.startAutoConnect();
@@ -126,8 +132,12 @@ const canonicalNativeTargetResolver = canonicalNativeProviderEnabled
   ? createFinalCutNativeTargetResolver(nativeEditor!)
   : undefined;
 
+const canonicalRecovery = liveMode
+  ? new FileCanonicalRecoveryGuard(join(framekitStateDirectory, "canonical-recovery", "pending.json"))
+  : undefined;
 const canonicalNativeProvider = canonicalNativeProviderEnabled
   ? new FinalCutCanonicalNativeProvider({
+      recoveryGuard: canonicalRecovery,
       live: liveAdapter!,
       native: {
         renameSelectedClip: async (name) => {
@@ -191,7 +201,6 @@ const editor = liveMode
     })
   : fixture;
 
-const framekitStateDirectory = process.env.FRAMEKIT_STATE_DIR ?? join(homedir(), ".framekit");
 const analyzers = liveMode
   ? createCommandAnalyzers({
       speechCommand: process.env.FRAMEKIT_SPEECH_ANALYZER,
@@ -234,7 +243,7 @@ const disposableNative = liveMode && !headlessFinalCut && !fcpxmlPath && nativeE
     })
   : undefined;
 const nativeOperationSession = disposableNative && nativeEditor
-  ? createDisposableNativeOperationSession({ workflow: disposableNative, native: nativeEditor })
+  ? createDisposableNativeOperationSession({ workflow: disposableNative, native: nativeEditor, recoveryGuard: canonicalRecovery })
   : undefined;
 const projectPublisher = shouldConfigureFinalCutProjectPublisher({
   liveMode,
@@ -298,6 +307,7 @@ const server = createMcpServer(runtime, {
   disposableNative,
   nativeOperationSession,
   projectPublisher,
+  canonicalRecovery,
   ...(sessionMaterializationPublisher?.isAvailable() ? { sessionMaterializationPublisher } : {}),
   videoExporter,
   requireBuildAlignment: process.env.FRAMEKIT_REQUIRE_BUILD_ALIGNMENT === "1",

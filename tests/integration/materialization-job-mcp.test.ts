@@ -6,7 +6,7 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createMcpServer, type SessionMaterializationPublisher } from "../../apps/mcp-server/src/server.js";
-import { FinalCutBackgroundMaterializationPublisher } from "@framekit/final-cut";
+import { FileCanonicalRecoveryGuard, FinalCutBackgroundMaterializationPublisher } from "@framekit/final-cut";
 import { AgentVideoRuntime, type TimelineIr } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 
@@ -57,6 +57,7 @@ async function connect(
     }>;
   },
   sessionChangeSourceOverride: "omit" | "default" = "default",
+  canonicalRecovery?: FileCanonicalRecoveryGuard,
 ) {
   const changeSource = sessionChangeSourceOverride === "omit"
     ? undefined
@@ -67,6 +68,7 @@ async function connect(
     sessionDirectory: join(directory, "sessions"),
     materializationDirectory: join(directory, "materializations"),
     ...(publisher ? { sessionMaterializationPublisher: publisher } : {}),
+    ...(canonicalRecovery ? { canonicalRecovery } : {}),
     ...(changeSource ? { sessionChangeSource: changeSource } : {}),
   });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -659,6 +661,169 @@ test("rejects a tampered persisted desired snapshot before retry publication", a
     await second.client.close();
     await second.server.close();
   } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("materialization excludes canonical edits and never retries an uncertain publication", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-reservation-"));
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  const other = new FileCanonicalRecoveryGuard(path);
+  let started!: () => void;
+  let finish!: () => void;
+  const entered = new Promise<void>((resolve) => { started = resolve; });
+  const held = new Promise<void>((resolve) => { finish = resolve; });
+  let publishes = 0;
+  let runningJobId = "";
+  let execution: ReturnType<Client["callTool"]> | undefined;
+  const connected = await connect(directory, {
+    publish: async (request) => {
+      publishes += 1;
+      runningJobId = request.jobId;
+      started();
+      await held;
+      return { state: "completed", canonicalReadback: request.desired, canonicalTarget: canonicalTarget(request), headedNativeVerified: false };
+    },
+  }, undefined, "default", guard);
+  try {
+    await connected.client.callTool({ name: "session.create", arguments: { sessionId: "session-guarded", provider: { id: "final-cut" }, base: timeline() } });
+    execution = connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "session-guarded", target, confirm: true } });
+    await entered;
+    try {
+      const running = payload(await connected.client.callTool({ name: "session.materialize.status", arguments: { jobId: runningJobId } }));
+      assert.equal(running.state, "publishing");
+      assert.equal(running.evidence.providerRequested, true);
+      assert.equal(running.providerRequestPhase, "dispatch-intent");
+      await assert.rejects(other.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "a".repeat(64), operation: "rename-clip" }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    } finally { finish(); }
+    const result = payload(await execution);
+    assert.equal(result.state, "blocked");
+    assert.equal(result.error.code, "FINAL_CUT_CANONICAL_RECOVERY_REQUIRED");
+    assert.equal(result.error.retryable, false);
+    assert.equal(result.evidence.providerRequested, true);
+    assert.equal(result.evidence.canonicalReadback, true);
+    assert.equal(result.verification.tier, "canonical-verified");
+    assert.match(result.continuation.reason, /recovery is required/i);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await connected.client.callTool({ name: "session.materialize.retry", arguments: { jobId: result.jobId } });
+    assert.equal(publishes, 1);
+  } finally {
+    finish();
+    await execution?.catch(() => undefined);
+    await connected.client.close();
+    await connected.server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("a checkpoint won before provider dispatch preserves truthful materialization evidence", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-checkpoint-race-"));
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  const other = new FileCanonicalRecoveryGuard(path);
+  const beginNative = guard.beginNative.bind(guard);
+  guard.beginNative = async (operation) => {
+    await other.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "a".repeat(64), operation: "rename-clip" });
+    return beginNative(operation);
+  };
+  let publishes = 0;
+  const connected = await connect(directory, { publish: async () => { publishes += 1; throw new Error("must not publish"); } }, undefined, "default", guard);
+  try {
+    await connected.client.callTool({ name: "session.create", arguments: { sessionId: "session-race", provider: { id: "final-cut" }, base: timeline() } });
+    const result = payload(await connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "session-race", target, confirm: true } }));
+    assert.equal(result.state, "blocked");
+    assert.equal(result.error.code, "FINAL_CUT_CANONICAL_RECOVERY_REQUIRED");
+    assert.equal(result.error.retryable, true);
+    assert.equal(result.evidence.providerRequested, false);
+    assert.match(result.verification.reason, /reservation.*provider was not called/i);
+    assert.equal(publishes, 0);
+    await other.complete();
+  } finally {
+    await connected.client.close();
+    await connected.server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("materialization retains provider failure evidence and forbids an uncertain retry", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-uncertain-"));
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  let publishes = 0;
+  const publisher: SessionMaterializationPublisher = { publish: async () => {
+    publishes += 1;
+    return { state: "blocked", code: "DELIVERY_TIMEOUT", message: "delivery outcome unknown", retryable: true };
+  } };
+  const connected = await connect(directory, publisher, undefined, "default", guard);
+  try {
+    await connected.client.callTool({ name: "session.create", arguments: { sessionId: "session-uncertain", provider: { id: "final-cut" }, base: timeline() } });
+    const job = payload(await connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "session-uncertain", target, confirm: true } }));
+    assert.equal(job.state, "blocked");
+    assert.equal(job.nextAction, "none");
+    assert.equal(job.error.code, "FINAL_CUT_CANONICAL_RECOVERY_REQUIRED");
+    assert.equal(job.error.retryable, false);
+    assert.equal(job.providerError.code, "DELIVERY_TIMEOUT");
+    assert.equal(job.evidence.providerRequested, true);
+    const restarted = await connect(directory, publisher, undefined, "default", new FileCanonicalRecoveryGuard(path));
+    try {
+      const retry = await restarted.client.callTool({ name: "session.materialize.retry", arguments: { jobId: job.jobId } });
+      assert.equal(retry.isError, true);
+      assert.equal(publishes, 1);
+    } finally {
+      await restarted.client.close();
+      await restarted.server.close();
+    }
+  } finally {
+    await connected.client.close();
+    await connected.server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("materialization can retry when the provider proves no dispatch occurred", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-no-dispatch-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const publisher: SessionMaterializationPublisher = {
+    trackNativeDispatch: async (call) => call(),
+    publish: async () => ({ state: "blocked", code: "TEMPORARY_UNAVAILABLE", message: "provider did not dispatch", retryable: true }),
+  };
+  const connected = await connect(directory, publisher, undefined, "default", guard);
+  try {
+    await connected.client.callTool({ name: "session.create", arguments: { sessionId: "session-no-dispatch", provider: { id: "final-cut" }, base: timeline() } });
+    const job = payload(await connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "session-no-dispatch", target, confirm: true } }));
+    assert.equal(job.state, "blocked");
+    assert.equal(job.nextAction, "retry");
+    assert.equal(job.error.code, "TEMPORARY_UNAVAILABLE");
+    assert.equal(job.error.retryable, true);
+    assert.equal(job.evidence.providerRequested, true);
+    await guard.assertClear();
+  } finally {
+    await connected.client.close();
+    await connected.server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("materialization does not claim a provider request when tracking fails first", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-tracking-failure-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  let publishes = 0;
+  const publisher: SessionMaterializationPublisher = {
+    trackNativeDispatch: async () => { throw new Error("TRACKING_UNAVAILABLE: no provider invocation"); },
+    publish: async () => { publishes += 1; throw new Error("must not invoke"); },
+  };
+  const connected = await connect(directory, publisher, undefined, "default", guard);
+  try {
+    await connected.client.callTool({ name: "session.create", arguments: { sessionId: "session-track-failure", provider: { id: "final-cut" }, base: timeline() } });
+    const job = payload(await connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "session-track-failure", target, confirm: true } }));
+    assert.equal(job.state, "failed");
+    assert.equal(job.evidence.providerRequested, false);
+    assert.equal(publishes, 0);
+    await guard.assertClear();
+  } finally {
+    await connected.client.close();
+    await connected.server.close();
     await rm(directory, { recursive: true, force: true });
   }
 });

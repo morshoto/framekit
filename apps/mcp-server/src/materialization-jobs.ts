@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { timelineIrDigest, validateTimelineIr, type TimelineIr } from "@framekit/runtime";
 import {
   compileTimelineIrToFcpxml,
+  type FileCanonicalRecoveryGuard,
   type TimelineIrMaterializationCoverage,
   type TimelineIrMaterializationProvenance,
   type TimelineIrToFcpxmlResult,
@@ -55,6 +56,7 @@ export interface MaterializationVerification {
 }
 
 export interface SessionMaterializationPublisher {
+  trackNativeDispatch?<T>(operation: () => Promise<T>, onDispatch: () => void): Promise<T>;
   readCanonicalTarget?(request: {
     target: { libraryUid: string; eventUid: string; projectUid: string; sequenceUid: string };
   }): Promise<{
@@ -101,6 +103,9 @@ export interface SessionMaterializationJob {
   };
   sessionDigest: string;
   claim?: { id: string; claimedAt: string };
+  recoveryReservation?: { reservationId: string; reason: "native-quiescence-unproven" };
+  providerError?: { code: string; message: string; retryable: boolean };
+  providerRequestPhase?: "dispatch-intent" | "returned";
   evidence: {
     artifact: { verified: true; format: "fcpxml"; digest: string };
     providerRequested: boolean;
@@ -115,6 +120,7 @@ export class SessionMaterializationJobs {
     private readonly directory: string,
     private readonly sessions: EditingSessionRepository,
     private readonly publisher?: SessionMaterializationPublisher,
+    private readonly recoveryGuard?: Pick<FileCanonicalRecoveryGuard, "beginNative">,
   ) {}
 
   public async preview(sessionId: string, target: TimelineIrToFcpxmlTarget) {
@@ -274,11 +280,33 @@ export class SessionMaterializationJobs {
 
     const claim = await this.claim(job);
     if (!claim.owned) return claim.job;
-    const claimed = claim.job;
+    let claimed = claim.job;
+    let reservation: Awaited<ReturnType<FileCanonicalRecoveryGuard["beginNative"]>> | undefined;
+    let providerRequested = false;
+    let dispatched = typeof this.publisher.trackNativeDispatch !== "function";
     try {
       const finalFailure = await this.validateStagedJob(claimed);
       if (finalFailure) return this.fail(claimed, finalFailure);
-      const result = await this.publisher.publish({
+      if (this.recoveryGuard) {
+        try {
+          const id = createHash("sha256").update(claimed.jobId).digest("hex");
+          reservation = await this.recoveryGuard.beginNative(`native.materialize.${id}`);
+        } catch {
+          const blocked: SessionMaterializationJob = {
+            ...claimed, state: "blocked", nextAction: "retry", claim: undefined,
+            verification: {
+              tier: "artifact", status: "blocked", artifactDigest: claimed.artifactDigest, desiredDigest: claimed.desiredDigest,
+              reason: "An unresolved native reservation prevents materialization; the provider was not called",
+            },
+            error: { code: "FINAL_CUT_CANONICAL_RECOVERY_REQUIRED", message: "An unresolved native reservation prevents materialization; the provider was not called", retryable: true },
+          };
+          await this.save(blocked);
+          return blocked;
+        }
+        claimed = { ...claimed, recoveryReservation: { reservationId: reservation.reservationId, reason: "native-quiescence-unproven" } };
+        await this.save(claimed);
+      }
+      const request: SessionMaterializationPublishRequest = {
         jobId: claimed.jobId,
         artifactPath: claimed.artifactPath,
         artifactDigest: claimed.artifactDigest,
@@ -291,12 +319,31 @@ export class SessionMaterializationJobs {
         baseRevision: structuredClone(claimed.baseRevision),
         coverage: structuredClone(claimed.coverage!),
         provenance: structuredClone(claimed.provenance!),
-      });
+      };
+      const invoke = async () => {
+        const intent: SessionMaterializationJob = {
+          ...claimed, providerRequestPhase: "dispatch-intent",
+          evidence: { ...claimed.evidence, providerRequested: true },
+        };
+        await this.save(intent);
+        claimed = intent;
+        providerRequested = true;
+        return this.publisher!.publish(request);
+      };
+      const result = this.publisher.trackNativeDispatch
+        ? await this.publisher.trackNativeDispatch(invoke, () => { dispatched = true; })
+        : await invoke();
+      claimed = { ...claimed, providerRequestPhase: "returned" };
+      if (reservation && !dispatched) {
+        await reservation.release();
+        reservation = undefined;
+        claimed = { ...claimed, recoveryReservation: undefined };
+      }
       if (result.state === "blocked") {
         const blocked: SessionMaterializationJob = {
           ...claimed,
           state: "blocked",
-          nextAction: "retry",
+          nextAction: claimed.recoveryReservation ? "none" : "retry",
           claim: undefined,
           evidence: { ...claimed.evidence, providerRequested: true },
           verification: {
@@ -307,7 +354,10 @@ export class SessionMaterializationJobs {
             reason: result.message,
             ...(result.delivery ? { delivery: result.delivery } : { delivery: deliveryEvidenceForBlockedCode(result.code) }),
           },
-          error: { code: result.code, message: result.message, retryable: result.retryable },
+          ...(claimed.recoveryReservation ? { providerError: { code: result.code, message: result.message, retryable: result.retryable } } : {}),
+          error: claimed.recoveryReservation
+            ? { code: "FINAL_CUT_CANONICAL_RECOVERY_REQUIRED", message: "Materialization may have been dispatched; native quiescence is unproven and it must not be retried", retryable: false }
+            : { code: result.code, message: result.message, retryable: result.retryable },
         };
         await this.save(blocked);
         return blocked;
@@ -365,10 +415,21 @@ export class SessionMaterializationJobs {
           reason: "Canonical readback verified this handoff once. Re-read the materialized target before later edits to detect subsequent manual Final Cut changes.",
         },
       };
-      await this.save(completed);
-      return completed;
+      const outcome: SessionMaterializationJob = claimed.recoveryReservation
+        ? {
+            ...completed, state: "blocked", nextAction: "none",
+            error: { code: "FINAL_CUT_CANONICAL_RECOVERY_REQUIRED", message: "Canonical readback was verified but native quiescence is unproven; do not retry publication", retryable: false },
+            continuation: { state: "canonical-resync-required", reason: "Recovery is required before a fresh canonical session can be created from this verified readback." },
+          }
+        : completed;
+      await this.save(outcome);
+      return outcome;
     } catch (error) {
-      return this.fail(claimed, materializationFailure(error, true));
+      if (reservation && (!providerRequested || !dispatched)) {
+        await reservation.release();
+        claimed = { ...claimed, recoveryReservation: undefined };
+      }
+      return this.fail(claimed, materializationFailure(error, providerRequested || claimed.evidence.providerRequested));
     } finally {
       await this.release(claimed.jobId, claimed.claim!.id);
     }

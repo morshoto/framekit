@@ -12,6 +12,10 @@ export function evidenceEnvironment(root: string): Promise<EvidenceEnvironment>;
 
 export function sanitizeCanonicalEvidence(run: unknown, environment: EvidenceEnvironment): unknown;
 
+export function canonicalEvidenceDigest(snapshot: unknown): string;
+
+export function hashCanonicalSourceMedia(snapshot: unknown): Promise<Array<{ mediaId: string; sha256: string }>>;
+
 export function sanitizeDisposableNativeEvidence(run: unknown, environment: EvidenceEnvironment): {
   evidenceType: string;
   capabilities: { editor: Record<string, unknown>; analyzers: Record<string, unknown> };

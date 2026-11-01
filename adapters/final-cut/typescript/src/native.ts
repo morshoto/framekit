@@ -43,6 +43,7 @@ export interface NativeFinalCutMediaMatch {
   role?: string;
   identity?: string;
   sourceIdentity?: string;
+  /** Independently observed local source path or file URL; never inferred from the query. */
   source?: string;
   browserContext?: string;
   uiIndex?: number;
@@ -589,6 +590,8 @@ export interface NativeFinalCutCapabilities {
   mediaSelection: boolean;
   mediaAppendSelected: boolean;
   timelineOccurrenceLocate: boolean;
+  /** True only when Browser source paths and occurrence source identities are independently observed and comparable. */
+  timelineOccurrenceSourceBinding?: boolean;
   bladeAtPlayhead: boolean;
   deleteRange: boolean;
   trimToDuration: boolean;
@@ -737,6 +740,7 @@ export type NativeFinalCutExecutor = (
 export type NativeFinalCutMouseExecutor = (source: string) => Promise<void>;
 
 export interface NativeFinalCutEditor {
+  trackNativeDispatch?<T>(operation: () => Promise<T>, onDispatch: () => void): Promise<T>;
   capabilities(): NativeFinalCutCapabilities;
   inspect(options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;
   focusTimeline(options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;
@@ -752,6 +756,7 @@ export interface NativeFinalCutEditor {
   searchMediaForCanonicalTarget?(query: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutMediaMatch[]>;
   selectMedia(handle: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;
   locateOccurrence(mediaHandle: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutOccurrenceSearchResult>;
+  locateOccurrenceForCanonicalTarget?(mediaHandle: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutOccurrenceSearchResult>;
   selectOccurrence(occurrenceHandle: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;
   selectCanonicalOccurrence(name: string, occurrenceIndex: number, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;
   targetMedia(query: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutTargetResult>;
@@ -804,6 +809,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly mediaImportDiscoveryTimeoutMs: number;
   private readonly mediaImportPollMs: number;
   private readonly requestContext = new AsyncLocalStorage<NativeFinalCutRequestOptions>();
+  private readonly dispatchContext = new AsyncLocalStorage<() => void>();
   private nativeUiDepth = 0;
   private readonly operations = new Map<string, NativeOperationRecord>();
   private latestOperationId?: string;
@@ -905,6 +911,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       mediaSelection: this.enabled,
       mediaAppendSelected: this.enabled,
       timelineOccurrenceLocate: this.enabled,
+      timelineOccurrenceSourceBinding: false,
       bladeAtPlayhead: this.enabled,
       deleteRange: this.enabled,
       trimToDuration: this.enabled,
@@ -1057,6 +1064,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
 
   public async edit(operation: NativeFinalCutEdit, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutEditResult> {
     return this.withNativeUi(() => this.editNative(operation), options.signal);
+  }
+
+  public async trackNativeDispatch<T>(operation: () => Promise<T>, onDispatch: () => void): Promise<T> {
+    return this.dispatchContext.run(onDispatch, operation);
   }
 
   public async trimSelectedClipToRange(
@@ -1572,6 +1583,13 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return this.withNativeUi(() => this.locateOccurrenceNative(mediaHandle), options.signal);
   }
 
+  public async locateOccurrenceForCanonicalTarget(mediaHandle: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutOccurrenceSearchResult> {
+    if (this.capabilities().timelineOccurrenceSourceBinding !== true) {
+      throw new Error("CAPABILITY_UNAVAILABLE: canonical occurrence source binding is unavailable");
+    }
+    return this.withNativeUi(() => this.locateOccurrenceNative(mediaHandle, false, false), options.signal);
+  }
+
   public async selectOccurrence(occurrenceHandle: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutContext> {
     return this.withNativeUi(() => this.selectOccurrenceNative(occurrenceHandle), options.signal);
   }
@@ -1608,6 +1626,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       throw new Error("FINAL_CUT_NATIVE_PLAYHEAD_UNAVAILABLE: deterministic targeting requires live playhead state");
     }
     const occurrence = located.occurrences[0]!;
+    if (!occurrence.sourceIdentity || occurrence.sourceIdentity !== media.sourceIdentity) {
+      throw new Error("FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: timeline occurrence source identity was not independently observed");
+    }
     const occurrenceIdentity = occurrence.identity ?? occurrence.nativeIdentity;
     if (!occurrenceIdentity) {
       throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_IDENTITY_UNAVAILABLE: timeline occurrence has no stable identity");
@@ -1624,10 +1645,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       revision: structuredClone(live.revision),
       timelineStartTime: structuredClone(live.sequence.startTime),
       frameDuration: structuredClone(live.sequence.frameDuration),
-      mediaId: occurrence.sourceIdentity ?? media.sourceIdentity,
+      mediaId: occurrence.sourceIdentity,
       occurrence: {
         id: occurrenceIdentity,
-        mediaId: occurrence.sourceIdentity ?? media.sourceIdentity,
+        mediaId: occurrence.sourceIdentity,
         startTime: parseRationalString(occurrence.start, "occurrence start"),
         durationTime: parseRationalString(occurrence.duration, "occurrence duration"),
       },
@@ -1644,7 +1665,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     };
   }
 
-  private async locateOccurrenceNative(mediaHandle: string, scanAll = false): Promise<NativeFinalCutOccurrenceSearchResult> {
+  private async locateOccurrenceNative(mediaHandle: string, scanAll = false, selectForIdentity = true): Promise<NativeFinalCutOccurrenceSearchResult> {
     this.assertEnabled();
     const match = this.mediaHandles.get(mediaHandle);
     if (!match) throw new Error(`FINAL_CUT_NATIVE_MEDIA_HANDLE_STALE: unknown media handle ${mediaHandle}`);
@@ -1654,18 +1675,19 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     try {
       const liveBefore = this.liveState ? await this.liveState().catch(() => undefined) : undefined;
       let occurrenceOutput = "";
-      for (let attempt = 0; attempt < 2; attempt += 1) {
+      const maxAttempts = selectForIdentity ? 2 : 1;
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         try {
-          occurrenceOutput = await this.executeNativeScript(locateOccurrenceScript(match, scanAll));
+          occurrenceOutput = await this.executeNativeScript(locateOccurrenceScript(match, scanAll, selectForIdentity));
           break;
         } catch (error) {
-          if (attempt > 0) throw error;
+          if (attempt + 1 >= maxAttempts) throw error;
           await this.sleep(300);
         }
       }
       const occurrences = parseOccurrences(occurrenceOutput, mediaHandle);
       normalizeOccurrenceTimes(occurrences, liveBefore?.sequence);
-      if (occurrences.length === 1 && this.canDriveNativeMouse) {
+      if (selectForIdentity && occurrences.length === 1 && this.canDriveNativeMouse) {
         const timelineOffset = occurrences[0]?.timelineOffset;
         if (timelineOffset === undefined) {
           throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_POSITION_UNAVAILABLE: unique timeline occurrence has no selectable position");
@@ -1712,6 +1734,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const context = await this.requireTimelineContext();
     if (context.target.kind !== "selected-clip") {
       throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_SELECTION_UNAVAILABLE: Final Cut did not expose the selected occurrence");
+    }
+    const expectedIdentity = occurrence.nativeIdentity ?? occurrence.identity;
+    if (expectedIdentity && context.target.identity !== expectedIdentity) {
+      throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: selected native occurrence identity changed");
     }
     if (context.target.identity) occurrence.nativeIdentity = context.target.identity;
     return context;
@@ -3458,6 +3484,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
 
   private async executeNativeMouseScript(source: string): Promise<void> {
     if (this.nativeMouseExecutor) {
+      this.dispatchContext.getStore()?.();
       await this.nativeMouseExecutor(source);
       return;
     }
@@ -3488,6 +3515,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         requestSignal.addEventListener("abort", cancelListener, { once: true });
       })
       : undefined;
+    this.dispatchContext.getStore()?.();
     const execution = execFile("swift", ["-e", source], { signal: controller.signal });
     try {
       await Promise.race([execution, timeout, ...(cancellation ? [cancellation] : [])]);
@@ -3538,6 +3566,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         requestSignal.addEventListener("abort", cancelListener, { once: true });
       })
       : undefined;
+    this.dispatchContext.getStore()?.();
     const execution = this.executor(script, { signal: controller.signal });
     try {
       return await Promise.race([execution, timeout, ...(cancellation ? [cancellation] : [])]);
@@ -5702,7 +5731,7 @@ function selectMediaScript(match: NativeFinalCutMediaMatch): string {
 end tell`;
 }
 
-function locateOccurrenceScript(match: NativeFinalCutMediaMatch, scanAll: boolean): string {
+function locateOccurrenceScript(match: NativeFinalCutMediaMatch, scanAll: boolean, zoomToFit = true): string {
   return `
   using terms from application "System Events"
     on collectTimelineClipMatches(containerItem, depth, targetName, sourceIdentity, mainOrigin, mainSize)
@@ -5739,7 +5768,7 @@ function locateOccurrenceScript(match: NativeFinalCutMediaMatch, scanAll: boolea
               set candidateIdentity to value of attribute "AXIdentifier" of candidate as text
             end try
             if candidateIdentity is "" then error "FINAL_CUT_NATIVE_OCCURRENCE_ID_UNAVAILABLE: timeline clip has no AXIdentifier"
-            set output to output & targetName & (ASCII character 31) & candidateRole & (ASCII character 31) & sourceIdentity & (ASCII character 31) & (candidateOffset as text) & (ASCII character 31) & candidateStart & (ASCII character 31) & candidateDuration & (ASCII character 31) & candidateIdentity & (ASCII character 30)
+            set output to output & targetName & (ASCII character 31) & candidateRole & (ASCII character 31) & "" & (ASCII character 31) & (candidateOffset as text) & (ASCII character 31) & candidateStart & (ASCII character 31) & candidateDuration & (ASCII character 31) & candidateIdentity & (ASCII character 30)
             end if
           else
             set shouldDescend to false
@@ -5774,13 +5803,12 @@ function locateOccurrenceScript(match: NativeFinalCutMediaMatch, scanAll: boolea
     set origin to position of mainWindow
     set windowSize to size of mainWindow
     set targetName to ${appleScriptString(match.name)}
-    -- Make every occurrence visible before scanning. This keeps discovery
-    -- independent of the current timeline zoom/playhead viewport.
+    ${zoomToFit ? `-- Make every occurrence visible before scanning.
     try
       click menu bar item "View" of menu bar 1
       click menu item "Zoom to Fit" of menu 1 of menu bar item "View" of menu bar 1
       delay 0.5
-    end try
+    end try` : "-- Canonical discovery does not change the timeline view."}
     return my collectTimelineClipMatches(mainWindow, 0, targetName, sourceIdentity, origin, windowSize)
   end tell
 end tell`;

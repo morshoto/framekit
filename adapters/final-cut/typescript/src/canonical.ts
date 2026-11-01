@@ -1,7 +1,7 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, stat } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -58,14 +58,32 @@ export interface CanonicalNativeMutationPort {
   undo(operationId: string): Promise<{ undone: boolean; verification?: { verified: boolean } }>;
 }
 
-export type CanonicalNativeTargetResolver = (
+export type CanonicalNativeTargetResolver = ((
   clip: ProjectSnapshot["timeline"]["clips"][number],
   snapshot: ProjectSnapshot,
-) => Promise<void>;
+) => Promise<void>) & {
+  trackNativeDispatch?<T>(operation: () => Promise<T>, onDispatch: () => void): Promise<T>;
+  sourceBindingAvailable?: boolean;
+};
 
 export interface FinalCutBackgroundCatalogProvider {
   listProjects(): Promise<ProjectCatalog>;
   backend?: string;
+}
+
+export interface CanonicalRecoveryCheckpoint {
+  projectId: string;
+  sequenceId: string;
+  baseRevision: string;
+  beforeDigest: string;
+  operation: string;
+  expectedRestoreDigest?: string;
+}
+
+export interface CanonicalRecoveryGuard {
+  assertClear(): Promise<void>;
+  begin(checkpoint: CanonicalRecoveryCheckpoint): Promise<void>;
+  complete(): Promise<void>;
 }
 
 export interface FinalCutCanonicalNativeProviderOptions {
@@ -79,6 +97,7 @@ export interface FinalCutCanonicalNativeProviderOptions {
   readSnapshot: () => Promise<ProjectSnapshot>;
   resolveTarget: CanonicalNativeTargetResolver;
   backgroundCatalog?: FinalCutBackgroundCatalogProvider;
+  recoveryGuard?: CanonicalRecoveryGuard;
 }
 
 export interface FinalCutCanonicalSnapshotSourceOptions {
@@ -681,9 +700,9 @@ end tell`;
 
 export function createFinalCutNativeTargetResolver(
   native: Pick<NativeFinalCutEditor, "searchMedia" | "locateOccurrence">
-    & Partial<Pick<NativeFinalCutEditor, "selectOccurrence" | "searchMediaForCanonicalTarget">>,
+    & Partial<Pick<NativeFinalCutEditor, "capabilities" | "selectOccurrence" | "locateOccurrenceForCanonicalTarget" | "searchMediaForCanonicalTarget" | "trackNativeDispatch">>,
 ): CanonicalNativeTargetResolver {
-  return async (clip, snapshot) => {
+  const resolve: CanonicalNativeTargetResolver = async (clip, snapshot) => {
     if (!clip.mediaId) throw new Error(`TARGET_MISMATCH: occurrence ${clip.id} has no media binding`);
     const media = snapshot.media.find(({ mediaId }) => mediaId === clip.mediaId);
     if (!media?.source) throw new Error(`TARGET_MISMATCH: media ${clip.mediaId} has no source binding`);
@@ -694,11 +713,19 @@ export function createFinalCutNativeTargetResolver(
     const matches = (await searchMedia.call(native, query))
       .filter((match) => match.name.toLocaleLowerCase() === query.toLocaleLowerCase());
     if (matches.length === 0) throw new Error(`TARGET_MISMATCH: Final Cut Browser has no exact media match for ${query}`);
-    if (matches.length > 1) throw new Error(`AMBIGUOUS_PROJECT_TARGET: Final Cut Browser has multiple exact media matches for ${query}`);
-    const match = matches[0]!;
+    const expectedSource = exactLocalSourcePath(media.source);
+    const observedSources = matches.map((candidate) => candidate.source ? exactLocalSourcePath(candidate.source) : undefined);
+    if (!expectedSource || observedSources.some((source) => !source)) {
+      throw new Error(`TARGET_MISMATCH: independently observed Browser source does not match the canonical source for ${clip.id}`);
+    }
+    const sourceMatches = matches.filter((_candidate, index) => observedSources[index] === expectedSource);
+    if (sourceMatches.length === 0) throw new Error(`TARGET_MISMATCH: Final Cut Browser has no canonical source match for ${clip.id}`);
+    if (sourceMatches.length > 1) throw new Error(`AMBIGUOUS_PROJECT_TARGET: Final Cut Browser has multiple matches for the canonical source of ${clip.id}`);
+    const match = sourceMatches[0]!;
     if (!match.sourceIdentity) throw new Error("TARGET_MISMATCH: exact Browser media has no stable source identity");
 
-    const located = await native.locateOccurrence(match.handle);
+    const locate = native.locateOccurrenceForCanonicalTarget ?? native.locateOccurrence;
+    const located = await locate.call(native, match.handle);
     if (located.status === "none" || located.occurrences.length === 0) {
       throw new Error(`TARGET_MISMATCH: Final Cut timeline has no occurrence for ${query}`);
     }
@@ -713,9 +740,8 @@ export function createFinalCutNativeTargetResolver(
       throw new Error(`AMBIGUOUS_PROJECT_TARGET: Final Cut timeline occurrence coordinates are not unique for ${clip.id}`);
     }
     const occurrence = matchingOccurrences[0]!;
-    await native.selectOccurrence?.(occurrence.handle);
     const occurrenceIdentity = occurrence.identity ?? occurrence.nativeIdentity;
-    if (!occurrenceIdentity && !native.selectOccurrence) {
+    if (!occurrenceIdentity) {
       throw new Error(`TARGET_MISMATCH: native occurrence has no stable identity for ${clip.id}`);
     }
     if (!occurrence.sequenceId) {
@@ -724,8 +750,8 @@ export function createFinalCutNativeTargetResolver(
     if (occurrence.sequenceId !== snapshot.timeline.id) {
       throw new Error(`TARGET_MISMATCH: native occurrence sequence changed for ${clip.id}`);
     }
-    if (occurrence.sourceIdentity && occurrence.sourceIdentity !== match.sourceIdentity) {
-      throw new Error(`TARGET_MISMATCH: native occurrence source identity changed for ${clip.id}`);
+    if (!occurrence.sourceIdentity || occurrence.sourceIdentity !== match.sourceIdentity) {
+      throw new Error(`TARGET_MISMATCH: native occurrence source identity is unavailable or changed for ${clip.id}`);
     }
     if (!occurrence.start || !occurrence.duration || !clip.startTime || !clip.durationTime) {
       throw new Error(`TARGET_MISMATCH: exact timeline coordinates are unavailable for ${clip.id}`);
@@ -733,7 +759,25 @@ export function createFinalCutNativeTargetResolver(
     if (!sameRationalText(occurrence.start, clip.startTime) || !sameRationalText(occurrence.duration, clip.durationTime)) {
       throw new Error(`TARGET_MISMATCH: native occurrence coordinates changed for ${clip.id}`);
     }
+    const expectedSelectedIdentity = occurrence.nativeIdentity ?? occurrence.identity;
+    const selected = await native.selectOccurrence?.(occurrence.handle);
+    if (native.selectOccurrence && selected?.target?.identity !== expectedSelectedIdentity) {
+      throw new Error(`TARGET_MISMATCH: selected native occurrence identity changed for ${clip.id}`);
+    }
   };
+  // Only an explicit source-observation capability with nonselecting discovery can enable source-bound edits.
+  Object.defineProperty(resolve, "sourceBindingAvailable", {
+    get: () => {
+      try {
+        return Boolean(native.locateOccurrenceForCanonicalTarget
+          && native.capabilities?.().timelineOccurrenceSourceBinding === true);
+      } catch {
+        return false;
+      }
+    },
+  });
+  if (native.trackNativeDispatch) resolve.trackNativeDispatch = native.trackNativeDispatch.bind(native);
+  return resolve;
 }
 
 interface PendingNativeOperation {
@@ -770,6 +814,8 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   private revisionSequence = 0;
   private revision?: ContextRevision;
   private pending?: PendingNativeOperation;
+  private recoveryRequired = false;
+  private readonly recoveryGuard?: CanonicalRecoveryGuard;
 
   public constructor(options: FinalCutCanonicalNativeProviderOptions) {
     this.live = options.live;
@@ -777,6 +823,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     this.readSnapshotSource = options.readSnapshot;
     this.resolveTarget = options.resolveTarget;
     this.backgroundCatalog = options.backgroundCatalog;
+    this.recoveryGuard = options.recoveryGuard;
   }
 
   public async getIdentity(): Promise<EditorIdentity> {
@@ -798,6 +845,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     const canonicalSnapshotCapability = snapshotProbe.available
       ? { available: true, backend: "final-cut-native-canonical", guarantee: "canonical-read" as const, evidenceTier: "headed-native" as const }
       : unavailableCanonicalSnapshot(snapshotProbe.reason);
+    const sourceBindingAvailable = hasCanonicalSourceBinding(this.resolveTarget);
     const capabilities = withCapabilityFamilies({
       editor: {
         projectRead: snapshotProbe.available,
@@ -817,12 +865,13 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         projectSelectionMode: selection.mode,
         backgroundLibraryInspection: Boolean(backgroundCatalog),
         compositeTransactions: snapshotProbe.available,
+        ...(snapshotProbe.available && this.native.addMarkerAtTime ? { markerIdentityMode: "editor-assigned" as const } : {}),
         semanticOperations: {
-          "rename-clip": snapshotProbe.available,
-          "trim-clip": snapshotProbe.available && Boolean(this.native.trimSelectedClipToRange),
+          "rename-clip": snapshotProbe.available && sourceBindingAvailable,
+          "trim-clip": snapshotProbe.available && sourceBindingAvailable && Boolean(this.native.trimSelectedClipToRange),
           "add-marker": snapshotProbe.available && Boolean(this.native.addMarkerAtTime),
-          "ripple-delete": snapshotProbe.available && Boolean(this.native.rippleDeleteRange),
-          "set-gain": snapshotProbe.available && Boolean(this.native.setSelectedClipGain),
+          "ripple-delete": snapshotProbe.available && sourceBindingAvailable && Boolean(this.native.rippleDeleteRange),
+          "set-gain": snapshotProbe.available && sourceBindingAvailable && Boolean(this.native.setSelectedClipGain),
         },
       },
       analyzers: {
@@ -852,7 +901,9 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
       },
     });
     const readiness = assessCanonicalLiveReadiness(capabilities);
-    if (readiness.ready) return capabilities;
+    let recoveryBlocked = this.recoveryRequired;
+    try { await this.recoveryGuard?.assertClear(); } catch { recoveryBlocked = true; }
+    if (readiness.ready && !recoveryBlocked) return capabilities;
     const canonicalReadReady = capabilities.editor.projectRead
       && capabilities.editor.timelineSnapshotRead
       && capabilities.editor.projectCatalogRead;
@@ -865,6 +916,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
           readAfterWrite: false,
           rollback: false,
           compositeTransactions: false,
+          markerIdentityMode: undefined,
           semanticOperations: {},
         },
       }, {
@@ -979,9 +1031,11 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     operations: WorkflowOperation[],
     expectedRevision: ContextRevision,
   ): Promise<ProjectSnapshot> {
+    await this.assertRecoveryNotRequired();
     const before = await this.readProject();
     assertSameRevision(expectedRevision, before.revision);
     const operation = supportedCanonicalOperation(operations);
+    assertCanonicalSourceBindingAvailable(this.resolveTarget, operation);
     assertCanonicalOperationAvailable(this.native, operation);
     const preview = projectCanonicalOperation(before, operation);
     preview.revision = previewRevision(preview, before.revision);
@@ -997,10 +1051,15 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   }
 
   public async apply(operation: EditOperation, expectedRevision: ContextRevision): Promise<ContextRevision> {
+    await this.assertRecoveryNotRequired();
     const baselineLive = await this.live.readLiveState();
     const before = await this.readProject();
     assertSameRevision(expectedRevision, before.revision);
     const supported = supportedCanonicalOperation([operation]);
+    assertCanonicalSourceBindingAvailable(this.resolveTarget, supported);
+    if (supported.type === "add-marker" && before.timeline.markers.some(({ id }) => id === supported.marker.id)) {
+      throw new Error(`MARKER_ALREADY_EXISTS: ${supported.marker.id}`);
+    }
     const markerRange = supported.type === "add-marker" ? canonicalMarkerRange(before, supported.marker) : undefined;
     const clipTarget = supported.type === "rename-clip" || supported.type === "trim-clip" || supported.type === "set-gain"
       ? canonicalTargetForOperation(before, supported)
@@ -1020,8 +1079,11 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         : {}),
     });
     resolveTimelineTarget(before, timelineTarget);
-    if (targetClip) await this.resolveTarget(targetClip, before);
     assertCanonicalOperationAvailable(this.native, supported);
+    if (targetClip && !this.recoveryGuard) {
+      await this.resolveTarget(targetClip, before);
+      assertCanonicalSourceBindingAvailable(this.resolveTarget, supported);
+    }
     const currentLive = await this.live.readLiveState();
     if (!baselineLive.project?.id || !baselineLive.sequence?.id
       || baselineLive.project.id !== before.projectId || baselineLive.sequence.id !== before.timeline.id
@@ -1030,7 +1092,62 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
       || currentLive.revision.sequence !== baselineLive.revision.sequence) {
       throw new Error("FINAL_CUT_CANONICAL_TARGET_STALE: live target or revision changed during edit preparation");
     }
-    const nativeResult = supported.type === "rename-clip"
+    if (this.recoveryGuard) {
+      await this.recoveryGuard.begin({
+        projectId: before.projectId, sequenceId: before.timeline.id,
+        baseRevision: before.revision.id, beforeDigest: canonicalSnapshotDigest(before), operation: supported.type,
+      });
+      try {
+        const afterCheckpoint = await this.live.readLiveState();
+        if (afterCheckpoint.project?.id !== currentLive.project.id
+          || afterCheckpoint.sequence?.id !== currentLive.sequence.id
+          || afterCheckpoint.revision?.id !== currentLive.revision.id
+          || afterCheckpoint.revision.sequence !== currentLive.revision.sequence) {
+          throw new Error("FINAL_CUT_CANONICAL_TARGET_STALE: live target or revision changed during recovery checkpoint acquisition");
+        }
+      } catch (error) {
+        // No native command has been dispatched, so this checkpoint is safe to release.
+        await this.recoveryGuard.complete();
+        throw error;
+      }
+      if (targetClip) {
+        let dispatched = typeof this.resolveTarget.trackNativeDispatch !== "function";
+        try {
+          const resolve = () => this.resolveTarget(targetClip, before);
+          if (this.resolveTarget.trackNativeDispatch) {
+            await this.resolveTarget.trackNativeDispatch(resolve, () => { dispatched = true; });
+          } else {
+            await resolve();
+          }
+          assertCanonicalSourceBindingAvailable(this.resolveTarget, supported);
+          const afterTarget = await this.live.readLiveState();
+          if (afterTarget.project?.id !== currentLive.project.id
+            || afterTarget.sequence?.id !== currentLive.sequence.id
+            || afterTarget.revision?.id !== currentLive.revision.id
+            || afterTarget.revision.sequence !== currentLive.revision.sequence) {
+            throw new Error("FINAL_CUT_CANONICAL_TARGET_STALE: live target or revision changed during target preparation");
+          }
+        } catch (error) {
+          if (!dispatched) {
+            await this.recoveryGuard.complete();
+            throw error;
+          }
+          this.recoveryRequired = true;
+          const detail = error instanceof Error ? error.message : String(error);
+          throw new Error(`FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: native target preparation outcome is uncertain: ${detail}`, { cause: error });
+        }
+      } else {
+        try {
+          assertCanonicalSourceBindingAvailable(this.resolveTarget, supported);
+        } catch (error) {
+          await this.recoveryGuard.complete();
+          throw error;
+        }
+      }
+    }
+    let nativeResult: { operationId: string; undoAvailable: boolean };
+    try {
+      nativeResult = supported.type === "rename-clip"
       ? await this.native.renameSelectedClip(supported.name)
       : supported.type === "trim-clip"
         ? await this.native.trimSelectedClipToRange!({
@@ -1046,8 +1163,14 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
               duration: markerRange!.duration,
               name: supported.marker.name,
             });
+    } catch (error) {
+      this.recoveryRequired = true;
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: native edit outcome is uncertain: ${detail}`, { cause: error });
+    }
     if (!nativeResult.operationId || !nativeResult.undoAvailable) {
-      throw new Error("FINAL_CUT_CANONICAL_UNDO_UNAVAILABLE: native edit did not expose Undo");
+      this.recoveryRequired = true;
+      throw new Error("FINAL_CUT_CANONICAL_UNDO_UNAVAILABLE: native edit did not expose Undo; FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: further edits are blocked");
     }
     this.pending = {
       operationId: nativeResult.operationId,
@@ -1079,17 +1202,20 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         if (readback.beforeDigest !== this.pending.beforeDigest) {
           throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: canonical before digest changed during verification");
         }
+        assertExactCanonicalProjection(before, after, supported);
       } else if (supported.type === "trim-clip") {
         const afterClip = after.timeline.clips.find(({ id }) => id === supported.clipId);
         if (!afterClip || !sameRational(afterClip.startTime, clip!.startTime)
           || !sameRational(afterClip.durationTime, trimDuration!)) {
           throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: trimmed occurrence range was not read back from Final Cut");
         }
+        assertExactCanonicalProjection(before, after, supported);
       } else if (supported.type === "set-gain") {
         const afterClip = after.timeline.clips.find(({ id }) => id === supported.clipId);
         if (!afterClip || (afterClip.gainDb ?? 0) !== supported.gainDb) {
           throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: gain was not read back from Final Cut");
         }
+        assertExactCanonicalProjection(before, after, supported);
       } else if (supported.type === "ripple-delete") {
         assertRippleDeleteReadback(before, after, rippleTarget!.clip, rippleTarget!.range!);
       } else {
@@ -1105,6 +1231,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         supported.type === "ripple-delete" ? { allowOccurrenceRemoval: true } : undefined,
       );
       this.pending.afterRevision = after.revision;
+      await this.recoveryGuard?.complete();
       return after.revision;
     } catch (error) {
       try {
@@ -1112,18 +1239,33 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
           operationId: nativeResult.operationId,
           before,
           target: timelineTarget,
-          undo: this.native.undo,
+          undo: async (operationId) => {
+            const live = await this.live.readLiveState();
+            if (live.project?.id !== before.projectId || live.sequence?.id !== before.timeline.id || !live.revision?.id) {
+              throw new Error("FINAL_CUT_CANONICAL_TARGET_STALE: active target is not the edited project and sequence");
+            }
+            return this.native.undo(operationId);
+          },
           readSnapshot: () => this.readProject(),
         });
+        await this.recoveryGuard?.complete();
       } catch (rollbackError) {
+        this.recoveryRequired = true;
         const original = error instanceof Error ? error.message : String(error);
         const rollback = rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
-        throw new Error(`FINAL_CUT_CANONICAL_ROLLBACK_FAILED: ${rollback}; original error: ${original}`);
+        throw new Error(`FINAL_CUT_CANONICAL_ROLLBACK_FAILED: ${rollback}; original error: ${original}; FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: further edits are blocked`);
       } finally {
         this.pending = undefined;
       }
       throw error;
     }
+  }
+
+  private async assertRecoveryNotRequired(): Promise<void> {
+    if (this.recoveryRequired) {
+      throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: a previous native edit could not be restored; further edits are blocked");
+    }
+    await this.recoveryGuard?.assertClear();
   }
 
   public async restore(snapshot: ProjectSnapshot, expectedRevision: ContextRevision): Promise<void> {
@@ -1136,15 +1278,49 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     if (canonicalSnapshotDigest(snapshot) !== pending.beforeDigest) {
       throw new Error("FINAL_CUT_CANONICAL_UNDO_TARGET_MISMATCH: rollback target differs from the applied edit");
     }
-    const undone = await this.native.undo(pending.operationId);
-    if (!undone.undone || undone.verification?.verified !== true) {
-      throw new Error("FINAL_CUT_CANONICAL_UNDO_FAILED: Final Cut did not verify native Undo");
+    await this.assertRecoveryNotRequired();
+    if (this.recoveryGuard) {
+      const beforeCheckpoint = await this.live.readLiveState();
+      if (beforeCheckpoint.project?.id !== current.projectId || beforeCheckpoint.sequence?.id !== current.timeline.id
+        || beforeCheckpoint.revision?.id !== this.lastLiveRevision?.id
+        || beforeCheckpoint.revision?.sequence !== this.lastLiveRevision?.sequence) {
+        throw new Error("FINAL_CUT_CANONICAL_TARGET_STALE: live target or revision changed before Undo");
+      }
+      await this.recoveryGuard.begin({
+        projectId: current.projectId, sequenceId: current.timeline.id,
+        baseRevision: current.revision.id, beforeDigest: canonicalSnapshotDigest(current),
+        operation: "undo", expectedRestoreDigest: pending.beforeDigest,
+      });
+      try {
+        const afterCheckpoint = await this.live.readLiveState();
+        if (afterCheckpoint.project?.id !== beforeCheckpoint.project?.id
+          || afterCheckpoint.sequence?.id !== beforeCheckpoint.sequence?.id
+          || afterCheckpoint.revision?.id !== beforeCheckpoint.revision?.id
+          || afterCheckpoint.revision?.sequence !== beforeCheckpoint.revision?.sequence) {
+          throw new Error("FINAL_CUT_CANONICAL_TARGET_STALE: live target or revision changed during Undo checkpoint acquisition");
+        }
+      } catch (error) {
+        // No Undo command has been dispatched, so this checkpoint is safe to release.
+        await this.recoveryGuard.complete();
+        throw error;
+      }
     }
-    const restored = await this.readProject();
-    if (canonicalSnapshotDigest(restored) !== pending.beforeDigest) {
-      throw new Error("FINAL_CUT_CANONICAL_UNDO_FAILED: restored canonical digest does not match the pre-edit state");
+    try {
+      const undone = await this.native.undo(pending.operationId);
+      if (!undone.undone || undone.verification?.verified !== true) {
+        throw new Error("FINAL_CUT_CANONICAL_UNDO_FAILED: Final Cut did not verify native Undo");
+      }
+      const restored = await this.readProject();
+      if (canonicalSnapshotDigest(restored) !== pending.beforeDigest) {
+        throw new Error("FINAL_CUT_CANONICAL_UNDO_FAILED: restored canonical digest does not match the pre-edit state");
+      }
+      await this.recoveryGuard?.complete();
+      this.pending = undefined;
+    } catch (error) {
+      this.recoveryRequired = true;
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`FINAL_CUT_CANONICAL_UNDO_FAILED: ${detail}; FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: further edits are blocked`, { cause: error });
     }
-    this.pending = undefined;
   }
 
   public async listProjects(): Promise<ProjectCatalog> {
@@ -1343,6 +1519,20 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
 
 type CanonicalOperation = Extract<WorkflowOperation, { type: "rename-clip" | "trim-clip" | "add-marker" | "ripple-delete" | "set-gain" }>;
 
+function assertCanonicalSourceBindingAvailable(resolver: CanonicalNativeTargetResolver, operation: CanonicalOperation): void {
+  if (operation.type !== "add-marker" && !hasCanonicalSourceBinding(resolver)) {
+    throw new Error("CAPABILITY_UNAVAILABLE: native occurrence source binding cannot be independently observed");
+  }
+}
+
+function hasCanonicalSourceBinding(resolver: CanonicalNativeTargetResolver): boolean {
+  try {
+    return resolver.sourceBindingAvailable === true;
+  } catch {
+    return false;
+  }
+}
+
 function supportedCanonicalOperation(operations: WorkflowOperation[]): CanonicalOperation {
   if (operations.length !== 1 || (operations[0]?.type !== "rename-clip" && operations[0]?.type !== "trim-clip" && operations[0]?.type !== "add-marker" && operations[0]?.type !== "ripple-delete" && operations[0]?.type !== "set-gain")) {
     throw new Error("CAPABILITY_UNAVAILABLE: final-cut native canonical provider supports one rename-clip, trim-clip, add-marker, ripple-delete, or set-gain transaction");
@@ -1460,6 +1650,17 @@ function projectCanonicalOperation(snapshot: ProjectSnapshot, operation: Canonic
       markers: [...snapshot.timeline.markers, marker],
     },
   };
+}
+
+function assertExactCanonicalProjection(
+  before: ProjectSnapshot,
+  after: ProjectSnapshot,
+  operation: Extract<CanonicalOperation, { type: "rename-clip" | "trim-clip" | "set-gain" }>,
+): void {
+  const expected = projectCanonicalOperation(before, operation);
+  if (canonicalSnapshotDigest(normalizeCanonicalSnapshot(after)) !== canonicalSnapshotDigest(normalizeCanonicalSnapshot(expected))) {
+    throw new Error(`FINAL_CUT_CANONICAL_READBACK_FAILED: ${operation.type} readback differed from the exact canonical projection`);
+  }
 }
 
 function projectCanonicalRippleDelete(
@@ -1614,7 +1815,7 @@ function assertRippleDeleteReadback(
   range: { start: RationalTime; end: RationalTime },
 ): void {
   const expected = projectCanonicalRippleDelete(before, range);
-  if (canonicalSnapshotDigest(normalizeRippleSnapshot(after)) !== canonicalSnapshotDigest(normalizeRippleSnapshot(expected))) {
+  if (canonicalSnapshotDigest(normalizeCanonicalSnapshot(after)) !== canonicalSnapshotDigest(normalizeCanonicalSnapshot(expected))) {
     throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: ripple-delete readback differed from the exact canonical projection");
   }
   if (!after.timeline.durationTime || !expected.timeline.durationTime
@@ -1642,15 +1843,19 @@ function assertRippleDeleteReadback(
   }
 }
 
-function normalizeRippleSnapshot(snapshot: ProjectSnapshot): ProjectSnapshot {
+function normalizeCanonicalSnapshot(snapshot: ProjectSnapshot): ProjectSnapshot {
   const normalized = structuredClone(snapshot);
   normalized.timeline.durationTime = normalized.timeline.durationTime
     ? normalizeRationalTime(normalized.timeline.durationTime)
     : normalized.timeline.durationTime;
+  normalized.timeline.frameDuration = normalized.timeline.frameDuration
+    ? normalizeRationalTime(normalized.timeline.frameDuration)
+    : normalized.timeline.frameDuration;
   normalized.timeline.clips = normalized.timeline.clips.map((clip) => ({
     ...clip,
     startTime: normalizeRationalTime(clip.startTime),
     durationTime: normalizeRationalTime(clip.durationTime),
+    ...(clip.sourceStartTime ? { sourceStartTime: normalizeRationalTime(clip.sourceStartTime) } : {}),
   }));
   normalized.timeline.storyElements = normalized.timeline.storyElements.map((element) => ({
     ...element,
@@ -1711,6 +1916,23 @@ function assertMarkerReadback(
     && sameRational(candidate.durationTime ?? secondsToRational(candidate.duration), range.duration));
   if (matches.length !== beforeMatches.length + 1) {
     throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: native marker was not uniquely read back at the requested rational position");
+  }
+  const priorIds = new Set(before.timeline.markers.map(({ id }) => id));
+  const added = after.timeline.markers.filter(({ id }) => !priorIds.has(id));
+  if (priorIds.size !== before.timeline.markers.length
+    || new Set(after.timeline.markers.map(({ id }) => id)).size !== after.timeline.markers.length
+    || added.length !== 1 || !matches.includes(added[0]!)) {
+    throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: native marker identity is ambiguous");
+  }
+  const expected = projectCanonicalOperation(before, { type: "add-marker", timelineId: before.timeline.id, marker });
+  expected.timeline.markers = expected.timeline.markers.map((candidate) => candidate.id === marker.id
+    ? { ...candidate, id: added[0]!.id } : candidate);
+  const normalizedExpected = normalizeCanonicalSnapshot(expected);
+  const normalizedAfter = normalizeCanonicalSnapshot(after);
+  normalizedExpected.timeline.markers.sort((left, right) => left.id.localeCompare(right.id));
+  normalizedAfter.timeline.markers.sort((left, right) => left.id.localeCompare(right.id));
+  if (canonicalSnapshotDigest(normalizedAfter) !== canonicalSnapshotDigest(normalizedExpected)) {
+    throw new Error("FINAL_CUT_CANONICAL_READBACK_FAILED: marker readback differed from the exact canonical projection");
   }
 }
 
@@ -1963,6 +2185,22 @@ function sourceBasename(source: string): string {
     return basename(url.protocol === "file:" ? fileURLToPath(url) : decodeURIComponent(url.pathname));
   } catch {
     return basename(source);
+  }
+}
+
+function exactLocalSourcePath(source: string): string | undefined {
+  try {
+    const decoded = source.startsWith("file:") ? decodeURIComponent(source) : source;
+    if (/(?:^|\/)\.{1,2}(?:\/|$)/.test(decoded) || decoded.includes("\0")) return undefined;
+    if (source.startsWith("file:")) {
+      const url = new URL(source);
+      if (url.protocol !== "file:" || url.search || url.hash) return undefined;
+      const path = fileURLToPath(url);
+      return isAbsolute(path) ? path : undefined;
+    }
+    return isAbsolute(source) ? source : undefined;
+  } catch {
+    return undefined;
   }
 }
 

@@ -380,7 +380,7 @@ test("partial headed evidence cannot promote the headed tier", async () => {
       },
     }), "utf8");
 
-    const report = await runReleaseGate({ headedEvidenceDirectory: directory });
+    const report = await runReleaseGate({ headedEvidenceDirectory: directory, headedCandidateCommit: "a".repeat(40) });
 
     assert.equal(report.evidenceTiers["headed-native"].status, "failed");
     assert.equal(report.evidenceTiers["headed-native"].passed, false);
@@ -437,7 +437,7 @@ test("complete headed evidence promotes every claimed native workflow", async ()
 
   try {
     for (const record of records) {
-      await writeFile(join(directory, record.file), JSON.stringify({
+      const evidence = record.evidenceType === "headed-native-canonical-mutation" ? canonicalRenameEvidence() : {
         schemaVersion: 1,
         evidenceType: record.evidenceType,
         passed: true,
@@ -445,10 +445,11 @@ test("complete headed evidence promotes every claimed native workflow", async ()
         target: record.target,
         revisions: { before: "rev-1", after: "rev-2", restored: "rev-3" },
         verification: { execute: true, undo: true },
-      }), "utf8");
+      };
+      await writeFile(join(directory, record.file), JSON.stringify(evidence), "utf8");
     }
 
-    const report = await runReleaseGate({ headedEvidenceDirectory: directory });
+    const report = await runReleaseGate({ headedEvidenceDirectory: directory, headedCandidateCommit: environment.gitCommit });
 
     assert.equal(report.evidenceTiers["headed-native"].status, "verified");
     assert.equal(report.evidenceTiers["headed-native"].passed, true);
@@ -456,7 +457,66 @@ test("complete headed evidence promotes every claimed native workflow", async ()
       report.evidenceTiers["headed-native"].workflows.map((workflow) => workflow.status),
       ["verified", "verified", "verified", "verified", "verified", "verified"],
     );
+    assert.equal(report.evidenceTiers["headed-native"].preflight.candidateCommit, environment.gitCommit);
+    const unpinned = await runReleaseGate({ headedEvidenceDirectory: directory });
+    assert.equal(unpinned.evidenceTiers["headed-native"].status, "failed");
+    const wrongCandidate = await runReleaseGate({ headedEvidenceDirectory: directory, headedCandidateCommit: "e".repeat(40) });
+    assert.equal(wrongCandidate.evidenceTiers["headed-native"].status, "failed");
+    const different = JSON.parse(await readFile(join(directory, "pip.json"), "utf8"));
+    different.environment.gitCommit = "e".repeat(40);
+    await writeFile(join(directory, "pip.json"), JSON.stringify(different), "utf8");
+    const mixed = await runReleaseGate({ headedEvidenceDirectory: directory, headedCandidateCommit: environment.gitCommit });
+    assert.equal(mixed.evidenceTiers["headed-native"].status, "failed");
+    assert.equal(mixed.evidenceTiers["headed-native"].workflows.find((workflow) => workflow.workflowId === "picture-in-picture")?.status, "failed");
   } finally {
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+function canonicalRenameEvidence() {
+  return {
+    schemaVersion: 1,
+    evidenceType: "headed-native-canonical-mutation",
+    passed: true,
+    environment: { framekitVersion: "0.1.6", finalCutVersion: "10.7.1", gitCommit: "d".repeat(40) },
+    project: { id: "project-1", name: "Disposable Canonical", sequenceId: "sequence-1" },
+    target: { occurrenceId: "occurrence-1", mediaId: "media-1" },
+    capabilities: { editor: { canonicalTimelineMode: "canonical-write", semanticOperations: { "rename-clip": true } } },
+    sourceMediaIntegrity: { sourceCount: 1, digests: ["c".repeat(64)] },
+    toolResults: [
+      ["editor.inspect", "passed"], ["project.list", "passed"], ["project.inspect", "passed"], ["project.select", "passed"],
+      ["project.inspect", "passed"], ["editor.inspect", "passed"],
+      ["editor.timeline.edit", "rejected-stale-context"], ["project.inspect", "unchanged"],
+      ["editor.timeline.edit", "rejected-target-mismatch"], ["project.inspect", "unchanged"],
+      ["editor.timeline.edit.preview", "passed"], ["project.inspect", "unchanged"],
+      ["editor.timeline.edit.execute", "VERIFIED"], ["edit.undo", "passed"],
+    ].map(([name, status]) => ({ name, status })),
+    mutation: {
+      operation: "rename-clip", status: "VERIFIED", timelineChanged: true,
+      beforeRevision: { id: "rev-1", sequence: 1 }, afterRevision: { id: "rev-2", sequence: 2 },
+      diff: { addedCount: 0, removedCount: 0, modifiedCount: 1, modifiedItemIds: ["occurrence-1"], durationDelta: 0 },
+    },
+    restoration: { operation: "edit.undo", status: "VERIFIED", restored: true, beforeDigest: "a".repeat(64), restoredDigest: "a".repeat(64), restoredRevision: { id: "rev-3", sequence: 3 } },
+  };
+}
+
+test("canonical release evidence requires the rename-specific safety record", () => {
+  const workflow = loadNativeEditingManifest().workflows.find((candidate) => candidate.id === "canonical-live");
+  assert.ok(workflow);
+  const valid = canonicalRenameEvidence();
+  assert.equal(summarizeHeadedEvidence(valid, workflow).status, "verified");
+  const generic = { evidenceType: valid.evidenceType, passed: true, environment: valid.environment, target: { project: "Disposable", projectId: "p", sequenceId: "s", occurrenceId: "o" }, revisions: { before: "1", after: "2", restored: "3" }, verification: { execute: true, undo: true } };
+  assert.throws(() => summarizeHeadedEvidence(generic, workflow), /canonical/i);
+  for (const change of [
+    (x: typeof valid) => { x.capabilities.editor.semanticOperations["rename-clip"] = false; },
+    (x: typeof valid) => { x.sourceMediaIntegrity.digests = []; },
+    (x: typeof valid) => { x.restoration.restoredDigest = "b".repeat(64); },
+    (x: typeof valid) => { x.restoration.restoredRevision.sequence = 2; },
+    (x: typeof valid) => { x.mutation.diff.modifiedItemIds = ["other"]; },
+    (x: typeof valid) => { x.toolResults.splice(5, 1); },
+  ]) {
+    const broken = structuredClone(valid);
+    change(broken);
+    assert.throws(() => summarizeHeadedEvidence(broken, workflow), /canonical/i);
   }
 });

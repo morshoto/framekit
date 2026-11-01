@@ -77,8 +77,10 @@ test("publishes a verified artifact with an explicit target and canonical readba
     const artifactPath = join(directory, "staged.fcpxml");
     await writeFile(artifactPath, artifact, "utf8");
     let received: any;
+    let dispatchMarks = 0;
     const publisher = new FinalCutBackgroundMaterializationPublisher({
       executor: async (value) => {
+        assert.equal(dispatchMarks, 1, "dispatch must be marked before the provider runs");
         received = value;
         return {
           state: "completed",
@@ -94,7 +96,7 @@ test("publishes a verified artifact with an explicit target and canonical readba
       },
     });
 
-    const result = await publisher.publish(request(artifactPath, artifact));
+    const result = await publisher.trackNativeDispatch(() => publisher.publish(request(artifactPath, artifact)), () => { dispatchMarks += 1; });
 
     assert.equal(result.state, "completed");
     assert.equal(received.target.libraryUid, "library-1");
@@ -112,7 +114,10 @@ test("returns a structured blocker when no background capability is configured",
     const artifact = "<fcpxml/>";
     const artifactPath = join(directory, "staged.fcpxml");
     await writeFile(artifactPath, artifact, "utf8");
-    const result = await new FinalCutBackgroundMaterializationPublisher().publish(request(artifactPath, artifact));
+    const publisher = new FinalCutBackgroundMaterializationPublisher();
+    let dispatchMarks = 0;
+    const result = await publisher.trackNativeDispatch(() => publisher.publish(request(artifactPath, artifact)), () => { dispatchMarks += 1; });
+    assert.equal(dispatchMarks, 0);
     assert.deepEqual(result, {
       state: "blocked",
       code: "FINAL_CUT_BACKGROUND_MATERIALIZATION_UNAVAILABLE",

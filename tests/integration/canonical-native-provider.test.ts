@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -11,6 +11,7 @@ import {
   FinalCutCanonicalExportError,
   FinalCutCanonicalSnapshotSource,
   FinalCutCanonicalNativeProvider,
+  FileCanonicalRecoveryGuard,
   FinalCutSessionAdapter,
   parseFinalCutCanonicalExportResult,
   type FinalCutBackgroundCatalogProvider,
@@ -27,7 +28,7 @@ import type {
   ProjectSnapshot,
   RuntimeCapabilities,
 } from "@framekit/runtime";
-import { AgentVideoRuntime as Runtime, createTimelineIrFromProjectSnapshot } from "@framekit/runtime";
+import { AgentVideoRuntime as Runtime, canonicalSnapshotDigest, createTimelineIrFromProjectSnapshot } from "@framekit/runtime";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 const identity: EditorIdentity = {
@@ -195,10 +196,11 @@ function textFrom(result: unknown): string {
 function providerFor(
   snapshots: Array<ProjectSnapshot | Error>,
   calls: string[],
-  resolveTarget: CanonicalNativeTargetResolver = async () => {},
+  resolveTarget: CanonicalNativeTargetResolver = Object.assign(async () => {}, { sourceBindingAvailable: true }),
   activeState: EditorLiveState = liveState(),
   backgroundCatalog?: FinalCutBackgroundCatalogProvider,
   nativeOverrides: Partial<CanonicalNativeMutationPort> = {},
+  recoveryGuard?: { assertClear(): Promise<void>; begin(checkpoint: { projectId: string; sequenceId: string; baseRevision: string; beforeDigest: string; operation: string; expectedRestoreDigest?: string }): Promise<void>; complete(): Promise<void> },
 ) {
   const native = {
     renameSelectedClip: async () => {
@@ -227,6 +229,7 @@ function providerFor(
     },
     resolveTarget,
     ...(backgroundCatalog ? { backgroundCatalog } : {}),
+    ...(recoveryGuard ? { recoveryGuard } : {}),
   });
 }
 
@@ -524,7 +527,7 @@ test("canonical native provider previews and applies a revision-guarded trim", a
       if (!next) throw new Error("snapshot queue exhausted");
       return structuredClone(next);
       },
-    resolveTarget: async () => undefined,
+    resolveTarget: Object.assign(async () => undefined, { sourceBindingAvailable: true }),
   });
   const before = await provider.readProject();
   const operation = {
@@ -640,6 +643,33 @@ test("canonical native provider reports timeline bounds for out-of-range ripple 
   assert.deepEqual(calls, []);
 });
 
+test("trim and gain reject collateral readback changes and restore the baseline", async () => {
+  const originalTrim = snapshot("Original");
+  const trimmed = structuredClone(originalTrim);
+  trimmed.timeline.duration = 3;
+  trimmed.timeline.durationTime = { value: "72", timescale: "24" };
+  trimmed.timeline.clips[0] = { ...trimmed.timeline.clips[0]!, duration: 3, durationTime: { value: "72", timescale: "24" } };
+  trimmed.timeline.storyElements[0] = { ...trimmed.timeline.storyElements[0]!, duration: 3, durationTime: { value: "72", timescale: "24" } };
+  const gain = gainSnapshots();
+  const cases = [
+    { label: "trim", before: originalTrim, after: trimmed, operation: { type: "trim-clip" as const, clipId: "final-cut:occurrence:clip-1", duration: 3, durationTime: { value: "72", timescale: "24" } } },
+    { label: "gain", before: gain.before, after: gain.after, operation: { type: "set-gain" as const, clipId: "final-cut:occurrence:clip-1", gainDb: 3 } },
+  ];
+  for (const { label, before: original, after, operation } of cases) {
+    const collateral = structuredClone(after);
+    collateral.timeline.markers.push({ id: "unexpected-marker", start: 1, duration: 0, name: "Collateral" });
+    const calls: string[] = [];
+    const mutate = async () => { calls.push(label); return { operationId: `native-${label}`, undoAvailable: true }; };
+    const provider = providerFor([original, original, collateral, original, original], calls, undefined, liveState(), undefined, {
+      trimSelectedClipToRange: mutate, setSelectedClipGain: mutate,
+    });
+    const before = await provider.readProject();
+    await assert.rejects(provider.apply(operation, before.revision), /FINAL_CUT_CANONICAL_READBACK_FAILED/, label);
+    assert.deepEqual(calls, [label, "undo"], label);
+    assert.equal(canonicalSnapshotDigest(await provider.readProject()), canonicalSnapshotDigest(before), label);
+  }
+});
+
 test("canonical native provider rejects collateral ripple-delete readback changes", async () => {
   const { before: original, after: deleted } = rippleSnapshots();
   const collateral = structuredClone(deleted);
@@ -723,6 +753,56 @@ test("canonical native provider previews and applies a revision-guarded marker",
   assert.deepEqual(calls, ["marker:24/24:12/24", "undo"]);
 });
 
+test("direct marker edit rejects a duplicate marker identity before mutation", async () => {
+  const original = markerSnapshots().after;
+  const calls: string[] = [];
+  const provider = providerFor([original, original, original, original], calls, undefined, liveState(), undefined, {
+    addMarkerAtTime: async () => { calls.push("marker"); return { operationId: "native-marker", undoAvailable: true }; },
+  });
+  const before = await provider.readProject();
+  await assert.rejects(provider.apply({
+    type: "add-marker", timelineId: before.timeline.id,
+    marker: { id: "marker-1", start: 1, duration: 0.5, name: "Review", startTime: { value: "24", timescale: "24" }, durationTime: { value: "12", timescale: "24" } },
+  }, before.revision), /MARKER_ALREADY_EXISTS/);
+  assert.deepEqual(calls, []);
+});
+
+test("marker accepts a distinct native identity and reordered marker list", async () => {
+  const { before: original, after } = markerSnapshots();
+  const existing = { id: "existing-marker", start: 3, duration: 0, name: "Existing", startTime: { value: "72", timescale: "24" }, durationTime: { value: "0", timescale: "24" } };
+  original.timeline.markers.push(existing);
+  after.timeline.markers[0] = { ...after.timeline.markers[0]!, id: "native-marker-id" };
+  after.timeline.markers.push(existing);
+  const calls: string[] = [];
+  const provider = providerFor([original, original, after], calls, undefined, liveState(), undefined, {
+    addMarkerAtTime: async () => { calls.push("marker"); return { operationId: "native-marker", undoAvailable: true }; },
+  });
+  const before = await provider.readProject();
+  await provider.apply({
+    type: "add-marker", timelineId: before.timeline.id,
+    marker: { id: "requested-marker-id", start: 1, duration: 0.5, name: "Review", startTime: { value: "24", timescale: "24" }, durationTime: { value: "12", timescale: "24" } },
+  }, before.revision);
+  assert.deepEqual(calls, ["marker"]);
+});
+
+test("marker rejects collateral clip changes and restores the baseline", async () => {
+  const { before: original, after } = markerSnapshots();
+  const collateral = structuredClone(after);
+  collateral.timeline.clips[0] = { ...collateral.timeline.clips[0]!, name: "Unexpected" };
+  const calls: string[] = [];
+  const provider = providerFor([original, original, collateral, original, original], calls, undefined, liveState(), undefined, {
+    addMarkerAtTime: async () => { calls.push("marker"); return { operationId: "native-marker", undoAvailable: true }; },
+  });
+  const before = await provider.readProject();
+  const operation = {
+    type: "add-marker" as const, timelineId: before.timeline.id,
+    marker: { id: "marker-1", start: 1, duration: 0.5, name: "Review", startTime: { value: "24", timescale: "24" }, durationTime: { value: "12", timescale: "24" } },
+  };
+  await assert.rejects(provider.apply(operation, before.revision), /FINAL_CUT_CANONICAL_READBACK_FAILED/);
+  assert.deepEqual(calls, ["marker", "undo"]);
+  assert.equal(canonicalSnapshotDigest(await provider.readProject()), canonicalSnapshotDigest(before));
+});
+
 test("canonical native provider previews and applies a revision-guarded gain", async () => {
   const { before: original, after: gained } = gainSnapshots();
   const calls: string[] = [];
@@ -758,6 +838,20 @@ test("canonical native provider previews and applies a revision-guarded gain", a
   assert.deepEqual(calls, ["gain:3"]);
   await provider.restore(before, (await provider.readProject()).revision);
   assert.deepEqual(calls, ["gain:3", "undo"]);
+});
+
+test("gain readback accepts equivalent rational frame and source times", async () => {
+  const { before: original, after } = gainSnapshots();
+  original.timeline.clips[0] = { ...original.timeline.clips[0]!, sourceStart: 1, sourceStartTime: { value: "24", timescale: "24" } };
+  after.timeline.clips[0] = { ...after.timeline.clips[0]!, sourceStart: 1, sourceStartTime: { value: "1", timescale: "1" } };
+  after.timeline.frameDuration = { value: "2", timescale: "48" };
+  const calls: string[] = [];
+  const provider = providerFor([original, original, after], calls, undefined, liveState(), undefined, {
+    setSelectedClipGain: async () => { calls.push("gain"); return { operationId: "native-gain", undoAvailable: true }; },
+  });
+  const before = await provider.readProject();
+  await provider.apply({ type: "set-gain", clipId: before.timeline.clips[0]!.id, gainDb: 3 }, before.revision);
+  assert.deepEqual(calls, ["gain"]);
 });
 
 test("canonical native provider rejects unbounded gains before native mutation", async () => {
@@ -875,6 +969,312 @@ test("canonical native provider undoes failed post-edit verification", async () 
   }
 });
 
+test("verification read failure restores trim, marker, ripple, and gain", async () => {
+  const cases = [
+    { label: "trim", before: snapshot("Original"), operation: { type: "trim-clip" as const, clipId: "final-cut:occurrence:clip-1", duration: 3, durationTime: { value: "72", timescale: "24" } } },
+    { label: "marker", before: markerSnapshots().before, operation: { type: "add-marker" as const, timelineId: "final-cut:sequence:sequence-1", marker: { id: "marker-1", start: 1, duration: 0.5, name: "Review", startTime: { value: "24", timescale: "24" }, durationTime: { value: "12", timescale: "24" } } } },
+    { label: "ripple", before: rippleSnapshots().before, operation: { type: "ripple-delete" as const, timelineId: "final-cut:sequence:sequence-1", range: { start: 2, end: 4, startTime: { value: "48", timescale: "24" }, durationTime: { value: "48", timescale: "24" } }, candidateId: "filler-1", reason: "remove verified filler" } },
+    { label: "gain", before: gainSnapshots().before, operation: { type: "set-gain" as const, clipId: "final-cut:occurrence:clip-1", gainDb: 3 } },
+  ];
+  for (const { label, before: original, operation } of cases) {
+    const calls: string[] = [];
+    const mutate = async () => { calls.push(label); return { operationId: `native-${label}`, undoAvailable: true }; };
+    const provider = providerFor([original, original, new Error("controlled read failure"), original, original], calls, undefined, liveState(), undefined, {
+      trimSelectedClipToRange: mutate, addMarkerAtTime: mutate, rippleDeleteRange: mutate, setSelectedClipGain: mutate,
+    });
+    const before = await provider.readProject();
+    await assert.rejects(provider.apply(operation, before.revision), /controlled read failure/, label);
+    assert.deepEqual(calls, [label, "undo"], label);
+    assert.equal(canonicalSnapshotDigest(await provider.readProject()), canonicalSnapshotDigest(before), label);
+  }
+});
+
+test("failed verification recovery blocks subsequent canonical edits", async () => {
+  const original = snapshot("Original");
+  const calls: string[] = [];
+  const provider = providerFor(
+    [original, original, new Error("controlled read failure"), original, original, original],
+    calls, undefined, liveState(), undefined,
+    { undo: async () => { calls.push("undo"); return { undone: false, verification: { verified: false } }; } },
+  );
+  const before = await provider.readProject();
+  const operation = { type: "rename-clip" as const, clipId: "final-cut:occurrence:clip-1", name: "Renamed" };
+  await assert.rejects(provider.apply(operation, before.revision), /FINAL_CUT_CANONICAL_ROLLBACK_FAILED:.*FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  const observed = await provider.readProject();
+  await assert.rejects(provider.apply(operation, observed.revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  await assert.rejects(provider.previewTransaction([operation], observed.revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  assert.deepEqual(calls, ["edit", "undo"]);
+});
+
+test("missing native Undo blocks a second edit after mutation", async () => {
+  const original = snapshot("Original");
+  const calls: string[] = [];
+  const provider = providerFor([original, original, original], calls, undefined, liveState(), undefined, {
+    renameSelectedClip: async () => { calls.push("edit"); return { operationId: "native-without-undo", undoAvailable: false }; },
+  });
+  const before = await provider.readProject();
+  const operation = { type: "rename-clip" as const, clipId: "final-cut:occurrence:clip-1", name: "Renamed" };
+  await assert.rejects(provider.apply(operation, before.revision), /FINAL_CUT_CANONICAL_UNDO_UNAVAILABLE:.*FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  await assert.rejects(provider.apply(operation, before.revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  assert.deepEqual(calls, ["edit"]);
+});
+
+test("uncertain native edit failure blocks another mutation", async () => {
+  const original = snapshot("Original");
+  const calls: string[] = [];
+  const provider = providerFor([original, original, original], calls, undefined, liveState(), undefined, {
+    renameSelectedClip: async () => { calls.push("edit"); throw new Error("native dispatch failed after possible mutation"); },
+  });
+  const before = await provider.readProject();
+  const operation = { type: "rename-clip" as const, clipId: "final-cut:occurrence:clip-1", name: "Renamed" };
+  await assert.rejects(provider.apply(operation, before.revision), /native dispatch failed after possible mutation/);
+  await assert.rejects(provider.apply(operation, before.revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  assert.deepEqual(calls, ["edit"]);
+});
+
+test("recovery checkpoint inspection reports the bound evidence and rejects corrupt records", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-checkpoint-inspection-"));
+  try {
+    const path = join(directory, "checkpoint.json");
+    const owner = new FileCanonicalRecoveryGuard(path);
+    const observer = new FileCanonicalRecoveryGuard(path);
+    assert.equal(await observer.inspect(), undefined);
+    const checkpoint = { projectId: "project-1", sequenceId: "sequence-1", baseRevision: "rev-1", beforeDigest: "a".repeat(64), operation: "undo", expectedRestoreDigest: "b".repeat(64) };
+    await owner.begin(checkpoint);
+    assert.deepEqual(await observer.inspect(), checkpoint);
+    const record = JSON.parse(await readFile(path, "utf8"));
+    for (const corrupt of [
+      { ...checkpoint, beforeDigest: "invalid" },
+      { ...checkpoint, expectedRestoreDigest: "invalid" },
+    ]) {
+      await writeFile(path, JSON.stringify({ ...record, checkpoint: corrupt }));
+      await assert.rejects(observer.inspect(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+      await assert.rejects(observer.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    }
+    await rm(path);
+    const target = join(directory, "other.json");
+    await writeFile(target, "{}");
+    await symlink(target, path);
+    await assert.rejects(observer.inspect(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await assert.rejects(observer.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("checkpoint evidence distinguishes replacement with identical target data", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-checkpoint-version-"));
+  try {
+    const path = join(directory, "pending.json");
+    const first = new FileCanonicalRecoveryGuard(path);
+    const second = new FileCanonicalRecoveryGuard(path);
+    const checkpoint = { projectId: "project-1", sequenceId: "sequence-1", baseRevision: "rev-1", beforeDigest: "a".repeat(64), operation: "rename-clip" };
+    await first.begin(checkpoint);
+    const initial = await first.inspectVersioned();
+    assert.deepEqual(initial?.checkpoint, checkpoint);
+    await first.complete();
+    await second.begin(checkpoint);
+    const replaced = await second.inspectVersioned();
+    assert.deepEqual(replaced?.checkpoint, checkpoint);
+    assert.notEqual(replaced?.checkpointId, initial?.checkpointId);
+    await second.complete();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("durable canonical recovery checkpoint blocks other instances until its owner completes", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-canonical-recovery-"));
+  try {
+    const path = join(directory, "recovery", "checkpoint.json");
+    const owner = new FileCanonicalRecoveryGuard(path);
+    const restarted = new FileCanonicalRecoveryGuard(path);
+    await owner.assertClear();
+    const checkpoint = { projectId: "project-1", sequenceId: "sequence-1", baseRevision: "rev-1", beforeDigest: "digest-1", operation: "rename-clip" };
+    await owner.begin(checkpoint);
+    assert.deepEqual(JSON.parse(await readFile(path, "utf8")).checkpoint, checkpoint);
+    await assert.rejects(restarted.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await assert.rejects(restarted.begin(checkpoint), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await assert.rejects(restarted.complete(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await owner.complete();
+    await restarted.assertClear();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("live revision drift during checkpoint acquisition prevents native mutation", async () => {
+  const original = snapshot("Original");
+  const active = liveState();
+  const calls: string[] = [];
+  const guard = {
+    assertClear: async () => {},
+    begin: async () => { assert.ok(active.revision); active.revision.id = "revision-after-checkpoint"; },
+    complete: async () => { calls.push("checkpoint-cleared"); },
+  };
+  const provider = providerFor([original, original], calls, undefined, active, undefined, {}, guard);
+  const before = await provider.readProject();
+  await assert.rejects(provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision), /FINAL_CUT_CANONICAL_TARGET_STALE/);
+  assert.deepEqual(calls, ["checkpoint-cleared"]);
+});
+
+test("target drift during Undo checkpoint acquisition prevents native Undo", async () => {
+  const original = snapshot("Original");
+  const renamed = snapshot("Renamed");
+  const active = liveState();
+  const calls: string[] = [];
+  let acquisitions = 0;
+  const guard = {
+    assertClear: async () => {},
+    begin: async () => { if (++acquisitions === 2) { assert.ok(active.sequence); active.sequence.id = "other-sequence"; } },
+    complete: async () => { calls.push("checkpoint-cleared"); },
+  };
+  const provider = providerFor([original, original, renamed, renamed], calls, undefined, active, undefined, {}, guard);
+  const before = await provider.readProject();
+  const revision = await provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision);
+  await assert.rejects(provider.restore(before, revision), /FINAL_CUT_CANONICAL_TARGET_STALE/);
+  assert.deepEqual(calls, ["edit", "checkpoint-cleared", "checkpoint-cleared"]);
+});
+
+test("Undo checkpoint retains the intended restoration digest", async () => {
+  const original = snapshot("Original");
+  const renamed = snapshot("Renamed");
+  const calls: string[] = [];
+  const checkpoints: Array<{ beforeDigest: string; operation: string; expectedRestoreDigest?: string }> = [];
+  const guard = {
+    assertClear: async () => {},
+    begin: async (checkpoint: { beforeDigest: string; operation: string; expectedRestoreDigest?: string }) => { checkpoints.push(checkpoint); },
+    complete: async () => {},
+  };
+  const provider = providerFor([original, original, renamed, renamed, original], calls, undefined, liveState(), undefined, {}, guard);
+  const before = await provider.readProject();
+  const revision = await provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision);
+  await provider.restore(before, revision);
+  assert.equal(checkpoints[1]?.operation, "undo");
+  assert.equal(checkpoints[1]?.beforeDigest, canonicalSnapshotDigest(renamed));
+  assert.equal(checkpoints[1]?.expectedRestoreDigest, canonicalSnapshotDigest(before));
+});
+
+test("verified canonical edit clears its checkpoint", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-success-"));
+  try {
+    const path = join(directory, "checkpoint.json");
+    const original = snapshot("Original");
+    const calls: string[] = [];
+    const provider = providerFor([original, original, snapshot("Renamed")], calls, undefined, liveState(), undefined, {}, new FileCanonicalRecoveryGuard(path));
+    const before = await provider.readProject();
+    await provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision);
+    assert.deepEqual(calls, ["edit"]);
+    await new FileCanonicalRecoveryGuard(path).assertClear();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("checkpoint creation failure prevents native mutation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-unavailable-"));
+  try {
+    const parent = join(directory, "not-a-directory");
+    await writeFile(parent, "file");
+    const original = snapshot("Original");
+    const calls: string[] = [];
+    const provider = providerFor([original, original], calls, undefined, liveState(), undefined, {}, new FileCanonicalRecoveryGuard(join(parent, "checkpoint.json")));
+    const before = await provider.readProject();
+    await assert.rejects(provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision));
+    assert.deepEqual(calls, []);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("verified recovery clears the durable checkpoint", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-verified-"));
+  try {
+    const path = join(directory, "checkpoint.json");
+    const original = snapshot("Original");
+    const calls: string[] = [];
+    const provider = providerFor([original, original, new Error("readback failed"), original], calls, undefined, liveState(), undefined, {}, new FileCanonicalRecoveryGuard(path));
+    const before = await provider.readProject();
+    await assert.rejects(provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision), /readback failed/);
+    assert.deepEqual(calls, ["edit", "undo"]);
+    await new FileCanonicalRecoveryGuard(path).assertClear();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("uncertain edit remains blocked after provider restart", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-restart-"));
+  try {
+    const path = join(directory, "checkpoint.json");
+    const original = snapshot("Original");
+    const calls: string[] = [];
+    const failed = providerFor([original, original], calls, undefined, liveState(), undefined, {
+      renameSelectedClip: async () => { calls.push("edit"); throw new Error("uncertain dispatch"); },
+    }, new FileCanonicalRecoveryGuard(path));
+    const before = await failed.readProject();
+    const operation = { type: "rename-clip" as const, clipId: "final-cut:occurrence:clip-1", name: "Renamed" };
+    await assert.rejects(failed.apply(operation, before.revision), /uncertain dispatch/);
+    const restarted = providerFor([original, original, original], calls, undefined, liveState(), undefined, {}, new FileCanonicalRecoveryGuard(path));
+    const rebound = await restarted.readProject();
+    await assert.rejects(restarted.apply(operation, rebound.revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    assert.deepEqual(calls, ["edit"]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("automatic recovery does not Undo a different live target", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-target-"));
+  try {
+    const path = join(directory, "checkpoint.json");
+    const original = snapshot("Original");
+    const active = liveState();
+    const calls: string[] = [];
+    const provider = providerFor([original, original], calls, undefined, active, undefined, {
+      renameSelectedClip: async () => {
+        calls.push("edit");
+        assert.ok(active.sequence);
+        active.sequence.id = "different-sequence";
+        return { operationId: "native-edit", undoAvailable: true };
+      },
+    }, new FileCanonicalRecoveryGuard(path));
+    const before = await provider.readProject();
+    await assert.rejects(provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision), /FINAL_CUT_CANONICAL_ROLLBACK_FAILED/);
+    assert.deepEqual(calls, ["edit"]);
+    await assert.rejects(new FileCanonicalRecoveryGuard(path).assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("unverified explicit Undo blocks subsequent canonical edits", async () => {
+  const original = snapshot("Original");
+  const renamed = snapshot("Renamed");
+  const calls: string[] = [];
+  const provider = providerFor([original, original, renamed, renamed, renamed, renamed], calls, undefined, liveState(), undefined, {
+    undo: async () => { calls.push("undo"); return { undone: false, verification: { verified: false } }; },
+  });
+  const before = await provider.readProject();
+  const operation = { type: "rename-clip" as const, clipId: "final-cut:occurrence:clip-1", name: "Renamed" };
+  const revision = await provider.apply(operation, before.revision);
+  await assert.rejects(provider.restore(before, revision), /FINAL_CUT_CANONICAL_UNDO_FAILED:.*FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  await assert.rejects(provider.apply(operation, revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  assert.deepEqual(calls, ["edit", "undo"]);
+});
+
+test("rename rejects collateral changes to the same clip and restores the baseline", async () => {
+  const original = snapshot("Original");
+  const collateral = snapshot("Renamed");
+  collateral.timeline.clips[0] = { ...collateral.timeline.clips[0]!, gainDb: 3 };
+  const calls: string[] = [];
+  const provider = providerFor([original, original, collateral, original, original], calls);
+  const before = await provider.readProject();
+  await assert.rejects(provider.apply({ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "Renamed" }, before.revision), /FINAL_CUT_CANONICAL_READBACK_FAILED/);
+  assert.deepEqual(calls, ["edit", "undo"]);
+  assert.equal(canonicalSnapshotDigest(await provider.readProject()), canonicalSnapshotDigest(before));
+});
+
 test("canonical native provider rejects collateral changes in rename readback", async () => {
   const calls: string[] = [];
   const after = snapshot("Renamed");
@@ -901,9 +1301,9 @@ test("canonical native provider rejects collateral changes in rename readback", 
 
 test("canonical native provider rejects ambiguous occurrence bindings before edit", async () => {
   const calls: string[] = [];
-  const resolveTarget: CanonicalNativeTargetResolver = async () => {
+  const resolveTarget: CanonicalNativeTargetResolver = Object.assign(async () => {
     throw new Error("AMBIGUOUS_PROJECT_TARGET: occurrence binding is not unique");
-  };
+  }, { sourceBindingAvailable: true });
   const provider = providerFor([snapshot("Original"), snapshot("Original")], calls, resolveTarget);
   const before = await provider.readProject();
 
@@ -1255,6 +1655,7 @@ test("canonical target resolver requires one exact native occurrence", async () 
       handle: "media-handle",
       name: "clip.mov",
       sourceIdentity: "browser-source-1",
+      source: "/tmp/clip.mov",
     }],
     locateOccurrence: async () => ({
       status: "unique" as const,
@@ -1263,6 +1664,7 @@ test("canonical target resolver requires one exact native occurrence", async () 
         mediaHandle: "media-handle",
         name: "Original",
         identity: "native-occurrence-1",
+        sourceIdentity: "browser-source-1",
         start: "0/24",
         duration: "96/24",
         sequenceId: "final-cut:sequence:sequence-1",
@@ -1284,7 +1686,7 @@ test("canonical target resolver searches literal source basenames outside the pu
     },
     searchMediaForCanonicalTarget: async (query: string) => {
       seenQueries.push(query);
-      return [{ handle: "media-handle", name: query, sourceIdentity: "browser-source-1" }];
+      return [{ handle: "media-handle", name: query, sourceIdentity: "browser-source-1", source: "/tmp/interview?.mov" }];
     },
     locateOccurrence: async () => ({
       status: "unique" as const,
@@ -1293,6 +1695,7 @@ test("canonical target resolver searches literal source basenames outside the pu
         mediaHandle: "media-handle",
         name: "Original",
         identity: "native-occurrence-1",
+        sourceIdentity: "browser-source-1",
         start: "0/24",
         duration: "96/24",
         sequenceId: "final-cut:sequence:sequence-1",
@@ -1312,6 +1715,7 @@ test("canonical target resolver selects the coordinate-matching occurrence from 
       handle: "media-handle",
       name: "clip.mov",
       sourceIdentity: "browser-source-1",
+      source: "/tmp/clip.mov",
     }],
     locateOccurrence: async () => ({
       status: "ambiguous" as const,
@@ -1328,6 +1732,8 @@ test("canonical target resolver selects the coordinate-matching occurrence from 
           handle: "occurrence-target",
           mediaHandle: "media-handle",
           name: "Original",
+          identity: "native-target",
+          sourceIdentity: "browser-source-1",
           start: "96/24",
           duration: "96/24",
           sequenceId: "final-cut:sequence:sequence-1",
@@ -1336,7 +1742,7 @@ test("canonical target resolver selects the coordinate-matching occurrence from 
     }),
     selectOccurrence: async (handle: string) => {
       selected.push(handle);
-      return {} as never;
+      return { target: { kind: "selected-clip", identity: "native-target" } } as never;
     },
   };
   const targetSnapshot = structuredClone(snapshot("Original"));
@@ -1354,8 +1760,8 @@ test("canonical target resolver selects the coordinate-matching occurrence from 
 test("canonical target resolver rejects ambiguous native media", async () => {
   const native = {
     searchMedia: async () => [
-      { handle: "media-1", name: "clip.mov", sourceIdentity: "browser-source-1" },
-      { handle: "media-2", name: "clip.mov", sourceIdentity: "browser-source-2" },
+      { handle: "media-1", name: "clip.mov", sourceIdentity: "browser-source-1", source: "/tmp/clip.mov" },
+      { handle: "media-2", name: "clip.mov", sourceIdentity: "browser-source-2", source: "/tmp/clip.mov" },
     ],
     locateOccurrence: async () => ({ status: "none" as const, occurrences: [] }),
   };
@@ -1373,6 +1779,7 @@ test("canonical target resolver rejects native coordinate drift", async () => {
       handle: "media-handle",
       name: "clip.mov",
       sourceIdentity: "browser-source-1",
+      source: "/tmp/clip.mov",
     }],
     locateOccurrence: async () => ({
       status: "unique" as const,
@@ -1399,6 +1806,7 @@ test("canonical target resolver rejects coordinate-only native occurrences", asy
       handle: "media-handle",
       name: "clip.mov",
       sourceIdentity: "browser-source-1",
+      source: "/tmp/clip.mov",
     }],
     locateOccurrence: async () => ({
       status: "unique" as const,
@@ -1458,9 +1866,9 @@ test("canonical native edit rejects live revision drift during target resolution
       undo: async () => ({ undone: true, verification: { verified: true } }),
     },
     readSnapshot: async () => snapshot("Original"),
-    resolveTarget: async () => {
+    resolveTarget: Object.assign(async () => {
       current = { ...current, revision: { id: "externally-changed", sequence: 2, timestamp: new Date(2).toISOString() } };
-    },
+    }, { sourceBindingAvailable: true }),
   });
   const before = await provider.readProject();
   await assert.rejects(provider.apply({ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "New", baseRevision: before.revision }, before.revision), /STALE|TARGET_MISMATCH/);
@@ -1481,7 +1889,7 @@ test("canonical native edit allows refreshed observation timestamps for the same
       undo: async () => ({ undone: true, verification: { verified: true } }),
     },
     readSnapshot: async () => snapshot(edited ? "New" : "Original"),
-    resolveTarget: async () => {},
+    resolveTarget: Object.assign(async () => {}, { sourceBindingAvailable: true }),
   });
   const before = await provider.readProject();
   await provider.apply({ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "New", baseRevision: before.revision }, before.revision);
@@ -1929,5 +2337,668 @@ test("MCP canonical session resync requires headed target confirmation", async (
     await client.close();
     await server.close();
     await rm(sessionDirectory, { recursive: true, force: true });
+  }
+});
+
+test("native reservations share the canonical checkpoint and survive lost owners", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-native-reservation-"));
+  try {
+    const path = join(directory, "pending.json");
+    const direct = new FileCanonicalRecoveryGuard(path);
+    const other = new FileCanonicalRecoveryGuard(path);
+    const checkpoint = { projectId: "project-1", sequenceId: "sequence-1", baseRevision: "rev-1", beforeDigest: "a".repeat(64), operation: "rename-clip" };
+    const reservation = await direct.beginNative("editor.native.edit");
+    const evidence = await other.inspectNativeReservation();
+    assert.equal(evidence?.operation, "editor.native.edit");
+    assert.match(evidence!.reservationId, /^[a-f0-9]{64}$/);
+    assert.equal(reservation.reservationId, evidence?.reservationId);
+    await assert.rejects(other.begin(checkpoint), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await assert.rejects(other.beginNative("editor.native.undo"), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await assert.rejects(other.complete(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await reservation.release();
+    await other.begin(checkpoint);
+    await assert.rejects(direct.beginNative("editor.native.edit"), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await other.complete();
+    const displaced = await direct.beginNative("editor.native.edit");
+    await rm(path);
+    const replacement = await other.beginNative("editor.native.edit");
+    assert.notEqual(displaced.reservationId, replacement.reservationId);
+    await assert.rejects(displaced.release(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    assert.equal((await direct.inspectNativeReservation())?.reservationId, replacement.reservationId);
+    await replacement.release();
+    await direct.beginNative("editor.native.edit");
+    const restarted = new FileCanonicalRecoveryGuard(path);
+    assert.equal((await restarted.inspectNativeReservation())?.operation, "editor.native.edit");
+    await assert.rejects(restarted.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    const record = JSON.parse(await readFile(path, "utf8"));
+    await writeFile(path, JSON.stringify({ ...record, operation: "../unsafe" }));
+    await assert.rejects(restarted.inspectNativeReservation(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("canonical resolver rejects mismatched native identity before selecting an occurrence", async () => {
+  for (const mismatch of ["sequence", "source", "missing-sequence"] as const) {
+    const selected: string[] = [];
+    const native = {
+      searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1", source: "/tmp/clip.mov" }],
+      locateOccurrence: async () => ({ status: "unique" as const, occurrences: [{
+        handle: "occurrence-handle", mediaHandle: "media-handle", name: "Original", identity: "native-occurrence-1",
+        start: "0/24", duration: "96/24",
+        ...(mismatch !== "missing-sequence" ? { sequenceId: mismatch === "sequence" ? "other-sequence" : "final-cut:sequence:sequence-1" } : {}),
+        sourceIdentity: mismatch === "source" ? "other-source" : "browser-source-1",
+      }] }),
+      selectOccurrence: async (handle: string) => { selected.push(handle); return {} as never; },
+    };
+    const project = snapshot("Original");
+    await assert.rejects(createFinalCutNativeTargetResolver(native)(project.timeline.clips[0]!, project), /TARGET_MISMATCH/, mismatch);
+    assert.deepEqual(selected, [], mismatch);
+  }
+});
+
+test("canonical target preparation is protected by the recovery checkpoint", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-target-preparation-race-"));
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  const other = new FileCanonicalRecoveryGuard(path);
+  let entered!: () => void;
+  let finish!: () => void;
+  const started = new Promise<void>((resolve) => { entered = resolve; });
+  const held = new Promise<void>((resolve) => { finish = resolve; });
+  const provider = providerFor([snapshot("Original"), snapshot("Original"), snapshot("Renamed")], [], Object.assign(async () => {
+    entered();
+    await held;
+  }, { sourceBindingAvailable: true }), liveState(), undefined, {}, guard);
+  const before = await provider.readProject();
+  const edit = provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision);
+  try {
+    await started;
+    try {
+      await assert.rejects(other.beginNative("native.selectoccurrence"), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    } finally { finish(); }
+    await edit;
+    await guard.assertClear();
+  } finally {
+    finish();
+    await edit.catch(() => undefined);
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("uncertain target preparation keeps its checkpoint without dispatching an edit", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-target-preparation-failure-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const calls: string[] = [];
+  const provider = providerFor([snapshot("Original"), snapshot("Original")], calls, Object.assign(async () => {
+    throw new Error("native selection outcome unknown");
+  }, { sourceBindingAvailable: true }), liveState(), undefined, {}, guard);
+  try {
+    const before = await provider.readProject();
+    await assert.rejects(provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    assert.deepEqual(calls, []);
+    assert.equal((await guard.inspectVersioned())?.checkpoint.operation, "rename-clip");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("target validation that fails before native dispatch releases its checkpoint", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-target-preflight-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const calls: string[] = [];
+  const resolveTarget = Object.assign(async () => { throw new Error("TARGET_MISMATCH: missing media binding"); }, {
+    sourceBindingAvailable: true,
+    trackNativeDispatch: async <T>(operation: () => Promise<T>) => operation(),
+  });
+  const provider = providerFor([snapshot("Original"), snapshot("Original")], calls, resolveTarget, liveState(), undefined, {}, guard);
+  try {
+    const before = await provider.readProject();
+    await assert.rejects(provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision), /TARGET_MISMATCH: missing media binding/);
+    assert.deepEqual(calls, []);
+    await guard.assertClear();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("target preparation revision drift remains blocked before canonical dispatch", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-target-preparation-drift-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const calls: string[] = [];
+  const active = liveState();
+  const provider = providerFor([snapshot("Original"), snapshot("Original")], calls, Object.assign(async () => {
+    active.revision.id = "changed-during-target-preparation";
+  }, { sourceBindingAvailable: true }), active, undefined, {}, guard);
+  try {
+    const before = await provider.readProject();
+    await assert.rejects(provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED.*TARGET_STALE/);
+    assert.deepEqual(calls, []);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("canonical resolver rejects selection that changes a known native occurrence identity", async () => {
+  const occurrence = {
+    handle: "occurrence-handle", mediaHandle: "media-handle", name: "Original", nativeIdentity: "expected-native-identity",
+    start: "0/24", duration: "96/24", sequenceId: "final-cut:sequence:sequence-1", sourceIdentity: "browser-source-1",
+  };
+  const native = {
+    searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1", source: "/tmp/clip.mov" }],
+    locateOccurrence: async () => ({ status: "unique" as const, occurrences: [occurrence] }),
+    selectOccurrence: async () => {
+      occurrence.nativeIdentity = "different-native-identity";
+      return { target: { kind: "selected-clip", identity: "different-native-identity" } } as never;
+    },
+  };
+  const project = snapshot("Original");
+  await assert.rejects(createFinalCutNativeTargetResolver(native)(project.timeline.clips[0]!, project), /TARGET_MISMATCH.*selected.*identity/i);
+});
+
+test("canonical resolver uses nonselecting discovery before identity validation", async () => {
+  const calls: string[] = [];
+  const native = {
+    searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1", source: "/tmp/clip.mov" }],
+    locateOccurrence: async () => { calls.push("ordinary-locate"); throw new Error("ordinary locate may select"); },
+    locateOccurrenceForCanonicalTarget: async () => {
+      calls.push("canonical-locate");
+      return { status: "unique" as const, occurrences: [{ handle: "occurrence-handle", mediaHandle: "media-handle", name: "Original", identity: "native-1", start: "0/24", duration: "96/24", sequenceId: "other-sequence", sourceIdentity: "browser-source-1" }] };
+    },
+    selectOccurrence: async () => { calls.push("select"); return {} as never; },
+  };
+  const project = snapshot("Original");
+  await assert.rejects(createFinalCutNativeTargetResolver(native)(project.timeline.clips[0]!, project), /TARGET_MISMATCH/);
+  assert.deepEqual(calls, ["canonical-locate"]);
+});
+
+test("canonical resolver compares the discovered occurrence identity after selection", async () => {
+  const native = {
+    searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1", source: "/tmp/clip.mov" }],
+    locateOccurrence: async () => ({ status: "unique" as const, occurrences: [{ handle: "occurrence-handle", mediaHandle: "media-handle", name: "Original", identity: "expected-native-id", sourceIdentity: "browser-source-1", start: "0/24", duration: "96/24", sequenceId: "final-cut:sequence:sequence-1" }] }),
+    selectOccurrence: async () => ({ target: { kind: "selected-clip", identity: "different-native-id" } }) as never,
+  };
+  const project = snapshot("Original");
+  await assert.rejects(createFinalCutNativeTargetResolver(native)(project.timeline.clips[0]!, project), /TARGET_MISMATCH.*selected.*identity/i);
+});
+
+test("canonical resolver rejects identity-free occurrences before selecting", async () => {
+  let selected = false;
+  const native = {
+    searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1", source: "/tmp/clip.mov" }],
+    locateOccurrence: async () => ({ status: "unique" as const, occurrences: [{ handle: "occurrence-handle", mediaHandle: "media-handle", name: "Original", start: "0/24", duration: "96/24", sequenceId: "final-cut:sequence:sequence-1" }] }),
+    selectOccurrence: async () => { selected = true; return {} as never; },
+  };
+  const project = snapshot("Original");
+  await assert.rejects(createFinalCutNativeTargetResolver(native)(project.timeline.clips[0]!, project), /TARGET_MISMATCH.*stable identity/);
+  assert.equal(selected, false);
+});
+
+test("canonical resolver rejects a timeline occurrence without observed source identity", async () => {
+  let selected = false;
+  const native = {
+    searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1", source: "/tmp/clip.mov" }],
+    locateOccurrence: async () => ({ status: "unique" as const, occurrences: [{ handle: "occurrence-handle", mediaHandle: "media-handle", name: "Original", identity: "native-1", start: "0/24", duration: "96/24", sequenceId: "final-cut:sequence:sequence-1" }] }),
+    selectOccurrence: async () => { selected = true; return { target: { kind: "selected-clip", identity: "native-1" } } as never; },
+  };
+  const project = snapshot("Original");
+  await assert.rejects(createFinalCutNativeTargetResolver(native)(project.timeline.clips[0]!, project), /TARGET_MISMATCH.*source identity/i);
+  assert.equal(selected, false);
+});
+
+test("canonical capabilities fail closed when source binding is unavailable", async () => {
+  const calls: string[] = [];
+  const resolveTarget = Object.assign(async () => { calls.push("resolve"); }, { sourceBindingAvailable: false });
+  const provider = providerFor([snapshot("Original"), snapshot("Original"), snapshot("Original"), snapshot("Original")], calls, resolveTarget, liveState(), {
+    listProjects: async () => ({ projects: [{ id: "final-cut:project:project-1", name: "Canonical E2E", sequences: [{ id: "final-cut:sequence:sequence-1", name: "Canonical E2E" }] }], activeProjectId: "final-cut:project:project-1", activeSequenceId: "final-cut:sequence:sequence-1" }),
+  }, { addMarkerAtTime: async () => ({ operationId: "marker-1", undoAvailable: true }) });
+  const capabilities = await provider.getCapabilities({ probeCanonicalSnapshot: true });
+  assert.notEqual(capabilities.editor.semanticOperations?.["rename-clip"], true);
+  assert.notEqual(capabilities.editor.semanticOperations?.["trim-clip"], true);
+  assert.notEqual(capabilities.editor.semanticOperations?.["set-gain"], true);
+  assert.notEqual(capabilities.editor.semanticOperations?.["ripple-delete"], true);
+  const before = await provider.readProject();
+  await assert.rejects(provider.previewTransaction([{ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "Renamed" }], before.revision), /CAPABILITY_UNAVAILABLE.*source/i);
+  await assert.rejects(provider.apply({ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "Renamed" }, before.revision), /CAPABILITY_UNAVAILABLE.*source/i);
+  assert.deepEqual(calls, []);
+});
+
+test("source capability limits only source-bound operations when canonical readiness is otherwise available", async () => {
+  const resolveTarget = Object.assign(async () => {}, { sourceBindingAvailable: false });
+  const provider = new FinalCutCanonicalNativeProvider({
+    live: {
+      getIdentity: async () => identity,
+      readLiveState: async () => liveState(),
+      liveChangesSince: async () => [],
+      getCapabilities: async () => ({ editor: { projectSelection: true, projectSelectionMode: "headed-only" } }) as never,
+      selectProject: async () => ({} as never),
+    },
+    native: {
+      renameSelectedClip: async () => ({ operationId: "rename", undoAvailable: true }),
+      trimSelectedClipToRange: async () => ({ operationId: "trim", undoAvailable: true }),
+      addMarkerAtTime: async () => ({ operationId: "marker", undoAvailable: true }),
+      rippleDeleteRange: async () => ({ operationId: "ripple", undoAvailable: true }),
+      setSelectedClipGain: async () => ({ operationId: "gain", undoAvailable: true }),
+      undo: async () => ({ undone: true, verification: { verified: true } }),
+    },
+    readSnapshot: async () => snapshot("Original"),
+    resolveTarget,
+    backgroundCatalog: { listProjects: async () => ({ projects: [{ id: "final-cut:project:project-1", name: "Canonical E2E", sequences: [{ id: "final-cut:sequence:sequence-1", name: "Canonical E2E" }] }], activeProjectId: "final-cut:project:project-1", activeSequenceId: "final-cut:sequence:sequence-1" }) },
+  });
+  const capabilities = await provider.getCapabilities({ probeCanonicalSnapshot: true });
+  assert.equal(capabilities.editor.timelineSnapshotRead, true);
+  assert.equal(capabilities.editor.semanticOperations?.["add-marker"], true);
+  for (const operation of ["rename-clip", "trim-clip", "ripple-delete", "set-gain"] as const) {
+    assert.equal(capabilities.editor.semanticOperations?.[operation], false, operation);
+  }
+  delete (resolveTarget as CanonicalNativeTargetResolver).sourceBindingAvailable;
+  const undeclared = await provider.getCapabilities({ probeCanonicalSnapshot: true });
+  assert.equal(undeclared.editor.semanticOperations?.["rename-clip"], false);
+  Object.defineProperty(resolveTarget, "sourceBindingAvailable", { get: () => { throw new Error("provider unavailable"); } });
+  const unavailable = await provider.getCapabilities({ probeCanonicalSnapshot: true });
+  assert.equal(unavailable.editor.semanticOperations?.["rename-clip"], false);
+  assert.equal(unavailable.editor.semanticOperations?.["add-marker"], true);
+});
+
+test("production canonical resolver reports source binding unavailable", () => {
+  const resolver = createFinalCutNativeTargetResolver({
+    searchMedia: async () => [],
+    locateOccurrence: async () => ({ status: "none", occurrences: [] }),
+  });
+  assert.equal(resolver.sourceBindingAvailable, false);
+});
+
+test("canonical source binding is enabled only for an explicitly capable nonselecting provider", async () => {
+  const occurrence = { handle: "occurrence-handle", mediaHandle: "media-handle", name: "Original", identity: "native-1", sourceIdentity: "browser-source-1", start: "0/24", duration: "96/24", sequenceId: "final-cut:sequence:sequence-1" };
+  const locate = async () => ({ status: "unique" as const, occurrences: [occurrence] });
+  let sourceAvailable = true;
+  const native = {
+    capabilities: () => ({ timelineOccurrenceSourceBinding: sourceAvailable }) as never,
+    searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1", source: "/tmp/clip.mov" }],
+    locateOccurrence: locate,
+    locateOccurrenceForCanonicalTarget: locate,
+    selectOccurrence: async () => ({ target: { kind: "selected-clip", identity: "native-1" } }) as never,
+  };
+  const project = snapshot("Original");
+  const resolver = createFinalCutNativeTargetResolver(native);
+  assert.equal(resolver.sourceBindingAvailable, true);
+  await resolver(project.timeline.clips[0]!, project);
+  sourceAvailable = false;
+  assert.equal(resolver.sourceBindingAvailable, false);
+  sourceAvailable = true;
+  const { locateOccurrenceForCanonicalTarget: _removed, ...withoutDedicatedLocator } = native;
+  assert.equal(createFinalCutNativeTargetResolver(withoutDedicatedLocator).sourceBindingAvailable, false);
+  assert.equal(createFinalCutNativeTargetResolver({ ...native, capabilities: () => ({ timelineOccurrenceSourceBinding: false }) as never }).sourceBindingAvailable, false);
+  assert.equal(createFinalCutNativeTargetResolver({ ...native, capabilities: () => { throw new Error("provider unavailable"); } }).sourceBindingAvailable, false);
+});
+
+test("loss of source binding during preparation prevents canonical dispatch", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-source-capability-drift-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const calls: string[] = [];
+  let sourceAvailable = true;
+  const resolveTarget = Object.assign(async () => { sourceAvailable = false; }, {});
+  Object.defineProperty(resolveTarget, "sourceBindingAvailable", { get: () => sourceAvailable });
+  const provider = providerFor([snapshot("Original"), snapshot("Original"), snapshot("Renamed")], calls, resolveTarget, liveState(), undefined, {}, guard);
+  try {
+    const before = await provider.readProject();
+    await assert.rejects(provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED.*source/i);
+    assert.deepEqual(calls, []);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("independently bound source evidence permits a canonical edit in a deterministic provider", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-source-capable-provider-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const calls: string[] = [];
+  const occurrence = { handle: "occurrence-handle", mediaHandle: "media-handle", name: "Original", identity: "native-1", sourceIdentity: "browser-source-1", start: "0/24", duration: "96/24", sequenceId: "final-cut:sequence:sequence-1" };
+  const native = {
+    capabilities: () => ({ timelineOccurrenceSourceBinding: true }) as never,
+    searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1", source: "/tmp/clip.mov" }],
+    locateOccurrence: async () => ({ status: "unique" as const, occurrences: [occurrence] }),
+    locateOccurrenceForCanonicalTarget: async () => ({ status: "unique" as const, occurrences: [occurrence] }),
+    selectOccurrence: async () => ({ target: { kind: "selected-clip", identity: "native-1" } }) as never,
+  };
+  const resolver = createFinalCutNativeTargetResolver(native);
+  const provider = providerFor([snapshot("Original"), snapshot("Original"), snapshot("Renamed")], calls, resolver, liveState(), undefined, {}, guard);
+  try {
+    const before = await provider.readProject();
+    await provider.apply({ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "Renamed" }, before.revision);
+    assert.deepEqual(calls, ["edit"]);
+    await guard.assertClear();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("source-bound edits reject resolvers without an explicit capability", async () => {
+  for (const capability of ["missing", "throws"] as const) {
+    const calls: string[] = [];
+    const resolver = async () => { calls.push("resolve"); };
+    if (capability === "throws") Object.defineProperty(resolver, "sourceBindingAvailable", { get: () => { throw new Error("provider unavailable"); } });
+    const provider = providerFor([snapshot("Original"), snapshot("Original")], calls, resolver);
+    const before = await provider.readProject();
+    await assert.rejects(provider.apply({ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "Renamed" }, before.revision), /CAPABILITY_UNAVAILABLE.*source/i, capability);
+    assert.deepEqual(calls, [], capability);
+  }
+});
+
+test("canonical resolver binds the observed Browser source to the snapshot source", async () => {
+  for (const source of [undefined, "/other/clip.mov", "/tmp/../tmp/clip.mov", "file:///tmp/%2e%2e/tmp/clip.mov", "file:///tmp/clip.mov?variant=1", "clip.mov", "file://remote/tmp/clip.mov", "file:///tmp/clip.mov"] as const) {
+    let locateCalls = 0;
+    const native = {
+      searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1", ...(source ? { source } : {}) }],
+      locateOccurrence: async () => {
+        locateCalls += 1;
+        return { status: "unique" as const, occurrences: [{ handle: "occurrence-handle", mediaHandle: "media-handle", name: "Original", identity: "native-1", sourceIdentity: "browser-source-1", start: "0/24", duration: "96/24", sequenceId: "final-cut:sequence:sequence-1" }] };
+      },
+      selectOccurrence: async () => ({ target: { kind: "selected-clip", identity: "native-1" } }) as never,
+    };
+    const project = snapshot("Original");
+    const resolve = () => createFinalCutNativeTargetResolver(native)(project.timeline.clips[0]!, project);
+    if (source === "file:///tmp/clip.mov") {
+      await resolve();
+      assert.equal(locateCalls, 1);
+    } else {
+      await assert.rejects(resolve(), /TARGET_MISMATCH.*source/i);
+      assert.equal(locateCalls, 0);
+    }
+  }
+});
+
+test("a same-named different source cannot dispatch a canonical edit", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-canonical-source-mismatch-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const calls: string[] = [];
+  const native = {
+    capabilities: () => ({ timelineOccurrenceSourceBinding: true }) as never,
+    searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1", source: "/other/clip.mov" }],
+    locateOccurrence: async () => { throw new Error("must not locate a mismatched source"); },
+    locateOccurrenceForCanonicalTarget: async () => { throw new Error("must not locate a mismatched source"); },
+  };
+  const provider = providerFor([snapshot("Original"), snapshot("Original")], calls, createFinalCutNativeTargetResolver(native), liveState(), undefined, {}, guard);
+  try {
+    const before = await provider.readProject();
+    await assert.rejects(provider.apply({ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "Renamed" }, before.revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED.*source/i);
+    assert.deepEqual(calls, []);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("canonical resolver distinguishes equal names only with complete exact source observations", async () => {
+  for (const alternate of ["/other/clip.mov", undefined, "/tmp/clip.mov"] as const) {
+    const locatedHandles: string[] = [];
+    const native = {
+      searchMedia: async () => [
+        { handle: "expected", name: "clip.mov", sourceIdentity: "source-1", source: "/tmp/clip.mov" },
+        { handle: "alternate", name: "clip.mov", sourceIdentity: "source-2", ...(alternate ? { source: alternate } : {}) },
+      ],
+      locateOccurrence: async (handle: string) => {
+        locatedHandles.push(handle);
+        return { status: "unique" as const, occurrences: [{ handle: "occurrence", mediaHandle: handle, name: "Original", identity: "native-1", sourceIdentity: "source-1", start: "0/24", duration: "96/24", sequenceId: "final-cut:sequence:sequence-1" }] };
+      },
+      selectOccurrence: async () => ({ target: { kind: "selected-clip", identity: "native-1" } }) as never,
+    };
+    const project = snapshot("Original");
+    const resolve = () => createFinalCutNativeTargetResolver(native)(project.timeline.clips[0]!, project);
+    if (alternate === "/other/clip.mov") {
+      await resolve();
+      assert.deepEqual(locatedHandles, ["expected"]);
+    } else {
+      await assert.rejects(resolve(), /TARGET_MISMATCH|AMBIGUOUS_PROJECT_TARGET/);
+      assert.deepEqual(locatedHandles, []);
+    }
+  }
+});
+
+test("MCP canonical preview tokens fail closed after expiry, reuse, or external drift", async () => {
+  let now = 1_000;
+  let currentSnapshot = snapshot("Original");
+  const active = liveState();
+  const calls: string[] = [];
+  const provider = new FinalCutCanonicalNativeProvider({
+    live: {
+      ...liveWithoutBackgroundCatalog(),
+      readLiveState: async () => structuredClone(active),
+      getCapabilities: async () => ({ editor: { projectSelection: true, projectSelectionMode: "headed-only" } }) as never,
+      selectProject: async () => { throw new Error("selection is not needed in this test"); },
+    },
+    native: {
+      renameSelectedClip: async () => { calls.push("edit"); return { operationId: "edit", undoAvailable: true }; },
+      undo: async () => { calls.push("undo"); return { undone: true, verification: { verified: true } }; },
+    },
+    readSnapshot: async () => structuredClone(currentSnapshot),
+    resolveTarget: Object.assign(async () => {}, { sourceBindingAvailable: true }),
+    backgroundCatalog: { listProjects: async () => ({ projects: [{ id: active.project!.id, name: active.project!.name, sequences: [{ id: active.sequence!.id, name: active.sequence!.name }] }], activeProjectId: active.project!.id, activeSequenceId: active.sequence!.id }) },
+  });
+  const runtime = new Runtime(new FinalCutSessionAdapter({ live: provider }), { now: () => now, previewTtlMs: 10 });
+  const server = createMcpServer(runtime, { processMode: "headed" });
+  const client = new Client({ name: "canonical-preview-token-test", version: "1" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const before = await runtime.inspectProject();
+    const operation = { type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "Renamed" };
+    const preview = async () => {
+      const result = await client.callTool({ name: "editor.timeline.edit.preview", arguments: { projectId: before.projectId, sequenceId: before.timeline.id, baseRevision: before.revision, operations: [operation], path: "headed" } });
+      assert.equal(result.isError ?? false, false, textFrom(result));
+      return JSON.parse(textFrom(result)).previewToken as string;
+    };
+    const wrongTarget = await client.callTool({ name: "editor.timeline.edit.preview", arguments: { projectId: "wrong-project", sequenceId: before.timeline.id, baseRevision: before.revision, operations: [operation], path: "headed" } });
+    assert.equal(wrongTarget.isError, true);
+    assert.match(textFrom(wrongTarget), /TARGET_MISMATCH/);
+    const expired = await preview();
+    now += 11;
+    const expiredResult = await client.callTool({ name: "editor.timeline.edit.execute", arguments: { previewToken: expired, path: "headed" } });
+    assert.equal(expiredResult.isError, true);
+    assert.match(textFrom(expiredResult), /PREVIEW_TOKEN_EXPIRED/);
+    const reusedResult = await client.callTool({ name: "editor.timeline.edit.execute", arguments: { previewToken: expired, path: "headed" } });
+    assert.equal(reusedResult.isError, true);
+    assert.match(textFrom(reusedResult), /PREVIEW_TOKEN_INVALID/);
+    const stale = await preview();
+    currentSnapshot = snapshot("External change");
+    const staleResult = await client.callTool({ name: "editor.timeline.edit.execute", arguments: { previewToken: stale, path: "headed" } });
+    assert.equal(staleResult.isError, true);
+    assert.match(textFrom(staleResult), /STALE_CONTEXT/);
+    const staleReuse = await client.callTool({ name: "editor.timeline.edit.execute", arguments: { previewToken: stale, path: "headed" } });
+    assert.equal(staleReuse.isError, true);
+    assert.match(textFrom(staleReuse), /PREVIEW_TOKEN_INVALID/);
+    assert.equal((await runtime.inspectProject()).timeline.clips[0]?.name, "External change");
+    assert.deepEqual(calls, []);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("MCP canonical rename previews, verifies, and undoes against the bound target", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-canonical-mcp-loop-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "recovery.json"));
+  const active = liveState();
+  let current = snapshot("Original");
+  const calls: string[] = [];
+  const provider = new FinalCutCanonicalNativeProvider({
+    live: {
+      ...liveWithoutBackgroundCatalog(),
+      readLiveState: async () => structuredClone(active),
+      getCapabilities: async () => ({ editor: { projectSelection: true, projectSelectionMode: "headed-only" } }) as never,
+      selectProject: async () => { throw new Error("selection is not needed in this test"); },
+    },
+    native: {
+      renameSelectedClip: async (name) => { calls.push("edit"); current.timeline.clips[0]!.name = name; return { operationId: "native-1", undoAvailable: true }; },
+      undo: async () => { calls.push("undo"); current = snapshot("Original"); return { undone: true, verification: { verified: true } }; },
+    },
+    readSnapshot: async () => structuredClone(current),
+    resolveTarget: Object.assign(async () => {}, { sourceBindingAvailable: true }),
+    backgroundCatalog: { listProjects: async () => ({ projects: [{ id: active.project!.id, name: active.project!.name, sequences: [{ id: active.sequence!.id, name: active.sequence!.name }] }], activeProjectId: active.project!.id, activeSequenceId: active.sequence!.id }) },
+    recoveryGuard: guard,
+  });
+  const runtime = new Runtime(new FinalCutSessionAdapter({ live: provider }));
+  const server = createMcpServer(runtime, { processMode: "headed", canonicalRecovery: guard });
+  const client = new Client({ name: "canonical-mcp-loop", version: "1" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const call = async (name: string, arguments_: Record<string, unknown>) => {
+    const response = await client.callTool({ name, arguments: arguments_ });
+    assert.equal(response.isError ?? false, false, `${name}: ${textFrom(response)}`);
+    return JSON.parse(textFrom(response));
+  };
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const target = { projectId: active.project!.id, sequenceId: active.sequence!.id };
+    const inspect = () => call("project.inspect", { confirmHeadedRead: true, expectedTarget: target });
+    const before = await inspect();
+    const beforeDigest = canonicalSnapshotDigest(before);
+    const operation = { type: "rename-clip", clipId: before.timeline.clips[0].id, name: "Renamed" };
+    const preview = await call("editor.timeline.edit.preview", { ...target, baseRevision: before.revision, operations: [operation], path: "headed" });
+    const afterPreview = await inspect();
+    assert.equal(canonicalSnapshotDigest(afterPreview), beforeDigest);
+    assert.equal(afterPreview.revision.id, before.revision.id);
+    assert.deepEqual(calls, []);
+    const edited = await call("editor.timeline.edit.execute", { previewToken: preview.previewToken, path: "headed" });
+    assert.equal(edited.status, "VERIFIED");
+    assert.equal(edited.diff.modified.length, 1);
+    assert.equal(edited.diff.modified[0].itemId, operation.clipId);
+    assert.equal(edited.after.timeline.clips[0].name, "Renamed");
+    assert.ok(edited.after.revision.sequence > before.revision.sequence);
+    const restored = await call("edit.undo", { transactionId: edited.id });
+    assert.equal(canonicalSnapshotDigest(restored), beforeDigest);
+    assert.ok(restored.revision.sequence > edited.after.revision.sequence);
+    assert.deepEqual(calls, ["edit", "undo"]);
+    await guard.assertClear();
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("MCP canonical verification failure restores or retains recovery checkpoint", async () => {
+  for (const undoFails of [false, true]) {
+    const directory = await mkdtemp(join(tmpdir(), "framekit-canonical-mcp-rollback-"));
+    const guard = new FileCanonicalRecoveryGuard(join(directory, "recovery.json"));
+    const active = liveState();
+    let current = snapshot("Original");
+    const calls: string[] = [];
+    const provider = new FinalCutCanonicalNativeProvider({
+      live: {
+        ...liveWithoutBackgroundCatalog(),
+        readLiveState: async () => structuredClone(active),
+        getCapabilities: async () => ({ editor: { projectSelection: true, projectSelectionMode: "headed-only" } }) as never,
+        selectProject: async () => { throw new Error("selection is not needed in this test"); },
+      },
+      native: {
+        renameSelectedClip: async (name) => { calls.push("edit"); current.timeline.clips[0]!.name = name; return { operationId: "native-1", undoAvailable: true }; },
+        undo: async () => { calls.push("undo"); if (undoFails) throw new Error("simulated Undo failure"); current = snapshot("Original"); return { undone: true, verification: { verified: true } }; },
+      },
+      readSnapshot: async () => structuredClone(current),
+      resolveTarget: Object.assign(async () => {}, { sourceBindingAvailable: true }),
+      backgroundCatalog: { listProjects: async () => ({ projects: [{ id: active.project!.id, name: active.project!.name, sequences: [{ id: active.sequence!.id, name: active.sequence!.name }] }], activeProjectId: active.project!.id, activeSequenceId: active.sequence!.id }) },
+      recoveryGuard: guard,
+    });
+    const runtime = new Runtime(new FinalCutSessionAdapter({ live: provider }), {
+      verificationEngine: { verify: async () => ({ passed: false, checks: [{ name: "fixture-failure", passed: false, detail: "simulated verification failure" }] }) },
+    });
+    const server = createMcpServer(runtime, { processMode: "headed", canonicalRecovery: guard });
+    const client = new Client({ name: "canonical-mcp-rollback", version: "1" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    try {
+      await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+      const before = await runtime.inspectProject();
+      const operation = { type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "Renamed" };
+      const preview = await client.callTool({ name: "editor.timeline.edit.preview", arguments: { projectId: before.projectId, sequenceId: before.timeline.id, baseRevision: before.revision, operations: [operation], path: "headed" } });
+      assert.equal(preview.isError ?? false, false, textFrom(preview));
+      const executed = await client.callTool({ name: "editor.timeline.edit.execute", arguments: { previewToken: JSON.parse(textFrom(preview)).previewToken, path: "headed" } });
+      assert.deepEqual(calls, ["edit", "undo"]);
+      if (undoFails) {
+        assert.equal(executed.isError, true);
+        assert.match(textFrom(executed), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+        await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+        assert.equal(current.timeline.clips[0]!.name, "Renamed");
+      } else {
+        assert.equal(executed.isError ?? false, false, textFrom(executed));
+        assert.equal(JSON.parse(textFrom(executed)).status, "ROLLED_BACK");
+        assert.equal(canonicalSnapshotDigest(await runtime.inspectProject()), canonicalSnapshotDigest(before));
+        await guard.assertClear();
+      }
+    } finally {
+      await client.close();
+      await server.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+});
+
+test("MCP canonical operations verify exact semantics and restore after failures", async () => {
+  const trimBefore = snapshot("Original");
+  const trimAfter = structuredClone(trimBefore);
+  trimAfter.timeline.duration = 3;
+  trimAfter.timeline.durationTime = { value: "72", timescale: "24" };
+  trimAfter.timeline.clips[0] = { ...trimAfter.timeline.clips[0]!, duration: 3, durationTime: { value: "72", timescale: "24" } };
+  trimAfter.timeline.storyElements[0] = { ...trimAfter.timeline.storyElements[0]!, duration: 3, durationTime: { value: "72", timescale: "24" } };
+  const marker = markerSnapshots();
+  marker.after.timeline.markers[0]!.id = "native-marker-id";
+  const ripple = rippleSnapshots();
+  const gain = gainSnapshots();
+  const cases = [
+    { label: "trim-clip", before: trimBefore, after: trimAfter, operation: { type: "trim-clip", clipId: trimBefore.timeline.clips[0]!.id, duration: 3, durationTime: { value: "72", timescale: "24" } } },
+    { label: "add-marker", before: marker.before, after: marker.after, operation: { type: "add-marker", timelineId: marker.before.timeline.id, marker: { ...marker.after.timeline.markers[0], id: "requested-marker-id" } } },
+    { label: "ripple-delete", before: ripple.before, after: ripple.after, operation: { type: "ripple-delete", timelineId: ripple.before.timeline.id, range: { start: 2, end: 4, startTime: { value: "48", timescale: "24" }, durationTime: { value: "48", timescale: "24" } }, candidateId: "filler-1", reason: "remove verified filler" } },
+    { label: "set-gain", before: gain.before, after: gain.after, operation: { type: "set-gain", clipId: gain.before.timeline.clips[0]!.id, gainDb: 3 } },
+  ];
+  for (const scenario of cases) for (const verificationFails of [false, true]) {
+    const directory = await mkdtemp(join(tmpdir(), "framekit-canonical-mcp-matrix-"));
+    const guard = new FileCanonicalRecoveryGuard(join(directory, "recovery.json"));
+    const active = liveState();
+    let current = structuredClone(scenario.before);
+    const calls: string[] = [];
+    const mutate = async () => { calls.push(scenario.label); current = structuredClone(scenario.after); return { operationId: "native-1", undoAvailable: true }; };
+    const provider = new FinalCutCanonicalNativeProvider({
+      live: { ...liveWithoutBackgroundCatalog(), readLiveState: async () => structuredClone(active), getCapabilities: async () => ({ editor: { projectSelection: true, projectSelectionMode: "headed-only" } }) as never, selectProject: async () => { throw new Error("selection is not needed in this test"); } },
+      native: { renameSelectedClip: mutate, trimSelectedClipToRange: mutate, addMarkerAtTime: mutate, rippleDeleteRange: mutate, setSelectedClipGain: mutate, undo: async () => { calls.push("undo"); current = structuredClone(scenario.before); return { undone: true, verification: { verified: true } }; } },
+      readSnapshot: async () => structuredClone(current),
+      resolveTarget: Object.assign(async () => {}, { sourceBindingAvailable: true }),
+      backgroundCatalog: { listProjects: async () => ({ projects: [{ id: active.project!.id, name: active.project!.name, sequences: [{ id: active.sequence!.id, name: active.sequence!.name }] }], activeProjectId: active.project!.id, activeSequenceId: active.sequence!.id }) },
+      recoveryGuard: guard,
+    });
+    const runtime = new Runtime(new FinalCutSessionAdapter({ live: provider }), verificationFails ? { verificationEngine: { verify: async () => ({ passed: false, checks: [{ name: "fixture-failure", passed: false, detail: "simulated verification failure" }] }) } } : {});
+    const server = createMcpServer(runtime, { processMode: "headed", canonicalRecovery: guard });
+    const client = new Client({ name: "canonical-mcp-matrix", version: "1" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const call = async (name: string, arguments_: Record<string, unknown>) => {
+      const response = await client.callTool({ name, arguments: arguments_ });
+      assert.equal(response.isError ?? false, false, `${scenario.label} ${name}: ${textFrom(response)}`);
+      return JSON.parse(textFrom(response));
+    };
+    try {
+      await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+      const before = await runtime.inspectProject();
+      const capabilities = await call("editor.inspect", {});
+      assert.equal(capabilities.capabilities.editor.semanticOperations[scenario.label], true, scenario.label);
+      if (scenario.label === "add-marker") assert.equal(capabilities.capabilities.editor.markerIdentityMode, "editor-assigned");
+      const beforeDigest = canonicalSnapshotDigest(before);
+      const preview = await call("editor.timeline.edit.preview", { projectId: before.projectId, sequenceId: before.timeline.id, baseRevision: before.revision, operations: [scenario.operation], path: "headed" });
+      assert.equal(canonicalSnapshotDigest(await runtime.inspectProject()), beforeDigest, scenario.label);
+      assert.deepEqual(calls, []);
+      const transaction = await call("editor.timeline.edit.execute", { previewToken: preview.previewToken, path: "headed" });
+      assert.equal(transaction.status, verificationFails ? "ROLLED_BACK" : "VERIFIED", `${scenario.label}: ${JSON.stringify(transaction.verification)}`);
+      assert.equal(canonicalSnapshotDigest(transaction.attemptedAfter), canonicalSnapshotDigest(scenario.after), scenario.label);
+      if (!verificationFails) {
+        assert.ok(transaction.after.revision.sequence > before.revision.sequence, scenario.label);
+        await call("edit.undo", { transactionId: transaction.id });
+      }
+      assert.equal(canonicalSnapshotDigest(await runtime.inspectProject()), beforeDigest, scenario.label);
+      assert.deepEqual(calls, [scenario.label, "undo"]);
+      await guard.assertClear();
+    } finally {
+      await client.close();
+      await server.close();
+      await rm(directory, { recursive: true, force: true });
+    }
   }
 });

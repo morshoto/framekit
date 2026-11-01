@@ -21,3 +21,4 @@ export * from "./sqlite-wal-observation.js";
 export * from "./native-operation.js";
 export * from "./native-session.js";
 export * from "./timeline-ir-fcpxml.js";
+export * from "./canonical-recovery-guard.js";

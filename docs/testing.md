@@ -97,14 +97,42 @@ pnpm run test:final-cut-title-headed > artifacts/final-cut-headed/built-in-title
 pnpm run test:final-cut-masking-headed > artifacts/final-cut-headed/masking.json
 pnpm run test:final-cut-filler-headed > artifacts/final-cut-headed/filler-removal.json
 pnpm run test:final-cut-dialogue-headed > artifacts/final-cut-headed/dialogue-normalization.json
-pnpm run release-gate --output-dir artifacts/release-gate/headed-run --headed-evidence-dir artifacts/final-cut-headed
+pnpm run release-gate --output-dir artifacts/release-gate/headed-run --headed-evidence-dir artifacts/final-cut-headed --headed-candidate-commit "$FRAMEKIT_FINAL_CUT_E2E_CANDIDATE_COMMIT"
 ```
+
+The headed candidate must be a full lowercase commit SHA; every headed record
+must match it. Missing, mismatched, or incomplete headed evidence makes the
+command fail. This compares declared identities and does not authenticate files.
 
 Only an explicit successful summary containing `headed-native=verified` and
 `headed_native_status=verified` establishes the headed-native tier. The
 sanitized evidence binds the exact project, sequence, occurrence, build,
 before/after/restored revisions, and verification/Undo result. Keep private
 media, raw responses, and machine paths out of committed artifacts.
+For canonical mutation, set `FRAMEKIT_FINAL_CUT_E2E_PROJECT`,
+`FRAMEKIT_FINAL_CUT_E2E_PROJECT_ID`, `FRAMEKIT_FINAL_CUT_E2E_SEQUENCE_ID`,
+`FRAMEKIT_FINAL_CUT_E2E_REVISION_ID`, `FRAMEKIT_FINAL_CUT_E2E_CLIP_ID`,
+`FRAMEKIT_FINAL_CUT_E2E_CANDIDATE_COMMIT`, and
+`FRAMEKIT_FINAL_CUT_E2E_ALLOW_MUTATION=1` for the separately authorized run.
+The runner requires a clean checkout at the approved commit, a matching loaded
+extension, the approved active target and revision, and an unlocked, frontmost
+Final Cut session. The runner uses `FRAMEKIT_FINAL_CUT_EXISTING_SOCKET_ONLY=1`
+to stop if the existing Workflow Extension socket is unavailable; it does not
+install, activate, or retry the connection. A target-bound read establishes the approved revision before
+selection; a second read rejects changes during selection. It checks the exact rename preview and an unchanged target
+readback before executing the one-use preview token; it does not retry a failed
+Undo.
+Canonical mutation evidence independently checks the snapshot digests, target
+and source binding, advertised rename capability, and rename-only semantic
+projection. The runner hashes every local source before editing and after Undo;
+unreadable sources, final-component symlinks, or changed hashes block evidence.
+The comparison is point-in-time evidence and cannot exclude an intervening
+change that was subsequently reversed. The sanitized report includes hashes but
+not source paths. The release-gate reader checks the canonical rename summary's
+required workflow results, capabilities, source hashes, target diff, revisions,
+and restoration digest. Structural checks do not authenticate supplied files;
+review their provenance and candidate binding separately. The v0.1.6 canonical
+workflow covers rename and is not the complete #614 operation matrix.
 Dialogue normalization requires the runner's complete declared Skill
 capability set before it can record headed-native evidence.
 

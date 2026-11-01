@@ -583,3 +583,32 @@ test("restart timeout is reported as user action", async () => {
   assert.equal(status.state, "needs-user-action");
   assert.equal(status.lastError?.code, "FINAL_CUT_RESTART_TIMEOUT");
 });
+
+test("existing-socket-only connection never installs, activates, or retries after socket loss", async () => {
+  const calls: string[] = [];
+  let available = true;
+  const manager = new FinalCutConnectionManager({
+    headless: false,
+    existingSocketOnly: true,
+    installBeforeProbe: true,
+    probe: async () => {
+      calls.push("probe");
+      if (!available) throw new Error("socket disappeared");
+      return { identity: { name: "Final Cut Pro", version: "test", backend: "workflow-extension-ipc" }, capabilities };
+    },
+    detectFinalCut: async () => { calls.push("detect"); return true; },
+    launchFinalCut: async () => { calls.push("launch"); },
+    installExtension: async () => { calls.push("install"); },
+    registerExtension: async () => { calls.push("register"); },
+    launchExtension: async () => { calls.push("extension"); },
+    activateExtension: async () => { calls.push("activate"); },
+    restartFinalCut: async () => { calls.push("restart"); },
+    sleep: async () => { calls.push("sleep"); },
+  });
+  assert.equal((await manager.ensureConnected()).state, "ready");
+  available = false;
+  const stopped = await manager.ensureConnected();
+  assert.equal(stopped.state, "needs-user-action");
+  assert.equal(stopped.lastError?.code, "FINAL_CUT_EXISTING_SOCKET_UNAVAILABLE");
+  assert.deepEqual(calls, ["probe", "probe"]);
+});

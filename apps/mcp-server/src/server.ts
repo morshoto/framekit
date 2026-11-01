@@ -1,9 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { createHash } from "node:crypto";
 import { resolve as resolvePath } from "node:path";
 import { z } from "zod/v3";
 import {
   AgentVideoRuntime,
+  canonicalSnapshotDigest,
   createCapabilityPreflight,
   resolveEditingIntent,
   serializeCapabilityUnavailableError,
@@ -34,6 +36,7 @@ import {
   type FinalCutProjectPublishJobState,
   type FinalCutProjectPublishReadiness,
   type FinalCutProjectPublisher,
+  type FileCanonicalRecoveryGuard,
   type FinalCutSqliteInspectionProvider,
   type FinalCutVideoExporter,
   type NativeFinalCutEditor,
@@ -959,6 +962,7 @@ export interface McpServerOptions {
   disposableNative?: Pick<DisposableNativeEditWorkflow, "preview" | "execute" | "undo">;
   nativeOperationSession?: Pick<NativeOperationSession, "submit" | "status" | "retry" | "cancel">;
   projectPublisher?: FinalCutProjectPublisher;
+  canonicalRecovery?: Pick<FileCanonicalRecoveryGuard, "inspectVersioned" | "inspectNativeReservation" | "assertClear" | "beginNative">;
   videoExporter?: FinalCutVideoExporter;
   backgroundRenderer?: BackgroundRenderExportProvider;
   buildFingerprint?: FramekitBuildFingerprint;
@@ -1001,6 +1005,32 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
         : {}),
     };
   }
+  if (options.canonicalRecovery) {
+    const recovery = options.canonicalRecovery;
+    options = {
+      ...options,
+      ...(options.nativeEditor
+        ? { nativeEditor: withRecoveryCheckpointGuard(options.nativeEditor, recovery, ["capabilities", "inspect"], [
+            "edit", "undo", "executeBlade", "executeMask", "executeTitleAdd", "executeTransitionAdd",
+            "executeAppendMedia", "executeAppendSelectedMedia", "executeInsertMedia", "executeDeleteRange",
+            "executeTrimToDuration", "executePictureInPicture", "importMedia", "executeImportMediaDirectory",
+            "focusTimeline", "selectMedia", "selectOccurrence", "selectCanonicalOccurrence", "targetMedia",
+            "searchMedia", "searchMediaForCanonicalTarget", "searchTitles", "searchTransitions", "locateOccurrence", "locateOccurrenceForCanonicalTarget",
+            "previewBlade", "previewMask", "previewDeleteRange", "previewTrimToDuration", "previewAppendMedia",
+            "previewAppendSelectedMedia", "previewInsertMedia", "previewTitleAdd", "previewPictureInPicture", "previewTransitionAdd",
+          ]) }
+        : {}),
+      ...(options.disposableNative
+        ? { disposableNative: withRecoveryCheckpointGuard(options.disposableNative, recovery, [], ["preview", "execute", "undo"], "disposable") }
+        : {}),
+      ...(options.nativeOperationSession
+        ? { nativeOperationSession: withRecoveryCheckpointGuard(options.nativeOperationSession, recovery, ["status", "cancel"]) }
+        : {}),
+      ...(options.projectPublisher
+        ? { projectPublisher: withPublishRecoveryGuard(options.projectPublisher, recovery) }
+        : {}),
+    };
+  }
   const server = new McpServer(
     { name: "framekit", version: FRAMEKIT_VERSION },
     { instructions: options.headlessProjects ? HEADLESS_FIRST_MCP_INSTRUCTIONS : EDITOR_FIRST_MCP_INSTRUCTIONS },
@@ -1010,7 +1040,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     ? new EditingSessionRepository(options.sessionDirectory, options.sessionChangeSource)
     : undefined;
   const materializations = sessions && options.materializationDirectory
-    ? new SessionMaterializationJobs(options.materializationDirectory, sessions, options.sessionMaterializationPublisher)
+    ? new SessionMaterializationJobs(options.materializationDirectory, sessions, options.sessionMaterializationPublisher, options.canonicalRecovery)
     : undefined;
 
   const requireSessions = (): EditingSessionRepository => {
@@ -1146,7 +1176,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("session.materialize.execute", {
     description: "Confirm, stage, checkpoint, and request publication of a versioned FCPXML project.",
     inputSchema: { sessionId: z.string().min(1), target: sessionMaterializationTargetSchema, confirm: z.boolean() },
-  }, async ({ sessionId, target, confirm }) => sessionResult(async () => requireMaterializations().execute(sessionId, target, confirm)));
+  }, async ({ sessionId, target, confirm }) => sessionResult(async () => {
+    if (options.sessionMaterializationPublisher) await options.canonicalRecovery?.assertClear();
+    return requireMaterializations().execute(sessionId, target, confirm);
+  }));
 
   server.registerTool("session.materialize.status", {
     description: "Inspect a persisted materialization job after completion, blockage, or server restart.",
@@ -1156,7 +1189,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("session.materialize.retry", {
     description: "Resume a retryable persisted materialization job with its verified immutable artifact.",
     inputSchema: { jobId: z.string().min(1) },
-  }, async ({ jobId }) => sessionResult(async () => requireMaterializations().retry(jobId)));
+  }, async ({ jobId }) => sessionResult(async () => {
+    if (options.sessionMaterializationPublisher) await options.canonicalRecovery?.assertClear();
+    return requireMaterializations().retry(jobId);
+  }));
 
   server.registerTool("session.materialize.resync", {
     description: "Read the completed versioned handoff target and create a fresh editing-session baseline for continuation.",
@@ -1174,6 +1210,84 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ publishJobId }) => jsonResult(
     await inspectNativeHandoffReadiness(runtime, options, publishJobId),
   ));
+
+  server.registerTool("editor.native.recovery.inspect", {
+    description: "Inspect recovery checkpoint evidence in the configured state directory without contacting Final Cut or clearing the checkpoint.",
+    inputSchema: {},
+  }, async () => sessionResult(async () => {
+    if (!options.canonicalRecovery) throw new Error("CAPABILITY_UNAVAILABLE: canonical recovery checkpoint inspection is not configured");
+    let evidence: Awaited<ReturnType<FileCanonicalRecoveryGuard["inspectVersioned"]>>;
+    try {
+      evidence = await options.canonicalRecovery.inspectVersioned();
+    } catch (error) {
+      const nativeReservation = await options.canonicalRecovery.inspectNativeReservation();
+      if (!nativeReservation) throw error;
+      return { status: "recovery-required", scope: "configured-state-directory", nativeReservation };
+    }
+    return evidence
+      ? { status: "recovery-required", scope: "configured-state-directory", ...evidence }
+      : { status: "clear", scope: "configured-state-directory" };
+  }));
+
+  server.registerTool("editor.native.recovery.preview", {
+    description: "Compare a separately authorized headed canonical read with one target-bound checkpoint. Confirmation alone does not establish authorization. Never clears the checkpoint or proves native operation quiescence.",
+    inputSchema: {
+      confirmHeadedRead: z.boolean().optional(),
+      expectedTarget: contextTargetSchema.optional(),
+      expectedCheckpointId: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+    },
+  }, async ({ confirmHeadedRead, expectedTarget, expectedCheckpointId }) => {
+    const operation = "editor.native.recovery.preview";
+    if (!confirmHeadedRead || !expectedTarget || !expectedCheckpointId) {
+      return mcpReadErrorResult("HEADED_READ_CONFIRMATION_REQUIRED", "recovery preview requires confirmation, target IDs, and the inspected checkpoint ID", operation);
+    }
+    if (!options.canonicalRecovery) return mcpReadErrorResult("CAPABILITY_UNAVAILABLE", "canonical recovery checkpoint inspection is not configured", operation);
+    let evidence: Awaited<ReturnType<FileCanonicalRecoveryGuard["inspectVersioned"]>>;
+    try {
+      evidence = await options.canonicalRecovery.inspectVersioned();
+    } catch (error) {
+      return mcpReadErrorResult("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED", error instanceof Error ? error.message : String(error), operation);
+    }
+    if (!evidence || evidence.checkpointId !== expectedCheckpointId) return mcpReadErrorResult("CHECKPOINT_MISMATCH", "recovery checkpoint is missing or changed", operation);
+    if (evidence.checkpoint.projectId !== expectedTarget.projectId || evidence.checkpoint.sequenceId !== expectedTarget.sequenceId) {
+      return mcpReadErrorResult("TARGET_MISMATCH", "requested target differs from the checkpoint", operation);
+    }
+    const passive = await inspectMcpEditor(runtime, options);
+    if (passive.identity.backend !== "final-cut-native-canonical") {
+      return mcpReadErrorResult("CAPABILITY_UNAVAILABLE", "recovery preview requires the canonical native provider", operation);
+    }
+    try {
+      return await inspectCanonicalReadForMcp(runtime, options, operation, true, expectedTarget, async () => {
+        const beforeLive = await runtime.inspectLiveEditor();
+        if (!liveTargetMatches(beforeLive, expectedTarget) || !beforeLive.revision?.id || !Number.isSafeInteger(beforeLive.revision.sequence)) {
+          throw new Error("STALE_CONTEXT: live target or revision is unavailable before recovery read");
+        }
+        const snapshot = await runtime.inspectProject();
+        const afterLive = await runtime.inspectLiveEditor();
+        if (!liveTargetMatches(afterLive, expectedTarget) || afterLive.revision?.id !== beforeLive.revision.id
+          || afterLive.revision?.sequence !== beforeLive.revision.sequence) {
+          throw new Error("STALE_CONTEXT: live target or revision changed during recovery read");
+        }
+        if (snapshot.projectId !== expectedTarget.projectId || snapshot.timeline.id !== expectedTarget.sequenceId) {
+          throw new Error("TARGET_MISMATCH: canonical snapshot differs from the checkpoint target");
+        }
+        const after = await options.canonicalRecovery!.inspectVersioned();
+        if (!after || after.checkpointId !== expectedCheckpointId) throw new Error("CHECKPOINT_MISMATCH: checkpoint changed during canonical read");
+        const observedDigest = canonicalSnapshotDigest(snapshot);
+        const comparison = evidence!.checkpoint.expectedRestoreDigest === observedDigest
+          ? "matches-expected-restoration"
+          : evidence!.checkpoint.beforeDigest === observedDigest ? "matches-before" : "different";
+        return { checkpointId: expectedCheckpointId, target: expectedTarget, observedRevision: snapshot.revision, observedLiveRevision: afterLive.revision, observedDigest, comparison, pointInTime: true, quiescence: "unproven", checkpointCleared: false };
+      }, (result) => result.target);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.startsWith("STALE_CONTEXT:")) return mcpReadErrorResult("STALE_CONTEXT", message, operation);
+      if (message.startsWith("TARGET_MISMATCH:")) return mcpReadErrorResult("TARGET_MISMATCH", message, operation);
+      if (message.startsWith("CHECKPOINT_MISMATCH:")) return mcpReadErrorResult("CHECKPOINT_MISMATCH", message, operation);
+      if (message.startsWith("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED:")) return mcpReadErrorResult("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED", message, operation);
+      throw error;
+    }
+  });
 
   registerSkillTools(server, runtime);
 
@@ -2954,6 +3068,160 @@ async function assertRequiredBuildAlignment(runtime: AgentVideoRuntime, options:
   if (alignment.status !== "matched") {
     throw new Error(`FRAMEKIT_BUILD_ALIGNMENT_MISMATCH: ${alignment.message}`);
   }
+}
+
+function withPublishRecoveryGuard<T extends object>(
+  provider: T,
+  recovery: Pick<FileCanonicalRecoveryGuard, "assertClear" | "beginNative" | "inspectNativeReservation">,
+): T {
+  const allowed = new Set<PropertyKey>(["isAvailable", "inspectReadiness", "executionMode", "getPublishJob", "loadPublishJob", "preparePublish"]);
+  let current: { jobId?: string; reservation: Awaited<ReturnType<FileCanonicalRecoveryGuard["beginNative"]>>; active: boolean; dispatched: boolean } | undefined;
+  return new Proxy(provider, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target) as unknown;
+      if (typeof value !== "function") return value;
+      if (allowed.has(property)) return value.bind(target);
+      return async (...args: unknown[]) => {
+        if (property !== "executePublishJob" && property !== "publishNewProject") {
+          await recovery.assertClear();
+          return Reflect.apply(value, target, args);
+        }
+        const jobId = property === "executePublishJob" && typeof args[0] === "string" ? args[0] : undefined;
+        let entry = current;
+        if (entry) {
+          if (entry.active || !jobId || entry.jobId !== jobId || args[1] !== true || args[2] !== true
+          ) {
+            throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish reservation only permits verification of its settled pending job");
+          }
+          entry.active = true;
+          try {
+            const observed = await recovery.inspectNativeReservation();
+            const getJob = Reflect.get(target, "getPublishJob", target) as (id: string) => { state?: string };
+            if (observed?.reservationId !== entry.reservation.reservationId || getJob.call(target, jobId).state !== "verification-pending") {
+              throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish reservation or job changed before verification");
+            }
+          } catch (error) {
+            entry.active = false;
+            throw error;
+          }
+        } else {
+          const getJob = Reflect.get(target, "getPublishJob", target) as ((id: string) => { state?: string }) | undefined;
+          const pending = Boolean(jobId && getJob?.call(target, jobId).state === "verification-pending");
+          const operation = jobId
+            ? `native.publish.${createHash("sha256").update(jobId).digest("hex")}`
+            : "native.publish.direct";
+          const reservation = await recovery.beginNative(operation);
+          const track = Reflect.get(target, "trackNativeDispatch", target);
+          entry = { jobId, reservation, active: true, dispatched: pending || typeof track !== "function" };
+          current = entry;
+        }
+        const track = Reflect.get(target, "trackNativeDispatch", target) as unknown;
+        try {
+          const invoke = async () => Reflect.apply(value, target, args) as Promise<unknown>;
+          const result: unknown = typeof track === "function"
+            ? await Reflect.apply(track, target, [invoke, () => { entry!.dispatched = true; }])
+            : await invoke();
+          if (entry.dispatched && result && typeof result === "object" && !Array.isArray(result)) {
+            return { ...result, recoveryReservation: { status: "recovery-required", reservationId: entry.reservation.reservationId, reason: "native-quiescence-unproven" } };
+          }
+          return result;
+        } finally {
+          entry.active = false;
+          if (!entry.dispatched) {
+            await entry.reservation.release();
+            if (current === entry) current = undefined;
+          }
+        }
+      };
+    },
+  });
+}
+
+function withRecoveryCheckpointGuard<T extends object>(
+  provider: T,
+  recovery: Pick<FileCanonicalRecoveryGuard, "assertClear" | "beginNative">,
+  allowedMethods: readonly PropertyKey[] = [],
+  reservedMethods: readonly PropertyKey[] = [],
+  reservationKind: "native" | "disposable" = "native",
+): T {
+  const allowed = new Set(allowedMethods);
+  const reserved = new Set(reservedMethods);
+  const contextMethods = new Set<PropertyKey>(["focusTimeline", "selectMedia", "selectOccurrence", "selectCanonicalOccurrence"]);
+  const searchMethods = new Set<PropertyKey>(["searchMedia", "searchMediaForCanonicalTarget", "searchTitles", "searchTransitions"]);
+  return new Proxy(provider, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target) as unknown;
+      if (typeof value !== "function") return value;
+      if (allowed.has(property)) return value.bind(target);
+      return async (...args: unknown[]) => {
+        if (reserved.has(property)) {
+          const reservation = await recovery.beginNative(`native.${reservationKind === "disposable" ? "disposable." : ""}${String(property).toLowerCase()}`);
+          const track = Reflect.get(target, "trackNativeDispatch", target) as unknown;
+          let dispatched = typeof track !== "function";
+          try {
+            const invoke = async () => Reflect.apply(value, target, args) as Promise<unknown>;
+            const result: unknown = typeof track === "function"
+              ? await Reflect.apply(track, target, [invoke, () => { dispatched = true; }])
+              : await invoke();
+            const evidence = result as { status?: unknown; undone?: unknown; beforeDigest?: unknown; restoredDigest?: unknown; verification?: { verified?: unknown; passed?: unknown } } | null;
+            const restored = typeof evidence?.beforeDigest === "string" && /^[a-f0-9]{64}$/.test(evidence.beforeDigest)
+              && evidence.restoredDigest === evidence.beforeDigest;
+            const media = (value: unknown): boolean => {
+              if (!value || typeof value !== "object") return false;
+              const item = value as { mediaHandle?: unknown; verification?: { verified?: unknown; stage?: unknown } };
+              return typeof item.mediaHandle === "string" && item.mediaHandle.length > 0
+                && item.verification?.verified === true && item.verification.stage === "post-import-browser-discovery";
+            };
+            const directory = result as { status?: unknown; partial?: unknown; importedCount?: unknown; failedCount?: unknown; files?: unknown; results?: unknown } | null;
+            const verifiedDirectory = (): boolean => {
+              if (directory?.status !== "completed" || directory.partial !== false || directory.failedCount !== 0
+                || !Array.isArray(directory.files) || directory.files.length === 0
+                || directory.importedCount !== directory.files.length || !Array.isArray(directory.results)
+                || directory.results.length !== directory.files.length) return false;
+              const expected = new Set<string>();
+              for (const file of directory.files as Array<{ sourcePath?: unknown }>) {
+                if (!file || typeof file.sourcePath !== "string" || !file.sourcePath || expected.has(file.sourcePath)) return false;
+                expected.add(file.sourcePath);
+              }
+              const handles = new Set<string>();
+              for (const entry of directory.results as Array<{ status?: unknown; sourcePath?: unknown; media?: unknown }>) {
+                if (!entry || entry.status !== "imported" || typeof entry.sourcePath !== "string"
+                  || !expected.delete(entry.sourcePath) || !media(entry.media)) return false;
+                const item = entry.media as { sourcePath?: unknown; mediaHandle: string };
+                if (item.sourcePath !== entry.sourcePath || handles.has(item.mediaHandle)) return false;
+                handles.add(item.mediaHandle);
+              }
+              return expected.size === 0;
+            };
+            const preview = typeof property === "string" && property.startsWith("preview");
+            const prepared = result as { previewToken?: unknown; available?: unknown; status?: unknown; occurrences?: unknown; selected?: unknown } | null;
+            const verified = preview ? typeof prepared?.previewToken === "string" && prepared.previewToken.length > 0
+              : contextMethods.has(property) ? prepared?.available === true
+              : searchMethods.has(property) ? Array.isArray(result)
+              : property === "locateOccurrence" || property === "locateOccurrenceForCanonicalTarget" ? ["none", "unique", "ambiguous"].includes(String(prepared?.status)) && Array.isArray(prepared?.occurrences)
+              : property === "targetMedia" ? prepared?.status === "unique" && prepared.selected === true
+              : property === "importMedia" ? media(result)
+              : property === "executeImportMediaDirectory" ? verifiedDirectory()
+              : reservationKind === "disposable"
+              ? property === "undo"
+                ? evidence?.undone === true && evidence.verification?.passed === true && restored
+                : (evidence?.status === "VERIFIED" && evidence.verification?.passed === true)
+                  || (evidence?.status === "ROLLED_BACK" && restored)
+              : evidence?.verification?.verified === true && (property !== "undo" || evidence.undone === true);
+            if (verified || (!dispatched && contextMethods.has(property) && prepared?.available === false)) {
+              await reservation.release();
+            }
+            return result;
+          } catch (error) {
+            if (!dispatched) await reservation.release();
+            throw error;
+          }
+        }
+        await recovery.assertClear();
+        return Reflect.apply(value, target, args);
+      };
+    },
+  });
 }
 
 function withBuildAlignmentGuard<T extends object>(

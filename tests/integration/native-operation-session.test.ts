@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -7,6 +8,7 @@ import {
   createDisposableNativeOperationSession,
   DisposableNativeEditWorkflow,
   NativeOperationSession,
+  FileCanonicalRecoveryGuard,
   type NativeOperationSessionEvidence,
   type NativeOperationSessionExecutor,
   type NativeOperationSessionRequest,
@@ -101,7 +103,7 @@ function executor(overrides: Partial<NativeOperationSessionExecutor> = {}): Nati
 async function eventually(predicate: () => boolean, message: string): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     if (predicate()) return;
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 2));
   }
   assert.fail(message);
 }
@@ -673,3 +675,62 @@ function unavailableDisposableNativeContext(): import("@framekit/final-cut").Nat
     error: { code: "FINAL_CUT_NATIVE_NOT_FRONTMOST", message: "Final Cut's timeline window must be frontmost", state: "unavailable", retryable: true },
   };
 }
+
+test("a running disposable native job excludes canonical checkpoints after submit returns", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-job-reservation-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const other = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const state = createDisposableState();
+  const workflow = createDisposableWorkflow(state);
+  const preview = await workflow.preview({ clipId: "clip-1", name: "Interview Clean" });
+  let entered!: () => void;
+  let finish!: () => void;
+  const started = new Promise<void>((resolve) => { entered = resolve; });
+  const held = new Promise<void>((resolve) => { finish = resolve; });
+  const delayedWorkflow = {
+    getPreview: workflow.getPreview.bind(workflow),
+    execute: async (...args: Parameters<typeof workflow.execute>) => { entered(); await held; return workflow.execute(...args); },
+  };
+  const session = createDisposableNativeOperationSession({ workflow: delayedWorkflow, native: state.native, recoveryGuard: guard });
+  const accepted = await session.submit({ operation: "disposable.rename-clip", previewToken: preview.previewToken, projectId: preview.projectId, sequenceId: preview.sequenceId, targetIdentity: preview.targetIdentity, baseRevision: preview.baseRevision, idempotencyKey: "reservation-job" });
+  try {
+    await started;
+    assert.equal(session.status(accepted.jobId).state, "executing");
+    await assert.rejects(other.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "a".repeat(64), operation: "rename-clip" }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    finish();
+    await eventually(() => session.status(accepted.jobId).state === "completed", "job did not complete");
+    await guard.assertClear();
+  } finally {
+    finish();
+    await eventually(() => ["completed", "failed", "rolled_back"].includes(session.status(accepted.jobId).state), "job did not settle");
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("disposable job reservations distinguish validation from uncertain mutation", async () => {
+  for (const outcome of ["before-dispatch", "after-mutation"] as const) {
+    const directory = await mkdtemp(join(tmpdir(), "framekit-job-failure-"));
+    const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+    const state = createDisposableState();
+    state.native.trackNativeDispatch = async (operation) => operation();
+    const workflow = createDisposableWorkflow(state);
+    const preview = await workflow.preview({ clipId: "clip-1", name: "Interview Clean" });
+    if (outcome === "after-mutation") state.native.edit = async () => { throw new Error("unknown native result"); };
+    const failingWorkflow = {
+      getPreview: workflow.getPreview.bind(workflow),
+      execute: async (...args: Parameters<typeof workflow.execute>) => {
+        if (outcome === "before-dispatch") throw new Error("validation failed");
+        return workflow.execute(...args);
+      },
+    };
+    const session = createDisposableNativeOperationSession({ workflow: failingWorkflow, native: state.native, recoveryGuard: guard });
+    try {
+      const job = await session.submit({ operation: "disposable.rename-clip", previewToken: preview.previewToken, projectId: preview.projectId, sequenceId: preview.sequenceId, targetIdentity: preview.targetIdentity, baseRevision: preview.baseRevision, idempotencyKey: outcome });
+      await eventually(() => session.status(job.jobId).state === "failed", "job did not fail");
+      if (outcome === "before-dispatch") await guard.assertClear();
+      else assert.equal((await guard.inspectNativeReservation())?.operation, "native.job.disposable-rename");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+});

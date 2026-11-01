@@ -1,4 +1,5 @@
 import { execFile as execFileCallback } from "node:child_process";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { chmodSync, closeSync, constants, createReadStream, fsyncSync, ftruncateSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { access, lstat, mkdir, mkdtemp, open, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
@@ -220,6 +221,7 @@ interface PersistedPublishJob {
 
 /** Imports a validated FCPXML artifact as a new Final Cut project. */
 export class FinalCutProjectPublisher {
+  private readonly dispatchContext = new AsyncLocalStorage<() => void>();
   private readonly enabled: boolean;
   private readonly sourcePath?: string;
   private readonly publishJobDirectory?: string;
@@ -251,6 +253,10 @@ export class FinalCutProjectPublisher {
     this.verificationTimeoutMs = Math.max(0, options.verificationTimeoutMs ?? 15_000);
     this.pollIntervalMs = Math.max(0, options.pollIntervalMs ?? options.waitMs ?? 100);
     this.loadPersistedPublishJobs();
+  }
+
+  public async trackNativeDispatch<T>(operation: () => Promise<T>, onDispatch: () => void): Promise<T> {
+    return this.dispatchContext.run(onDispatch, operation);
   }
 
   public isAvailable(): boolean {
@@ -999,6 +1005,12 @@ export class FinalCutProjectPublisher {
       if (job.state === "verification-pending" && !persisted.runtime) {
         throw new Error(`PUBLISH_JOB_STORE_INVALID: pending job is missing recovery state ${path}`);
       }
+      if (persisted.runtime?.importAttempted === true && job.state !== "verification-pending" && job.state !== "verified") {
+        throw new Error(`PUBLISH_JOB_STORE_INVALID: spent import has a re-dispatchable state ${path}`);
+      }
+      if (job.state === "verified" && !isVerifiedPublishJob(job, job.jobId)) {
+        throw new Error(`PUBLISH_JOB_STORE_INVALID: verified job is missing consistent native target proof ${path}`);
+      }
       job.handoff.route ??= "background-document-open";
       if (job.handoff.route !== "background-document-open" && job.handoff.route !== "headed-apple-event") {
         throw new Error(`PUBLISH_JOB_STORE_INVALID: invalid publish route in ${path}`);
@@ -1026,6 +1038,7 @@ export class FinalCutProjectPublisher {
       runtime.importAttempted = false;
       throw error;
     }
+    this.dispatchContext.getStore()?.();
     markReservationDispatchAttempt(runtime);
   }
 
