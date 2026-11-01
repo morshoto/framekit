@@ -82,7 +82,7 @@ try {
     throw new Error(`PUBLISH_TARGET_MISMATCH: expected managed FCPXML artifact ${artifactPath}`);
   }
 
-  const source = await new FcpxmlDocumentAdapter(artifactPath).readProject();
+  const source = await new FcpxmlDocumentAdapter(artifactPath, undefined, { allowMissingImmutableIdsForReadback: true }).readProject();
   verifyAcceptanceFixture(source);
   if (source.projectName !== expectedProject) {
     throw new Error(`FINAL_CUT_E2E_PUBLISH_PROJECT_MISMATCH: expected ${expectedProject}, observed ${source.projectName ?? "unknown"}`);
