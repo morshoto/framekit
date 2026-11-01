@@ -1629,6 +1629,7 @@ test("canonical target resolver requires one exact native occurrence", async () 
       handle: "media-handle",
       name: "clip.mov",
       sourceIdentity: "browser-source-1",
+      source: "/tmp/clip.mov",
     }],
     locateOccurrence: async () => ({
       status: "unique" as const,
@@ -1659,7 +1660,7 @@ test("canonical target resolver searches literal source basenames outside the pu
     },
     searchMediaForCanonicalTarget: async (query: string) => {
       seenQueries.push(query);
-      return [{ handle: "media-handle", name: query, sourceIdentity: "browser-source-1" }];
+      return [{ handle: "media-handle", name: query, sourceIdentity: "browser-source-1", source: "/tmp/interview?.mov" }];
     },
     locateOccurrence: async () => ({
       status: "unique" as const,
@@ -1688,6 +1689,7 @@ test("canonical target resolver selects the coordinate-matching occurrence from 
       handle: "media-handle",
       name: "clip.mov",
       sourceIdentity: "browser-source-1",
+      source: "/tmp/clip.mov",
     }],
     locateOccurrence: async () => ({
       status: "ambiguous" as const,
@@ -1751,6 +1753,7 @@ test("canonical target resolver rejects native coordinate drift", async () => {
       handle: "media-handle",
       name: "clip.mov",
       sourceIdentity: "browser-source-1",
+      source: "/tmp/clip.mov",
     }],
     locateOccurrence: async () => ({
       status: "unique" as const,
@@ -1777,6 +1780,7 @@ test("canonical target resolver rejects coordinate-only native occurrences", asy
       handle: "media-handle",
       name: "clip.mov",
       sourceIdentity: "browser-source-1",
+      source: "/tmp/clip.mov",
     }],
     locateOccurrence: async () => ({
       status: "unique" as const,
@@ -2352,7 +2356,7 @@ test("canonical resolver rejects mismatched native identity before selecting an 
   for (const mismatch of ["sequence", "source", "missing-sequence"] as const) {
     const selected: string[] = [];
     const native = {
-      searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1" }],
+      searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1", source: "/tmp/clip.mov" }],
       locateOccurrence: async () => ({ status: "unique" as const, occurrences: [{
         handle: "occurrence-handle", mediaHandle: "media-handle", name: "Original", identity: "native-occurrence-1",
         start: "0/24", duration: "96/24",
@@ -2456,7 +2460,7 @@ test("canonical resolver rejects selection that changes a known native occurrenc
     start: "0/24", duration: "96/24", sequenceId: "final-cut:sequence:sequence-1", sourceIdentity: "browser-source-1",
   };
   const native = {
-    searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1" }],
+    searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1", source: "/tmp/clip.mov" }],
     locateOccurrence: async () => ({ status: "unique" as const, occurrences: [occurrence] }),
     selectOccurrence: async () => {
       occurrence.nativeIdentity = "different-native-identity";
@@ -2470,7 +2474,7 @@ test("canonical resolver rejects selection that changes a known native occurrenc
 test("canonical resolver uses nonselecting discovery before identity validation", async () => {
   const calls: string[] = [];
   const native = {
-    searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1" }],
+    searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1", source: "/tmp/clip.mov" }],
     locateOccurrence: async () => { calls.push("ordinary-locate"); throw new Error("ordinary locate may select"); },
     locateOccurrenceForCanonicalTarget: async () => {
       calls.push("canonical-locate");
@@ -2485,7 +2489,7 @@ test("canonical resolver uses nonselecting discovery before identity validation"
 
 test("canonical resolver compares the discovered occurrence identity after selection", async () => {
   const native = {
-    searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1" }],
+    searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1", source: "/tmp/clip.mov" }],
     locateOccurrence: async () => ({ status: "unique" as const, occurrences: [{ handle: "occurrence-handle", mediaHandle: "media-handle", name: "Original", identity: "expected-native-id", sourceIdentity: "browser-source-1", start: "0/24", duration: "96/24", sequenceId: "final-cut:sequence:sequence-1" }] }),
     selectOccurrence: async () => ({ target: { kind: "selected-clip", identity: "different-native-id" } }) as never,
   };
@@ -2496,7 +2500,7 @@ test("canonical resolver compares the discovered occurrence identity after selec
 test("canonical resolver rejects identity-free occurrences before selecting", async () => {
   let selected = false;
   const native = {
-    searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1" }],
+    searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1", source: "/tmp/clip.mov" }],
     locateOccurrence: async () => ({ status: "unique" as const, occurrences: [{ handle: "occurrence-handle", mediaHandle: "media-handle", name: "Original", start: "0/24", duration: "96/24", sequenceId: "final-cut:sequence:sequence-1" }] }),
     selectOccurrence: async () => { selected = true; return {} as never; },
   };
@@ -2508,7 +2512,7 @@ test("canonical resolver rejects identity-free occurrences before selecting", as
 test("canonical resolver rejects a timeline occurrence without observed source identity", async () => {
   let selected = false;
   const native = {
-    searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1" }],
+    searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1", source: "/tmp/clip.mov" }],
     locateOccurrence: async () => ({ status: "unique" as const, occurrences: [{ handle: "occurrence-handle", mediaHandle: "media-handle", name: "Original", identity: "native-1", start: "0/24", duration: "96/24", sequenceId: "final-cut:sequence:sequence-1" }] }),
     selectOccurrence: async () => { selected = true; return { target: { kind: "selected-clip", identity: "native-1" } } as never; },
   };
@@ -2585,7 +2589,7 @@ test("canonical source binding is enabled only for an explicitly capable nonsele
   let sourceAvailable = true;
   const native = {
     capabilities: () => ({ timelineOccurrenceSourceBinding: sourceAvailable }) as never,
-    searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1" }],
+    searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1", source: "/tmp/clip.mov" }],
     locateOccurrence: locate,
     locateOccurrenceForCanonicalTarget: locate,
     selectOccurrence: async () => ({ target: { kind: "selected-clip", identity: "native-1" } }) as never,
@@ -2628,7 +2632,7 @@ test("independently bound source evidence permits a canonical edit in a determin
   const occurrence = { handle: "occurrence-handle", mediaHandle: "media-handle", name: "Original", identity: "native-1", sourceIdentity: "browser-source-1", start: "0/24", duration: "96/24", sequenceId: "final-cut:sequence:sequence-1" };
   const native = {
     capabilities: () => ({ timelineOccurrenceSourceBinding: true }) as never,
-    searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1" }],
+    searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1", source: "/tmp/clip.mov" }],
     locateOccurrence: async () => ({ status: "unique" as const, occurrences: [occurrence] }),
     locateOccurrenceForCanonicalTarget: async () => ({ status: "unique" as const, occurrences: [occurrence] }),
     selectOccurrence: async () => ({ target: { kind: "selected-clip", identity: "native-1" } }) as never,
@@ -2658,7 +2662,7 @@ test("source-bound edits reject resolvers without an explicit capability", async
 });
 
 test("canonical resolver binds the observed Browser source to the snapshot source", async () => {
-  for (const source of [undefined, "/other/clip.mov", "file:///tmp/clip.mov"] as const) {
+  for (const source of [undefined, "/other/clip.mov", "/tmp/../tmp/clip.mov", "file:///tmp/%2e%2e/tmp/clip.mov", "file:///tmp/clip.mov?variant=1", "clip.mov", "file://remote/tmp/clip.mov", "file:///tmp/clip.mov"] as const) {
     let locateCalls = 0;
     const native = {
       searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1", ...(source ? { source } : {}) }],
@@ -2676,6 +2680,53 @@ test("canonical resolver binds the observed Browser source to the snapshot sourc
     } else {
       await assert.rejects(resolve(), /TARGET_MISMATCH.*source/i);
       assert.equal(locateCalls, 0);
+    }
+  }
+});
+
+test("a same-named different source cannot dispatch a canonical edit", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-canonical-source-mismatch-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const calls: string[] = [];
+  const native = {
+    capabilities: () => ({ timelineOccurrenceSourceBinding: true }) as never,
+    searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1", source: "/other/clip.mov" }],
+    locateOccurrence: async () => { throw new Error("must not locate a mismatched source"); },
+    locateOccurrenceForCanonicalTarget: async () => { throw new Error("must not locate a mismatched source"); },
+  };
+  const provider = providerFor([snapshot("Original"), snapshot("Original")], calls, createFinalCutNativeTargetResolver(native), liveState(), undefined, {}, guard);
+  try {
+    const before = await provider.readProject();
+    await assert.rejects(provider.apply({ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "Renamed" }, before.revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED.*source/i);
+    assert.deepEqual(calls, []);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("canonical resolver distinguishes equal names only with complete exact source observations", async () => {
+  for (const alternate of ["/other/clip.mov", undefined, "/tmp/clip.mov"] as const) {
+    const locatedHandles: string[] = [];
+    const native = {
+      searchMedia: async () => [
+        { handle: "expected", name: "clip.mov", sourceIdentity: "source-1", source: "/tmp/clip.mov" },
+        { handle: "alternate", name: "clip.mov", sourceIdentity: "source-2", ...(alternate ? { source: alternate } : {}) },
+      ],
+      locateOccurrence: async (handle: string) => {
+        locatedHandles.push(handle);
+        return { status: "unique" as const, occurrences: [{ handle: "occurrence", mediaHandle: handle, name: "Original", identity: "native-1", sourceIdentity: "source-1", start: "0/24", duration: "96/24", sequenceId: "final-cut:sequence:sequence-1" }] };
+      },
+      selectOccurrence: async () => ({ target: { kind: "selected-clip", identity: "native-1" } }) as never,
+    };
+    const project = snapshot("Original");
+    const resolve = () => createFinalCutNativeTargetResolver(native)(project.timeline.clips[0]!, project);
+    if (alternate === "/other/clip.mov") {
+      await resolve();
+      assert.deepEqual(locatedHandles, ["expected"]);
+    } else {
+      await assert.rejects(resolve(), /TARGET_MISMATCH|AMBIGUOUS_PROJECT_TARGET/);
+      assert.deepEqual(locatedHandles, []);
     }
   }
 });
