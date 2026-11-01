@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   FRAMEKIT_PROJECT_SCHEMA_VERSION,
+  InMemoryTransactionStore,
   PROJECT_EDIT_COMMAND_SCHEMA_VERSION,
   ProjectTransactionService,
   type EditTransaction,
@@ -94,4 +95,13 @@ test("transaction storage can be replaced through its narrow contract", () => {
 
   store.set(transaction);
   assert.strictEqual(store.get("txn-port"), transaction);
+});
+
+test("the default transaction store retains set, get, and missing errors", () => {
+  const transaction = { id: "txn-default" } as EditTransaction;
+  const store = new InMemoryTransactionStore();
+
+  store.set(transaction);
+  assert.strictEqual(store.get("txn-default"), transaction);
+  assert.throws(() => store.get("txn-missing"), /TRANSACTION_NOT_FOUND/);
 });
