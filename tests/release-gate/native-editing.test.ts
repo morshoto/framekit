@@ -380,7 +380,7 @@ test("partial headed evidence cannot promote the headed tier", async () => {
       },
     }), "utf8");
 
-    const report = await runReleaseGate({ headedEvidenceDirectory: directory });
+    const report = await runReleaseGate({ headedEvidenceDirectory: directory, headedCandidateCommit: "a".repeat(40) });
 
     assert.equal(report.evidenceTiers["headed-native"].status, "failed");
     assert.equal(report.evidenceTiers["headed-native"].passed, false);
@@ -449,7 +449,7 @@ test("complete headed evidence promotes every claimed native workflow", async ()
       await writeFile(join(directory, record.file), JSON.stringify(evidence), "utf8");
     }
 
-    const report = await runReleaseGate({ headedEvidenceDirectory: directory });
+    const report = await runReleaseGate({ headedEvidenceDirectory: directory, headedCandidateCommit: environment.gitCommit });
 
     assert.equal(report.evidenceTiers["headed-native"].status, "verified");
     assert.equal(report.evidenceTiers["headed-native"].passed, true);
@@ -457,6 +457,17 @@ test("complete headed evidence promotes every claimed native workflow", async ()
       report.evidenceTiers["headed-native"].workflows.map((workflow) => workflow.status),
       ["verified", "verified", "verified", "verified", "verified", "verified"],
     );
+    assert.equal(report.evidenceTiers["headed-native"].preflight.candidateCommit, environment.gitCommit);
+    const unpinned = await runReleaseGate({ headedEvidenceDirectory: directory });
+    assert.equal(unpinned.evidenceTiers["headed-native"].status, "failed");
+    const wrongCandidate = await runReleaseGate({ headedEvidenceDirectory: directory, headedCandidateCommit: "e".repeat(40) });
+    assert.equal(wrongCandidate.evidenceTiers["headed-native"].status, "failed");
+    const different = JSON.parse(await readFile(join(directory, "pip.json"), "utf8"));
+    different.environment.gitCommit = "e".repeat(40);
+    await writeFile(join(directory, "pip.json"), JSON.stringify(different), "utf8");
+    const mixed = await runReleaseGate({ headedEvidenceDirectory: directory, headedCandidateCommit: environment.gitCommit });
+    assert.equal(mixed.evidenceTiers["headed-native"].status, "failed");
+    assert.equal(mixed.evidenceTiers["headed-native"].workflows.find((workflow) => workflow.workflowId === "picture-in-picture")?.status, "failed");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
