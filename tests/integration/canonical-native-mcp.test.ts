@@ -1226,3 +1226,23 @@ test("uncertain native preparation keeps its reservation", async () => {
     }
   }
 });
+
+test("native preparation unavailable before dispatch releases its reservation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-preparation-unavailable-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const nativeEditor = {
+    capabilities: () => ({}),
+    trackNativeDispatch: async (operation: () => Promise<unknown>) => operation(),
+    focusTimeline: async () => ({ available: false, error: { code: "CAPABILITY_UNAVAILABLE" } }),
+  } as unknown as NativeFinalCutEditor;
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, nativeEditor });
+  try {
+    const result = await client.callTool({ name: "editor.native.focus", arguments: {} });
+    assert.equal(result.isError ?? false, false);
+    await guard.assertClear();
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
