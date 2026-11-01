@@ -38,6 +38,18 @@ async function artifact(contents = documentWithOperations): Promise<{ path: stri
   return { path, adapter: new FcpxmlDocumentAdapter(path) };
 }
 
+test("FCPXML snapshots preserve native dialogue subroles", async () => {
+  const xml = documentWithOperations.replace(
+    '<asset-clip id="clip-a" ref="video-a" offset="0s" start="1s" duration="4s" />',
+    '<audio id="clip-a" ref="audio-a" offset="0s" start="1s" duration="4s" role="dialogue.dialogue-1" />',
+  );
+  const { adapter } = await artifact(xml);
+  const snapshot = await adapter.readProject();
+  const clip = snapshot.timeline.clips.find((item) => item.id === "clip-a");
+  assert.equal(clip?.role, "audio");
+  assert.equal(clip?.nativeAudioRole, "dialogue.dialogue-1");
+});
+
 test("FCPXML capabilities advertise only the documented safe operation matrix", async () => {
   const { adapter } = await artifact();
   const capabilities = await adapter.getCapabilities();
