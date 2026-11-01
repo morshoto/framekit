@@ -1012,7 +1012,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
         ? { nativeEditor: withRecoveryCheckpointGuard(options.nativeEditor, recovery, ["capabilities", "inspect"], [
             "edit", "undo", "executeBlade", "executeMask", "executeTitleAdd", "executeTransitionAdd",
             "executeAppendMedia", "executeAppendSelectedMedia", "executeInsertMedia", "executeDeleteRange",
-            "executeTrimToDuration", "executePictureInPicture",
+            "executeTrimToDuration", "executePictureInPicture", "importMedia", "executeImportMediaDirectory",
           ]) }
         : {}),
       ...(options.disposableNative
@@ -3050,7 +3050,36 @@ function withRecoveryCheckpointGuard<T extends object>(
             const evidence = result as { status?: unknown; undone?: unknown; beforeDigest?: unknown; restoredDigest?: unknown; verification?: { verified?: unknown; passed?: unknown } } | null;
             const restored = typeof evidence?.beforeDigest === "string" && /^[a-f0-9]{64}$/.test(evidence.beforeDigest)
               && evidence.restoredDigest === evidence.beforeDigest;
-            const verified = reservationKind === "disposable"
+            const media = (value: unknown): boolean => {
+              if (!value || typeof value !== "object") return false;
+              const item = value as { mediaHandle?: unknown; verification?: { verified?: unknown; stage?: unknown } };
+              return typeof item.mediaHandle === "string" && item.mediaHandle.length > 0
+                && item.verification?.verified === true && item.verification.stage === "post-import-browser-discovery";
+            };
+            const directory = result as { status?: unknown; partial?: unknown; importedCount?: unknown; failedCount?: unknown; files?: unknown; results?: unknown } | null;
+            const verifiedDirectory = (): boolean => {
+              if (directory?.status !== "completed" || directory.partial !== false || directory.failedCount !== 0
+                || !Array.isArray(directory.files) || directory.files.length === 0
+                || directory.importedCount !== directory.files.length || !Array.isArray(directory.results)
+                || directory.results.length !== directory.files.length) return false;
+              const expected = new Set<string>();
+              for (const file of directory.files as Array<{ sourcePath?: unknown }>) {
+                if (!file || typeof file.sourcePath !== "string" || !file.sourcePath || expected.has(file.sourcePath)) return false;
+                expected.add(file.sourcePath);
+              }
+              const handles = new Set<string>();
+              for (const entry of directory.results as Array<{ status?: unknown; sourcePath?: unknown; media?: unknown }>) {
+                if (!entry || entry.status !== "imported" || typeof entry.sourcePath !== "string"
+                  || !expected.delete(entry.sourcePath) || !media(entry.media)) return false;
+                const item = entry.media as { sourcePath?: unknown; mediaHandle: string };
+                if (item.sourcePath !== entry.sourcePath || handles.has(item.mediaHandle)) return false;
+                handles.add(item.mediaHandle);
+              }
+              return expected.size === 0;
+            };
+            const verified = property === "importMedia" ? media(result)
+              : property === "executeImportMediaDirectory" ? verifiedDirectory()
+              : reservationKind === "disposable"
               ? property === "undo"
                 ? evidence?.undone === true && evidence.verification?.passed === true && restored
                 : (evidence?.status === "VERIFIED" && evidence.verification?.passed === true)

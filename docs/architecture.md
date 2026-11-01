@@ -89,8 +89,9 @@ their provider calls are in progress; an unverified result or a failure after na
 dispatch retains the reservation. A failure before dispatch releases it. Direct
 disposable execute and Undo and disposable native session jobs also reserve the
 same path through canonical verification or verified rollback. Native timeline
-command executions use the reservation through their native verification. Other
-direct operations and background jobs still use entry checks, so shared exclusion
+command executions use the reservation through their native verification. Native
+media imports also reserve it; an incomplete or partial import keeps the
+reservation. Other direct operations and background jobs still use entry checks, so shared exclusion
 across all native routes is not proven. Native command acceptance does not prove
 later native quiescence. Restarting or changing state directories does not establish that recovery succeeded. There
 is no automatic checkpoint reset or supported recovery flow yet. The read-only
