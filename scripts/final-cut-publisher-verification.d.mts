@@ -10,5 +10,6 @@ export declare function verifyPublishedTarget(input: {
   expectedProject: string;
   expectedSequence?: string;
   sourceSequence?: string;
+  targetLibraryPath?: string;
 }): void;
 export declare function verifyAcceptanceFixture(snapshot: any): void;

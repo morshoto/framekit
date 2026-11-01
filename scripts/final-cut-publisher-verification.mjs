@@ -54,7 +54,7 @@ export async function runPublishStages(call, input, onStage) {
   return verified;
 }
 
-export function verifyPublishedTarget({ result, beforeLive, afterLive, expectedProject, expectedSequence, sourceSequence }) {
+export function verifyPublishedTarget({ result, beforeLive, afterLive, expectedProject, expectedSequence, sourceSequence, targetLibraryPath }) {
   if (result.verified !== true || result.createdTarget?.projectName !== expectedProject) {
     throw new Error("FINAL_CUT_E2E_PUBLISH_VERIFICATION_FAILED: publisher did not return the requested project identity");
   }
@@ -81,6 +81,9 @@ export function verifyPublishedTarget({ result, beforeLive, afterLive, expectedP
   const activeProjectAfterId = result.activeProject?.after?.id;
   if (!projectId || !sequenceId || !activeProjectAfterId) {
     throw new Error("FINAL_CUT_E2E_PUBLISH_TARGET_VERIFICATION_FAILED: publisher did not return imported target identities");
+  }
+  if (targetLibraryPath && (!result.createdTarget.libraryId || !result.createdTarget.eventId || result.createdTarget.libraryPath !== targetLibraryPath)) {
+    throw new Error("PUBLISH_LIBRARY_IDENTITY_UNAVAILABLE: native library and event identities must be bound to the approved destination");
   }
   if (result.activeProject?.before?.id !== beforeLive.project.id || activeProjectAfterId !== projectId) {
     throw new Error("FINAL_CUT_E2E_PUBLISH_TARGET_VERIFICATION_FAILED: active project identity was not changed to the imported project");

@@ -98,7 +98,7 @@ try {
   const result = job.result;
 
   const afterLive = await callJson("editor.live.inspect");
-  verifyPublishedTarget({ result, beforeLive, afterLive, expectedProject, expectedSequence, sourceSequence });
+  verifyPublishedTarget({ result, beforeLive, afterLive, expectedProject, expectedSequence, sourceSequence, targetLibraryPath });
   if (!(await stat(targetLibraryPath)).isDirectory()) throw new Error("FINAL_CUT_E2E_LIBRARY_MISSING: created library is not a directory");
 
   process.stdout.write(`${JSON.stringify({
