@@ -11,3 +11,4 @@ export declare function verifyPublishedTarget(input: {
   expectedSequence?: string;
   sourceSequence?: string;
 }): void;
+export declare function verifyAcceptanceFixture(snapshot: any): void;

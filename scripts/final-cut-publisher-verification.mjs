@@ -1,3 +1,33 @@
+import { basename } from "node:path";
+import { fileURLToPath } from "node:url";
+
+export function verifyAcceptanceFixture(snapshot) {
+  const fail = () => { throw new Error("PUBLISH_FIXTURE_MISMATCH: artifact does not contain the independently specified acceptance edit"); };
+  const seconds = (time, expected) => {
+    try { return BigInt(time.value) === BigInt(expected) * BigInt(time.timescale) && BigInt(time.timescale) > 0n; } catch { return false; }
+  };
+  const source = (clip) => {
+    const path = snapshot.media?.find((item) => item.mediaId === clip.mediaId)?.source;
+    if (typeof path !== "string") return "";
+    try { return basename(path.startsWith("file:") ? fileURLToPath(path) : path); } catch { return ""; }
+  };
+  const timeline = snapshot.timeline;
+  if (!timeline || !Array.isArray(timeline.clips) || !Array.isArray(timeline.storyElements)
+    || timeline.frameDuration?.value !== "1" || timeline.frameDuration?.timescale !== "24") fail();
+  const clips = timeline.clips.filter((clip) => clip.track === 0).sort((a, b) => a.start - b.start);
+  const expected = [["clip-b.mp4", 0, 5, 8], ["clip-a.mp4", 8, 10, 12], ["clip-c.mp4", 20, 2, 10]];
+  if (clips.length !== expected.length || !clips.every((clip, i) => {
+    const [name, start, sourceStart, duration] = expected[i];
+    return source(clip) === name && seconds(clip.startTime, start) && seconds(clip.sourceStartTime, sourceStart) && seconds(clip.durationTime, duration);
+  })) fail();
+  const music = timeline.clips.filter((clip) => clip.role === "music");
+  if (music.length !== 1 || source(music[0]) !== "generated-music.wav" || music[0].track === 0 || music[0].gainDb !== -12
+    || !seconds(music[0].startTime, 0) || !seconds(music[0].sourceStartTime, 0) || !seconds(music[0].durationTime, 30)) fail();
+  const titles = timeline.storyElements.filter((element) => element.kind === "title");
+  if (titles.length !== 1 || titles[0].text !== "FrameKit MVP Test" || titles[0].lane !== 1
+    || !seconds(titles[0].startTime, 0) || !seconds(titles[0].durationTime, 6)) fail();
+}
+
 export async function runPublishStages(call, input, onStage) {
   const { artifactDigest, ...previewInput } = input;
   const preview = await call("artifact.publish.preview", previewInput);

@@ -5,7 +5,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { runPublishStages, verifyPublishedTarget } from "./final-cut-publisher-verification.mjs";
+import { runPublishStages, verifyAcceptanceFixture, verifyPublishedTarget } from "./final-cut-publisher-verification.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const artifactPath = process.env.FRAMEKIT_FINAL_CUT_E2E_FCPXML_PATH;
@@ -75,6 +75,7 @@ try {
   }
 
   const source = await callJson("project.inspect");
+  verifyAcceptanceFixture(source);
   if (source.projectName !== expectedProject) {
     throw new Error(`FINAL_CUT_E2E_PUBLISH_PROJECT_MISMATCH: expected ${expectedProject}, observed ${source.projectName ?? "unknown"}`);
   }

@@ -12,6 +12,26 @@ test("publisher QA rejects a gap-only artifact as the acceptance fixture", () =>
   assert.throws(() => verifyAcceptanceFixture({ timeline: { clips: [], storyElements: [] }, media: [] }), /PUBLISH_FIXTURE_MISMATCH/);
 });
 
+test("publisher QA checks the independent fixture order, ranges, title and music gain", () => {
+  const time = (value: number) => ({ value: String(value), timescale: "1" });
+  const snapshot = {
+    media: ["a", "b", "c", "music"].map((id) => ({ mediaId: id, source: `/fixture/${id === "music" ? "generated-music.wav" : `clip-${id}.mp4`}` })),
+    timeline: {
+      frameDuration: { value: "1", timescale: "24" },
+      clips: [
+        { mediaId: "b", track: 0, startTime: time(0), sourceStartTime: time(5), durationTime: time(8) },
+        { mediaId: "music", track: 1, role: "music", gainDb: -12, startTime: time(0), sourceStartTime: time(0), durationTime: time(30) },
+        { mediaId: "a", track: 0, startTime: time(8), sourceStartTime: time(10), durationTime: time(12) },
+        { mediaId: "c", track: 0, startTime: time(20), sourceStartTime: time(2), durationTime: time(10) },
+      ],
+      storyElements: [{ kind: "title", text: "FrameKit MVP Test", startTime: time(0), durationTime: time(6), lane: 1 }],
+    },
+  };
+  assert.doesNotThrow(() => verifyAcceptanceFixture(snapshot));
+  snapshot.timeline.clips[0]!.sourceStartTime = time(4);
+  assert.throws(() => verifyAcceptanceFixture(snapshot), /PUBLISH_FIXTURE_MISMATCH/);
+});
+
 test("publisher QA dispatches once and separately confirms native verification", async () => {
   const calls: Array<{ name: string; args: any }> = [];
   const stages: string[] = [];
