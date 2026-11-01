@@ -198,6 +198,37 @@ test('the JavaScript policy blocks a new current high-severity finding', async (
 	assert.match(result.reasons.join('\n'), /1 new CodeQL alert/);
 });
 
+test('release policy requires current Swift analysis and blocks open serious findings', async () => {
+	const { evaluateSwiftReleasePolicy } = await import(
+		new URL('../../.github/codeql/verify-release-policy.mjs', import.meta.url).href
+	) as { evaluateSwiftReleasePolicy: (input: Record<string, unknown>) => { pass: boolean; reasons: string[] } };
+	const analysis = { ref: 'refs/tags/v1.2.3', commit_sha: 'release-sha', category: '/language:swift', error: '', rules_count: 27, tool: { name: 'CodeQL' } };
+	const finding = { number: 11, state: 'open', rule: { severity: 'warning', security_severity_level: 'high' }, most_recent_instance: { ref: 'refs/tags/v1.2.3', commit_sha: 'release-sha', category: '/language:swift', state: 'open' } };
+	const input = { ref: 'refs/tags/v1.2.3', expectedSha: 'release-sha', analyses: [analysis], alerts: [] };
+	assert.equal(evaluateSwiftReleasePolicy(input).pass, true);
+	assert.equal(evaluateSwiftReleasePolicy({ ...input, alerts: [finding] }).pass, false);
+	assert.equal(evaluateSwiftReleasePolicy({ ...input, alerts: [{ ...finding, state: 'dismissed' }] }).pass, true);
+	assert.equal(evaluateSwiftReleasePolicy({ ...input, analyses: [{ ...analysis, commit_sha: 'old-sha' }] }).pass, false);
+	assert.equal(evaluateSwiftReleasePolicy({ ...input, alerts: [{ ...finding, most_recent_instance: undefined }] }).pass, false);
+});
+
+test('post-merge security calls reusable CodeQL and release publishing requires Swift evidence', async () => {
+	const codeql = await readRepositoryFile('.github/workflows/codeql.yml');
+	const security = await readRepositoryFile('.github/workflows/security.yml');
+	const release = await readRepositoryFile('.github/workflows/release.yml');
+	assert.match(codeql, /^\s+workflow_call:/m);
+	assert.match(security, /^\s+push:/m);
+	assert.match(security, /^\s+schedule:/m);
+	assert.match(security, /^\s+workflow_dispatch:/m);
+	assert.match(security, /uses: \.\/\.github\/workflows\/codeql\.yml/);
+	assert.match(security, /issues: write/);
+	assert.match(security, /queue: max/);
+	assert.match(release, /verify-release-policy\.mjs/);
+	const publish = getJob(release, 'publish-npm');
+	assert.ok(publish);
+	assert.match(publish, /- swift-release-gate/);
+});
+
 test('CodeQL policy accepts a current JavaScript scan when Swift is unchanged', async () => {
 	const { evaluateCodeQLPolicy } = await import(
 		new URL('../../.github/codeql/verify-policy.mjs', import.meta.url).href
