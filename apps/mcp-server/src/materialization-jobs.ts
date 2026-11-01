@@ -305,7 +305,6 @@ export class SessionMaterializationJobs {
         claimed = { ...claimed, recoveryReservation: { reservationId: reservation.reservationId, reason: "native-quiescence-unproven" } };
         await this.save(claimed);
       }
-      providerRequested = true;
       const request: SessionMaterializationPublishRequest = {
         jobId: claimed.jobId,
         artifactPath: claimed.artifactPath,
@@ -320,7 +319,10 @@ export class SessionMaterializationJobs {
         coverage: structuredClone(claimed.coverage!),
         provenance: structuredClone(claimed.provenance!),
       };
-      const invoke = () => this.publisher!.publish(request);
+      const invoke = () => {
+        providerRequested = true;
+        return this.publisher!.publish(request);
+      };
       const result = this.publisher.trackNativeDispatch
         ? await this.publisher.trackNativeDispatch(invoke, () => { dispatched = true; })
         : await invoke();
