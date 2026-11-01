@@ -46,9 +46,10 @@ jobs:
               with:
                   persist-credentials: false
             - name: Run full validation
-              uses: ./.github/action/deep-validation
+              uses: ./.github/action/test
               with:
                   node-version: 22.14.0
+                  validation-level: full
 
     consumer-runtime:
         name: Published package consumer minimum
