@@ -2426,3 +2426,34 @@ test("target validation that fails before native dispatch releases its checkpoin
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("target preparation revision drift remains blocked before canonical dispatch", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-target-preparation-drift-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const calls: string[] = [];
+  const active = liveState();
+  const provider = providerFor([snapshot("Original"), snapshot("Original")], calls, async () => {
+    active.revision.id = "changed-during-target-preparation";
+  }, active, undefined, {}, guard);
+  try {
+    const before = await provider.readProject();
+    await assert.rejects(provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED.*TARGET_STALE/);
+    assert.deepEqual(calls, []);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("canonical resolver rejects selection that changes a known native occurrence identity", async () => {
+  const native = {
+    searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1" }],
+    locateOccurrence: async () => ({ status: "unique" as const, occurrences: [{
+      handle: "occurrence-handle", mediaHandle: "media-handle", name: "Original", nativeIdentity: "expected-native-identity",
+      start: "0/24", duration: "96/24", sequenceId: "final-cut:sequence:sequence-1", sourceIdentity: "browser-source-1",
+    }] }),
+    selectOccurrence: async () => ({ target: { kind: "selected-clip", identity: "different-native-identity" } }) as never,
+  };
+  const project = snapshot("Original");
+  await assert.rejects(createFinalCutNativeTargetResolver(native)(project.timeline.clips[0]!, project), /TARGET_MISMATCH.*selected.*identity/i);
+});
