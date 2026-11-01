@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { tmpdir } from "node:os";
 import test from "node:test";
 import { join } from "node:path";
 import { buildFinalCutCanonicalExportScript } from "../../adapters/final-cut/typescript/src/canonical.js";
 import { canonicalSnapshotDigest } from "../../packages/runtime/src/timeline/snapshot-digest.js";
-import { canonicalEvidenceDigest, sanitizeCanonicalEvidence, sanitizeCanonicalReadEvidence } from "../../scripts/final-cut-evidence.mjs";
+import { canonicalEvidenceDigest, hashCanonicalSourceMedia, sanitizeCanonicalEvidence, sanitizeCanonicalReadEvidence } from "../../scripts/final-cut-evidence.mjs";
 
 test("canonical export resolves the Final Cut save field by stable accessibility id", () => {
   const script = buildFinalCutCanonicalExportScript("/tmp/framekit/active.fcpxml");
@@ -640,5 +642,29 @@ test("canonical evidence rejects missing, mismatched, or ambiguous source hashes
     const run = structuredClone(rawRun);
     corrupt(run);
     assert.throws(() => sanitizeCanonicalEvidence(run, environment), /FINAL_CUT_E2E_EVIDENCE_INCOMPLETE.*source/i);
+  }
+});
+
+test("canonical source hashing is content-bound and does not follow symlinks", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-evidence-source-hash-"));
+  const path = join(directory, "fixture.mov");
+  const alias = join(directory, "alias.mov");
+  try {
+    await writeFile(path, "fixture media");
+    await symlink(path, alias);
+    const project = structuredClone(rawRun.before);
+    project.media[0]!.source = path;
+    const hashes = await hashCanonicalSourceMedia(project);
+    assert.deepEqual(hashes, [{ mediaId: "final-cut:media:one", sha256: createHash("sha256").update("fixture media").digest("hex") }]);
+    assert.doesNotMatch(JSON.stringify(hashes), /fixture\.mov|framekit-evidence-source-hash/);
+    project.media[0]!.source = alias;
+    await assert.rejects(hashCanonicalSourceMedia(project), /FINAL_CUT_E2E_SOURCE_HASH_UNAVAILABLE/);
+    project.media[0]!.source = "https://example.test/fixture.mov";
+    await assert.rejects(hashCanonicalSourceMedia(project), /FINAL_CUT_E2E_SOURCE_HASH_UNAVAILABLE/);
+    project.media[0]!.source = path;
+    project.media.push(structuredClone(project.media[0]!));
+    await assert.rejects(hashCanonicalSourceMedia(project), /FINAL_CUT_E2E_SOURCE_HASH_UNAVAILABLE/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
   }
 });
