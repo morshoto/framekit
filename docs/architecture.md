@@ -74,8 +74,11 @@ revision, and the affected media or occurrence identity when applicable.
 stable target or timeline revision. Read-after-write verifies a mutation
 against the same target and revision contract. Canonical Final Cut reads reject
 live target or revision changes during export; native edits recheck the live
-revision after target resolution. Canonical revision tokens are scoped to the
-provider session and change when the live revision changes. Where live project
+revision after target resolution. If a native edit has an uncertain outcome or
+Undo cannot be verified, the canonical provider blocks further previews and
+edits for that provider session. This guard is not persisted across process
+restarts; restarting does not establish that recovery succeeded. Canonical
+revision tokens are scoped to the provider session and change when the live revision changes. Where live project
 selection is supported, subsequent canonical reads remain bound to the selected
 project and sequence until an explicit new selection succeeds. Passive MCP
 capability and routing inspection does not initiate a headed snapshot export;

@@ -769,6 +769,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   private revisionSequence = 0;
   private revision?: ContextRevision;
   private pending?: PendingNativeOperation;
+  private recoveryRequired = false;
 
   public constructor(options: FinalCutCanonicalNativeProviderOptions) {
     this.live = options.live;
@@ -848,7 +849,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
       },
     });
     const readiness = assessCanonicalLiveReadiness(capabilities);
-    if (readiness.ready) return capabilities;
+    if (readiness.ready && !this.recoveryRequired) return capabilities;
     const canonicalReadReady = capabilities.editor.projectRead
       && capabilities.editor.timelineSnapshotRead
       && capabilities.editor.projectCatalogRead;
@@ -975,6 +976,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     operations: WorkflowOperation[],
     expectedRevision: ContextRevision,
   ): Promise<ProjectSnapshot> {
+    this.assertRecoveryNotRequired();
     const before = await this.readProject();
     assertSameRevision(expectedRevision, before.revision);
     const operation = supportedCanonicalOperation(operations);
@@ -993,6 +995,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   }
 
   public async apply(operation: EditOperation, expectedRevision: ContextRevision): Promise<ContextRevision> {
+    this.assertRecoveryNotRequired();
     const baselineLive = await this.live.readLiveState();
     const before = await this.readProject();
     assertSameRevision(expectedRevision, before.revision);
@@ -1026,7 +1029,8 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
       || currentLive.revision.sequence !== baselineLive.revision.sequence) {
       throw new Error("FINAL_CUT_CANONICAL_TARGET_STALE: live target or revision changed during edit preparation");
     }
-    const nativeResult = supported.type === "rename-clip"
+    const nativeResult = await (async () => {
+      return supported.type === "rename-clip"
       ? await this.native.renameSelectedClip(supported.name)
       : supported.type === "trim-clip"
         ? await this.native.trimSelectedClipToRange!({
@@ -1042,7 +1046,13 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
               duration: markerRange!.duration,
               name: supported.marker.name,
             });
+    })().catch((error: unknown) => {
+      this.recoveryRequired = true;
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: native edit outcome is uncertain: ${detail}`, { cause: error });
+    });
     if (!nativeResult.operationId || !nativeResult.undoAvailable) {
+      this.recoveryRequired = true;
       throw new Error("FINAL_CUT_CANONICAL_UNDO_UNAVAILABLE: native edit did not expose Undo");
     }
     this.pending = {
@@ -1112,6 +1122,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
           readSnapshot: () => this.readProject(),
         });
       } catch (rollbackError) {
+        this.recoveryRequired = true;
         const original = error instanceof Error ? error.message : String(error);
         const rollback = rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
         throw new Error(`FINAL_CUT_CANONICAL_ROLLBACK_FAILED: ${rollback}; original error: ${original}`);
@@ -1119,6 +1130,12 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         this.pending = undefined;
       }
       throw error;
+    }
+  }
+
+  private assertRecoveryNotRequired(): void {
+    if (this.recoveryRequired) {
+      throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: a previous native edit could not be restored; further edits are blocked");
     }
   }
 
@@ -1132,15 +1149,20 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     if (canonicalSnapshotDigest(snapshot) !== pending.beforeDigest) {
       throw new Error("FINAL_CUT_CANONICAL_UNDO_TARGET_MISMATCH: rollback target differs from the applied edit");
     }
-    const undone = await this.native.undo(pending.operationId);
-    if (!undone.undone || undone.verification?.verified !== true) {
-      throw new Error("FINAL_CUT_CANONICAL_UNDO_FAILED: Final Cut did not verify native Undo");
+    try {
+      const undone = await this.native.undo(pending.operationId);
+      if (!undone.undone || undone.verification?.verified !== true) {
+        throw new Error("FINAL_CUT_CANONICAL_UNDO_FAILED: Final Cut did not verify native Undo");
+      }
+      const restored = await this.readProject();
+      if (canonicalSnapshotDigest(restored) !== pending.beforeDigest) {
+        throw new Error("FINAL_CUT_CANONICAL_UNDO_FAILED: restored canonical digest does not match the pre-edit state");
+      }
+      this.pending = undefined;
+    } catch (error) {
+      this.recoveryRequired = true;
+      throw error;
     }
-    const restored = await this.readProject();
-    if (canonicalSnapshotDigest(restored) !== pending.beforeDigest) {
-      throw new Error("FINAL_CUT_CANONICAL_UNDO_FAILED: restored canonical digest does not match the pre-edit state");
-    }
-    this.pending = undefined;
   }
 
   public async listProjects(): Promise<ProjectCatalog> {
