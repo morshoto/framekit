@@ -1038,20 +1038,27 @@ test("uncertain edit remains blocked after provider restart", async () => {
 });
 
 test("automatic recovery does not Undo a different live target", async () => {
-  const original = snapshot("Original");
-  const active = liveState();
-  const calls: string[] = [];
-  const provider = providerFor([original, original], calls, undefined, active, undefined, {
-    renameSelectedClip: async () => {
-      calls.push("edit");
-      assert.ok(active.sequence);
-      active.sequence.id = "different-sequence";
-      return { operationId: "native-edit", undoAvailable: true };
-    },
-  });
-  const before = await provider.readProject();
-  await assert.rejects(provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision), /FINAL_CUT_CANONICAL_ROLLBACK_FAILED/);
-  assert.deepEqual(calls, ["edit"]);
+  const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-target-"));
+  try {
+    const path = join(directory, "checkpoint.json");
+    const original = snapshot("Original");
+    const active = liveState();
+    const calls: string[] = [];
+    const provider = providerFor([original, original], calls, undefined, active, undefined, {
+      renameSelectedClip: async () => {
+        calls.push("edit");
+        assert.ok(active.sequence);
+        active.sequence.id = "different-sequence";
+        return { operationId: "native-edit", undoAvailable: true };
+      },
+    }, new FileCanonicalRecoveryGuard(path));
+    const before = await provider.readProject();
+    await assert.rejects(provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision), /FINAL_CUT_CANONICAL_ROLLBACK_FAILED/);
+    assert.deepEqual(calls, ["edit"]);
+    await assert.rejects(new FileCanonicalRecoveryGuard(path).assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("unverified explicit Undo blocks subsequent canonical edits", async () => {
@@ -1064,7 +1071,7 @@ test("unverified explicit Undo blocks subsequent canonical edits", async () => {
   const before = await provider.readProject();
   const operation = { type: "rename-clip" as const, clipId: "final-cut:occurrence:clip-1", name: "Renamed" };
   const revision = await provider.apply(operation, before.revision);
-  await assert.rejects(provider.restore(before, revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED:.*FINAL_CUT_CANONICAL_UNDO_FAILED/);
+  await assert.rejects(provider.restore(before, revision), /FINAL_CUT_CANONICAL_UNDO_FAILED:.*FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   await assert.rejects(provider.apply(operation, revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   assert.deepEqual(calls, ["edit", "undo"]);
 });

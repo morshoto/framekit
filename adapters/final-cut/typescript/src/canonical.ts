@@ -1040,10 +1040,25 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
       || currentLive.revision.sequence !== baselineLive.revision.sequence) {
       throw new Error("FINAL_CUT_CANONICAL_TARGET_STALE: live target or revision changed during edit preparation");
     }
-    await this.recoveryGuard?.begin({
-      projectId: before.projectId, sequenceId: before.timeline.id,
-      baseRevision: before.revision.id, beforeDigest: canonicalSnapshotDigest(before), operation: supported.type,
-    });
+    if (this.recoveryGuard) {
+      await this.recoveryGuard.begin({
+        projectId: before.projectId, sequenceId: before.timeline.id,
+        baseRevision: before.revision.id, beforeDigest: canonicalSnapshotDigest(before), operation: supported.type,
+      });
+      try {
+        const afterCheckpoint = await this.live.readLiveState();
+        if (afterCheckpoint.project?.id !== currentLive.project.id
+          || afterCheckpoint.sequence?.id !== currentLive.sequence.id
+          || afterCheckpoint.revision?.id !== currentLive.revision.id
+          || afterCheckpoint.revision.sequence !== currentLive.revision.sequence) {
+          throw new Error("FINAL_CUT_CANONICAL_TARGET_STALE: live target or revision changed during recovery checkpoint acquisition");
+        }
+      } catch (error) {
+        // No native command has been dispatched, so this checkpoint is safe to release.
+        await this.recoveryGuard.complete();
+        throw error;
+      }
+    }
     let nativeResult: { operationId: string; undoAvailable: boolean };
     try {
       nativeResult = supported.type === "rename-clip"
@@ -1069,7 +1084,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     }
     if (!nativeResult.operationId || !nativeResult.undoAvailable) {
       this.recoveryRequired = true;
-      throw new Error("FINAL_CUT_CANONICAL_UNDO_UNAVAILABLE: native edit did not expose Undo");
+      throw new Error("FINAL_CUT_CANONICAL_UNDO_UNAVAILABLE: native edit did not expose Undo; FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: further edits are blocked");
     }
     this.pending = {
       operationId: nativeResult.operationId,
@@ -1135,7 +1150,13 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
           operationId: nativeResult.operationId,
           before,
           target: timelineTarget,
-          undo: this.native.undo,
+          undo: async (operationId) => {
+            const live = await this.live.readLiveState();
+            if (live.project?.id !== before.projectId || live.sequence?.id !== before.timeline.id || !live.revision?.id) {
+              throw new Error("FINAL_CUT_CANONICAL_TARGET_STALE: active target is not the edited project and sequence");
+            }
+            return this.native.undo(operationId);
+          },
           readSnapshot: () => this.readProject(),
         });
         await this.recoveryGuard?.complete();
@@ -1143,7 +1164,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         this.recoveryRequired = true;
         const original = error instanceof Error ? error.message : String(error);
         const rollback = rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
-        throw new Error(`FINAL_CUT_CANONICAL_ROLLBACK_FAILED: ${rollback}; original error: ${original}`);
+        throw new Error(`FINAL_CUT_CANONICAL_ROLLBACK_FAILED: ${rollback}; original error: ${original}; FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: further edits are blocked`);
       } finally {
         this.pending = undefined;
       }
@@ -1169,10 +1190,31 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
       throw new Error("FINAL_CUT_CANONICAL_UNDO_TARGET_MISMATCH: rollback target differs from the applied edit");
     }
     await this.assertRecoveryNotRequired();
-    await this.recoveryGuard?.begin({
-      projectId: current.projectId, sequenceId: current.timeline.id,
-      baseRevision: current.revision.id, beforeDigest: canonicalSnapshotDigest(current), operation: "undo",
-    });
+    if (this.recoveryGuard) {
+      const beforeCheckpoint = await this.live.readLiveState();
+      if (beforeCheckpoint.project?.id !== current.projectId || beforeCheckpoint.sequence?.id !== current.timeline.id
+        || beforeCheckpoint.revision?.id !== this.lastLiveRevision?.id
+        || beforeCheckpoint.revision?.sequence !== this.lastLiveRevision?.sequence) {
+        throw new Error("FINAL_CUT_CANONICAL_TARGET_STALE: live target or revision changed before Undo");
+      }
+      await this.recoveryGuard.begin({
+        projectId: current.projectId, sequenceId: current.timeline.id,
+        baseRevision: current.revision.id, beforeDigest: canonicalSnapshotDigest(current), operation: "undo",
+      });
+      try {
+        const afterCheckpoint = await this.live.readLiveState();
+        if (afterCheckpoint.project?.id !== beforeCheckpoint.project?.id
+          || afterCheckpoint.sequence?.id !== beforeCheckpoint.sequence?.id
+          || afterCheckpoint.revision?.id !== beforeCheckpoint.revision?.id
+          || afterCheckpoint.revision?.sequence !== beforeCheckpoint.revision?.sequence) {
+          throw new Error("FINAL_CUT_CANONICAL_TARGET_STALE: live target or revision changed during Undo checkpoint acquisition");
+        }
+      } catch (error) {
+        // No Undo command has been dispatched, so this checkpoint is safe to release.
+        await this.recoveryGuard.complete();
+        throw error;
+      }
+    }
     try {
       const undone = await this.native.undo(pending.operationId);
       if (!undone.undone || undone.verification?.verified !== true) {
@@ -1186,7 +1228,8 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
       this.pending = undefined;
     } catch (error) {
       this.recoveryRequired = true;
-      throw error;
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`FINAL_CUT_CANONICAL_UNDO_FAILED: ${detail}; FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: further edits are blocked`, { cause: error });
     }
   }
 
