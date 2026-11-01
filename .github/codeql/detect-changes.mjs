@@ -10,7 +10,7 @@ export function affectsSwift(paths) {
     path.startsWith('adapters/final-cut/swift-bridge/') ||
     path.startsWith('.github/codeql/') ||
     path === '.github/workflows/codeql.yml' ||
-    path === '.github/workflows/swift.yml' ||
+    path === '.github/workflows/ci.yml' ||
     path === 'nix/check-xcode.sh',
   );
 }
