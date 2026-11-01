@@ -477,7 +477,8 @@ function canonicalRenameEvidence() {
       ["project.inspect", "passed"], ["editor.inspect", "passed"],
       ["editor.timeline.edit", "rejected-stale-context"], ["project.inspect", "unchanged"],
       ["editor.timeline.edit", "rejected-target-mismatch"], ["project.inspect", "unchanged"],
-      ["editor.timeline.edit", "VERIFIED"], ["edit.undo", "passed"],
+      ["editor.timeline.edit.preview", "passed"], ["project.inspect", "unchanged"],
+      ["editor.timeline.edit.execute", "VERIFIED"], ["edit.undo", "passed"],
     ].map(([name, status]) => ({ name, status })),
     mutation: {
       operation: "rename-clip", status: "VERIFIED", timelineChanged: true,

@@ -272,7 +272,8 @@ function assertCanonicalRenameEvidence(raw: Record<string, any>): void {
     ["project.inspect", "passed"], ["editor.inspect", "passed"],
     ["editor.timeline.edit", "rejected-stale-context"], ["project.inspect", "unchanged"],
     ["editor.timeline.edit", "rejected-target-mismatch"], ["project.inspect", "unchanged"],
-    ["editor.timeline.edit", "VERIFIED"], ["edit.undo", "passed"],
+    ["editor.timeline.edit.preview", "passed"], ["project.inspect", "unchanged"],
+    ["editor.timeline.edit.execute", "VERIFIED"], ["edit.undo", "passed"],
   ];
   fail(Array.isArray(raw.toolResults) && raw.toolResults.length === required.length
     && required.every(([name, status], index) => raw.toolResults[index]?.name === name && raw.toolResults[index]?.status === status),

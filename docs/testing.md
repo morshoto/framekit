@@ -112,7 +112,9 @@ For canonical mutation, set `FRAMEKIT_FINAL_CUT_E2E_PROJECT`,
 `FRAMEKIT_FINAL_CUT_E2E_ALLOW_MUTATION=1` for the separately authorized run.
 The runner requires a clean checkout at the approved commit, a matching loaded
 extension, the approved active target and revision, and an unlocked, frontmost
-Final Cut session. It does not retry a failed Undo.
+Final Cut session. It checks the exact rename preview and an unchanged target
+readback before executing the one-use preview token; it does not retry a failed
+Undo.
 Canonical mutation evidence independently checks the snapshot digests, target
 and source binding, advertised rename capability, and rename-only semantic
 projection. The runner hashes every local source before editing and after Undo;

@@ -1,5 +1,6 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
+import { previewAndExecuteCanonicalRename } from "./final-cut-canonical-rename.mjs";
 import { selectCanonicalWriteTarget, readCanonicalWriteTarget } from "./final-cut-canonical-write-target.mjs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -101,15 +102,14 @@ try {
   }
   toolResults.push({ name: "project.inspect", status: "unchanged" });
 
-  const transaction = await callJson("editor.timeline.edit", {
-    projectId: before.projectId,
-    sequenceId: before.timeline.id,
-    type: "rename-clip",
-    clipId,
-    name: `${target.name} [Framekit E2E]`,
-    baseRevision: before.revision,
-  });
-  toolResults.push({ name: "editor.timeline.edit", status: transaction.status });
+  const transaction = await previewAndExecuteCanonicalRename(
+    callJson, () => readCanonicalWriteTarget(callJson, approvedTarget), before, clipId, `${target.name} [Framekit E2E]`,
+  );
+  toolResults.push(
+    { name: "editor.timeline.edit.preview", status: "passed" },
+    { name: "project.inspect", status: "unchanged" },
+    { name: "editor.timeline.edit.execute", status: transaction.status },
+  );
   if (transaction.status !== "VERIFIED" || transaction.diff?.modified?.[0]?.itemId !== clipId) {
     throw new Error("FINAL_CUT_E2E_EDIT_VERIFICATION_FAILED: live edit did not return the expected verified diff");
   }

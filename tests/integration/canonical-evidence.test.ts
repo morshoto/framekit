@@ -35,7 +35,7 @@ test("canonical headed runner rejects unsafe targets before mutation", async () 
 
   const staleProbe = runner.indexOf('status: "rejected-stale-context"');
   const targetProbe = runner.indexOf('status: "rejected-target-mismatch"');
-  const verifiedMutation = runner.indexOf("const transaction = await callJson");
+  const verifiedMutation = runner.indexOf("const transaction = await previewAndExecuteCanonicalRename");
   assert.ok(staleProbe >= 0 && staleProbe < verifiedMutation);
   assert.ok(targetProbe >= 0 && targetProbe < verifiedMutation);
   assert.match(runner, /STALE_CONTEXT/);
@@ -131,7 +131,9 @@ test("canonical headed evidence keeps mutation proof while omitting private snap
       { name: "project.inspect", status: "unchanged" },
       { name: "editor.timeline.edit", status: "rejected-target-mismatch" },
       { name: "project.inspect", status: "unchanged" },
-      { name: "editor.timeline.edit", status: "VERIFIED" },
+      { name: "editor.timeline.edit.preview", status: "passed" },
+      { name: "project.inspect", status: "unchanged" },
+      { name: "editor.timeline.edit.execute", status: "VERIFIED" },
       { name: "edit.undo", status: "passed" },
     ],
     mutation: {
@@ -442,7 +444,9 @@ const rawRun = {
     { name: "project.inspect", status: "unchanged" },
     { name: "editor.timeline.edit", status: "rejected-target-mismatch" },
     { name: "project.inspect", status: "unchanged" },
-    { name: "editor.timeline.edit", status: "VERIFIED" },
+    { name: "editor.timeline.edit.preview", status: "passed" },
+    { name: "project.inspect", status: "unchanged" },
+    { name: "editor.timeline.edit.execute", status: "VERIFIED" },
     { name: "edit.undo", status: "passed" },
   ],
   editStatus: "VERIFIED",
@@ -684,7 +688,7 @@ test("canonical source hashing is content-bound and does not follow symlinks", a
 test("canonical headed runner captures source hashes before editing and after undo", async () => {
   const runner = await readFile(join(process.cwd(), "scripts/final-cut-canonical-headed-e2e.mjs"), "utf8");
   const beforeHash = runner.indexOf("await hashCanonicalSourceMedia(before)");
-  const edit = runner.indexOf("const transaction = await callJson");
+  const edit = runner.indexOf("const transaction = await previewAndExecuteCanonicalRename");
   const undo = runner.indexOf('await callJson("edit.undo"');
   const restoredHash = runner.indexOf("await hashCanonicalSourceMedia(restored)");
   assert.ok(beforeHash >= 0 && beforeHash < edit);
@@ -740,7 +744,7 @@ test("canonical headed write runner requires explicit candidate and bound reads"
   assert.match(runner, /FRAMEKIT_FINAL_CUT_E2E_CANDIDATE_COMMIT/);
   assert.match(runner, /FRAMEKIT_FINAL_CUT_E2E_ALLOW_MUTATION/);
   assert.match(runner, /selectCanonicalWriteTarget\(callJson, approvedTarget\)/);
-  assert.equal((runner.match(/readCanonicalWriteTarget\(callJson, approvedTarget\)/g) ?? []).length, 3);
+  assert.equal((runner.match(/readCanonicalWriteTarget\(callJson, approvedTarget\)/g) ?? []).length, 4);
   assert.doesNotMatch(runner, /callJson\("project\.inspect"\)/);
 });
 
@@ -757,7 +761,7 @@ test("canonical rename executes only its verified non-mutating preview", async (
   const preview = {
     previewToken: "preview-once", target: { kind: "editor.timeline", projectId: before.projectId, sequenceId: before.timeline.id },
     baseRevision: before.revision, operations: [{ type: "rename-clip", clipId: "final-cut:occurrence:one", name: expectedName }], warnings: [],
-    expectedDiff: { added: [], removed: [], modified: [{ itemId: "final-cut:occurrence:one", before: { name: "Interview" }, after: { name: expectedName } }], durationDelta: 0, markerChanges: [], captionChanges: [], storyElementChanges: [], mediaChanges: [] },
+    expectedDiff: { added: [], removed: [], modified: [{ itemId: "final-cut:occurrence:one", before: structuredClone(before.timeline.clips[0]), after: { ...structuredClone(before.timeline.clips[0]), name: expectedName } }], durationDelta: 0, markerChanges: [], captionChanges: [], storyElementChanges: [], mediaChanges: [] },
   };
   const call = async (name: string, args: any) => { calls.push([name, args]); return name.endsWith(".preview") ? structuredClone(preview) : { status: "VERIFIED" }; };
   const result = await previewAndExecuteCanonicalRename(call, async () => structuredClone(before), before, "final-cut:occurrence:one", expectedName);
@@ -777,4 +781,22 @@ test("canonical rename executes only its verified non-mutating preview", async (
     await assert.rejects(previewAndExecuteCanonicalRename(async (name: string) => { attempted.push(name); return badPreview; }, async () => observed, before, "final-cut:occurrence:one", expectedName), /PREVIEW|STALE/);
     assert.deepEqual(attempted, ["editor.timeline.edit.preview"]);
   }
+});
+
+
+test("canonical rename preview works with the real runtime transaction contract", async () => {
+  const { AgentVideoRuntime } = await import("@framekit/runtime");
+  const { InMemoryEditorAdapter } = await import("@framekit/testkit");
+  const { previewAndExecuteCanonicalRename } = await import("../../scripts/final-cut-canonical-rename.mjs");
+  const adapter = new InMemoryEditorAdapter({ projectId: "p", projectName: "Disposable", timelineId: "s", timelineName: "Main", clips: [{ id: "clip", mediaId: "media", name: "Original", start: 0, duration: 5, track: 0 }], media: [{ mediaId: "media", source: "/fixture.mov", mediaKind: "video", duration: 5 }] });
+  const runtime = new AgentVideoRuntime(adapter);
+  const before = await runtime.inspectProject();
+  const call = async (tool: string, args: any) => {
+    if (tool === "editor.timeline.edit.preview") return runtime.previewTimelineEdit({ projectId: args.projectId, sequenceId: args.sequenceId }, { baseRevision: args.baseRevision, operations: args.operations });
+    if (tool === "editor.timeline.edit.execute") return runtime.executeEdit(args.previewToken);
+    throw new Error(`unexpected ${tool}`);
+  };
+  const transaction = await previewAndExecuteCanonicalRename(call, () => runtime.inspectProject(), before, "clip", "Renamed");
+  assert.equal(transaction.status, "VERIFIED");
+  assert.equal(transaction.after.timeline.clips[0].name, "Renamed");
 });

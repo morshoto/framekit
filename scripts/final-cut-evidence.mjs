@@ -45,7 +45,9 @@ const requiredToolResults = [
   ["project.inspect", "unchanged"],
   ["editor.timeline.edit", "rejected-target-mismatch"],
   ["project.inspect", "unchanged"],
-  ["editor.timeline.edit", "VERIFIED"],
+  ["editor.timeline.edit.preview", "passed"],
+  ["project.inspect", "unchanged"],
+  ["editor.timeline.edit.execute", "VERIFIED"],
   ["edit.undo", "passed"],
 ];
 const requiredDisposableToolResults = [
