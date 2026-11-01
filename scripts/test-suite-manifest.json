@@ -223,6 +223,15 @@
       "requires": []
     },
     {
+      "path": "tests/integration/cli-dev-doctor.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
       "path": "tests/integration/cli-development.test.ts",
       "owner": "shared",
       "tags": [
@@ -611,6 +620,15 @@
       "owner": "shared",
       "tags": [
         "fast-integration",
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/fixture-mcp-smoke.test.ts",
+      "owner": "shared",
+      "tags": [
         "fixture-e2e",
         "integration"
       ],
