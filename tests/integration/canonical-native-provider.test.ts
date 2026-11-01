@@ -1734,8 +1734,8 @@ test("canonical target resolver selects the coordinate-matching occurrence from 
 test("canonical target resolver rejects ambiguous native media", async () => {
   const native = {
     searchMedia: async () => [
-      { handle: "media-1", name: "clip.mov", sourceIdentity: "browser-source-1" },
-      { handle: "media-2", name: "clip.mov", sourceIdentity: "browser-source-2" },
+      { handle: "media-1", name: "clip.mov", sourceIdentity: "browser-source-1", source: "/tmp/clip.mov" },
+      { handle: "media-2", name: "clip.mov", sourceIdentity: "browser-source-2", source: "/tmp/clip.mov" },
     ],
     locateOccurrence: async () => ({ status: "none" as const, occurrences: [] }),
   };
