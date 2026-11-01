@@ -869,6 +869,22 @@ test("verification read failure restores trim, marker, ripple, and gain", async 
   }
 });
 
+test("failed verification recovery blocks subsequent canonical edits", async () => {
+  const original = snapshot("Original");
+  const calls: string[] = [];
+  const provider = providerFor(
+    [original, original, new Error("controlled read failure"), original, original, original],
+    calls, undefined, liveState(), undefined,
+    { undo: async () => { calls.push("undo"); return { undone: false, verification: { verified: false } }; } },
+  );
+  const before = await provider.readProject();
+  const operation = { type: "rename-clip" as const, clipId: "final-cut:occurrence:clip-1", name: "Renamed" };
+  await assert.rejects(provider.apply(operation, before.revision), /FINAL_CUT_CANONICAL_ROLLBACK_FAILED/);
+  const observed = await provider.readProject();
+  await assert.rejects(provider.apply(operation, observed.revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  assert.deepEqual(calls, ["edit", "undo"]);
+});
+
 test("canonical native provider rejects collateral changes in rename readback", async () => {
   const calls: string[] = [];
   const after = snapshot("Renamed");
