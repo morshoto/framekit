@@ -111,21 +111,23 @@ async function getPages(repository, path, token) {
   throw new Error('GitHub API pagination exceeded the safety limit');
 }
 
-async function main() {
-  const { GITHUB_REPOSITORY: repository, GITHUB_TOKEN: token, PR_NUMBER: number,
-    PR_HEAD_SHA: headSha, PR_BASE_SHA: baseSha, GITHUB_SHA: mergeSha } = process.env;
-  if (!repository || !token || !/^\d+$/.test(number ?? '') || !headSha || !baseSha || !mergeSha) {
+export async function verifyCurrentPullRequestPolicy({
+  repository, token, pullRequestNumber, expectedHeadSha, expectedBaseSha, expectedMergeSha,
+}) {
+  if (!repository || !token || !Number.isInteger(pullRequestNumber) || pullRequestNumber < 1 ||
+      !expectedHeadSha || !expectedBaseSha || !expectedMergeSha) {
     throw new Error('Missing pull request identity or GitHub credentials');
   }
+  const number = String(pullRequestNumber);
   const pullRequest = await getJSON(apiURL(repository, `/pulls/${number}`), token);
   const baseRef = pullRequest.base?.ref;
-  if (!baseRef || pullRequest.head?.sha !== headSha || pullRequest.base?.sha !== baseSha ||
-      pullRequest.merge_commit_sha !== mergeSha) {
+  if (!baseRef || pullRequest.head?.sha !== expectedHeadSha || pullRequest.base?.sha !== expectedBaseSha ||
+      pullRequest.merge_commit_sha !== expectedMergeSha) {
     throw new Error('Pull request head, base, or merge commit changed before policy evaluation');
   }
   const branchPath = `/branches/${encodeURIComponent(baseRef)}`;
   const branch = await getJSON(apiURL(repository, branchPath), token);
-  if (branch.commit?.sha !== baseSha) throw new Error('The pull request base branch changed');
+  if (branch.commit?.sha !== expectedBaseSha) throw new Error('The pull request base branch changed');
 
   const pullRef = `refs/pull/${number}/merge`;
   const baseRefName = `refs/heads/${baseRef}`;
@@ -134,7 +136,7 @@ async function main() {
     getPages(repository, `/code-scanning/alerts?ref=${encodeURIComponent(baseRefName)}&tool_name=CodeQL&state=open`, token),
     getPages(repository, `/code-scanning/analyses?ref=${encodeURIComponent(baseRefName)}&tool_name=CodeQL`, token),
   ]);
-  const analysis = newestAnalysis(analyses, JAVASCRIPT_CATEGORY, mergeSha, pullRef);
+  const analysis = newestAnalysis(analyses, JAVASCRIPT_CATEGORY, expectedMergeSha, pullRef);
   if (!analysis || analysis.error || !Number.isInteger(analysis.rules_count) || analysis.rules_count <= 0 || !Number.isInteger(analysis.id)) {
     throw new Error('Current JavaScript CodeQL analysis is missing or failed');
   }
@@ -158,14 +160,24 @@ async function main() {
     getJSON(apiURL(repository, `/pulls/${number}`), token),
     getJSON(apiURL(repository, branchPath), token),
   ]);
-  if (currentPull.head?.sha !== headSha || currentPull.base?.sha !== baseSha ||
-      currentPull.merge_commit_sha !== mergeSha || currentBranch.commit?.sha !== baseSha) {
+  if (currentPull.head?.sha !== expectedHeadSha || currentPull.base?.sha !== expectedBaseSha ||
+      currentPull.merge_commit_sha !== expectedMergeSha || currentBranch.commit?.sha !== expectedBaseSha) {
     throw new Error('Pull request evidence became stale during policy evaluation');
   }
-  const result = evaluateCodeQLPolicy({
-    workflowHeadSha: headSha, pullRequestHeadSha: currentPull.head.sha, pullRequestNumber: Number(number),
-    mergeSha, analyses, pullRequestAlerts, baseAlerts,
-    baseSha, baseRef: baseRefName, baseAnalyses,
+  return evaluateCodeQLPolicy({
+    workflowHeadSha: expectedHeadSha, pullRequestHeadSha: currentPull.head.sha, pullRequestNumber,
+    mergeSha: expectedMergeSha, analyses, pullRequestAlerts, baseAlerts,
+    baseSha: expectedBaseSha, baseRef: baseRefName, baseAnalyses,
+  });
+}
+
+async function main() {
+  const { GITHUB_REPOSITORY: repository, GITHUB_TOKEN: token, PR_NUMBER: number,
+    PR_HEAD_SHA: headSha, PR_BASE_SHA: baseSha, GITHUB_SHA: mergeSha } = process.env;
+  if (!/^\d+$/.test(number ?? '')) throw new Error('Missing pull request identity or GitHub credentials');
+  const result = await verifyCurrentPullRequestPolicy({
+    repository, token, pullRequestNumber: Number(number), expectedHeadSha: headSha,
+    expectedBaseSha: baseSha, expectedMergeSha: mergeSha,
   });
   if (!result.pass) throw new Error(result.reasons.join('\n'));
   console.log('Current JavaScript/TypeScript CodeQL analysis satisfies the pull request policy.');

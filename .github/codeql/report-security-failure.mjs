@@ -2,13 +2,19 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ISSUE_TITLE = '[security-ci] Post-push checks failing';
+const REPORTING_ACTOR = 'github-actions[bot]';
 
 function marker(runId, attempt) {
   return `<!-- security-ci-run:${runId}:${attempt} -->`;
 }
 
 export function hasReportedAttempt(comments, runId, attempt) {
-  return comments.some((comment) => comment.body?.includes(marker(runId, attempt)));
+  return comments.some((comment) => comment.user?.login === REPORTING_ACTOR &&
+    comment.body?.includes(marker(runId, attempt)));
+}
+
+export function isReportingIssue(issue) {
+  return !issue.pull_request && issue.title === ISSUE_TITLE && issue.user?.login === REPORTING_ACTOR;
 }
 
 export function failureReport({ sha, runId, attempt, serverUrl, repository, codeql, deep, consumer }) {
@@ -65,7 +71,7 @@ async function main() {
     throw new Error('Refusing to create a security failure report without a failed or cancelled job');
   }
   const endpoint = `https://api.github.com/repos/${repository}`;
-  const issues = (await pages(`${endpoint}/issues?state=open`, token)).filter((issue) => !issue.pull_request && issue.title === ISSUE_TITLE);
+  const issues = (await pages(`${endpoint}/issues?state=open`, token)).filter(isReportingIssue);
   if (issues.length > 1) throw new Error('Multiple open security failure issues require manual reconciliation');
   const body = failureReport({ sha, runId, attempt, serverUrl, repository, codeql, deep, consumer });
   if (issues.length === 0) {

@@ -102,15 +102,6 @@ jobs:
                   category: /language:${{ matrix.language }}
                   wait-for-processing: true
 
-            - name: Enforce JavaScript security policy
-              if: ${{ github.event_name == 'pull_request' }}
-              run: node .github/codeql/verify-policy.mjs
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
-                  PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-                  PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-
     analyze-swift:
         name: Analyze (swift)
         # Skip the expensive macOS scan on PRs and pushes without Swift inputs.

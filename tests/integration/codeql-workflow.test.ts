@@ -169,6 +169,20 @@ test('the pull request CodeQL job does not execute its policy from PR code', asy
 	assert.match(gate, /checks: write/);
 });
 
+test('the trusted policy gate accepts only current CodeQL pull request runs', async () => {
+	const { pullRequestsForCodeQLRun } = await import(
+		new URL('../../.github/codeql/post-codeql-policy-check.mjs', import.meta.url).href
+	) as { pullRequestsForCodeQLRun: (run: Record<string, unknown>) => Array<{ number: number; headSha: string }> };
+	const run = {
+		event: 'pull_request', path: '.github/workflows/codeql.yml', head_sha: 'head-sha',
+		pull_requests: [{ number: 7, head: { sha: 'head-sha' } }],
+	};
+	assert.deepEqual(pullRequestsForCodeQLRun(run), [{ number: 7, headSha: 'head-sha' }]);
+	assert.deepEqual(pullRequestsForCodeQLRun({ ...run, path: '.github/workflows/other.yml' }), []);
+	assert.deepEqual(pullRequestsForCodeQLRun({ ...run, event: 'push' }), []);
+	assert.deepEqual(pullRequestsForCodeQLRun({ ...run, pull_requests: [{ number: 7, head: { sha: 'stale' } }] }), []);
+});
+
 test('a Swift-only finding does not block the JavaScript PR policy', async () => {
 	const { evaluateCodeQLPolicy } = await import(
 		new URL('../../.github/codeql/verify-policy.mjs', import.meta.url).href
@@ -265,11 +279,12 @@ test('post-merge security calls reusable CodeQL and release publishing requires 
 });
 
 test('security failure reporting identifies repeated attempts without duplicating comments', async () => {
-	const { failureReport, hasReportedAttempt } = await import(
+	const { failureReport, hasReportedAttempt, isReportingIssue } = await import(
 		new URL('../../.github/codeql/report-security-failure.mjs', import.meta.url).href
 	) as {
 		failureReport: (input: Record<string, string>) => string;
 		hasReportedAttempt: (comments: Array<{ body?: string; user?: { login?: string } }>, runId: string, attempt: string) => boolean;
+		isReportingIssue: (issue: { title: string; pull_request?: unknown; user?: { login?: string } }) => boolean;
 	};
 	const body = failureReport({ sha: 'abc123', runId: '42', attempt: '2', serverUrl: 'https://github.com', repository: 'owner/repo', codeql: 'failure', deep: 'success', consumer: 'success' });
 	assert.match(body, /abc123/);
@@ -277,6 +292,9 @@ test('security failure reporting identifies repeated attempts without duplicatin
 	assert.equal(hasReportedAttempt([{ body, user: { login: 'github-actions[bot]' } }], '42', '2'), true);
 	assert.equal(hasReportedAttempt([{ body, user: { login: 'contributor' } }], '42', '2'), false);
 	assert.equal(hasReportedAttempt([{ body, user: { login: 'github-actions[bot]' } }], '42', '3'), false);
+	assert.equal(isReportingIssue({ title: '[security-ci] Post-push checks failing', user: { login: 'github-actions[bot]' } }), true);
+	assert.equal(isReportingIssue({ title: '[security-ci] Post-push checks failing', user: { login: 'contributor' } }), false);
+	assert.equal(isReportingIssue({ title: '[security-ci] Post-push checks failing', pull_request: {}, user: { login: 'github-actions[bot]' } }), false);
 });
 
 test('CodeQL policy accepts a current JavaScript scan when Swift is unchanged', async () => {
