@@ -58,6 +58,8 @@ test("publisher QA checks the independent fixture order, ranges, title and music
     },
   };
   assert.doesNotThrow(() => verifyAcceptanceFixture(snapshot));
+  snapshot.timeline.frameDuration = { value: "2", timescale: "48" };
+  assert.doesNotThrow(() => verifyAcceptanceFixture(snapshot), "equivalent rational frame durations describe the same timebase");
   snapshot.timeline.clips[0]!.sourceStartTime = time(4);
   assert.throws(() => verifyAcceptanceFixture(snapshot), /PUBLISH_FIXTURE_MISMATCH/);
 });
