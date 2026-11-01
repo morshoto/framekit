@@ -2288,6 +2288,34 @@ test("an uncertain dispatch retains its error through verification and restart",
   assert.equal(attempts, 1);
 });
 
+test("an uncertain import keeps the dispatched artifact available across restart", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-publisher-pending-artifact-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const targetLibraryPath = join(directory, "new.fcpbundle");
+  const source = '<fcpxml version="1.11"><library><event><project uid="p" name="Pending"><sequence uid="s" name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let deliveredPath = "";
+  let attempts = 0;
+  const options = {
+    enabled: true, sourcePath, publishJobsDirectory: join(directory, "jobs"), verificationTimeoutMs: 0, pollIntervalMs: 0,
+    documentDelivery: { deliverFcpxml: async (request: { artifactPath: string }) => { deliveredPath = request.artifactPath; attempts++; throw new Error("FINAL_CUT_DELIVERY_TIMEOUT: acknowledgment unavailable"); } },
+    targetBinding: async () => { throw new Error("FINAL_CUT_PUBLISH_TARGET_PENDING: target unavailable"); },
+    liveState: async () => ({
+      project: { id: "before", name: "Before" },
+      sequence: { id: "before-sequence", name: "Before", startTime: { value: "0", timescale: "1" }, duration: { value: "1", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+      revision: { id: "before", sequence: 1, timestamp: new Date(0).toISOString() },
+    }),
+  };
+  const publisher = createPublisherForTest(options);
+  const prepared = await publisher.preparePublish({ sourceTransactionId: "txn", artifactPath: sourcePath, artifactDigest: digest(source), targetLibraryPath });
+  const pending = await publisher.executePublishJob(prepared.jobId, true);
+  assert.equal(pending.state, "verification-pending");
+  assert.match(await readFile(deliveredPath, "utf8"), /<fcpxml/);
+  assert.equal(createPublisherForTest(options).getPublishJob(prepared.jobId).state, "verification-pending");
+  assert.match(await readFile(deliveredPath, "utf8"), /<fcpxml/);
+  assert.equal(attempts, 1);
+});
+
 test("direct publish refuses import without explicit readback authorization", async () => {
   let calls = 0;
   const publisher = createPublisherForTest({
