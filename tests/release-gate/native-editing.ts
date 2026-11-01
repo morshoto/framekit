@@ -126,6 +126,8 @@ export function summarizeHeadedEvidence(
   const evidenceType = requireString(raw.evidenceType, "headed evidence type");
   assert.equal(workflow.evidenceTypes.includes(evidenceType), true, `${workflow.id}: unexpected headed evidence type`);
 
+  if (evidenceType === "headed-native-canonical-mutation") assertCanonicalRenameEvidence(raw);
+
   const environment = raw.environment as Record<string, unknown> | undefined;
   const sanitizedEnvironment = {
     framekitVersion: requireString(environment?.framekitVersion, "headed framekit version"),
@@ -249,6 +251,49 @@ function assessNativeAssets(
 function checksumLineMatches(content: string, archiveName: string, archiveSha256: string): boolean {
   const escapedName = archiveName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`^${archiveSha256}\\s+\\*?${escapedName}$`, "i").test(content.trim());
+}
+
+function assertCanonicalRenameEvidence(raw: Record<string, any>): void {
+  const fail = (condition: unknown, detail: string) => assert.ok(condition, `canonical evidence: ${detail}`);
+  const project = raw.project;
+  const target = raw.target;
+  const editor = raw.capabilities?.editor;
+  fail(raw.schemaVersion === 1 && safeTargetString(project?.id) && safeProjectString(project?.name)
+    && safeTargetString(project?.sequenceId) && safeTargetString(target?.occurrenceId)
+    && safeTargetString(target?.mediaId), "target identity is missing");
+  fail(editor?.canonicalTimelineMode === "canonical-write" && editor?.semanticOperations?.["rename-clip"] === true,
+    "rename capability is missing");
+  const source = raw.sourceMediaIntegrity;
+  fail(Number.isSafeInteger(source?.sourceCount) && source.sourceCount > 0 && Array.isArray(source.digests)
+    && source.digests.length === source.sourceCount && source.digests.every((digest: unknown) => typeof digest === "string" && /^[a-f0-9]{64}$/i.test(digest)),
+    "source integrity is incomplete");
+  const required = [
+    ["editor.inspect", "passed"], ["project.list", "passed"], ["project.select", "passed"],
+    ["project.inspect", "passed"], ["editor.inspect", "passed"],
+    ["editor.timeline.edit", "rejected-stale-context"], ["project.inspect", "unchanged"],
+    ["editor.timeline.edit", "rejected-target-mismatch"], ["project.inspect", "unchanged"],
+    ["editor.timeline.edit", "VERIFIED"], ["edit.undo", "passed"],
+  ];
+  fail(Array.isArray(raw.toolResults) && raw.toolResults.length === required.length
+    && required.every(([name, status], index) => raw.toolResults[index]?.name === name && raw.toolResults[index]?.status === status),
+    "required workflow results are incomplete");
+  const mutation = raw.mutation;
+  const restoration = raw.restoration;
+  const before = mutation?.beforeRevision;
+  const after = mutation?.afterRevision;
+  const restored = restoration?.restoredRevision;
+  fail(mutation?.operation === "rename-clip" && mutation.status === "VERIFIED" && mutation.timelineChanged === true
+    && restoration?.operation === "edit.undo" && restoration.status === "VERIFIED" && restoration.restored === true,
+    "rename or Undo is not verified");
+  fail([before, after, restored].every((revision) => safeTargetString(revision?.id) && Number.isSafeInteger(revision?.sequence))
+    && before.sequence < after.sequence && after.sequence < restored.sequence
+    && before.id !== after.id && after.id !== restored.id, "revisions do not advance");
+  fail(typeof restoration.beforeDigest === "string" && /^[a-f0-9]{64}$/i.test(restoration.beforeDigest)
+    && restoration.beforeDigest === restoration.restoredDigest, "restoration digest does not match");
+  const diff = mutation.diff;
+  fail(diff?.addedCount === 0 && diff.removedCount === 0 && diff.modifiedCount === 1
+    && Array.isArray(diff.modifiedItemIds) && diff.modifiedItemIds.length === 1
+    && diff.modifiedItemIds[0] === target.occurrenceId && diff.durationDelta === 0, "rename diff is not confined to the target");
 }
 
 function extractTarget(raw: Record<string, any>): HeadedEvidenceSummary["target"] {

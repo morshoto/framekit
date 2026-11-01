@@ -437,7 +437,7 @@ test("complete headed evidence promotes every claimed native workflow", async ()
 
   try {
     for (const record of records) {
-      await writeFile(join(directory, record.file), JSON.stringify({
+      const evidence = record.evidenceType === "headed-native-canonical-mutation" ? canonicalRenameEvidence() : {
         schemaVersion: 1,
         evidenceType: record.evidenceType,
         passed: true,
@@ -445,7 +445,8 @@ test("complete headed evidence promotes every claimed native workflow", async ()
         target: record.target,
         revisions: { before: "rev-1", after: "rev-2", restored: "rev-3" },
         verification: { execute: true, undo: true },
-      }), "utf8");
+      };
+      await writeFile(join(directory, record.file), JSON.stringify(evidence), "utf8");
     }
 
     const report = await runReleaseGate({ headedEvidenceDirectory: directory });

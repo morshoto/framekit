@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { buildFinalCutCanonicalExportScript } from "../../adapters/final-cut/typescript/src/canonical.js";
 import { canonicalSnapshotDigest } from "../../packages/runtime/src/timeline/snapshot-digest.js";
 import { canonicalEvidenceDigest, hashCanonicalSourceMedia, sanitizeCanonicalEvidence, sanitizeCanonicalReadEvidence } from "../../scripts/final-cut-evidence.mjs";
+import { loadNativeEditingManifest, summarizeHeadedEvidence } from "../release-gate/native-editing.js";
 
 test("canonical export resolves the Final Cut save field by stable accessibility id", () => {
   const script = buildFinalCutCanonicalExportScript("/tmp/framekit/active.fcpxml");
@@ -161,6 +162,10 @@ test("canonical headed evidence keeps mutation proof while omitting private snap
       omitted: ["media sources", "raw snapshots", "transaction identifiers", "diagnostics"],
     },
   });
+
+  const canonicalWorkflow = loadNativeEditingManifest().workflows.find((workflow) => workflow.id === "canonical-live");
+  assert.ok(canonicalWorkflow);
+  assert.equal(summarizeHeadedEvidence(evidence, canonicalWorkflow).status, "verified");
 
   const serialized = JSON.stringify(evidence);
   assert.equal(serialized.includes("/Users/private/secret-footage.mov"), false);
