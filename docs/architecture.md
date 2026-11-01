@@ -76,8 +76,11 @@ against the same target and revision contract. Canonical Final Cut reads reject
 live target or revision changes during export; native edits recheck the live
 revision after target resolution. If a native edit has an uncertain outcome or
 Undo cannot be verified, the canonical provider blocks further previews and
-edits for that provider session. This guard is not persisted across process
-restarts; restarting does not establish that recovery succeeded. Canonical
+edits. Production native sessions create an exclusive checkpoint under the
+configured Framekit state directory before mutation; an unresolved checkpoint
+continues to block sessions that use that directory after a restart. Restarting
+or changing state directories does not establish that recovery succeeded. There
+is no automatic checkpoint reset or supported recovery flow yet. Canonical
 revision tokens are scoped to the provider session and change when the live revision changes. Where live project
 selection is supported, subsequent canonical reads remain bound to the selected
 project and sequence until an explicit new selection succeeds. Passive MCP

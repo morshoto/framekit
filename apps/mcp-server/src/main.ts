@@ -11,6 +11,7 @@ import {
   FinalCutConnectionManager,
   assertCanonicalProviderConfiguration,
   FinalCutCanonicalNativeProvider,
+  FileCanonicalRecoveryGuard,
   FinalCutCanonicalSnapshotSource,
   FinalCutLibraryInspectionProvider,
   FinalCutNativeAutomationAdapter,
@@ -78,6 +79,7 @@ const fixture = new InMemoryEditorAdapter({
   }],
 });
 
+const framekitStateDirectory = process.env.FRAMEKIT_STATE_DIR ?? join(homedir(), ".framekit");
 const liveMode = process.env.FRAMEKIT_EDITOR === "final-cut-live";
 const headlessFinalCut = liveMode && process.env.FRAMEKIT_FINAL_CUT_HEADLESS === "1";
 const fcpxmlPath = liveMode ? process.env.FRAMEKIT_FCPXML_PATH : undefined;
@@ -126,6 +128,7 @@ const canonicalNativeTargetResolver = canonicalNativeProviderEnabled
 
 const canonicalNativeProvider = canonicalNativeProviderEnabled
   ? new FinalCutCanonicalNativeProvider({
+      recoveryGuard: new FileCanonicalRecoveryGuard(join(framekitStateDirectory, "canonical-recovery", "pending.json")),
       live: liveAdapter!,
       native: {
         renameSelectedClip: async (name) => {
@@ -196,7 +199,6 @@ const editor = liveMode
     })
   : fixture;
 
-const framekitStateDirectory = process.env.FRAMEKIT_STATE_DIR ?? join(homedir(), ".framekit");
 const analyzers = liveMode
   ? createCommandAnalyzers({
       speechCommand: process.env.FRAMEKIT_SPEECH_ANALYZER,

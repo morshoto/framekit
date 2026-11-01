@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -200,7 +200,7 @@ function providerFor(
   activeState: EditorLiveState = liveState(),
   backgroundCatalog?: FinalCutBackgroundCatalogProvider,
   nativeOverrides: Partial<CanonicalNativeMutationPort> = {},
-  recoveryGuard?: { assertClear(): Promise<void>; begin(): Promise<void>; complete(): Promise<void> },
+  recoveryGuard?: { assertClear(): Promise<void>; begin(checkpoint: { projectId: string; sequenceId: string; baseRevision: string; beforeDigest: string; operation: string }): Promise<void>; complete(): Promise<void> },
 ) {
   const native = {
     renameSelectedClip: async () => {
@@ -922,9 +922,11 @@ test("durable canonical recovery checkpoint blocks other instances until its own
     const owner = new FileCanonicalRecoveryGuard(path);
     const restarted = new FileCanonicalRecoveryGuard(path);
     await owner.assertClear();
-    await owner.begin();
+    const checkpoint = { projectId: "project-1", sequenceId: "sequence-1", baseRevision: "rev-1", beforeDigest: "digest-1", operation: "rename-clip" };
+    await owner.begin(checkpoint);
+    assert.deepEqual(JSON.parse(await readFile(path, "utf8")).checkpoint, checkpoint);
     await assert.rejects(restarted.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
-    await assert.rejects(restarted.begin(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await assert.rejects(restarted.begin(checkpoint), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     await assert.rejects(restarted.complete(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     await owner.complete();
     await restarted.assertClear();
@@ -933,25 +935,73 @@ test("durable canonical recovery checkpoint blocks other instances until its own
   }
 });
 
+test("verified canonical edit clears its checkpoint", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-success-"));
+  try {
+    const path = join(directory, "checkpoint.json");
+    const original = snapshot("Original");
+    const calls: string[] = [];
+    const provider = providerFor([original, original, snapshot("Renamed")], calls, undefined, liveState(), undefined, {}, new FileCanonicalRecoveryGuard(path));
+    const before = await provider.readProject();
+    await provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision);
+    assert.deepEqual(calls, ["edit"]);
+    await new FileCanonicalRecoveryGuard(path).assertClear();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("checkpoint creation failure prevents native mutation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-unavailable-"));
+  try {
+    const parent = join(directory, "not-a-directory");
+    await writeFile(parent, "file");
+    const original = snapshot("Original");
+    const calls: string[] = [];
+    const provider = providerFor([original, original], calls, undefined, liveState(), undefined, {}, new FileCanonicalRecoveryGuard(join(parent, "checkpoint.json")));
+    const before = await provider.readProject();
+    await assert.rejects(provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision));
+    assert.deepEqual(calls, []);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("verified recovery clears the durable checkpoint", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-verified-"));
+  try {
+    const path = join(directory, "checkpoint.json");
+    const original = snapshot("Original");
+    const calls: string[] = [];
+    const provider = providerFor([original, original, new Error("readback failed"), original], calls, undefined, liveState(), undefined, {}, new FileCanonicalRecoveryGuard(path));
+    const before = await provider.readProject();
+    await assert.rejects(provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision), /readback failed/);
+    assert.deepEqual(calls, ["edit", "undo"]);
+    await new FileCanonicalRecoveryGuard(path).assertClear();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("uncertain edit remains blocked after provider restart", async () => {
-  let pending = false;
-  const recoveryGuard = {
-    assertClear: async () => { if (pending) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: unresolved native edit"); },
-    begin: async () => { if (pending) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: unresolved native edit"); pending = true; },
-    complete: async () => { pending = false; },
-  };
-  const original = snapshot("Original");
-  const calls: string[] = [];
-  const failed = providerFor([original, original], calls, undefined, liveState(), undefined, {
-    renameSelectedClip: async () => { calls.push("edit"); throw new Error("uncertain dispatch"); },
-  }, recoveryGuard);
-  const before = await failed.readProject();
-  const operation = { type: "rename-clip" as const, clipId: "final-cut:occurrence:clip-1", name: "Renamed" };
-  await assert.rejects(failed.apply(operation, before.revision), /uncertain dispatch/);
-  const restarted = providerFor([original, original, original], calls, undefined, liveState(), undefined, {}, recoveryGuard);
-  const rebound = await restarted.readProject();
-  await assert.rejects(restarted.apply(operation, rebound.revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
-  assert.deepEqual(calls, ["edit"]);
+  const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-restart-"));
+  try {
+    const path = join(directory, "checkpoint.json");
+    const original = snapshot("Original");
+    const calls: string[] = [];
+    const failed = providerFor([original, original], calls, undefined, liveState(), undefined, {
+      renameSelectedClip: async () => { calls.push("edit"); throw new Error("uncertain dispatch"); },
+    }, new FileCanonicalRecoveryGuard(path));
+    const before = await failed.readProject();
+    const operation = { type: "rename-clip" as const, clipId: "final-cut:occurrence:clip-1", name: "Renamed" };
+    await assert.rejects(failed.apply(operation, before.revision), /uncertain dispatch/);
+    const restarted = providerFor([original, original, original], calls, undefined, liveState(), undefined, {}, new FileCanonicalRecoveryGuard(path));
+    const rebound = await restarted.readProject();
+    await assert.rejects(restarted.apply(operation, rebound.revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    assert.deepEqual(calls, ["edit"]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("unverified explicit Undo blocks subsequent canonical edits", async () => {
