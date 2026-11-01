@@ -704,14 +704,15 @@ test("canonical write target is bound before selection and every headed read", a
     calls.push([name, args]);
     if (name === "project.list") return { activeProjectId: "p", activeSequenceId: "s", projects: [{ id: "p", name: "Disposable", sequences: [{ id: "s" }] }] };
     if (name === "project.select") return { activeProjectId: "p", activeSequenceId: "s" };
-    if (name === "project.inspect") return { projectId: "p", projectName: "Disposable", timeline: { id: "s" } };
+    if (name === "project.inspect") return { projectId: "p", projectName: "Disposable", timeline: { id: "s" }, revision: { id: "r" } };
     throw new Error(`unexpected ${name}`);
   };
-  await selectCanonicalWriteTarget(call, expected);
+  await selectCanonicalWriteTarget(call, expected, "r");
   await readCanonicalWriteTarget(call, expected);
   await readCanonicalWriteTarget(call, expected);
   assert.deepEqual(calls, [
     ["project.list", undefined],
+    ["project.inspect", { confirmHeadedRead: true, expectedTarget: { projectId: "p", sequenceId: "s" } }],
     ["project.select", { projectId: "p", sequenceId: "s" }],
     ...Array(2).fill(["project.inspect", { confirmHeadedRead: true, expectedTarget: { projectId: "p", sequenceId: "s" } }]),
   ]);
@@ -727,7 +728,7 @@ test("canonical write target rejects different or ambiguous catalog identities b
     { activeProjectId: "p", activeSequenceId: "s", projects: [{ id: "p", name: "Other", sequences: [{ id: "s" }] }] },
   ]) {
     const calls: string[] = [];
-    await assert.rejects(selectCanonicalWriteTarget(async (name: string) => { calls.push(name); return catalog; }, expected), /TARGET_MISMATCH/);
+    await assert.rejects(selectCanonicalWriteTarget(async (name: string) => { calls.push(name); return catalog; }, expected, "r"), /TARGET_MISMATCH/);
     assert.deepEqual(calls, ["project.list"]);
   }
 });
@@ -743,7 +744,7 @@ test("canonical headed write runner requires explicit candidate and bound reads"
   assert.match(runner, /FRAMEKIT_FINAL_CUT_E2E_SEQUENCE_ID/);
   assert.match(runner, /FRAMEKIT_FINAL_CUT_E2E_CANDIDATE_COMMIT/);
   assert.match(runner, /FRAMEKIT_FINAL_CUT_E2E_ALLOW_MUTATION/);
-  assert.match(runner, /selectCanonicalWriteTarget\(callJson, approvedTarget\)/);
+  assert.match(runner, /selectCanonicalWriteTarget\(callJson, approvedTarget, approvedRevision\)/);
   assert.equal((runner.match(/readCanonicalWriteTarget\(callJson, approvedTarget\)/g) ?? []).length, 4);
   assert.doesNotMatch(runner, /callJson\("project\.inspect"\)/);
 });
@@ -799,4 +800,18 @@ test("canonical rename preview works with the real runtime transaction contract"
   const transaction = await previewAndExecuteCanonicalRename(call, () => runtime.inspectProject(), before, "clip", "Renamed");
   assert.equal(transaction.status, "VERIFIED");
   assert.equal(transaction.after.timeline.clips[0].name, "Renamed");
+});
+
+
+test("canonical write checks the approved revision before selection", async () => {
+  const { selectCanonicalWriteTarget } = await import("../../scripts/final-cut-canonical-write-target.mjs");
+  const calls: string[] = [];
+  const call = async (name: string) => {
+    calls.push(name);
+    return name === "project.list"
+      ? { activeProjectId: "p", activeSequenceId: "s", projects: [{ id: "p", name: "Disposable", sequences: [{ id: "s" }] }] }
+      : { projectId: "p", projectName: "Disposable", timeline: { id: "s" }, revision: { id: "other" } };
+  };
+  await assert.rejects(selectCanonicalWriteTarget(call, { projectId: "p", projectName: "Disposable", sequenceId: "s" }, "approved"), /STALE_CONTEXT/);
+  assert.deepEqual(calls, ["project.list", "project.inspect"]);
 });
