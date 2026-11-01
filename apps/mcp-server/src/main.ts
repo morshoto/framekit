@@ -126,7 +126,7 @@ const canonicalNativeTargetResolver = canonicalNativeProviderEnabled
   ? createFinalCutNativeTargetResolver(nativeEditor!)
   : undefined;
 
-const canonicalRecovery = canonicalNativeProviderEnabled
+const canonicalRecovery = liveMode
   ? new FileCanonicalRecoveryGuard(join(framekitStateDirectory, "canonical-recovery", "pending.json"))
   : undefined;
 const canonicalNativeProvider = canonicalNativeProviderEnabled

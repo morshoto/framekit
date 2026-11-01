@@ -80,8 +80,9 @@ revision after target resolution. If a native edit has an uncertain outcome or
 Undo cannot be verified, the canonical provider blocks further previews and
 edits. Production native sessions create an exclusive checkpoint under the
 configured Framekit state directory before mutation; an unresolved checkpoint
-continues to block sessions that use that directory after a restart. Direct
-native edits, native jobs, and native publishing routes check for an existing
+continues to block sessions that use that directory after a restart. Live-mode
+MCP processes consult the configured state directory even when their canonical
+native provider is disabled. Direct native edits, native jobs, and native publishing routes check for an existing
 checkpoint before dispatch, while status, cancellation, and inspection remain
 available. Those entry checks do not serialize a concurrently starting direct
 native operation with checkpoint creation; the shared exclusion boundary is not
