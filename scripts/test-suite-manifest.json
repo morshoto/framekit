@@ -10,6 +10,14 @@
       "requires": []
     },
     {
+      "path": "packages/runtime/test/storage-ports.test.ts",
+      "owner": "packages/runtime",
+      "tags": [
+        "unit"
+      ],
+      "requires": []
+    },
+    {
       "path": "tests/evaluation/mcp-evaluation.test.ts",
       "owner": "shared",
       "tags": [

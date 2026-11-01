@@ -166,3 +166,12 @@ or uncertain source state blocks materialization and publication until the
 caller obtains a new observation or resolves the conflict. Background library
 and SQLite observations retain their provider provenance and do not become a
 canonical timeline solely because they contain familiar fields.
+
+Application services depend on narrow storage contracts. `ProjectStore` is
+implemented by `FramekitProjectStore`, which remains the default schema-versioned
+JSON adapter and preserves the existing project path, atomic writes, and revision
+checks. `TransactionStore` is implemented by the in-memory transaction store
+used by the runtime. Session persistence and semantic media indexing keep
+separate contracts and adapters; the semantic media index already follows this
+pattern, while session persistence can adopt it in its own change without
+changing project storage.
