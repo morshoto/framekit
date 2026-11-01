@@ -11,11 +11,11 @@ pnpm run check:docs
 ```
 
 `pnpm run test` includes deterministic unit and integration tests, release
-contract tests, and the documentation allowlist/link tests. CI also runs a
-clean Codex plugin install, deterministic MCP evaluation, the filler-removal
-benchmark, and the repository release gate. A documentation-only change still
-runs build, the full test suite, package-boundary checks, documentation checks,
-and release validation.
+contract tests, and the documentation allowlist/link tests. PR CI runs
+`pnpm run test:fast` for unit, selected contract, and critical integration
+coverage. After a push to `main`, Security CI runs the full suite, clean Codex
+plugin install, deterministic MCP evaluation, filler-removal benchmark, and
+repository release gate. PRs also run build, boundary, and documentation checks.
 
 For native source changes, also run:
 

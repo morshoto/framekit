@@ -78,16 +78,35 @@ test("test suites report unavailable prerequisites before execution", async () =
   }), { ready: false, missing: ["Node.js 20 or newer"] });
 });
 
-test("CI keeps the inventory-driven aggregate suite as a required gate", async () => {
+test("fast CI and post-merge validation preserve reviewed test coverage", async () => {
   const workflow = await readFile(resolve(repository, ".github/action/test/action.yml"), "utf8");
+  const security = await readFile(resolve(repository, ".github/workflows/security.yml"), "utf8");
   const packageJson = JSON.parse(await readFile(resolve(repository, "package.json"), "utf8")) as {
     scripts?: Record<string, string>;
   };
   const documentation = await readFile(resolve(repository, "tests/README.md"), "utf8");
 
-  assert.match(workflow, /run: pnpm run test/);
+  assert.match(workflow, /validation-level:/);
+  assert.match(workflow, /run: pnpm run test:fast/);
+  assert.match(workflow, /run: pnpm run test\s*$/m);
+  assert.match(security, /uses: \.\/\.github\/action\/test/);
+  assert.match(security, /validation-level: full/);
   assert.match(workflow, /Install FFmpeg fixture toolchain/);
+  const manifest = await loadTestSuiteManifest(repository);
+  const fast = selectTestFiles(manifest, "fast");
+  const deepOnly = ["tests/integration/finalcut-mcp.test.ts", "tests/integration/headless-project-mcp.test.ts"];
+  for (const suite of ["unit", "contract"]) {
+    for (const file of selectTestFiles(manifest, suite)) {
+      assert.equal(fast.includes(file), !deepOnly.includes(file), file);
+    }
+  }
+  for (const file of deepOnly) assert.ok(selectTestFiles(manifest, "all").includes(file), file);
+  for (const file of ["tests/integration/basic-editing-mvp.test.ts", "tests/integration/runtime.test.ts", "tests/integration/codeql-workflow.test.ts"]) {
+    assert.ok(fast.includes(file), file);
+  }
+  assert.ok(selectTestFiles(manifest, "all").length > fast.length);
   for (const [script, suite] of [
+    ["test:fast", "fast"],
     ["test:unit", "unit"],
     ["test:contracts", "contract"],
     ["test:fixtures", "fixture"],

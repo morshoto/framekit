@@ -155,7 +155,7 @@ test('classifies release categories from existing labels and excludes tagpr', as
 
 test('format workflows target tag PR previews, draft releases, and published releases', async () => {
 	const workflow = await readFile(
-		resolve(repository, '.github/workflows/format-release-notes.yml'),
+		resolve(repository, '.github/workflows/release.yml'),
 		'utf8',
 	);
 
@@ -169,11 +169,12 @@ test('format workflows target tag PR previews, draft releases, and published rel
 	assert.match(workflow, /github-release:[\s\S]*?contents: write/);
 	assert.equal(
 		workflow.match(/node scripts\/format-release-notes\.mjs/g)?.length,
-		2,
-		'the same formatter should be used for the release PR and final release',
+		3,
+		'the same formatter should be used for draft, PR, and published release notes',
 	);
-	const releaseWorkflow = await readFile(resolve(repository, '.github/workflows/release.yml'), 'utf8');
-	assert.match(releaseWorkflow, /name: Format draft release notes/);
-	assert.match(releaseWorkflow, /node scripts\/format-release-notes\.mjs/);
-	assert.match(releaseWorkflow, /steps\.run-tagpr\.outputs\.tag/);
+	assert.match(workflow, /name: Format draft release notes/);
+	assert.match(workflow, /steps\.run-tagpr\.outputs\.tag/);
+	assert.match(workflow, /name: Format generated release notes in tagpr PR/);
+	assert.match(workflow, /name: Format generated release notes in GitHub release/);
+	assert.doesNotMatch(workflow, /format-release-notes\.yml/);
 });
