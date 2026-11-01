@@ -539,6 +539,14 @@ export function validateTimelineIr(timeline: TimelineIr): void {
         throw new Error(`TIMELINE_IR_INVALID: occurrence ${occurrence.id} source range exceeds resource ${resource.id}`);
       }
     }
+    if (occurrence.nativeAudioRole !== undefined && (
+      typeof occurrence.nativeAudioRole !== "string"
+      || !/^dialogue\.[^.]+$/.test(occurrence.nativeAudioRole)
+      || occurrence.role === "music"
+      || occurrence.role === "title"
+    )) {
+      throw new Error(`TIMELINE_IR_INVALID: occurrence ${occurrence.id}.nativeAudioRole is unsupported or inconsistent`);
+    }
     if (occurrence.gainDb !== undefined && !Number.isFinite(occurrence.gainDb)) throw new Error(`TIMELINE_IR_INVALID: occurrence ${occurrence.id}.gainDb must be finite`);
     if (occurrence.transform) validateTransform(occurrence.transform, `occurrence ${occurrence.id}.transform`);
     validateBinding(occurrence.binding, `occurrence ${occurrence.id}.binding`);
