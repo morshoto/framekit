@@ -2343,3 +2343,22 @@ test("native reservations share the canonical checkpoint and survive lost owners
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("canonical resolver rejects mismatched native identity before selecting an occurrence", async () => {
+  for (const mismatch of ["sequence", "source", "missing-sequence"] as const) {
+    const selected: string[] = [];
+    const native = {
+      searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1" }],
+      locateOccurrence: async () => ({ status: "unique" as const, occurrences: [{
+        handle: "occurrence-handle", mediaHandle: "media-handle", name: "Original", identity: "native-occurrence-1",
+        start: "0/24", duration: "96/24",
+        ...(mismatch !== "missing-sequence" ? { sequenceId: mismatch === "sequence" ? "other-sequence" : "final-cut:sequence:sequence-1" } : {}),
+        sourceIdentity: mismatch === "source" ? "other-source" : "browser-source-1",
+      }] }),
+      selectOccurrence: async (handle: string) => { selected.push(handle); return {} as never; },
+    };
+    const project = snapshot("Original");
+    await assert.rejects(createFinalCutNativeTargetResolver(native)(project.timeline.clips[0]!, project), /TARGET_MISMATCH/, mismatch);
+    assert.deepEqual(selected, [], mismatch);
+  }
+});
