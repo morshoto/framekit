@@ -2325,6 +2325,13 @@ test("native reservations share the canonical checkpoint and survive lost owners
     await other.begin(checkpoint);
     await assert.rejects(direct.beginNative("editor.native.edit"), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     await other.complete();
+    const displaced = await direct.beginNative("editor.native.edit");
+    await rm(path);
+    const replacement = await other.beginNative("editor.native.edit");
+    assert.notEqual(displaced.reservationId, replacement.reservationId);
+    await assert.rejects(displaced.release(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    assert.equal((await direct.inspectNativeReservation())?.reservationId, replacement.reservationId);
+    await replacement.release();
     await direct.beginNative("editor.native.edit");
     const restarted = new FileCanonicalRecoveryGuard(path);
     assert.equal((await restarted.inspectNativeReservation())?.operation, "editor.native.edit");
