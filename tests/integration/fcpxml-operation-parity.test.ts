@@ -52,6 +52,17 @@ test("FCPXML snapshots preserve native dialogue subroles", async () => {
   assert.equal(ir.sequence.occurrences.find((item) => item.id === "clip-a")?.nativeAudioRole, "dialogue.dialogue-1");
 });
 
+test("video asset clips retain dialogue subroles without becoming audio-only", async () => {
+  const xml = documentWithOperations.replace(
+    '<asset-clip id="clip-a" ref="video-a" offset="0s" start="1s" duration="4s" />',
+    '<asset-clip id="clip-a" ref="video-a" offset="0s" start="1s" duration="4s" audioRole="dialogue.dialogue-1" />',
+  );
+  const { adapter } = await artifact(xml);
+  const clip = (await adapter.readProject()).timeline.clips.find((item) => item.id === "clip-a");
+  assert.equal(clip?.role, undefined);
+  assert.equal(clip?.nativeAudioRole, "dialogue.dialogue-1");
+});
+
 test("FCPXML rejects unsupported asset clip audio roles", async () => {
   const xml = documentWithOperations.replace(
     '<asset-clip id="clip-a" ref="video-a" offset="0s" start="1s" duration="4s" />',
