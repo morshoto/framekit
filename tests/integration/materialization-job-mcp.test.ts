@@ -798,3 +798,26 @@ test("materialization can retry when the provider proves no dispatch occurred", 
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("materialization does not claim a provider request when tracking fails first", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-tracking-failure-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  let publishes = 0;
+  const publisher: SessionMaterializationPublisher = {
+    trackNativeDispatch: async () => { throw new Error("TRACKING_UNAVAILABLE: no provider invocation"); },
+    publish: async () => { publishes += 1; throw new Error("must not invoke"); },
+  };
+  const connected = await connect(directory, publisher, undefined, "default", guard);
+  try {
+    await connected.client.callTool({ name: "session.create", arguments: { sessionId: "session-track-failure", provider: { id: "final-cut" }, base: timeline() } });
+    const job = payload(await connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "session-track-failure", target, confirm: true } }));
+    assert.equal(job.state, "failed");
+    assert.equal(job.evidence.providerRequested, false);
+    assert.equal(publishes, 0);
+    await guard.assertClear();
+  } finally {
+    await connected.client.close();
+    await connected.server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
