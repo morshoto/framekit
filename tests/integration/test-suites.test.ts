@@ -86,6 +86,7 @@ test("fast CI and post-merge validation preserve reviewed test coverage", async 
   };
   const documentation = await readFile(resolve(repository, "tests/README.md"), "utf8");
 
+  assert.match(workflow, /run: pnpm run check:skill-tools/);
   assert.match(workflow, /validation-level:/);
   assert.match(workflow, /run: pnpm run test:fast/);
   assert.match(workflow, /run: pnpm run test\s*$/m);
