@@ -2362,3 +2362,32 @@ test("canonical resolver rejects mismatched native identity before selecting an 
     assert.deepEqual(selected, [], mismatch);
   }
 });
+
+test("canonical target preparation is protected by the recovery checkpoint", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-target-preparation-race-"));
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  const other = new FileCanonicalRecoveryGuard(path);
+  let entered!: () => void;
+  let finish!: () => void;
+  const started = new Promise<void>((resolve) => { entered = resolve; });
+  const held = new Promise<void>((resolve) => { finish = resolve; });
+  const provider = providerFor([snapshot("Original"), snapshot("Original"), snapshot("Renamed")], [], async () => {
+    entered();
+    await held;
+  }, liveState(), undefined, {}, guard);
+  const before = await provider.readProject();
+  const edit = provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision);
+  try {
+    await started;
+    try {
+      await assert.rejects(other.beginNative("native.selectoccurrence"), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    } finally { finish(); }
+    await edit;
+    await guard.assertClear();
+  } finally {
+    finish();
+    await edit.catch(() => undefined);
+    await rm(directory, { recursive: true, force: true });
+  }
+});
