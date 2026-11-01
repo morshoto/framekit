@@ -727,6 +727,24 @@ test("canonical native provider previews and applies a revision-guarded marker",
   assert.deepEqual(calls, ["marker:24/24:12/24", "undo"]);
 });
 
+test("marker accepts a distinct native identity and reordered marker list", async () => {
+  const { before: original, after } = markerSnapshots();
+  const existing = { id: "existing-marker", start: 3, duration: 0, name: "Existing", startTime: { value: "72", timescale: "24" }, durationTime: { value: "0", timescale: "24" } };
+  original.timeline.markers.push(existing);
+  after.timeline.markers[0] = { ...after.timeline.markers[0]!, id: "native-marker-id" };
+  after.timeline.markers.push(existing);
+  const calls: string[] = [];
+  const provider = providerFor([original, original, after], calls, undefined, liveState(), undefined, {
+    addMarkerAtTime: async () => { calls.push("marker"); return { operationId: "native-marker", undoAvailable: true }; },
+  });
+  const before = await provider.readProject();
+  await provider.apply({
+    type: "add-marker", timelineId: before.timeline.id,
+    marker: { id: "requested-marker-id", start: 1, duration: 0.5, name: "Review", startTime: { value: "24", timescale: "24" }, durationTime: { value: "12", timescale: "24" } },
+  }, before.revision);
+  assert.deepEqual(calls, ["marker"]);
+});
+
 test("marker rejects collateral clip changes and restores the baseline", async () => {
   const { before: original, after } = markerSnapshots();
   const collateral = structuredClone(after);
@@ -1168,6 +1186,18 @@ test("unverified explicit Undo blocks subsequent canonical edits", async () => {
   await assert.rejects(provider.restore(before, revision), /FINAL_CUT_CANONICAL_UNDO_FAILED:.*FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   await assert.rejects(provider.apply(operation, revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   assert.deepEqual(calls, ["edit", "undo"]);
+});
+
+test("rename rejects collateral changes to the same clip and restores the baseline", async () => {
+  const original = snapshot("Original");
+  const collateral = snapshot("Renamed");
+  collateral.timeline.clips[0] = { ...collateral.timeline.clips[0]!, gainDb: 3 };
+  const calls: string[] = [];
+  const provider = providerFor([original, original, collateral, original, original], calls);
+  const before = await provider.readProject();
+  await assert.rejects(provider.apply({ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "Renamed" }, before.revision), /FINAL_CUT_CANONICAL_READBACK_FAILED/);
+  assert.deepEqual(calls, ["edit", "undo"]);
+  assert.equal(canonicalSnapshotDigest(await provider.readProject()), canonicalSnapshotDigest(before));
 });
 
 test("canonical native provider rejects collateral changes in rename readback", async () => {
