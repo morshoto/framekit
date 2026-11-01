@@ -25,6 +25,15 @@ func validatedLivePlayhead(_ time: CMTime) -> CMTime? {
     unavailableLiveTimeFields([("timeline.playheadTime", time)]).isEmpty ? time : nil
 }
 
+func deliveryErrorDescription(_ error: Error) -> String {
+    let root = error as NSError
+    var details = "\(root.domain):\(root.code)"
+    if let underlying = root.userInfo[NSUnderlyingErrorKey] as? NSError {
+        details += "; underlying \(underlying.domain):\(underlying.code)"
+    }
+    return "\(root.localizedDescription) [\(details)]"
+}
+
 private struct BuildFingerprint: Codable {
     let version: String
     let commit: String
@@ -619,7 +628,7 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
             return deliveryResponse(request, identity: identity, capabilities: capabilities, delivery: FCPXMLDelivery(
                 status: "failed", route: "background-document-open", attempted: true, imported: false,
                 requestedActivates: requestedActivates, activation: "unknown", ui: "unknown", target: target,
-                error: BridgeError(code: "FINAL_CUT_DELIVERY_OPEN_FAILED", message: openError.localizedDescription)
+                error: BridgeError(code: "FINAL_CUT_DELIVERY_OPEN_FAILED", message: deliveryErrorDescription(openError))
             ))
         }
         let afterBundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
