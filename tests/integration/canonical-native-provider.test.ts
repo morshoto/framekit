@@ -2317,6 +2317,7 @@ test("native reservations share the canonical checkpoint and survive lost owners
     const evidence = await other.inspectNativeReservation();
     assert.equal(evidence?.operation, "editor.native.edit");
     assert.match(evidence!.reservationId, /^[a-f0-9]{64}$/);
+    assert.equal(reservation.reservationId, evidence?.reservationId);
     await assert.rejects(other.begin(checkpoint), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     await assert.rejects(other.beginNative("editor.native.undo"), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     await assert.rejects(other.complete(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
