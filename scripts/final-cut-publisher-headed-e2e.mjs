@@ -1,4 +1,4 @@
-import { basename } from "node:path";
+import { basename, isAbsolute } from "node:path";
 import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -13,6 +13,7 @@ const expectedProject = process.env.FRAMEKIT_FINAL_CUT_E2E_PUBLISH_PROJECT;
 const expectedSequence = process.env.FRAMEKIT_FINAL_CUT_E2E_PUBLISH_SEQUENCE;
 const targetLibraryPath = process.env.FRAMEKIT_FINAL_CUT_E2E_LIBRARY_PATH;
 const approvedDigest = process.env.FRAMEKIT_FINAL_CUT_E2E_APPROVED_DIGEST;
+const executionId = process.env.FRAMEKIT_FINAL_CUT_E2E_EXECUTION_ID;
 
 if (process.argv.includes("--help")) {
   process.stdout.write([
@@ -22,20 +23,29 @@ if (process.argv.includes("--help")) {
     "  FRAMEKIT_FINAL_CUT_E2E_FCPXML_PATH=/absolute/path/to/disposable.fcpxml",
     "  FRAMEKIT_FINAL_CUT_E2E_PUBLISH_PROJECT=exact-imported-project-name",
     "  FRAMEKIT_FINAL_CUT_E2E_LIBRARY_PATH=/absolute/path/to/new-library.fcpbundle",
-    "  FRAMEKIT_FINAL_CUT_E2E_APPROVED_DIGEST=sha256-of-prepared-artifact",
-    "  FRAMEKIT_FINAL_CUT_E2E_ALLOW_MUTATION=1 (separate authorization for artifact edit, import and readback)",
+    "  FRAMEKIT_FINAL_CUT_E2E_APPROVED_DIGEST=sha256-of-approved-artifact",
+    "  FRAMEKIT_FINAL_CUT_E2E_EXECUTION_ID=verified-headless-rough-cut-execution-id",
+    "  FRAMEKIT_FINAL_CUT_E2E_ALLOW_MUTATION=1 (separate authorization for import and readback)",
     "Optional:",
     "  FRAMEKIT_FINAL_CUT_E2E_PUBLISH_SEQUENCE=exact-imported-sequence-name",
     "",
-    "The artifact is edited and published as a new project; native editing is not exercised.",
+    "The verified rough-cut artifact is published as a new project; native editing is not exercised.",
   ].join("\n"));
   process.stdout.write("\n");
   process.exit(0);
 }
 
-if (!artifactPath || !expectedProject || !targetLibraryPath || !/^[a-f0-9]{64}$/.test(approvedDigest ?? "") || process.env.FRAMEKIT_FINAL_CUT_E2E_ALLOW_MUTATION !== "1") {
-  throw new Error("FINAL_CUT_E2E_AUTHORIZATION_REQUIRED: provide artifact, project, new library, approved prepared-artifact SHA-256 and separate mutation authorization");
+if (!artifactPath || !isAbsolute(artifactPath) || !expectedProject || !targetLibraryPath || !isAbsolute(targetLibraryPath) || !targetLibraryPath.endsWith(".fcpbundle") || !executionId || !/^[a-f0-9]{64}$/.test(approvedDigest ?? "") || process.env.FRAMEKIT_FINAL_CUT_E2E_ALLOW_MUTATION !== "1") {
+  throw new Error("FINAL_CUT_E2E_AUTHORIZATION_REQUIRED: provide absolute artifact and new library paths, project, verified execution ID, approved SHA-256 and separate mutation authorization");
 }
+try {
+  await stat(targetLibraryPath);
+  throw new Error("FINAL_CUT_E2E_LIBRARY_EXISTS: destination must be new");
+} catch (error) {
+  if (error.code !== "ENOENT") throw error;
+}
+const actualDigest = createHash("sha256").update(await readFile(artifactPath)).digest("hex");
+if (actualDigest !== approvedDigest) throw new Error("FINAL_CUT_E2E_APPROVED_DIGEST_MISMATCH: artifact differs from the approved digest; no import attempted");
 
 const transport = new StdioClientTransport({
   command: process.execPath,
@@ -78,22 +88,8 @@ try {
     throw new Error("TARGET_UNAVAILABLE: live project and sequence identities are required before publish");
   }
 
-  const edited = await callJson("artifact.edit", {
-    artifactPath,
-    type: "add-marker",
-    timelineId: source.timeline.id,
-    marker: { id: "framekit-publisher-e2e", start: 0, duration: 0, name: "Framekit Publisher E2E" },
-    baseRevision: source.revision,
-  });
-  if (edited.status !== "VERIFIED") {
-    throw new Error("FINAL_CUT_E2E_PUBLISH_ARTIFACT_EDIT_FAILED: disposable artifact preparation was not verified");
-  }
-  const actualDigest = createHash("sha256").update(await readFile(artifactPath)).digest("hex");
-  if (actualDigest !== approvedDigest) {
-    throw new Error("FINAL_CUT_E2E_APPROVED_DIGEST_MISMATCH: prepared artifact differs from the approved digest; no import attempted");
-  }
   const job = await runPublishStages(callJson, {
-    artifactPath, transactionId: edited.id, targetLibraryPath, artifactDigest: approvedDigest,
+    artifactPath, headlessExecutionId: executionId, targetLibraryPath, artifactDigest: approvedDigest,
   }, (stage, snapshot) => {
     process.stderr.write(`${JSON.stringify({ stage, jobId: snapshot.jobId, state: snapshot.state, artifactDigest: approvedDigest })}\n`);
   });
