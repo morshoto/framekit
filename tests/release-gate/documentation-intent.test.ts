@@ -256,6 +256,7 @@ test('runs documentation intent from trusted pull request metadata', async () =>
 		'utf8',
 	);
 	assert.match(workflow, /^  pull_request_target:/m);
+	assert.match(workflow, /^\s+- edited$/m);
 	assert.match(workflow, /contents: read\s+pull-requests: read/);
 	assert.match(workflow, /ref: \$\{\{ github\.event\.repository\.default_branch \}\}/);
 	assert.match(workflow, /persist-credentials: false/);
