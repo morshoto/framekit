@@ -109,7 +109,9 @@ Canonical mutation evidence independently checks the snapshot digests, target
 and source binding, advertised rename capability, and rename-only semantic
 projection. The runner hashes every local source before editing and after Undo;
 unreadable sources, final-component symlinks, or changed hashes block evidence.
-The sanitized report includes hashes but not source paths.
+The comparison is point-in-time evidence and cannot exclude an intervening
+change that was subsequently reversed. The sanitized report includes hashes but
+not source paths.
 Dialogue normalization requires the runner's complete declared Skill
 capability set before it can record headed-native evidence.
 
