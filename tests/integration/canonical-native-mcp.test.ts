@@ -1078,18 +1078,76 @@ test("publish reservation excludes edits and permits verification of only the sa
     assert.equal(premature.isError, true);
     assert.equal(verifications, 0);
     finish();
-    assert.equal((await dispatch).isError ?? false, false);
+    const pending = await dispatch;
+    assert.equal(pending.isError ?? false, false);
+    assert.equal(JSON.parse(textFrom(pending)).recoveryReservation.reason, "native-quiescence-unproven");
     await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     const otherJob = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "job-2", confirm: true } });
     assert.equal(otherJob.isError, true);
     const verified = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "job-1", confirm: true, confirmVerification: true } });
     assert.equal(verified.isError ?? false, false, textFrom(verified));
+    assert.equal(JSON.parse(textFrom(verified)).recoveryReservation.reason, "native-quiescence-unproven");
     assert.equal(dispatches, 1);
     assert.equal(verifications, 1);
     await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   } finally {
     finish();
     await dispatch;
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("publish validation before dispatch does not leave a reservation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-publish-validation-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const projectPublisher = {
+    isAvailable: () => false,
+    getPublishJob: () => ({ state: "awaiting-confirmation" }),
+    trackNativeDispatch: async (call: () => Promise<unknown>) => call(),
+    executePublishJob: async () => ({ state: "awaiting-final-cut" }),
+  } as unknown as NonNullable<Parameters<typeof createMcpServer>[1]>["projectPublisher"];
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher });
+  try {
+    const result = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "job-1", confirm: true } });
+    assert.equal(result.isError ?? false, false, textFrom(result));
+    await guard.assertClear();
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("publish verification rejects a replaced reservation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-publish-replaced-"));
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  const other = new FileCanonicalRecoveryGuard(path);
+  let state = "awaiting-confirmation";
+  let verifications = 0;
+  const projectPublisher = {
+    isAvailable: () => false,
+    getPublishJob: () => ({ state }),
+    executePublishJob: async (_id: string, _confirm: boolean, verify?: boolean) => {
+      if (verify) verifications += 1;
+      state = "verification-pending";
+      return { state };
+    },
+  } as unknown as NonNullable<Parameters<typeof createMcpServer>[1]>["projectPublisher"];
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher });
+  try {
+    const dispatched = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "job-1", confirm: true } });
+    assert.equal(dispatched.isError ?? false, false, textFrom(dispatched));
+    await rm(path);
+    const replacement = await other.beginNative("native.publish.replacement");
+    const verification = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "job-1", confirm: true, confirmVerification: true } });
+    assert.equal(verification.isError, true);
+    assert.equal(verifications, 0);
+    assert.equal((await other.inspectNativeReservation())?.reservationId, replacement.reservationId);
+    await replacement.release();
+  } finally {
     await client.close();
     await server.close();
     await rm(directory, { recursive: true, force: true });
