@@ -2461,3 +2461,29 @@ test("canonical resolver rejects selection that changes a known native occurrenc
   const project = snapshot("Original");
   await assert.rejects(createFinalCutNativeTargetResolver(native)(project.timeline.clips[0]!, project), /TARGET_MISMATCH.*selected.*identity/i);
 });
+
+test("canonical resolver uses nonselecting discovery before identity validation", async () => {
+  const calls: string[] = [];
+  const native = {
+    searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1" }],
+    locateOccurrence: async () => { calls.push("ordinary-locate"); throw new Error("ordinary locate may select"); },
+    locateOccurrenceForCanonicalTarget: async () => {
+      calls.push("canonical-locate");
+      return { status: "unique" as const, occurrences: [{ handle: "occurrence-handle", mediaHandle: "media-handle", name: "Original", identity: "native-1", start: "0/24", duration: "96/24", sequenceId: "other-sequence", sourceIdentity: "browser-source-1" }] };
+    },
+    selectOccurrence: async () => { calls.push("select"); return {} as never; },
+  };
+  const project = snapshot("Original");
+  await assert.rejects(createFinalCutNativeTargetResolver(native)(project.timeline.clips[0]!, project), /TARGET_MISMATCH/);
+  assert.deepEqual(calls, ["canonical-locate"]);
+});
+
+test("canonical resolver compares the discovered occurrence identity after selection", async () => {
+  const native = {
+    searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1" }],
+    locateOccurrence: async () => ({ status: "unique" as const, occurrences: [{ handle: "occurrence-handle", mediaHandle: "media-handle", name: "Original", identity: "expected-native-id", start: "0/24", duration: "96/24", sequenceId: "final-cut:sequence:sequence-1" }] }),
+    selectOccurrence: async () => ({ target: { kind: "selected-clip", identity: "different-native-id" } }) as never,
+  };
+  const project = snapshot("Original");
+  await assert.rejects(createFinalCutNativeTargetResolver(native)(project.timeline.clips[0]!, project), /TARGET_MISMATCH.*selected.*identity/i);
+});
