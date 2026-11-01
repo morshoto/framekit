@@ -24,7 +24,9 @@ Install pnpm 12.14.0 using Corepack or your preferred package manager.
 
 Xcode 16.4 and the macOS 15.5 SDK are required for native Final Cut work.
 
-The Xcode requirement is only needed for the native Workflow Extension. The optional Nix shell provides Node.js 22 and shell tools:
+The Xcode requirement is only needed for the native Workflow Extension. The
+optional Nix shell provides Node.js 22, pinned pnpm, FFmpeg/ffprobe, and SQLite
+for fixture and headless work:
 
 ```sh
 nix develop ./nix

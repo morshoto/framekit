@@ -6,9 +6,29 @@ Enter the project shell with:
 nix develop ./nix
 ```
 
-The flake provides Node.js 22, Git, and Bash. Xcode is intentionally not
-packaged by Nix: Apple's Workflow Extension SDK and `ProExtensionHost` must be
-provided by a real Xcode installation selected with `xcode-select`.
+The flake provides Node.js 22, the repository-pinned pnpm through Corepack,
+FFmpeg/ffprobe, SQLite, Git, and Bash. It supports fixture and headless
+development on Linux and macOS. Xcode is intentionally not packaged by Nix:
+Apple's Workflow Extension SDK and `ProExtensionHost` must be provided by a
+real Xcode installation selected with `xcode-select`.
+
+For a fresh Linux checkout, run the fixture-only bootstrap from the repository
+root:
+
+```sh
+nix develop ./nix
+pnpm install --frozen-lockfile
+pnpm run framekit -- doctor dev --profile fixture
+pnpm run build
+pnpm run test:fixtures
+pnpm run smoke:fixture-mcp
+```
+
+`doctor dev --profile fixture` checks the contributor Node.js/pnpm versions and
+writable state/cache paths. It does not require FFmpeg, Xcode, Final Cut Pro, or
+credentials. The `headless` profile also checks FFmpeg, ffprobe, and SQLite; the
+`native` profile additionally checks for Xcode. `doctor finalcut` retains its
+existing connection check.
 
 The native compatibility target is recorded in
 [`xcode-version.json`](./xcode-version.json). Run the check before building the
