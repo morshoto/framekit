@@ -925,9 +925,15 @@ test("recovery checkpoint inspection reports the bound evidence and rejects corr
     const checkpoint = { projectId: "project-1", sequenceId: "sequence-1", baseRevision: "rev-1", beforeDigest: "a".repeat(64), operation: "undo", expectedRestoreDigest: "b".repeat(64) };
     await owner.begin(checkpoint);
     assert.deepEqual(await observer.inspect(), checkpoint);
-    await writeFile(path, JSON.stringify({ version: 1, owner: "invalid", checkpoint: { ...checkpoint, beforeDigest: "invalid" } }));
-    await assert.rejects(observer.inspect(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
-    await assert.rejects(observer.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    const record = JSON.parse(await readFile(path, "utf8"));
+    for (const corrupt of [
+      { ...checkpoint, beforeDigest: "invalid" },
+      { ...checkpoint, expectedRestoreDigest: "invalid" },
+    ]) {
+      await writeFile(path, JSON.stringify({ ...record, checkpoint: corrupt }));
+      await assert.rejects(observer.inspect(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+      await assert.rejects(observer.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    }
     await rm(path);
     const target = join(directory, "other.json");
     await writeFile(target, "{}");
