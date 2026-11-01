@@ -950,6 +950,24 @@ test("live revision drift during checkpoint acquisition prevents native mutation
   assert.deepEqual(calls, ["checkpoint-cleared"]);
 });
 
+test("target drift during Undo checkpoint acquisition prevents native Undo", async () => {
+  const original = snapshot("Original");
+  const renamed = snapshot("Renamed");
+  const active = liveState();
+  const calls: string[] = [];
+  let acquisitions = 0;
+  const guard = {
+    assertClear: async () => {},
+    begin: async () => { if (++acquisitions === 2) { assert.ok(active.sequence); active.sequence.id = "other-sequence"; } },
+    complete: async () => { calls.push("checkpoint-cleared"); },
+  };
+  const provider = providerFor([original, original, renamed, renamed], calls, undefined, active, undefined, {}, guard);
+  const before = await provider.readProject();
+  const revision = await provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision);
+  await assert.rejects(provider.restore(before, revision), /FINAL_CUT_CANONICAL_TARGET_STALE/);
+  assert.deepEqual(calls, ["edit", "checkpoint-cleared", "checkpoint-cleared"]);
+});
+
 test("verified canonical edit clears its checkpoint", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-success-"));
   try {
