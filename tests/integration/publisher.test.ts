@@ -2334,6 +2334,31 @@ test("direct publish refuses import without explicit readback authorization", as
   assert.equal(calls, 0);
 });
 
+test("direct publish retains an uncertain dispatch error after verification", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-direct-dispatch-error-"));
+  const sourcePath = join(directory, "project.fcpxml");
+  const source = '<fcpxml version="1.11"><library><event><project uid="p" name="Pending"><sequence uid="s" name="Main" /></project></event></library></fcpxml>';
+  await writeFile(sourcePath, source);
+  let attempts = 0;
+  const publisher = createPublisherForTest({
+    enabled: true, sourcePath, verificationTimeoutMs: 0, pollIntervalMs: 0,
+    executor: async () => { attempts++; throw new Error("FINAL_CUT_DELIVERY_TIMEOUT: acknowledgment unavailable"); },
+    targetBinding: async () => { throw new Error("FINAL_CUT_PUBLISH_TARGET_PENDING: target unavailable"); },
+    liveState: async () => ({ revision: { id: "before", sequence: 1, timestamp: new Date(0).toISOString() } }),
+  });
+  let message = "";
+  try {
+    await publisher.publishNewProject({ sourceTransactionId: "txn", artifactPath: sourcePath, artifactDigest: digest(source), confirm: true, confirmVerification: true });
+  } catch (error) { message = String(error); }
+  const jobId = message.match(/publish job ([\w-]+)/)?.[1];
+  assert.ok(jobId);
+  assert.equal(publisher.getPublishJob(jobId).dispatchError?.code, "FINAL_CUT_DELIVERY_TIMEOUT");
+  const pending = await publisher.executePublishJob(jobId, true, true);
+  assert.equal(pending.error?.code, "FINAL_CUT_PUBLISH_TARGET_PENDING");
+  assert.equal(pending.dispatchError?.code, "FINAL_CUT_DELIVERY_TIMEOUT");
+  assert.equal(attempts, 1);
+});
+
 test("a spent import reservation survives publisher death and prevents another dispatch", async () => {
   const fixture = await createCheckpointFailureFixture("framekit-publisher-spent-reservation-");
   const first = await fixture.publisher.executePublishJob(fixture.job.jobId, true);
