@@ -198,18 +198,18 @@ test('trusted policy reports success only after current analysis is verified', a
 		new URL('../../.github/codeql/post-codeql-policy-check.mjs', import.meta.url).href
 	) as { evaluatePullRequest: (input: Record<string, unknown>) => Promise<void> };
 	const head = 'a'.repeat(40), merge = 'b'.repeat(40), base = 'c'.repeat(40);
-	const pull = { state: 'open', draft: false, base: { ref: 'main', sha: base }, head: { sha: head }, merge_commit_sha: merge };
+	const pull = { state: 'open', draft: false, base: { ref: 'feat/551-canonical-rebind-qa', sha: base }, head: { sha: head }, merge_commit_sha: merge };
 	const posts: Array<{ path: string; state: string }> = [];
 	const originalFetch = globalThis.fetch;
 	globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
 		const url = new URL(String(input));
 		if (url.pathname.endsWith('/pulls/7')) return Response.json(pull);
-		if (url.pathname.endsWith('/branches/main')) return Response.json({ commit: { sha: base } });
+		if (url.pathname.endsWith('/branches/feat%2F551-canonical-rebind-qa')) return Response.json({ commit: { sha: base } });
 		if (url.pathname.endsWith('/code-scanning/alerts')) return Response.json([]);
 		if (url.pathname.endsWith('/code-scanning/analyses/42')) return Response.json({ runs: [{ tool: { driver: { name: 'CodeQL' } }, results: [] }] });
 		if (url.pathname.endsWith('/code-scanning/analyses')) {
 			const ref = url.searchParams.get('ref');
-			return Response.json([{ id: 42, ref, commit_sha: ref === 'refs/heads/main' ? base : merge,
+			return Response.json([{ id: 42, ref, commit_sha: ref === 'refs/heads/feat/551-canonical-rebind-qa' ? base : merge,
 				category: '/language:javascript-typescript', tool: { name: 'CodeQL' }, rules_count: 87, results_count: 0 }]);
 		}
 		if (url.pathname.includes('/statuses/')) {
@@ -737,4 +737,34 @@ test('Swift bridge documents the separate bounded CodeQL path', async () => {
 	assert.match(documentation, /does not\s+invoke[\s\S]*`build\.sh`/);
 	assert.match(documentation, /forty and twenty-five minutes/);
 	assert.match(documentation, /standalone Swift CI/);
+});
+
+test('stacked PR baseline scans are available and fail closed', async () => {
+	const security = await readRepositoryFile('.github/workflows/security.yml');
+	assert.match(security, /push:\s*\n\s*branches:\s*\n\s*- '\*\*'/);
+	assert.match(getJob(security, 'deep-validation')!, /github\.ref == 'refs\/heads\/main'/);
+	const codeql = await readRepositoryFile('.github/workflows/codeql.yml');
+	assert.match(getJob(codeql, 'analyze-swift')!, /github\.ref == 'refs\/heads\/main'/);
+	const { evaluateCodeQLPolicy } = await import(new URL('../../.github/codeql/verify-policy.mjs', import.meta.url).href);
+	const scan = { category: '/language:javascript-typescript', error: '', rules_count: 87, tool: { name: 'CodeQL' } };
+	const baseline = { ...scan, ref: 'refs/heads/feat/551-canonical-rebind-qa', commit_sha: 'base' };
+	const input = { workflowHeadSha: 'head', pullRequestHeadSha: 'head', pullRequestNumber: 7, mergeSha: 'merge', analyses: [{ ...scan, ref: 'refs/pull/7/merge', commit_sha: 'merge' }], pullRequestAlerts: [], baseAlerts: [], baseSha: 'base', baseRef: baseline.ref, baseAnalyses: [baseline] };
+	assert.equal(evaluateCodeQLPolicy(input).pass, true);
+	for (const baseAnalyses of [[], [{ ...baseline, commit_sha: 'stale' }]]) {
+		assert.equal(evaluateCodeQLPolicy({ ...input, baseAnalyses }).pass, false);
+	}
+});
+
+test('trusted policy skips draft and stale stacked pull requests', async () => {
+	const { evaluatePullRequest } = await import(new URL('../../.github/codeql/post-codeql-policy-check.mjs', import.meta.url).href);
+	const originalFetch = globalThis.fetch;
+	const head = 'a'.repeat(40);
+	try {
+		for (const pull of [{ state: 'open', draft: true, head: { sha: head } }, { state: 'open', draft: false, head: { sha: 'b'.repeat(40) } }]) {
+			let requests = 0;
+			globalThis.fetch = (async () => { requests++; return Response.json(pull); }) as typeof fetch;
+			await evaluatePullRequest({ apiUrl: 'https://api.github.com', repository: 'o/r', token: 'test', workflowRun: { head_sha: head }, pullRequestNumber: 7, expectedHeadSha: head });
+			assert.equal(requests, 1);
+		}
+	} finally { globalThis.fetch = originalFetch; }
 });
