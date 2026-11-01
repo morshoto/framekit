@@ -2562,3 +2562,11 @@ test("source capability limits only source-bound operations when canonical readi
     assert.equal(capabilities.editor.semanticOperations?.[operation], false, operation);
   }
 });
+
+test("production canonical resolver reports source binding unavailable", () => {
+  const resolver = createFinalCutNativeTargetResolver({
+    searchMedia: async () => [],
+    locateOccurrence: async () => ({ status: "none", occurrences: [] }),
+  });
+  assert.equal(resolver.sourceBindingAvailable, false);
+});
