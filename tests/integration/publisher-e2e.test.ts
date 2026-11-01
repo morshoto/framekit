@@ -131,12 +131,14 @@ test("publisher QA stops on ambiguous dispatch without retrying", async () => {
 
 test("publisher QA does not start verification without dispatch acknowledgement", async () => {
   const calls: string[] = [];
+  const stages: Array<{ stage: string; code?: string }> = [];
   await assert.rejects(runPublishStages(async (name) => {
     calls.push(name);
     if (name === "artifact.publish.preview") return { jobId: "job-1", state: "awaiting-confirmation", artifactDigest: "a".repeat(64), targetLibraryPath: "/tmp/new.fcpbundle" };
     return { jobId: "job-1", state: "verification-pending", nextAction: "retry", error: { code: "DELIVERY_TIMEOUT" } };
-  }, { artifactPath: "/tmp/source.fcpxml", transactionId: "txn-1", targetLibraryPath: "/tmp/new.fcpbundle", artifactDigest: "a".repeat(64) }, () => {}), /PUBLISH_DISPATCH_INCOMPLETE/);
+  }, { artifactPath: "/tmp/source.fcpxml", transactionId: "txn-1", targetLibraryPath: "/tmp/new.fcpbundle", artifactDigest: "a".repeat(64) }, (stage, job) => stages.push({ stage, code: job.error?.code })), /PUBLISH_DISPATCH_INCOMPLETE/);
   assert.deepEqual(calls, ["artifact.publish.preview", "artifact.publish.execute"]);
+  assert.deepEqual(stages, [{ stage: "prepared", code: undefined }, { stage: "dispatch-unconfirmed", code: "DELIVERY_TIMEOUT" }]);
 });
 
 test("publisher QA uses the existing verified rough cut without editing the artifact", async () => {
@@ -177,6 +179,7 @@ test("publisher headed E2E is a separate FCPXML workflow", async () => {
   assert.match(publisherRunner, /FRAMEKIT_FINAL_CUT_E2E_APPROVED_DIGEST/);
   assert.match(publisherRunner, /FRAMEKIT_FINAL_CUT_E2E_ALLOW_MUTATION/);
   assert.match(publisherRunner, /FRAMEKIT_FINAL_CUT_E2E_EXECUTION_ID/);
+  assert.match(publisherRunner, /errorCode: snapshot\.error\?\.code/);
   assert.doesNotMatch(publisherRunner, /artifact\.edit/);
   assert.match(publisherRunner, /FcpxmlDocumentAdapter/);
   assert.match(publisherRunner, /allowMissingImmutableIdsForReadback: true/);
