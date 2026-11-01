@@ -1012,7 +1012,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
         ? { nativeEditor: withRecoveryCheckpointGuard(options.nativeEditor, recovery, ["capabilities", "inspect"], ["edit", "undo"]) }
         : {}),
       ...(options.disposableNative
-        ? { disposableNative: withRecoveryCheckpointGuard(options.disposableNative, recovery) }
+        ? { disposableNative: withRecoveryCheckpointGuard(options.disposableNative, recovery, [], ["execute", "undo"], "disposable") }
         : {}),
       ...(options.nativeOperationSession
         ? { nativeOperationSession: withRecoveryCheckpointGuard(options.nativeOperationSession, recovery, ["status", "cancel"]) }
@@ -3024,6 +3024,7 @@ function withRecoveryCheckpointGuard<T extends object>(
   recovery: Pick<FileCanonicalRecoveryGuard, "assertClear" | "beginNative">,
   allowedMethods: readonly PropertyKey[] = [],
   reservedMethods: readonly PropertyKey[] = [],
+  reservationKind: "native" | "disposable" = "native",
 ): T {
   const allowed = new Set(allowedMethods);
   const reserved = new Set(reservedMethods);
@@ -3034,7 +3035,7 @@ function withRecoveryCheckpointGuard<T extends object>(
       if (allowed.has(property)) return value.bind(target);
       return async (...args: unknown[]) => {
         if (reserved.has(property)) {
-          const reservation = await recovery.beginNative(`native.${String(property).toLowerCase()}`);
+          const reservation = await recovery.beginNative(`native.${reservationKind === "disposable" ? "disposable." : ""}${String(property).toLowerCase()}`);
           const track = Reflect.get(target, "trackNativeDispatch", target) as unknown;
           let dispatched = typeof track !== "function";
           try {
@@ -3042,8 +3043,16 @@ function withRecoveryCheckpointGuard<T extends object>(
             const result: unknown = typeof track === "function"
               ? await Reflect.apply(track, target, [invoke, () => { dispatched = true; }])
               : await invoke();
-            const verification = (result as { verification?: { verified?: unknown } } | null)?.verification;
-            if (verification?.verified === true && (property !== "undo" || (result as { undone?: unknown }).undone === true)) {
+            const evidence = result as { status?: unknown; undone?: unknown; beforeDigest?: unknown; restoredDigest?: unknown; verification?: { verified?: unknown; passed?: unknown } } | null;
+            const restored = typeof evidence?.beforeDigest === "string" && /^[a-f0-9]{64}$/.test(evidence.beforeDigest)
+              && evidence.restoredDigest === evidence.beforeDigest;
+            const verified = reservationKind === "disposable"
+              ? property === "undo"
+                ? evidence?.undone === true && evidence.verification?.passed === true && restored
+                : (evidence?.status === "VERIFIED" && evidence.verification?.passed === true)
+                  || (evidence?.status === "ROLLED_BACK" && restored)
+              : evidence?.verification?.verified === true && (property !== "undo" || evidence.undone === true);
+            if (verified) {
               await reservation.release();
             }
             return result;

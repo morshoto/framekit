@@ -86,16 +86,16 @@ native provider is disabled. Direct native edits, native jobs, and native publis
 checkpoint before dispatch, while status, cancellation, and inspection remain
 available. Direct `editor.native.edit` and `editor.native.undo` reserve that checkpoint path while
 their provider calls are in progress; an unverified result or a failure after native
-dispatch retains the reservation. A failure before dispatch releases it. Other
-direct operations still use entry checks. Disposable native session jobs reserve
-the same path during their workflow, including verification or verified rollback;
-other background jobs still use entry checks, so shared exclusion
+dispatch retains the reservation. A failure before dispatch releases it. Direct
+disposable execute and Undo and disposable native session jobs also reserve the
+same path through canonical verification or verified rollback. Other direct
+operations and background jobs still use entry checks, so shared exclusion
 across all native routes is not proven. Native command acceptance does not prove
 later native quiescence. Restarting or changing state directories does not establish that recovery succeeded. There
 is no automatic checkpoint reset or supported recovery flow yet. The read-only
 `editor.native.recovery.inspect` MCP tool reports a canonical checkpoint or a
-native-operation reservation without inventing a target or baseline digest, in the
-configured state directory without contacting Final Cut or clearing it; a
+native-operation reservation in the configured state directory without inventing
+a target, contacting Final Cut, or clearing it; a
 clear result is point-in-time and does not establish recovery or the state of
 other directories. `editor.native.recovery.preview` requires the inspected
 checkpoint ID, matching target IDs, and explicit headed-read confirmation; it
