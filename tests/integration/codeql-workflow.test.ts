@@ -254,6 +254,18 @@ test('opt-in Swift profiling uses a fresh module cache without changing normal f
 	}
 });
 
+test('manual Swift profiling emits function timings only on demand', async () => {
+	const workflow = await readRepositoryFile('.github/workflows/codeql.yml');
+	const swiftJob = getJob(workflow, 'analyze-swift');
+	const compilerScript = await readRepositoryFile('.github/codeql/typecheck-swift.sh');
+	assert.ok(swiftJob, 'Swift CodeQL job should be present');
+	assert.match(
+		swiftJob,
+		/- name: Profile Swift compiler functions and expressions\n\s+if: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.profile_swift \}\}[\s\S]*?FRAMEKIT_SWIFT_TYPECHECK_PROFILE: 'true'[\s\S]*?FRAMEKIT_SWIFT_TYPECHECK_DIAGNOSTICS: 'true'[\s\S]*?run: bash \.github\/codeql\/typecheck-swift\.sh/,
+	);
+	assert.match(compilerScript, /args\+=\(-Xfrontend -debug-time-function-bodies\)/);
+});
+
 test('CodeQL substitutes host declarations without changing the native import', async () => {
 	const source = await readRepositoryFile(
 		'adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift',
