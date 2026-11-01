@@ -116,7 +116,9 @@ For canonical mutation, set `FRAMEKIT_FINAL_CUT_E2E_PROJECT`,
 `FRAMEKIT_FINAL_CUT_E2E_ALLOW_MUTATION=1` for the separately authorized run.
 The runner requires a clean checkout at the approved commit, a matching loaded
 extension, the approved active target and revision, and an unlocked, frontmost
-Final Cut session. A target-bound read establishes the approved revision before
+Final Cut session. The runner uses `FRAMEKIT_FINAL_CUT_EXISTING_SOCKET_ONLY=1`
+to stop if the existing Workflow Extension socket is unavailable; it does not
+install, activate, or retry the connection. A target-bound read establishes the approved revision before
 selection; a second read rejects changes during selection. It checks the exact rename preview and an unchanged target
 readback before executing the one-use preview token; it does not retry a failed
 Undo.

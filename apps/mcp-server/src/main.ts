@@ -97,7 +97,11 @@ const canonicalProviderRequired = liveMode
   && !canonicalNativeProviderEnabled;
 assertCanonicalProviderConfiguration({ required: canonicalProviderRequired || canonicalNativeProviderEnabled, fcpxmlPath });
 const connection = liveMode
-  ? new FinalCutConnectionManager({ headless: headlessFinalCut, canonicalProviderRequired })
+  ? new FinalCutConnectionManager({
+      headless: headlessFinalCut,
+      canonicalProviderRequired,
+      existingSocketOnly: process.env.FRAMEKIT_FINAL_CUT_EXISTING_SOCKET_ONLY === "1",
+    })
   : undefined;
 const autoConnect = liveMode && process.env.FRAMEKIT_AUTO_CONNECT !== "0";
 if (autoConnect) connection?.startAutoConnect();

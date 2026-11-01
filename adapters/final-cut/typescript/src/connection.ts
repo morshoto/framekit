@@ -37,6 +37,8 @@ export interface FinalCutConnectionStatus {
 export interface FinalCutConnectionOptions {
   /** Probe an existing Workflow Extension socket without launching or activating Final Cut. */
   headless?: boolean;
+  /** Probe only the existing socket; do not install, launch, activate, or retry. */
+  existingSocketOnly?: boolean;
   /** Require an external provider that advertises verified canonical writes. */
   canonicalProviderRequired?: boolean;
   socketPath?: string;
@@ -103,6 +105,7 @@ const DEFAULT_EXTENSION_NAME = "FramekitFinalCutWorkflow.app";
 export class FinalCutConnectionManager {
   private readonly socketPath: string;
   private readonly headless: boolean;
+  private readonly existingSocketOnly: boolean;
   private readonly canonicalProviderRequired: boolean;
   private readonly extensionSourcePath?: string;
   private readonly extensionInstallPath: string;
@@ -128,6 +131,7 @@ export class FinalCutConnectionManager {
   public constructor(options: FinalCutConnectionOptions = {}) {
     this.socketPath = options.socketPath ?? process.env.FRAMEKIT_FINAL_CUT_SOCKET ?? DEFAULT_FINAL_CUT_LIVE_SOCKET;
     this.headless = options.headless ?? process.env.FRAMEKIT_FINAL_CUT_HEADLESS === "1";
+    this.existingSocketOnly = options.existingSocketOnly ?? false;
     this.canonicalProviderRequired = options.canonicalProviderRequired
       ?? process.env.FRAMEKIT_FINAL_CUT_CANONICAL_REQUIRED === "1";
     this.extensionInstallPath = options.extensionInstallPath
@@ -196,7 +200,10 @@ export class FinalCutConnectionManager {
       this.update({ state: "detecting", lastError: undefined });
       const existing = await this.tryProbe();
       this.update({ extensionInstalled: await pathExists(this.extensionInstallPath) });
-      if (existing.result && !this.installBeforeProbe) return this.ready(existing.result);
+      if (existing.result && (this.existingSocketOnly || !this.installBeforeProbe)) return this.ready(existing.result);
+      if (this.existingSocketOnly) {
+        return this.fail("FINAL_CUT_EXISTING_SOCKET_UNAVAILABLE", `No existing Workflow Extension responds at ${this.socketPath}; automatic setup is disabled`, "needs-user-action");
+      }
 
       if (this.canonicalProviderRequired && !existing.result) {
         return this.fail(
