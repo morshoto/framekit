@@ -98,6 +98,7 @@ test("canonical headed evidence keeps mutation proof while omitting private snap
         frameCapture: false,
         projectCatalogRead: true,
         projectSelection: true,
+        semanticOperations: { "rename-clip": true, "trim-clip": false, "add-marker": true, "ripple-delete": false, "set-gain": false },
       },
       analyzers: {
         speechTranscribe: false,
@@ -115,6 +116,7 @@ test("canonical headed evidence keeps mutation proof while omitting private snap
       occurrenceId: "final-cut:occurrence:one",
       mediaId: "final-cut:media:one",
     },
+    sourceMediaIntegrity: { sourceCount: 1, digests: ["c".repeat(64)] },
     toolResults: [
       { name: "editor.inspect", status: "passed" },
       { name: "project.list", status: "passed" },
@@ -410,6 +412,7 @@ const rawRun = {
       frameCapture: false,
       projectCatalogRead: true,
       projectSelection: true,
+      semanticOperations: { "rename-clip": true, "trim-clip": false, "add-marker": true, "ripple-delete": false, "set-gain": false },
       secret: "do not publish this credential",
     },
     analyzers: { speechTranscribe: false, speechVad: false, audioLoudness: false, visualTrack: false },
@@ -451,6 +454,10 @@ const rawRun = {
     rawDiagnostics: "raw crash dump",
   },
   restored: snapshot("Interview", baseRevision("rev-12", 12, "2026-08-26T10:00:03.000Z")),
+  sourceIntegrity: {
+    before: [{ mediaId: "final-cut:media:one", sha256: "c".repeat(64) }],
+    restored: [{ mediaId: "final-cut:media:one", sha256: "c".repeat(64) }],
+  },
   digests: {
     before: canonicalEvidenceDigest(snapshot("Interview", baseRevision("rev-10", 10, "2026-08-26T10:00:01.000Z"))),
     restored: canonicalEvidenceDigest(snapshot("Interview", baseRevision("rev-12", 12, "2026-08-26T10:00:03.000Z"))),
@@ -616,5 +623,22 @@ test("canonical evidence requires the advertised rename capability and a new res
     const run = structuredClone(rawRun);
     corrupt(run);
     assert.throws(() => sanitizeCanonicalEvidence(run, environment), /FINAL_CUT_E2E_EVIDENCE_INCOMPLETE/);
+  }
+});
+
+test("canonical evidence rejects missing, mismatched, or ambiguous source hashes", () => {
+  const environment = {
+    framekitVersion: "0.1.0", finalCutVersion: "10.7.1", gitCommit: "0123456789abcdef0123456789abcdef01234567",
+    nodeVersion: "v22.15.0", platform: "darwin", architecture: "arm64", osVersion: "Darwin",
+  };
+  for (const corrupt of [
+    (run: typeof rawRun) => { Reflect.deleteProperty(run, "sourceIntegrity"); },
+    (run: typeof rawRun) => { run.sourceIntegrity.restored[0]!.sha256 = "d".repeat(64); },
+    (run: typeof rawRun) => { run.sourceIntegrity.restored[0]!.mediaId = "different"; },
+    (run: typeof rawRun) => { run.sourceIntegrity.before.push(structuredClone(run.sourceIntegrity.before[0]!)); },
+  ]) {
+    const run = structuredClone(rawRun);
+    corrupt(run);
+    assert.throws(() => sanitizeCanonicalEvidence(run, environment), /FINAL_CUT_E2E_EVIDENCE_INCOMPLETE.*source/i);
   }
 });
