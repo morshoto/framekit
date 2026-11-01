@@ -140,6 +140,11 @@ export interface FinalCutProjectPublishJob {
     code: string;
     message: string;
   };
+  /** Retains an unacknowledged import attempt even if later verification fails differently. */
+  dispatchError?: {
+    code: string;
+    message: string;
+  };
 }
 
 export type FinalCutProjectPublishRoute = "background-document-open" | "headed-apple-event";
@@ -464,6 +469,7 @@ export class FinalCutProjectPublisher {
       job.state = "verification-pending";
       job.nextAction = "retry";
       job.retryable = true;
+      job.dispatchError = structuredClone(normalized);
       job.error = normalized;
       this.persistPublishJob(job);
       return clonePublishJob(job);
