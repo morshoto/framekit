@@ -349,14 +349,11 @@ function packageManifest(name: string, dependencies: Record<string, string>): st
 
 test("production entrypoints cannot reach SQLite research providers", async () => {
   const { FRAMEKIT_PACKAGES, FRAMEKIT_BOUNDARY_POLICY } = await import("../../scripts/boundary-policy.mjs");
-  const experimentalModules = [
-    ...FRAMEKIT_BOUNDARY_POLICY.experimentalModules,
-    "adapters/final-cut/typescript/src/sqlite-inspection.ts",
-    "adapters/final-cut/typescript/src/sqlite-wal-observation.ts",
-  ];
+  for (const name of ["sqlite-inspection.ts", "sqlite-wal-observation.ts"]) {
+    assert.ok(FRAMEKIT_BOUNDARY_POLICY.experimentalModules.includes(`adapters/final-cut/typescript/src/${name}`));
+  }
   const result = await analyzeWorkspaceBoundaries({
-    rootDir: process.cwd(), packages: FRAMEKIT_PACKAGES,
-    policy: { ...FRAMEKIT_BOUNDARY_POLICY, experimentalModules },
+    rootDir: process.cwd(), packages: FRAMEKIT_PACKAGES, policy: FRAMEKIT_BOUNDARY_POLICY,
   });
   assert.deepEqual(result.violations.filter((item) => item.code === "experimental-production-import"), []);
 });
