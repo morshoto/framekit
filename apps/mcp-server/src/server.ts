@@ -1036,7 +1036,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     ? new EditingSessionRepository(options.sessionDirectory, options.sessionChangeSource)
     : undefined;
   const materializations = sessions && options.materializationDirectory
-    ? new SessionMaterializationJobs(options.materializationDirectory, sessions, options.sessionMaterializationPublisher)
+    ? new SessionMaterializationJobs(options.materializationDirectory, sessions, options.sessionMaterializationPublisher, options.canonicalRecovery)
     : undefined;
 
   const requireSessions = (): EditingSessionRepository => {

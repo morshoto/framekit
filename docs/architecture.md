@@ -98,8 +98,14 @@ call returns; it cannot replay the import. Responses after dispatch include the
 reservation ID and report that native quiescence is unproven. A different process
 cannot claim that reservation, and a direct publish cannot transfer its
 reservation to a subsequently created recovery job. Until a supported recovery path exists, even a verified publish
-therefore leaves subsequent guarded operations blocked. Other direct operations
-and background jobs still use entry checks, so shared exclusion
+therefore leaves subsequent guarded operations blocked. Configured session
+materialization reserves the checkpoint at the provider boundary; if acquisition
+fails, it records that the provider was not called. A provider that proves it
+did not dispatch can release the reservation and retain a safe retry. After a
+dispatch or an unknown outcome, the reservation remains and automatic retry is
+disabled even if canonical readback matches, until native quiescence can be
+established. Other direct operations and
+background jobs still use entry checks, so shared exclusion
 across all native routes is not proven. Native command acceptance does not prove
 later native quiescence. Restarting or changing state directories does not establish that recovery succeeded. There
 is no automatic checkpoint reset or supported recovery flow yet. The read-only
