@@ -961,7 +961,7 @@ export interface McpServerOptions {
   disposableNative?: Pick<DisposableNativeEditWorkflow, "preview" | "execute" | "undo">;
   nativeOperationSession?: Pick<NativeOperationSession, "submit" | "status" | "retry" | "cancel">;
   projectPublisher?: FinalCutProjectPublisher;
-  canonicalRecovery?: Pick<FileCanonicalRecoveryGuard, "inspectVersioned" | "assertClear">;
+  canonicalRecovery?: Pick<FileCanonicalRecoveryGuard, "inspectVersioned" | "inspectNativeReservation" | "assertClear">;
   videoExporter?: FinalCutVideoExporter;
   backgroundRenderer?: BackgroundRenderExportProvider;
   buildFingerprint?: FramekitBuildFingerprint;
@@ -1207,7 +1207,14 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: {},
   }, async () => sessionResult(async () => {
     if (!options.canonicalRecovery) throw new Error("CAPABILITY_UNAVAILABLE: canonical recovery checkpoint inspection is not configured");
-    const evidence = await options.canonicalRecovery.inspectVersioned();
+    let evidence: Awaited<ReturnType<FileCanonicalRecoveryGuard["inspectVersioned"]>>;
+    try {
+      evidence = await options.canonicalRecovery.inspectVersioned();
+    } catch (error) {
+      const nativeReservation = await options.canonicalRecovery.inspectNativeReservation();
+      if (!nativeReservation) throw error;
+      return { status: "recovery-required", scope: "configured-state-directory", nativeReservation };
+    }
     return evidence
       ? { status: "recovery-required", scope: "configured-state-directory", ...evidence }
       : { status: "clear", scope: "configured-state-directory" };
