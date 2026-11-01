@@ -261,6 +261,10 @@ test('manual Swift profiling emits function timings only on demand', async () =>
 	assert.ok(swiftJob, 'Swift CodeQL job should be present');
 	assert.match(
 		swiftJob,
+		/- name: Capture Swift profiling environment\n\s+if: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.profile_swift \}\}[\s\S]*?xcrun --sdk macosx swiftc --version/,
+	);
+	assert.match(
+		swiftJob,
 		/- name: Profile Swift compiler functions and expressions\n\s+if: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.profile_swift \}\}[\s\S]*?FRAMEKIT_SWIFT_TYPECHECK_PROFILE: 'true'[\s\S]*?FRAMEKIT_SWIFT_TYPECHECK_DIAGNOSTICS: 'true'[\s\S]*?run: bash \.github\/codeql\/typecheck-swift\.sh/,
 	);
 	assert.match(compilerScript, /args\+=\(-Xfrontend -debug-time-function-bodies\)/);
