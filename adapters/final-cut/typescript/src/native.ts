@@ -43,6 +43,7 @@ export interface NativeFinalCutMediaMatch {
   role?: string;
   identity?: string;
   sourceIdentity?: string;
+  /** Independently observed local source path or file URL; never inferred from the query. */
   source?: string;
   browserContext?: string;
   uiIndex?: number;
@@ -589,7 +590,7 @@ export interface NativeFinalCutCapabilities {
   mediaSelection: boolean;
   mediaAppendSelected: boolean;
   timelineOccurrenceLocate: boolean;
-  /** True only when occurrence results independently observe their source identity. */
+  /** True only when Browser source paths and occurrence source identities are independently observed and comparable. */
   timelineOccurrenceSourceBinding?: boolean;
   bladeAtPlayhead: boolean;
   deleteRange: boolean;

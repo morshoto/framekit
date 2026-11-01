@@ -86,7 +86,11 @@ identity. It does not treat the requested Browser identity as an observation.
 Native media targeting and canonical source-bound rename, trim, ripple-delete,
 and gain remain unavailable until that binding can be proven. Source-bound
 operations require an explicit source-observation capability and nonselecting
-discovery; capability loss during target preparation prevents the edit. The
+discovery. The observed Browser source must also match the canonical snapshot's
+absolute local path or file URL; a matching basename alone is insufficient.
+Equal-named Browser items are distinguishable only when every candidate has an
+observed source and exactly one matches the canonical path.
+Capability loss during target preparation prevents the edit. The
 bundled native adapter reports that capability unavailable. If a native edit has
 an uncertain outcome or Undo cannot be verified, the canonical provider blocks further previews and
 edits. Production native sessions create an exclusive checkpoint under the

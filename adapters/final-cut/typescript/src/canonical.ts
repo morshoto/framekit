@@ -1,7 +1,7 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, stat } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -712,8 +712,15 @@ export function createFinalCutNativeTargetResolver(
     const matches = (await searchMedia.call(native, query))
       .filter((match) => match.name.toLocaleLowerCase() === query.toLocaleLowerCase());
     if (matches.length === 0) throw new Error(`TARGET_MISMATCH: Final Cut Browser has no exact media match for ${query}`);
-    if (matches.length > 1) throw new Error(`AMBIGUOUS_PROJECT_TARGET: Final Cut Browser has multiple exact media matches for ${query}`);
-    const match = matches[0]!;
+    const expectedSource = exactLocalSourcePath(media.source);
+    const observedSources = matches.map((candidate) => candidate.source ? exactLocalSourcePath(candidate.source) : undefined);
+    if (!expectedSource || observedSources.some((source) => !source)) {
+      throw new Error(`TARGET_MISMATCH: independently observed Browser source does not match the canonical source for ${clip.id}`);
+    }
+    const sourceMatches = matches.filter((_candidate, index) => observedSources[index] === expectedSource);
+    if (sourceMatches.length === 0) throw new Error(`TARGET_MISMATCH: Final Cut Browser has no canonical source match for ${clip.id}`);
+    if (sourceMatches.length > 1) throw new Error(`AMBIGUOUS_PROJECT_TARGET: Final Cut Browser has multiple matches for the canonical source of ${clip.id}`);
+    const match = sourceMatches[0]!;
     if (!match.sourceIdentity) throw new Error("TARGET_MISMATCH: exact Browser media has no stable source identity");
 
     const locate = native.locateOccurrenceForCanonicalTarget ?? native.locateOccurrence;
@@ -2146,6 +2153,22 @@ function sourceBasename(source: string): string {
     return basename(url.protocol === "file:" ? fileURLToPath(url) : decodeURIComponent(url.pathname));
   } catch {
     return basename(source);
+  }
+}
+
+function exactLocalSourcePath(source: string): string | undefined {
+  try {
+    const decoded = source.startsWith("file:") ? decodeURIComponent(source) : source;
+    if (/(?:^|\/)\.{1,2}(?:\/|$)/.test(decoded) || decoded.includes("\0")) return undefined;
+    if (source.startsWith("file:")) {
+      const url = new URL(source);
+      if (url.protocol !== "file:" || url.search || url.hash) return undefined;
+      const path = fileURLToPath(url);
+      return isAbsolute(path) ? path : undefined;
+    }
+    return isAbsolute(source) ? source : undefined;
+  } catch {
+    return undefined;
   }
 }
 
