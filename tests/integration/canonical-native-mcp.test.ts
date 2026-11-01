@@ -776,3 +776,28 @@ test("an in-flight direct native edit excludes a canonical checkpoint", async ()
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("recovery inspection reports a native reservation without inventing a target", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-native-inspect-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const reservation = await guard.beginNative("editor.native.edit");
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard });
+  try {
+    const inspected = await client.callTool({ name: "editor.native.recovery.inspect", arguments: {} });
+    assert.equal(inspected.isError ?? false, false, textFrom(inspected));
+    const evidence = JSON.parse(textFrom(inspected));
+    assert.equal(evidence.status, "recovery-required");
+    assert.equal(evidence.nativeReservation.operation, "editor.native.edit");
+    assert.match(evidence.nativeReservation.reservationId, /^[a-f0-9]{64}$/);
+    assert.equal(evidence.checkpoint, undefined);
+    const preview = await client.callTool({ name: "editor.native.recovery.preview", arguments: { confirmHeadedRead: true, expectedTarget: { projectId: "project-1", sequenceId: "sequence-1" }, expectedCheckpointId: evidence.nativeReservation.reservationId } });
+    assert.equal(preview.isError, true);
+    assert.match(textFrom(preview), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await guard.assertClear().then(() => assert.fail("reservation must remain"), () => {});
+  } finally {
+    await reservation.release();
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
