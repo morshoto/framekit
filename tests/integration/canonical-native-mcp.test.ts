@@ -179,6 +179,8 @@ test("MCP recovery preview requires exact consent and never clears the checkpoin
   const checkpointId = (await guard.inspectVersioned())!.checkpointId;
   const { client, server } = await connect(createRuntime(calls, async () => { reads += 1; return structuredClone(original); }), { canonicalRecovery: guard });
   try {
+    const listed = (await client.listTools()).tools.find(({ name }) => name === "editor.native.recovery.preview");
+    assert.match(listed?.description ?? "", /confirmation alone does not establish authorization/i);
     const missing = await client.callTool({ name: "editor.native.recovery.preview", arguments: { expectedTarget: target, expectedCheckpointId: checkpointId } });
     assert.equal(missing.isError, true);
     assert.match(textFrom(missing), /HEADED_READ_CONFIRMATION_REQUIRED/);
