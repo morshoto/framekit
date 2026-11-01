@@ -1002,3 +1002,45 @@ test("native timeline command routes hold the shared checkpoint until verificati
     }
   }
 });
+
+test("native media imports reserve until verified and retain partial outcomes", async () => {
+  for (const scenario of ["single", "directory", "partial"] as const) {
+    const directory = await mkdtemp(join(tmpdir(), "framekit-import-reservation-"));
+    const path = join(directory, "pending.json");
+    const guard = new FileCanonicalRecoveryGuard(path);
+    const other = new FileCanonicalRecoveryGuard(path);
+    let entered!: () => void;
+    let finish!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const held = new Promise<void>((resolve) => { finish = resolve; });
+    const media = { mediaHandle: "media-1", verification: { verified: true, stage: "post-import-browser-discovery" } };
+    const nativeEditor = {
+      capabilities: () => ({}),
+      importMedia: async () => { entered(); await held; return media; },
+      executeImportMediaDirectory: async () => {
+        entered(); await held;
+        return scenario === "partial"
+          ? { status: "partial", partial: true, importedCount: 1, failedCount: 1, files: [{}, {}], results: [{ status: "imported", media }, { status: "failed" }] }
+          : { status: "completed", partial: false, importedCount: 1, failedCount: 0, files: [{}], results: [{ status: "imported", media }] };
+      },
+    } as unknown as NativeFinalCutEditor;
+    const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, nativeEditor });
+    const request = scenario === "single"
+      ? client.callTool({ name: "editor.native.media.import", arguments: { path: "/fixture/video.mov" } })
+      : client.callTool({ name: "editor.native.media.directory.execute", arguments: { previewToken: "token", confirm: true } });
+    try {
+      await started;
+      await assert.rejects(other.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "b".repeat(64), operation: "rename-clip" }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/, scenario);
+      finish();
+      assert.equal((await request).isError ?? false, false, scenario);
+      if (scenario === "partial") assert.equal((await guard.inspectNativeReservation())?.operation, "native.executeimportmediadirectory");
+      else await guard.assertClear();
+    } finally {
+      finish();
+      await request;
+      await client.close();
+      await server.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+});
