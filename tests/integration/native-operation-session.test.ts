@@ -697,6 +697,9 @@ test("a running disposable native job excludes canonical checkpoints after submi
     await started;
     assert.equal(session.status(accepted.jobId).state, "executing");
     await assert.rejects(other.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "a".repeat(64), operation: "rename-clip" }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    finish();
+    await eventually(() => session.status(accepted.jobId).state === "completed", "job did not complete");
+    await guard.assertClear();
   } finally {
     finish();
     await eventually(() => ["completed", "failed", "rolled_back"].includes(session.status(accepted.jobId).state), "job did not settle");
