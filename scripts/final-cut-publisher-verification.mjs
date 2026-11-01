@@ -84,10 +84,12 @@ export async function runPublishStages(call, input, onStage, beforeDispatch = as
   } catch (cause) {
     throw new Error(`PUBLISH_DISPATCH_UNCERTAIN: job ${preview.jobId}; inspect its status and do not redispatch`, { cause });
   }
-  onStage("dispatched", dispatched);
-  if (dispatched.jobId !== preview.jobId || dispatched.state !== "verification-pending") {
-    throw new Error(`PUBLISH_DISPATCH_INCOMPLETE: job ${preview.jobId} is ${dispatched.state}; inspect status and do not redispatch`);
+  if (dispatched.jobId !== preview.jobId || dispatched.state !== "verification-pending"
+    || dispatched.nextAction !== "confirm-verification" || dispatched.delivery?.status !== "dispatched") {
+    onStage("dispatch-unconfirmed", dispatched);
+    throw new Error(`PUBLISH_DISPATCH_INCOMPLETE: job ${preview.jobId} is ${dispatched.state} (${dispatched.error?.code ?? "unconfirmed"}); inspect status and do not redispatch`);
   }
+  onStage("dispatched", dispatched);
   const verified = await call("artifact.publish.execute", { jobId: preview.jobId, confirm: true, confirmVerification: true });
   if (verified.jobId !== preview.jobId || verified.state !== "verified" || verified.result?.verified !== true) {
     throw new Error(`PUBLISH_VERIFICATION_INCOMPLETE: job ${preview.jobId} is ${verified.state}; inspect status without redispatching`);
