@@ -384,6 +384,21 @@ test("native handoff readiness withholds targets until a publish job is verified
   }, { projectPublisher });
 });
 
+test("publish status exposes distinct dispatch and verification errors", async () => {
+  const publisher = handoffPublisher({
+    pending: {
+      jobId: "pending", state: "verification-pending", nextAction: "retry", retryable: true,
+      dispatchError: { code: "FINAL_CUT_DELIVERY_TIMEOUT", message: "Dispatch acknowledgment timed out" },
+      error: { code: "FINAL_CUT_PUBLISH_TARGET_PENDING", message: "Target not observed" },
+    },
+  });
+  await withClient(metadataOnlyRuntime(), async (client) => {
+    const status = JSON.parse(textFrom(await client.callTool({ name: "artifact.publish.status", arguments: { jobId: "pending" } })));
+    assert.equal(status.dispatchError.code, "FINAL_CUT_DELIVERY_TIMEOUT");
+    assert.equal(status.error.code, "FINAL_CUT_PUBLISH_TARGET_PENDING");
+  }, { projectPublisher: publisher });
+});
+
 test("required local alignment fails clearly for a stale extension", async () => {
   await withClient(metadataOnlyRuntime(), async (client) => {
     const status = JSON.parse(textFrom(await client.callTool({ name: "connection.status", arguments: {} })));

@@ -1,15 +1,24 @@
-import { basename } from "node:path";
+import { isAbsolute } from "node:path";
+import { createHash } from "node:crypto";
+import { execFile as execFileCallback } from "node:child_process";
+import { readFile, stat } from "node:fs/promises";
+import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { FcpxmlDocumentAdapter } from "../adapters/final-cut/typescript/src/fcpxml.ts";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { verifyPublishedTarget } from "./final-cut-publisher-verification.mjs";
+import { buildPublisherEvidence, runPublishStages, verifyAcceptanceFixture, verifyBaselineTarget, verifyPublishedTarget, verifyPublisherPreflight } from "./final-cut-publisher-verification.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const artifactPath = process.env.FRAMEKIT_FINAL_CUT_E2E_FCPXML_PATH;
 const expectedProject = process.env.FRAMEKIT_FINAL_CUT_E2E_PUBLISH_PROJECT;
 const expectedSequence = process.env.FRAMEKIT_FINAL_CUT_E2E_PUBLISH_SEQUENCE;
 const targetLibraryPath = process.env.FRAMEKIT_FINAL_CUT_E2E_LIBRARY_PATH;
+const approvedDigest = process.env.FRAMEKIT_FINAL_CUT_E2E_APPROVED_DIGEST;
+const executionId = process.env.FRAMEKIT_FINAL_CUT_E2E_EXECUTION_ID;
+const candidateCommit = process.env.FRAMEKIT_FINAL_CUT_E2E_CANDIDATE_COMMIT;
+const baseline = { projectId: process.env.FRAMEKIT_FINAL_CUT_E2E_PROJECT_ID, sequenceId: process.env.FRAMEKIT_FINAL_CUT_E2E_SEQUENCE_ID, revisionId: process.env.FRAMEKIT_FINAL_CUT_E2E_REVISION_ID };
 
 if (process.argv.includes("--help")) {
   process.stdout.write([
@@ -19,18 +28,36 @@ if (process.argv.includes("--help")) {
     "  FRAMEKIT_FINAL_CUT_E2E_FCPXML_PATH=/absolute/path/to/disposable.fcpxml",
     "  FRAMEKIT_FINAL_CUT_E2E_PUBLISH_PROJECT=exact-imported-project-name",
     "  FRAMEKIT_FINAL_CUT_E2E_LIBRARY_PATH=/absolute/path/to/new-library.fcpbundle",
+    "  FRAMEKIT_FINAL_CUT_E2E_APPROVED_DIGEST=sha256-of-approved-artifact",
+    "  FRAMEKIT_FINAL_CUT_E2E_EXECUTION_ID=verified-headless-rough-cut-execution-id",
+    "  FRAMEKIT_FINAL_CUT_E2E_CANDIDATE_COMMIT=exact-clean-candidate-commit",
+    "  FRAMEKIT_FINAL_CUT_E2E_PROJECT_ID, FRAMEKIT_FINAL_CUT_E2E_SEQUENCE_ID, FRAMEKIT_FINAL_CUT_E2E_REVISION_ID=approved-live-baseline",
+    "  FRAMEKIT_FINAL_CUT_E2E_ALLOW_MUTATION=1 (separate authorization for import and readback)",
     "Optional:",
     "  FRAMEKIT_FINAL_CUT_E2E_PUBLISH_SEQUENCE=exact-imported-sequence-name",
     "",
-    "The artifact is edited and published as a new project; native editing is not exercised.",
+    "The verified rough-cut artifact is published as a new project; native editing is not exercised.",
   ].join("\n"));
   process.stdout.write("\n");
   process.exit(0);
 }
 
-if (!artifactPath || !expectedProject || !targetLibraryPath) {
-  throw new Error("Set FRAMEKIT_FINAL_CUT_E2E_FCPXML_PATH, FRAMEKIT_FINAL_CUT_E2E_PUBLISH_PROJECT, and FRAMEKIT_FINAL_CUT_E2E_LIBRARY_PATH before running the publisher headed E2E");
+if (!artifactPath || !isAbsolute(artifactPath) || !expectedProject || !targetLibraryPath || !isAbsolute(targetLibraryPath) || !targetLibraryPath.endsWith(".fcpbundle") || !executionId || !baseline.projectId || !baseline.sequenceId || !baseline.revisionId || !/^[a-f0-9]{40}$/.test(candidateCommit ?? "") || !/^[a-f0-9]{64}$/.test(approvedDigest ?? "") || process.env.FRAMEKIT_FINAL_CUT_E2E_ALLOW_MUTATION !== "1") {
+  throw new Error("FINAL_CUT_E2E_AUTHORIZATION_REQUIRED: provide absolute artifact and new library paths, project, verified execution ID, approved SHA-256 and separate mutation authorization");
 }
+const execFile = promisify(execFileCallback);
+const head = (await execFile("git", ["rev-parse", "HEAD"], { cwd: root })).stdout.trim();
+const dirty = (await execFile("git", ["status", "--porcelain"], { cwd: root })).stdout.trim();
+if (head !== candidateCommit || dirty) throw new Error("FINAL_CUT_E2E_CANDIDATE_MISMATCH: checkout must be clean and match the approved candidate");
+await execFile("bash", [join(root, ".agents/skills/verify-final-cut-native/scripts/run-headed-check.sh"), "publisher"], { cwd: root });
+try {
+  await stat(targetLibraryPath);
+  throw new Error("FINAL_CUT_E2E_LIBRARY_EXISTS: destination must be new");
+} catch (error) {
+  if (error.code !== "ENOENT") throw error;
+}
+const actualDigest = createHash("sha256").update(await readFile(artifactPath)).digest("hex");
+if (actualDigest !== approvedDigest) throw new Error("FINAL_CUT_E2E_APPROVED_DIGEST_MISMATCH: artifact differs from the approved digest; no import attempted");
 
 const transport = new StdioClientTransport({
   command: process.execPath,
@@ -46,22 +73,19 @@ const transport = new StdioClientTransport({
   stderr: "pipe",
 });
 const client = new Client({ name: "framekit-publisher-headed-e2e", version: "0.1.0" });
-let artifactTransactionId;
-let published = false;
 
 try {
   await client.connect(transport);
   const editor = await callJson("editor.inspect");
-  if (editor.capabilities?.editor?.artifactPublish !== true) {
-    throw new Error("CAPABILITY_UNAVAILABLE: artifact publishing is not advertised by the live editor");
-  }
+  verifyPublisherPreflight(editor, candidateCommit);
 
   const artifact = await callJson("artifact.inspect");
   if (artifact.path !== artifactPath || artifact.format !== "fcpxml") {
     throw new Error(`PUBLISH_TARGET_MISMATCH: expected managed FCPXML artifact ${artifactPath}`);
   }
 
-  const source = await callJson("project.inspect");
+  const source = await new FcpxmlDocumentAdapter(artifactPath, undefined, { allowMissingImmutableIdsForReadback: true }).readProject();
+  verifyAcceptanceFixture(source);
   if (source.projectName !== expectedProject) {
     throw new Error(`FINAL_CUT_E2E_PUBLISH_PROJECT_MISMATCH: expected ${expectedProject}, observed ${source.projectName ?? "unknown"}`);
   }
@@ -71,54 +95,20 @@ try {
   }
 
   const beforeLive = await callJson("editor.live.inspect");
-  if (!beforeLive.project?.id || !beforeLive.sequence?.id) {
-    throw new Error("TARGET_UNAVAILABLE: live project and sequence identities are required before publish");
-  }
+  verifyBaselineTarget(beforeLive, baseline);
 
-  const edited = await callJson("artifact.edit", {
-    artifactPath,
-    type: "add-marker",
-    timelineId: source.timeline.id,
-    marker: { id: "framekit-publisher-e2e", start: 0, duration: 0, name: "Framekit Publisher E2E" },
-    baseRevision: source.revision,
-  });
-  if (edited.status !== "VERIFIED") {
-    throw new Error("FINAL_CUT_E2E_PUBLISH_ARTIFACT_EDIT_FAILED: disposable artifact preparation was not verified");
-  }
-  artifactTransactionId = edited.id;
-
-  const result = await callJson("artifact.publish", {
-    artifactPath,
-    transactionId: artifactTransactionId,
-    targetLibraryPath,
-    confirm: true,
-  });
-  published = true;
+  const job = await runPublishStages(callJson, {
+    artifactPath, headlessExecutionId: executionId, targetLibraryPath, artifactDigest: approvedDigest,
+  }, (stage, snapshot) => {
+    process.stderr.write(`${JSON.stringify({ stage, jobId: snapshot.jobId, state: snapshot.state, artifactDigest: approvedDigest, errorCode: snapshot.error?.code })}\n`);
+  }, async () => verifyBaselineTarget(await callJson("editor.live.inspect"), baseline));
+  const result = job.result;
 
   const afterLive = await callJson("editor.live.inspect");
-  verifyPublishedTarget({ result, beforeLive, afterLive, expectedProject, expectedSequence, sourceSequence });
+  verifyPublishedTarget({ result, beforeLive, afterLive, expectedProject, expectedSequence, sourceSequence, targetLibraryPath });
+  if (!(await stat(targetLibraryPath)).isDirectory()) throw new Error("FINAL_CUT_E2E_LIBRARY_MISSING: created library is not a directory");
 
-  process.stdout.write(`${JSON.stringify({
-    passed: true,
-    workflow: "fcpxml-publisher",
-    artifact: basename(artifactPath),
-    sourceTarget: { kind: result.sourceTarget.kind, artifactPath: basename(result.sourceTarget.artifactPath) },
-    createdTarget: result.createdTarget,
-    activeProject: result.activeProject,
-    semanticReadback: result.semanticReadback,
-    sourceMediaIntegrity: result.sourceMediaIntegrity,
-    beforeLive: { projectId: beforeLive.project.id, sequenceId: beforeLive.sequence.id },
-    afterLive: { projectId: afterLive.project.id, sequenceId: afterLive.sequence.id },
-  }, null, 2)}\n`);
-} catch (error) {
-  if (artifactTransactionId && !published) {
-    try {
-      await callJson("edit.undo", { transactionId: artifactTransactionId });
-    } catch (rollbackError) {
-      throw new AggregateError([error, rollbackError], "Publisher headed E2E failed and artifact cleanup also failed");
-    }
-  }
-  throw error;
+  process.stdout.write(`${JSON.stringify(buildPublisherEvidence({ candidateCommit, artifactDigest: approvedDigest, executionId, job, beforeLive, afterLive, editor }), null, 2)}\n`);
 } finally {
   await client.close().catch(() => {});
   await transport.close().catch(() => {});
