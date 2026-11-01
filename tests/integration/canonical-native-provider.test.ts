@@ -2816,3 +2816,120 @@ test("MCP canonical preview tokens fail closed after expiry, reuse, or external 
     await server.close();
   }
 });
+
+test("MCP canonical rename previews, verifies, and undoes against the bound target", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-canonical-mcp-loop-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "recovery.json"));
+  const active = liveState();
+  let current = snapshot("Original");
+  const calls: string[] = [];
+  const provider = new FinalCutCanonicalNativeProvider({
+    live: {
+      ...liveWithoutBackgroundCatalog(),
+      readLiveState: async () => structuredClone(active),
+      getCapabilities: async () => ({ editor: { projectSelection: true, projectSelectionMode: "headed-only" } }) as never,
+      selectProject: async () => { throw new Error("selection is not needed in this test"); },
+    },
+    native: {
+      renameSelectedClip: async (name) => { calls.push("edit"); current.timeline.clips[0]!.name = name; return { operationId: "native-1", undoAvailable: true }; },
+      undo: async () => { calls.push("undo"); current = snapshot("Original"); return { undone: true, verification: { verified: true } }; },
+    },
+    readSnapshot: async () => structuredClone(current),
+    resolveTarget: Object.assign(async () => {}, { sourceBindingAvailable: true }),
+    backgroundCatalog: { listProjects: async () => ({ projects: [{ id: active.project!.id, name: active.project!.name, sequences: [{ id: active.sequence!.id, name: active.sequence!.name }] }], activeProjectId: active.project!.id, activeSequenceId: active.sequence!.id }) },
+    recoveryGuard: guard,
+  });
+  const runtime = new Runtime(new FinalCutSessionAdapter({ live: provider }));
+  const server = createMcpServer(runtime, { processMode: "headed", canonicalRecovery: guard });
+  const client = new Client({ name: "canonical-mcp-loop", version: "1" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const call = async (name: string, arguments_: Record<string, unknown>) => {
+    const response = await client.callTool({ name, arguments: arguments_ });
+    assert.equal(response.isError ?? false, false, `${name}: ${textFrom(response)}`);
+    return JSON.parse(textFrom(response));
+  };
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const target = { projectId: active.project!.id, sequenceId: active.sequence!.id };
+    const inspect = () => call("project.inspect", { confirmHeadedRead: true, expectedTarget: target });
+    const before = await inspect();
+    const beforeDigest = canonicalSnapshotDigest(before);
+    const operation = { type: "rename-clip", clipId: before.timeline.clips[0].id, name: "Renamed" };
+    const preview = await call("editor.timeline.edit.preview", { ...target, baseRevision: before.revision, operations: [operation], path: "headed" });
+    const afterPreview = await inspect();
+    assert.equal(canonicalSnapshotDigest(afterPreview), beforeDigest);
+    assert.equal(afterPreview.revision.id, before.revision.id);
+    assert.deepEqual(calls, []);
+    const edited = await call("editor.timeline.edit.execute", { previewToken: preview.previewToken, path: "headed" });
+    assert.equal(edited.status, "VERIFIED");
+    assert.equal(edited.diff.modified.length, 1);
+    assert.equal(edited.diff.modified[0].itemId, operation.clipId);
+    assert.equal(edited.after.timeline.clips[0].name, "Renamed");
+    assert.ok(edited.after.revision.sequence > before.revision.sequence);
+    const restored = await call("edit.undo", { transactionId: edited.id });
+    assert.equal(canonicalSnapshotDigest(restored), beforeDigest);
+    assert.ok(restored.revision.sequence > edited.after.revision.sequence);
+    assert.deepEqual(calls, ["edit", "undo"]);
+    await guard.assertClear();
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("MCP canonical verification failure restores or retains recovery checkpoint", async () => {
+  for (const undoFails of [false, true]) {
+    const directory = await mkdtemp(join(tmpdir(), "framekit-canonical-mcp-rollback-"));
+    const guard = new FileCanonicalRecoveryGuard(join(directory, "recovery.json"));
+    const active = liveState();
+    let current = snapshot("Original");
+    const calls: string[] = [];
+    const provider = new FinalCutCanonicalNativeProvider({
+      live: {
+        ...liveWithoutBackgroundCatalog(),
+        readLiveState: async () => structuredClone(active),
+        getCapabilities: async () => ({ editor: { projectSelection: true, projectSelectionMode: "headed-only" } }) as never,
+        selectProject: async () => { throw new Error("selection is not needed in this test"); },
+      },
+      native: {
+        renameSelectedClip: async (name) => { calls.push("edit"); current.timeline.clips[0]!.name = name; return { operationId: "native-1", undoAvailable: true }; },
+        undo: async () => { calls.push("undo"); if (undoFails) throw new Error("simulated Undo failure"); current = snapshot("Original"); return { undone: true, verification: { verified: true } }; },
+      },
+      readSnapshot: async () => structuredClone(current),
+      resolveTarget: Object.assign(async () => {}, { sourceBindingAvailable: true }),
+      backgroundCatalog: { listProjects: async () => ({ projects: [{ id: active.project!.id, name: active.project!.name, sequences: [{ id: active.sequence!.id, name: active.sequence!.name }] }], activeProjectId: active.project!.id, activeSequenceId: active.sequence!.id }) },
+      recoveryGuard: guard,
+    });
+    const runtime = new Runtime(new FinalCutSessionAdapter({ live: provider }), {
+      verificationEngine: { verify: async () => ({ passed: false, checks: [{ name: "fixture-failure", passed: false, detail: "simulated verification failure" }] }) },
+    });
+    const server = createMcpServer(runtime, { processMode: "headed", canonicalRecovery: guard });
+    const client = new Client({ name: "canonical-mcp-rollback", version: "1" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    try {
+      await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+      const before = await runtime.inspectProject();
+      const operation = { type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "Renamed" };
+      const preview = await client.callTool({ name: "editor.timeline.edit.preview", arguments: { projectId: before.projectId, sequenceId: before.timeline.id, baseRevision: before.revision, operations: [operation], path: "headed" } });
+      assert.equal(preview.isError ?? false, false, textFrom(preview));
+      const executed = await client.callTool({ name: "editor.timeline.edit.execute", arguments: { previewToken: JSON.parse(textFrom(preview)).previewToken, path: "headed" } });
+      assert.deepEqual(calls, ["edit", "undo"]);
+      if (undoFails) {
+        assert.equal(executed.isError, true);
+        assert.match(textFrom(executed), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+        await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+        assert.equal(current.timeline.clips[0]!.name, "Renamed");
+      } else {
+        assert.equal(executed.isError ?? false, false, textFrom(executed));
+        assert.equal(JSON.parse(textFrom(executed)).status, "ROLLED_BACK");
+        assert.equal(canonicalSnapshotDigest(await runtime.inspectProject()), canonicalSnapshotDigest(before));
+        await guard.assertClear();
+      }
+    } finally {
+      await client.close();
+      await server.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+});
