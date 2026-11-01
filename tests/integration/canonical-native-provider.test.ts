@@ -2532,3 +2532,33 @@ test("canonical capabilities fail closed when source binding is unavailable", as
   await assert.rejects(provider.apply({ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "Renamed" }, before.revision), /CAPABILITY_UNAVAILABLE.*source/i);
   assert.deepEqual(calls, []);
 });
+
+test("source capability limits only source-bound operations when canonical readiness is otherwise available", async () => {
+  const resolveTarget = Object.assign(async () => {}, { sourceBindingAvailable: false });
+  const provider = new FinalCutCanonicalNativeProvider({
+    live: {
+      getIdentity: async () => identity,
+      readLiveState: async () => liveState(),
+      liveChangesSince: async () => [],
+      getCapabilities: async () => ({ editor: { projectSelection: true, projectSelectionMode: "headed-only" } }) as never,
+      selectProject: async () => ({} as never),
+    },
+    native: {
+      renameSelectedClip: async () => ({ operationId: "rename", undoAvailable: true }),
+      trimSelectedClipToRange: async () => ({ operationId: "trim", undoAvailable: true }),
+      addMarkerAtTime: async () => ({ operationId: "marker", undoAvailable: true }),
+      rippleDeleteRange: async () => ({ operationId: "ripple", undoAvailable: true }),
+      setSelectedClipGain: async () => ({ operationId: "gain", undoAvailable: true }),
+      undo: async () => ({ undone: true, verification: { verified: true } }),
+    },
+    readSnapshot: async () => snapshot("Original"),
+    resolveTarget,
+    backgroundCatalog: { listProjects: async () => ({ projects: [{ id: "final-cut:project:project-1", name: "Canonical E2E", sequences: [{ id: "final-cut:sequence:sequence-1", name: "Canonical E2E" }] }], activeProjectId: "final-cut:project:project-1", activeSequenceId: "final-cut:sequence:sequence-1" }) },
+  });
+  const capabilities = await provider.getCapabilities({ probeCanonicalSnapshot: true });
+  assert.equal(capabilities.editor.timelineSnapshotRead, true);
+  assert.equal(capabilities.editor.semanticOperations?.["add-marker"], true);
+  for (const operation of ["rename-clip", "trim-clip", "ripple-delete", "set-gain"] as const) {
+    assert.equal(capabilities.editor.semanticOperations?.[operation], false, operation);
+  }
+});
