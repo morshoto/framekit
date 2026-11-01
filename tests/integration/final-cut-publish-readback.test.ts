@@ -76,6 +76,14 @@ test("native publish readback accepts the exact approved edit across native-gene
   assert.equal(evidence.expectedDigest, evidence.observedDigest);
 });
 
+test("native publish readback rejects changed audio subroles", () => {
+  const expected = makeSnapshot("approved", { a: "a", b: "b", c: "c", music: "music" });
+  const actual = makeSnapshot("native", { a: "a", b: "b", c: "c", music: "music" });
+  expected.timeline.clips.find(({ role }) => role === "music")!.nativeAudioRole = "dialogue.dialogue-1";
+  actual.timeline.clips.find(({ role }) => role === "music")!.nativeAudioRole = "dialogue.dialogue-2";
+  assert.throws(() => verifyFinalCutPublishReadback(expected, actual), /FINAL_CUT_PUBLISH_SEMANTIC_MISMATCH/);
+});
+
 test("native publish readback binds same-named sources by verified content", () => {
   const approved = makeSnapshot("approved", { a: "r1", b: "r2", c: "r3", music: "r4" });
   const native = makeSnapshot("native", { a: "asset-8", b: "asset-3", c: "asset-9", music: "asset-6" });

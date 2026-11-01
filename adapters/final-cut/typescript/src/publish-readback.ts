@@ -158,6 +158,7 @@ function clipSignature(
     noiseReductionDb: clip.noiseReductionDb,
     colorCorrection: clip.colorCorrection,
     role: clip.role,
+    nativeAudioRole: clip.nativeAudioRole,
     enabled: clip.enabled,
     position: clip.position,
     scale: clip.scale,

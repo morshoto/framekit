@@ -82,6 +82,9 @@ capability and routing inspection does not initiate a headed snapshot export;
 an unprobed canonical provider reports its snapshot capability unavailable.
 Validated evidence may be reused only while the live target and revision match;
 it does not authorize a later headed context or change read.
+Supported FCPXML dialogue subroles are retained as `nativeAudioRole` on
+canonical clips and editing-session occurrences, including during materialization
+and publish readback comparison. Unsupported roles on audio elements fail closed.
 
 An incremental result must match its target and revision cursor. Concurrency
 conflicts and stale-write errors, ambiguous or incomplete observations, and

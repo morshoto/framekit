@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { WorkflowOperation } from "@framekit/runtime";
-import { AgentVideoRuntime } from "@framekit/runtime";
+import { AgentVideoRuntime, createTimelineIrFromProjectSnapshot } from "@framekit/runtime";
 import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
 
 const documentWithOperations = `<?xml version="1.0" encoding="UTF-8"?>
@@ -37,6 +37,40 @@ async function artifact(contents = documentWithOperations): Promise<{ path: stri
   await writeFile(path, contents);
   return { path, adapter: new FcpxmlDocumentAdapter(path) };
 }
+
+test("FCPXML snapshots preserve native dialogue subroles", async () => {
+  const xml = documentWithOperations.replace(
+    '<asset-clip id="clip-a" ref="video-a" offset="0s" start="1s" duration="4s" />',
+    '<audio id="clip-a" ref="audio-a" offset="0s" start="1s" duration="4s" role="dialogue.dialogue-1" />',
+  );
+  const { adapter } = await artifact(xml);
+  const snapshot = await adapter.readProject();
+  const clip = snapshot.timeline.clips.find((item) => item.id === "clip-a");
+  assert.equal(clip?.role, "audio");
+  assert.equal(clip?.nativeAudioRole, "dialogue.dialogue-1");
+  const ir = createTimelineIrFromProjectSnapshot(snapshot);
+  assert.equal(ir.sequence.occurrences.find((item) => item.id === "clip-a")?.nativeAudioRole, "dialogue.dialogue-1");
+});
+
+test("video asset clips retain dialogue subroles without becoming audio-only", async () => {
+  const xml = documentWithOperations.replace(
+    '<asset-clip id="clip-a" ref="video-a" offset="0s" start="1s" duration="4s" />',
+    '<asset-clip id="clip-a" ref="video-a" offset="0s" start="1s" duration="4s" audioRole="dialogue.dialogue-1" />',
+  );
+  const { adapter } = await artifact(xml);
+  const clip = (await adapter.readProject()).timeline.clips.find((item) => item.id === "clip-a");
+  assert.equal(clip?.role, undefined);
+  assert.equal(clip?.nativeAudioRole, "dialogue.dialogue-1");
+});
+
+test("FCPXML rejects unsupported asset clip audio roles", async () => {
+  const xml = documentWithOperations.replace(
+    '<asset-clip id="clip-a" ref="video-a" offset="0s" start="1s" duration="4s" />',
+    '<asset-clip id="clip-a" ref="video-a" offset="0s" start="1s" duration="4s" audioRole="custom.role" />',
+  );
+  const { adapter } = await artifact(xml);
+  await assert.rejects(adapter.readProject(), /FCPXML_UNSUPPORTED_AUDIO_ROLE: custom.role/);
+});
 
 test("FCPXML capabilities advertise only the documented safe operation matrix", async () => {
   const { adapter } = await artifact();

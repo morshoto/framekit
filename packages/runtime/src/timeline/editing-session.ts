@@ -70,6 +70,7 @@ export interface TimelineIrOccurrence {
   sourceStartTime?: RationalTime;
   track: number;
   role?: TimelineIrRole;
+  nativeAudioRole?: string;
   mediaId?: string;
   gainDb?: number;
   fadeIn?: number;
@@ -422,6 +423,7 @@ export function createTimelineIrFromProjectSnapshot(
     ...(clip.sourceStartTime ? { sourceStartTime: normalizeRationalTime(clip.sourceStartTime) } : {}),
     track: clip.track,
     ...(clip.role ? { role: clip.role } : {}),
+    ...(clip.nativeAudioRole ? { nativeAudioRole: clip.nativeAudioRole } : {}),
     ...(clip.mediaId ? { mediaId: clip.mediaId } : {}),
     ...(clip.gainDb !== undefined ? { gainDb: clip.gainDb } : {}),
     ...(clip.scale !== undefined || clip.position ? {
@@ -536,6 +538,14 @@ export function validateTimelineIr(timeline: TimelineIr): void {
       if (compareRational(sourceEndTime, resource.metadata.durationTime) > 0) {
         throw new Error(`TIMELINE_IR_INVALID: occurrence ${occurrence.id} source range exceeds resource ${resource.id}`);
       }
+    }
+    if (occurrence.nativeAudioRole !== undefined && (
+      typeof occurrence.nativeAudioRole !== "string"
+      || !/^dialogue\.[^.]+$/.test(occurrence.nativeAudioRole)
+      || occurrence.role === "music"
+      || occurrence.role === "title"
+    )) {
+      throw new Error(`TIMELINE_IR_INVALID: occurrence ${occurrence.id}.nativeAudioRole is unsupported or inconsistent`);
     }
     if (occurrence.gainDb !== undefined && !Number.isFinite(occurrence.gainDb)) throw new Error(`TIMELINE_IR_INVALID: occurrence ${occurrence.id}.gainDb must be finite`);
     if (occurrence.transform) validateTransform(occurrence.transform, `occurrence ${occurrence.id}.transform`);
