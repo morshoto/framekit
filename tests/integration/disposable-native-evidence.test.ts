@@ -42,6 +42,7 @@ test("disposable native headed runner publishes the sanitized evidence contract"
   const runner = await readFile(join(process.cwd(), "scripts/final-cut-disposable-native-headed-e2e.mjs"), "utf8");
 
   assert.match(runner, /editor\.native\.focus/);
+  assert.match(runner, /readBoundNativeProject\(callJson, expectedProject/);
   assert.match(runner, /focused\.readiness\?\.targetKind/);
   assert.match(runner, /focused\.readiness\?\.targetBound/);
   assert.match(runner, /editor\.native\.disposable\.preview/);
