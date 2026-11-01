@@ -164,6 +164,7 @@ test('CodeQL policy accepts a current JavaScript scan when Swift is unchanged', 
 		evaluateCodeQLPolicy: (input: {
 			workflowHeadSha: string;
 			pullRequestHeadSha: string;
+			pullRequestNumber: number;
 			mergeSha: string;
 			swiftRequired: boolean;
 			analyses: Array<Record<string, unknown>>;
@@ -174,6 +175,7 @@ test('CodeQL policy accepts a current JavaScript scan when Swift is unchanged', 
 	const result = evaluateCodeQLPolicy({
 		workflowHeadSha: 'head-sha',
 		pullRequestHeadSha: 'head-sha',
+		pullRequestNumber: 7,
 		mergeSha: 'merge-sha',
 		swiftRequired: false,
 		analyses: [{
@@ -198,6 +200,7 @@ test('CodeQL policy requires current successful analysis for every affected lang
 		evaluateCodeQLPolicy: (input: {
 			workflowHeadSha: string;
 			pullRequestHeadSha: string;
+			pullRequestNumber: number;
 			mergeSha: string;
 			swiftRequired: boolean;
 			analyses: Array<Record<string, unknown>>;
@@ -224,6 +227,7 @@ test('CodeQL policy requires current successful analysis for every affected lang
 	const result = evaluateCodeQLPolicy({
 		workflowHeadSha: 'head-sha',
 		pullRequestHeadSha: 'head-sha',
+		pullRequestNumber: 7,
 		mergeSha: 'merge-sha',
 		swiftRequired: true,
 		analyses: [javascript],
@@ -236,6 +240,7 @@ test('CodeQL policy requires current successful analysis for every affected lang
 	assert.deepEqual(evaluateCodeQLPolicy({
 		workflowHeadSha: 'head-sha',
 		pullRequestHeadSha: 'head-sha',
+		pullRequestNumber: 7,
 		mergeSha: 'merge-sha',
 		swiftRequired: true,
 		analyses: [javascript, swift],
@@ -251,6 +256,7 @@ test('CodeQL policy rejects stale scans and newly introduced blocking alerts', a
 		evaluateCodeQLPolicy: (input: {
 			workflowHeadSha: string;
 			pullRequestHeadSha: string;
+			pullRequestNumber: number;
 			mergeSha: string;
 			swiftRequired: boolean;
 			analyses: Array<Record<string, unknown>>;
@@ -269,6 +275,7 @@ test('CodeQL policy rejects stale scans and newly introduced blocking alerts', a
 	const stale = evaluateCodeQLPolicy({
 		workflowHeadSha: 'old-head-sha',
 		pullRequestHeadSha: 'head-sha',
+		pullRequestNumber: 7,
 		mergeSha: 'merge-sha',
 		swiftRequired: false,
 		analyses: [javascript],
@@ -281,6 +288,7 @@ test('CodeQL policy rejects stale scans and newly introduced blocking alerts', a
 	const newHighAlert = evaluateCodeQLPolicy({
 		workflowHeadSha: 'head-sha',
 		pullRequestHeadSha: 'head-sha',
+		pullRequestNumber: 7,
 		mergeSha: 'merge-sha',
 		swiftRequired: false,
 		analyses: [{ ...javascript, commit_sha: 'merge-sha' }],
@@ -293,6 +301,35 @@ test('CodeQL policy rejects stale scans and newly introduced blocking alerts', a
 	});
 	assert.equal(newHighAlert.pass, false);
 	assert.match(newHighAlert.reasons.join('\n'), /alert/i);
+
+	const analysisError = evaluateCodeQLPolicy({
+		workflowHeadSha: 'head-sha',
+		pullRequestHeadSha: 'head-sha',
+		pullRequestNumber: 7,
+		mergeSha: 'merge-sha',
+		swiftRequired: false,
+		analyses: [{ ...javascript, commit_sha: 'merge-sha', error: 'extraction failed' }],
+		pullRequestAlerts: [],
+		baseAlerts: [],
+	});
+	assert.equal(analysisError.pass, false);
+	assert.match(analysisError.reasons.join('\n'), /failed/i);
+
+	const newErrorAlert = evaluateCodeQLPolicy({
+		workflowHeadSha: 'head-sha',
+		pullRequestHeadSha: 'head-sha',
+		pullRequestNumber: 7,
+		mergeSha: 'merge-sha',
+		swiftRequired: false,
+		analyses: [{ ...javascript, commit_sha: 'merge-sha' }],
+		pullRequestAlerts: [{
+			number: 10,
+			state: 'open',
+			rule: { severity: 'error' },
+		}],
+		baseAlerts: [],
+	});
+	assert.equal(newErrorAlert.pass, false);
 });
 
 test('CodeQL policy ignores inherited alerts below current thresholds', async () => {
@@ -302,6 +339,7 @@ test('CodeQL policy ignores inherited alerts below current thresholds', async ()
 		evaluateCodeQLPolicy: (input: {
 			workflowHeadSha: string;
 			pullRequestHeadSha: string;
+			pullRequestNumber: number;
 			mergeSha: string;
 			swiftRequired: boolean;
 			analyses: Array<Record<string, unknown>>;
@@ -312,6 +350,7 @@ test('CodeQL policy ignores inherited alerts below current thresholds', async ()
 	const result = evaluateCodeQLPolicy({
 		workflowHeadSha: 'head-sha',
 		pullRequestHeadSha: 'head-sha',
+		pullRequestNumber: 7,
 		mergeSha: 'merge-sha',
 		swiftRequired: false,
 		analyses: [{
@@ -324,6 +363,10 @@ test('CodeQL policy ignores inherited alerts below current thresholds', async ()
 		}],
 		pullRequestAlerts: [{
 			number: 11,
+			state: 'open',
+			rule: { severity: 'warning', security_severity_level: 'medium' },
+		}, {
+			number: 12,
 			state: 'open',
 			rule: { severity: 'warning', security_severity_level: 'medium' },
 		}],
