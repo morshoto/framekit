@@ -107,6 +107,7 @@ jobs:
                   uname -a
                   xcodebuild -version
                   xcrun --sdk macosx --show-sdk-version
+                  xcrun --sdk macosx swiftc --version
                   git rev-parse HEAD
 
             # Keep diagnostic flags out of the measured and CodeQL-traced commands.
