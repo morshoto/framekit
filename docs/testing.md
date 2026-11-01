@@ -105,6 +105,14 @@ Only an explicit successful summary containing `headed-native=verified` and
 sanitized evidence binds the exact project, sequence, occurrence, build,
 before/after/restored revisions, and verification/Undo result. Keep private
 media, raw responses, and machine paths out of committed artifacts.
+For canonical mutation, set `FRAMEKIT_FINAL_CUT_E2E_PROJECT`,
+`FRAMEKIT_FINAL_CUT_E2E_PROJECT_ID`, `FRAMEKIT_FINAL_CUT_E2E_SEQUENCE_ID`,
+`FRAMEKIT_FINAL_CUT_E2E_REVISION_ID`, `FRAMEKIT_FINAL_CUT_E2E_CLIP_ID`,
+`FRAMEKIT_FINAL_CUT_E2E_CANDIDATE_COMMIT`, and
+`FRAMEKIT_FINAL_CUT_E2E_ALLOW_MUTATION=1` for the separately authorized run.
+The runner requires a clean checkout at the approved commit, a matching loaded
+extension, the approved active target and revision, and an unlocked, frontmost
+Final Cut session. It does not retry a failed Undo.
 Canonical mutation evidence independently checks the snapshot digests, target
 and source binding, advertised rename capability, and rename-only semantic
 projection. The runner hashes every local source before editing and after Undo;

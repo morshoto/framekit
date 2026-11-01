@@ -42,7 +42,6 @@ const transport = new StdioClientTransport({
   stderr: "pipe",
 });
 const client = new Client({ name: "framekit-canonical-headed-e2e", version: "0.1.0" });
-let transactionId;
 
 try {
   await client.connect(transport);
@@ -111,14 +110,12 @@ try {
     baseRevision: before.revision,
   });
   toolResults.push({ name: "editor.timeline.edit", status: transaction.status });
-  transactionId = transaction.id;
   if (transaction.status !== "VERIFIED" || transaction.diff?.modified?.[0]?.itemId !== clipId) {
     throw new Error("FINAL_CUT_E2E_EDIT_VERIFICATION_FAILED: live edit did not return the expected verified diff");
   }
 
-  const restored = await callJson("edit.undo", { transactionId });
+  const restored = await callJson("edit.undo", { transactionId: transaction.id });
   toolResults.push({ name: "edit.undo", status: "passed" });
-  transactionId = undefined;
   const restoredDigest = canonicalDigest(restored);
   if (restoredDigest !== beforeDigest) {
     throw new Error("FINAL_CUT_E2E_ROLLBACK_DIGEST_MISMATCH: undo did not restore the pre-edit canonical digest");
@@ -142,15 +139,6 @@ try {
     sourceIntegrity: { before: sourceHashesBefore, restored: sourceHashesRestored },
   }, await evidenceEnvironment(root));
   process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`);
-} catch (error) {
-  if (transactionId) {
-    try {
-      await callJson("edit.undo", { transactionId });
-    } catch (rollbackError) {
-      throw new AggregateError([error, rollbackError], "Canonical headed E2E failed and compensating undo also failed");
-    }
-  }
-  throw error;
 } finally {
   await client.close().catch(() => {});
   await transport.close().catch(() => {});
