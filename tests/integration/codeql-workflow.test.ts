@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
-import { readFile, readdir } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { chmod, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -197,6 +199,50 @@ test('Swift CodeQL extraction uses the checked-in shim only', async () => {
 		project,
 		/\.github\/codeql\/FinalCutWorkflowExtensionShim\.swift/,
 	);
+});
+
+test('opt-in Swift profiling uses a fresh module cache without changing normal flags', async () => {
+	const temp = await mkdtemp(resolve(tmpdir(), 'framekit-codeql-cache-'));
+	try {
+		const bin = resolve(temp, 'bin');
+		const cache = resolve(temp, 'framekit-swift-module-cache');
+		const argsFile = resolve(temp, 'compiler-args');
+		const xcrun = resolve(bin, 'xcrun');
+		await mkdir(bin);
+		await mkdir(cache);
+		await writeFile(resolve(cache, 'stale.module'), 'stale');
+		await writeFile(
+			xcrun,
+			'#!/bin/bash\nprintf \'%s\\n\' "$@" > "$FRAMEKIT_SWIFT_TEST_ARGS_FILE"\n',
+		);
+		await chmod(xcrun, 0o755);
+
+		const environment = {
+			...process.env,
+			PATH: `${bin}:${process.env.PATH ?? ''}`,
+			RUNNER_TEMP: temp,
+			FRAMEKIT_SWIFT_TEST_ARGS_FILE: argsFile,
+		};
+		const script = resolve(repository, '.github/codeql/typecheck-swift.sh');
+		execFileSync('bash', [script], {
+			cwd: repository,
+			env: { ...environment, FRAMEKIT_SWIFT_TYPECHECK_PROFILE: 'true' },
+		});
+		const profiledArgs = await readFile(argsFile, 'utf8');
+		assert.ok(profiledArgs.includes(`-module-cache-path\n${cache}\n`));
+		await assert.rejects(readFile(resolve(cache, 'stale.module')), { code: 'ENOENT' });
+
+		await writeFile(resolve(cache, 'stale.module'), 'stale');
+		execFileSync('bash', [script], {
+			cwd: repository,
+			env: { ...environment, FRAMEKIT_SWIFT_TYPECHECK_PROFILE: 'false' },
+		});
+		const normalArgs = await readFile(argsFile, 'utf8');
+		assert.doesNotMatch(normalArgs, /-module-cache-path/);
+		assert.equal(await readFile(resolve(cache, 'stale.module'), 'utf8'), 'stale');
+	} finally {
+		await rm(temp, { recursive: true, force: true });
+	}
 });
 
 test('CodeQL substitutes host declarations without changing the native import', async () => {
