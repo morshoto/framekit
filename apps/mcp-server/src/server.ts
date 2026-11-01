@@ -4,6 +4,7 @@ import { resolve as resolvePath } from "node:path";
 import { z } from "zod/v3";
 import {
   AgentVideoRuntime,
+  canonicalSnapshotDigest,
   createCapabilityPreflight,
   resolveEditingIntent,
   serializeCapabilityUnavailableError,
@@ -960,7 +961,7 @@ export interface McpServerOptions {
   disposableNative?: Pick<DisposableNativeEditWorkflow, "preview" | "execute" | "undo">;
   nativeOperationSession?: Pick<NativeOperationSession, "submit" | "status" | "retry" | "cancel">;
   projectPublisher?: FinalCutProjectPublisher;
-  canonicalRecovery?: Pick<FileCanonicalRecoveryGuard, "inspect">;
+  canonicalRecovery?: Pick<FileCanonicalRecoveryGuard, "inspectVersioned">;
   videoExporter?: FinalCutVideoExporter;
   backgroundRenderer?: BackgroundRenderExportProvider;
   buildFingerprint?: FramekitBuildFingerprint;
@@ -1182,11 +1183,71 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: {},
   }, async () => sessionResult(async () => {
     if (!options.canonicalRecovery) throw new Error("CAPABILITY_UNAVAILABLE: canonical recovery checkpoint inspection is not configured");
-    const checkpoint = await options.canonicalRecovery.inspect();
-    return checkpoint
-      ? { status: "recovery-required", scope: "configured-state-directory", checkpoint }
+    const evidence = await options.canonicalRecovery.inspectVersioned();
+    return evidence
+      ? { status: "recovery-required", scope: "configured-state-directory", ...evidence }
       : { status: "clear", scope: "configured-state-directory" };
   }));
+
+  server.registerTool("editor.native.recovery.preview", {
+    description: "Compare an explicitly approved, target-bound canonical read with one checkpoint; never clears it or proves native operation quiescence.",
+    inputSchema: {
+      confirmHeadedRead: z.boolean().optional(),
+      expectedTarget: contextTargetSchema.optional(),
+      expectedCheckpointId: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+    },
+  }, async ({ confirmHeadedRead, expectedTarget, expectedCheckpointId }) => {
+    const operation = "editor.native.recovery.preview";
+    if (!confirmHeadedRead || !expectedTarget || !expectedCheckpointId) {
+      return mcpReadErrorResult("HEADED_READ_CONFIRMATION_REQUIRED", "recovery preview requires confirmation, target IDs, and the inspected checkpoint ID", operation);
+    }
+    if (!options.canonicalRecovery) return mcpReadErrorResult("CAPABILITY_UNAVAILABLE", "canonical recovery checkpoint inspection is not configured", operation);
+    let evidence: Awaited<ReturnType<FileCanonicalRecoveryGuard["inspectVersioned"]>>;
+    try {
+      evidence = await options.canonicalRecovery.inspectVersioned();
+    } catch (error) {
+      return mcpReadErrorResult("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED", error instanceof Error ? error.message : String(error), operation);
+    }
+    if (!evidence || evidence.checkpointId !== expectedCheckpointId) return mcpReadErrorResult("CHECKPOINT_MISMATCH", "recovery checkpoint is missing or changed", operation);
+    if (evidence.checkpoint.projectId !== expectedTarget.projectId || evidence.checkpoint.sequenceId !== expectedTarget.sequenceId) {
+      return mcpReadErrorResult("TARGET_MISMATCH", "requested target differs from the checkpoint", operation);
+    }
+    const passive = await inspectMcpEditor(runtime, options);
+    if (passive.identity.backend !== "final-cut-native-canonical") {
+      return mcpReadErrorResult("CAPABILITY_UNAVAILABLE", "recovery preview requires the canonical native provider", operation);
+    }
+    try {
+      return await inspectCanonicalReadForMcp(runtime, options, operation, true, expectedTarget, async () => {
+        const beforeLive = await runtime.inspectLiveEditor();
+        if (!liveTargetMatches(beforeLive, expectedTarget) || !beforeLive.revision?.id || !Number.isSafeInteger(beforeLive.revision.sequence)) {
+          throw new Error("STALE_CONTEXT: live target or revision is unavailable before recovery read");
+        }
+        const snapshot = await runtime.inspectProject();
+        const afterLive = await runtime.inspectLiveEditor();
+        if (!liveTargetMatches(afterLive, expectedTarget) || afterLive.revision?.id !== beforeLive.revision.id
+          || afterLive.revision?.sequence !== beforeLive.revision.sequence) {
+          throw new Error("STALE_CONTEXT: live target or revision changed during recovery read");
+        }
+        if (snapshot.projectId !== expectedTarget.projectId || snapshot.timeline.id !== expectedTarget.sequenceId) {
+          throw new Error("TARGET_MISMATCH: canonical snapshot differs from the checkpoint target");
+        }
+        const after = await options.canonicalRecovery!.inspectVersioned();
+        if (!after || after.checkpointId !== expectedCheckpointId) throw new Error("CHECKPOINT_MISMATCH: checkpoint changed during canonical read");
+        const observedDigest = canonicalSnapshotDigest(snapshot);
+        const comparison = evidence!.checkpoint.expectedRestoreDigest === observedDigest
+          ? "matches-expected-restoration"
+          : evidence!.checkpoint.beforeDigest === observedDigest ? "matches-before" : "different";
+        return { checkpointId: expectedCheckpointId, target: expectedTarget, observedRevision: snapshot.revision, observedLiveRevision: afterLive.revision, observedDigest, comparison, pointInTime: true, quiescence: "unproven", checkpointCleared: false };
+      }, (result) => result.target);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.startsWith("STALE_CONTEXT:")) return mcpReadErrorResult("STALE_CONTEXT", message, operation);
+      if (message.startsWith("TARGET_MISMATCH:")) return mcpReadErrorResult("TARGET_MISMATCH", message, operation);
+      if (message.startsWith("CHECKPOINT_MISMATCH:")) return mcpReadErrorResult("CHECKPOINT_MISMATCH", message, operation);
+      if (message.startsWith("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED:")) return mcpReadErrorResult("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED", message, operation);
+      throw error;
+    }
+  });
 
   registerSkillTools(server, runtime);
 

@@ -52,6 +52,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "connection.status",
         "editor.native.handoff.readiness",
         "editor.native.recovery.inspect",
+        "editor.native.recovery.preview",
         "context.changes",
         "context.inspect",
         "edit.diff",

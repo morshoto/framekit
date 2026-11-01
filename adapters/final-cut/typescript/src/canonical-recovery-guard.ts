@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, mkdir, open, readFile, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -22,12 +22,17 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
 
   /** Return evidence only; inspection never clears or claims recovery. */
   public async inspect(): Promise<CanonicalRecoveryCheckpoint | undefined> {
+    return (await this.inspectVersioned())?.checkpoint;
+  }
+
+  public async inspectVersioned(): Promise<{ checkpointId: string; checkpoint: CanonicalRecoveryCheckpoint } | undefined> {
     let handle;
     try {
       handle = await open(this.path, constants.O_RDONLY | constants.O_NOFOLLOW);
       const info = await handle.stat();
       if (!info.isFile() || info.size > 16_384) throw new Error("invalid checkpoint file");
-      const record = JSON.parse(await handle.readFile("utf8")) as Record<string, unknown>;
+      const contents = await handle.readFile("utf8");
+      const record = JSON.parse(contents) as Record<string, unknown>;
       if (record.version !== 1 || typeof record.owner !== "string"
         || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(record.owner)
         || !record.checkpoint || typeof record.checkpoint !== "object" || Array.isArray(record.checkpoint)) {
@@ -43,8 +48,11 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
         || (expectedRestoreDigest !== undefined && (typeof expectedRestoreDigest !== "string" || !/^[a-f0-9]{64}$/i.test(expectedRestoreDigest)))) {
         throw new Error("incomplete checkpoint evidence");
       }
-      return { projectId, sequenceId, baseRevision, beforeDigest, operation,
-        ...(typeof expectedRestoreDigest === "string" ? { expectedRestoreDigest } : {}) };
+      return {
+        checkpointId: createHash("sha256").update(contents).digest("hex"),
+        checkpoint: { projectId, sequenceId, baseRevision, beforeDigest, operation,
+          ...(typeof expectedRestoreDigest === "string" ? { expectedRestoreDigest } : {}) },
+      };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
       throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot inspect recovery evidence", { cause: error });

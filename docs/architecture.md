@@ -86,8 +86,12 @@ is no automatic checkpoint reset or supported recovery flow yet. The read-only
 `editor.native.recovery.inspect` MCP tool reports the checkpoint in the
 configured state directory without contacting Final Cut or clearing it; a
 clear result is point-in-time and does not establish recovery or the state of
-other directories. An Undo checkpoint also records the digest of the state it
-was intended to restore. Canonical
+other directories. `editor.native.recovery.preview` requires the inspected
+checkpoint ID, matching target IDs, and explicit headed-read confirmation; it
+compares a canonical snapshot with the recorded digests. Its point-in-time
+result does not prove that a native operation has stopped and never clears the
+checkpoint. An Undo checkpoint also records the digest of the state it was
+intended to restore. Canonical
 revision tokens are scoped to the provider session and change when the live revision changes. Where live project
 selection is supported, subsequent canonical reads remain bound to the selected
 project and sequence until an explicit new selection succeeds. Passive MCP
@@ -161,9 +165,9 @@ import or overwrite the target without a fresh approved operation.
 context read uses `confirmHeadedRead` and an `expectedTarget` containing the
 project and sequence IDs; a mismatch fails before the export. This confirmation
 does not itself establish user authorization or provide atomic target binding.
-Direct `project.inspect`, `timeline.inspect`, and `timeline.semantic.inspect`
-calls use the same confirmation and target fields when they require a headed
-canonical snapshot. Missing confirmation or a mismatched target fails before
+Direct `project.inspect`, `timeline.inspect`, `timeline.semantic.inspect`, and
+`editor.native.recovery.preview` calls use the same confirmation and target
+fields when they require a headed canonical snapshot. Missing confirmation or a mismatched target fails before
 export, and the active IDs are checked again after the read.
 
 `EditingSession` keeps desired edits provider-neutral and bound to a versioned

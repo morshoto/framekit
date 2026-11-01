@@ -197,6 +197,8 @@ test("MCP recovery preview requires exact consent and never clears the checkpoin
     assert.equal(evidence.quiescence, "unproven");
     assert.equal(evidence.pointInTime, true);
     assert.equal(typeof evidence.observedRevision.id, "string");
+    assert.equal(evidence.observedLiveRevision.id, "live-revision");
+    assert.equal(evidence.observedLiveRevision.sequence, 1);
     assert.equal(evidence.checkpointCleared, false);
     assert.equal(reads, 1, "one confirmed preview must not export twice");
     await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
@@ -323,6 +325,28 @@ test("MCP recovery preview rejects a checkpoint replaced during read", async () 
     const result = await client.callTool({ name: "editor.native.recovery.preview", arguments: { confirmHeadedRead: true, expectedTarget: target, expectedCheckpointId: checkpointId } });
     assert.equal(result.isError, true);
     assert.equal(JSON.parse(textFrom(result)).code, "CHECKPOINT_MISMATCH");
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("MCP recovery preview rejects incomplete canonical observation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-incomplete-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const original = snapshot("Original");
+  const target = { projectId: original.projectId, sequenceId: original.timeline.id };
+  await guard.begin({ ...target, baseRevision: "baseline", beforeDigest: canonicalSnapshotDigest(original), operation: "rename-clip" });
+  const checkpointId = (await guard.inspectVersioned())!.checkpointId;
+  let reads = 0;
+  const { client, server } = await connect(createRuntime([], async () => { reads += 1; throw new Error("incomplete canonical observation"); }), { canonicalRecovery: guard });
+  try {
+    const result = await client.callTool({ name: "editor.native.recovery.preview", arguments: { confirmHeadedRead: true, expectedTarget: target, expectedCheckpointId: checkpointId } });
+    assert.equal(result.isError, true);
+    assert.equal(JSON.parse(textFrom(result)).code, "CAPABILITY_UNAVAILABLE");
+    assert.equal(reads, 1);
     await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   } finally {
     await client.close();
