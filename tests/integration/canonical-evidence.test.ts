@@ -725,3 +725,14 @@ test("canonical write read rejects a snapshot from another target", async () => 
   const { readCanonicalWriteTarget } = await import("../../scripts/final-cut-canonical-write-target.mjs");
   await assert.rejects(readCanonicalWriteTarget(async () => ({ projectId: "p", projectName: "Disposable", timeline: { id: "other" } }), { projectId: "p", projectName: "Disposable", sequenceId: "s" }), /TARGET_MISMATCH/);
 });
+
+test("canonical headed write runner requires explicit candidate and bound reads", async () => {
+  const runner = await readFile(join(process.cwd(), "scripts/final-cut-canonical-headed-e2e.mjs"), "utf8");
+  assert.match(runner, /FRAMEKIT_FINAL_CUT_E2E_PROJECT_ID/);
+  assert.match(runner, /FRAMEKIT_FINAL_CUT_E2E_SEQUENCE_ID/);
+  assert.match(runner, /FRAMEKIT_FINAL_CUT_E2E_CANDIDATE_COMMIT/);
+  assert.match(runner, /FRAMEKIT_FINAL_CUT_E2E_ALLOW_MUTATION/);
+  assert.match(runner, /selectCanonicalWriteTarget\(callJson, approvedTarget\)/);
+  assert.equal((runner.match(/readCanonicalWriteTarget\(callJson, approvedTarget\)/g) ?? []).length, 3);
+  assert.doesNotMatch(runner, /callJson\("project\.inspect"\)/);
+});
