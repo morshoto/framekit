@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import {
   FinalCutCanonicalNativeProvider,
+  FileCanonicalRecoveryGuard,
   FinalCutSessionAdapter,
 } from "@framekit/final-cut";
 import {
@@ -126,13 +130,39 @@ function textFrom(result: unknown): string {
   return first.text as string;
 }
 
-async function connect(runtime: AgentVideoRuntime) {
-  const server = createMcpServer(runtime);
+async function connect(runtime: AgentVideoRuntime, options?: Parameters<typeof createMcpServer>[1]) {
+  const server = createMcpServer(runtime, options);
   const client = new Client({ name: "canonical-native-mcp-test", version: "0.1.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   return { client, server };
 }
+
+test("MCP recovery inspection reports checkpoint evidence without touching the editor", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-mcp-recovery-"));
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  const calls: string[] = [];
+  const { client, server } = await connect(createRuntime(calls, async () => { throw new Error("unexpected canonical read"); }), { canonicalRecovery: guard });
+  try {
+    const clear = await client.callTool({ name: "editor.native.recovery.inspect", arguments: {} });
+    assert.deepEqual(JSON.parse(textFrom(clear)), { status: "clear", scope: "configured-state-directory" });
+    const checkpoint = { projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "b".repeat(64), operation: "rename-clip" };
+    await guard.begin(checkpoint);
+    const pending = await client.callTool({ name: "editor.native.recovery.inspect", arguments: {} });
+    assert.deepEqual(JSON.parse(textFrom(pending)), { status: "recovery-required", scope: "configured-state-directory", checkpoint });
+    assert.doesNotMatch(textFrom(pending), /owner/);
+    await writeFile(path, "invalid");
+    const invalid = await client.callTool({ name: "editor.native.recovery.inspect", arguments: {} });
+    assert.equal(invalid.isError, true);
+    assert.match(textFrom(invalid), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    assert.deepEqual(calls, []);
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 test("canonical native provider exposes reads without selection", async () => {
   const calls: string[] = [];
