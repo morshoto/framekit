@@ -244,7 +244,7 @@ const disposableNative = liveMode && !headlessFinalCut && !fcpxmlPath && nativeE
     })
   : undefined;
 const nativeOperationSession = disposableNative && nativeEditor
-  ? createDisposableNativeOperationSession({ workflow: disposableNative, native: nativeEditor })
+  ? createDisposableNativeOperationSession({ workflow: disposableNative, native: nativeEditor, recoveryGuard: canonicalRecovery })
   : undefined;
 const projectPublisher = liveMode && fcpxmlPath
   ? new FinalCutProjectPublisher({

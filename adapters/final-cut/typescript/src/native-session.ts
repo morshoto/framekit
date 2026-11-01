@@ -6,6 +6,7 @@ import type {
 } from "./disposable-native.js";
 import type { NativeFinalCutEditor } from "./native.js";
 import type { NativeFinalCutReadiness } from "./native.js";
+import type { FileCanonicalRecoveryGuard } from "./canonical-recovery-guard.js";
 
 export type NativeOperationSessionState =
   | "planned"
@@ -402,7 +403,8 @@ export class NativeOperationSession {
 
 export interface DisposableNativeOperationSessionOptions {
   workflow: Pick<DisposableNativeEditWorkflow, "execute" | "getPreview">;
-  native: Pick<NativeFinalCutEditor, "inspect">;
+  native: Pick<NativeFinalCutEditor, "inspect" | "trackNativeDispatch">;
+  recoveryGuard?: Pick<FileCanonicalRecoveryGuard, "beginNative">;
   now?: () => number;
   jobTtlMs?: number;
   jobRetentionMs?: number;
@@ -438,14 +440,26 @@ export function createDisposableNativeOperationSession(
         }
       },
       execute: async (request, context) => {
-        const result = await options.workflow.execute(request.previewToken, {
-          signal: context.signal,
-          onMutationStart: context.markMutationStarted,
-        });
-        return {
-          outcome: result.status === "VERIFIED" ? "completed" : "rolled_back",
-          evidence: disposableEvidence(result),
-        };
+        const reservation = await options.recoveryGuard?.beginNative("native.job.disposable-rename");
+        let dispatched = typeof options.native.trackNativeDispatch !== "function";
+        let mutationStarted = false;
+        try {
+          const invoke = () => options.workflow.execute(request.previewToken, {
+            signal: context.signal,
+            onMutationStart: () => { mutationStarted = true; context.markMutationStarted(); },
+          });
+          const result = options.native.trackNativeDispatch
+            ? await options.native.trackNativeDispatch(invoke, () => { dispatched = true; })
+            : await invoke();
+          const evidence = disposableEvidence(result);
+          const verified = result.status === "VERIFIED" && hasVerifiedCompletionEvidence(evidence);
+          const restored = result.status === "ROLLED_BACK" && result.restoredDigest === result.beforeDigest;
+          if (!context.signal.aborted && (verified || restored)) await reservation?.release();
+          return { outcome: result.status === "VERIFIED" ? "completed" : "rolled_back", evidence };
+        } catch (error) {
+          if (!dispatched && !mutationStarted) await reservation?.release();
+          throw error;
+        }
       },
     },
   });
