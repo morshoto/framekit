@@ -758,7 +758,7 @@ test("an in-flight direct native edit excludes a canonical checkpoint", async ()
     edit: async () => {
       entered();
       await held;
-      return { operationId: "native-edit" };
+      return { operationId: "native-edit", verification: { verified: true } };
     },
   } as unknown as NativeFinalCutEditor;
   const { client, server } = await connect(createRuntime([]), { canonicalRecovery: directGuard, nativeEditor });
@@ -842,6 +842,55 @@ test("a direct edit rejected before native dispatch releases its reservation", a
     assert.equal(reservations, 1);
     await guard.assertClear();
   } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("a direct adapter failure after native dispatch retains its reservation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-direct-dispatch-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  let dispatches = 0;
+  const nativeEditor = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    nativePreflightTimeoutMs: 20,
+    executor: async () => { dispatches += 1; throw new Error("simulated native dispatch failure"); },
+  });
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, nativeEditor });
+  try {
+    const result = await client.callTool({ name: "editor.native.edit", arguments: { type: "add-marker-at-playhead", name: "Review" } });
+    assert.equal(result.isError, true);
+    assert.ok(dispatches > 0);
+    assert.equal((await guard.inspectNativeReservation())?.operation, "native.edit");
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("an in-flight direct native undo excludes a canonical checkpoint", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-undo-race-"));
+  const path = join(directory, "pending.json");
+  const directGuard = new FileCanonicalRecoveryGuard(path);
+  const canonicalGuard = new FileCanonicalRecoveryGuard(path);
+  let entered!: () => void;
+  let finish!: () => void;
+  const started = new Promise<void>((resolve) => { entered = resolve; });
+  const held = new Promise<void>((resolve) => { finish = resolve; });
+  const nativeEditor = {
+    capabilities: () => ({}),
+    undo: async () => { entered(); await held; return { undone: true, verification: { verified: true } }; },
+  } as unknown as NativeFinalCutEditor;
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: directGuard, nativeEditor });
+  const request = client.callTool({ name: "editor.native.undo", arguments: { operationId: "native-edit" } });
+  try {
+    await started;
+    await assert.rejects(canonicalGuard.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "b".repeat(64), operation: "undo" }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    finish();
+    await request;
     await client.close();
     await server.close();
     await rm(directory, { recursive: true, force: true });
