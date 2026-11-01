@@ -530,3 +530,19 @@ test("MCP exposes one composite preview and execute contract with workflow opera
     await server.close();
   }
 });
+
+test("unadvertised marker identity changes do not satisfy the preview", async () => {
+  const { adapter, runtime } = createCompositeRuntime();
+  const originalPreview = adapter.previewTransaction.bind(adapter);
+  adapter.previewTransaction = async (...args) => {
+    const projected = await originalPreview(...args);
+    projected.timeline.markers[0]!.id = "different-marker";
+    return projected;
+  };
+  const before = await runtime.inspectProject();
+  const preview = await runtime.previewEdit({ baseRevision: before.revision, operations: [{ type: "add-marker", timelineId: before.timeline.id, marker: { id: "requested-marker", start: 1, duration: 0, name: "Review" } }] });
+  const transaction = await runtime.executeEdit(preview.previewToken);
+  assert.equal(transaction.status, "ROLLED_BACK");
+  assert.ok(transaction.verification?.checks.some((check) => check.reason === "UNAUTHORIZED_DIFF"));
+  assert.deepEqual(projectContent(await runtime.inspectProject()), projectContent(before));
+});
