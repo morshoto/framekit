@@ -856,9 +856,13 @@ function alignInferredRoughCutRange(
   const sourceEndTime = nearestFrameTime(secondsToRational(range.end), sourceFrameDuration);
   let durationTime = nearestFrameTime(subtractRationalTimes(sourceEndTime, startTime), sequenceFrameDuration);
   if (resource.metadata?.durationTime !== undefined) {
-    const available = subtractRationalTimes(resource.metadata.durationTime, startTime);
+    // The FCPXML compiler rounds source starts to the sequence grid. Bound
+    // both the canonical and exported ranges when that rounding moves later.
+    const exportedStartTime = nearestFrameTime(startTime, sequenceFrameDuration);
+    const latestStartTime = compareRationalTimes(startTime, exportedStartTime) >= 0 ? startTime : exportedStartTime;
+    const available = subtractRationalTimes(resource.metadata.durationTime, latestStartTime);
     const maxDuration = floorFrameTime(available, sequenceFrameDuration);
-    if (rationalSeconds(durationTime) > rationalSeconds(maxDuration)) durationTime = maxDuration;
+    if (compareRationalTimes(durationTime, maxDuration) > 0) durationTime = maxDuration;
   }
   if (BigInt(durationTime.value) <= 0n) {
     throw new Error("HEADLESS_ROUGH_CUT_RANGE_INVALID: frame alignment produced an empty source range");
@@ -895,6 +899,14 @@ function nearestFrameTime(
   const denominator = timeScale * frameValue;
   const frameCount = (numerator * 2n + denominator) / (denominator * 2n);
   return normalizeRationalTime(frameCount * frameValue, frameScale);
+}
+
+function compareRationalTimes(
+  left: { value: string; timescale: string },
+  right: { value: string; timescale: string },
+): number {
+  const difference = BigInt(left.value) * BigInt(right.timescale) - BigInt(right.value) * BigInt(left.timescale);
+  return difference < 0n ? -1 : difference > 0n ? 1 : 0;
 }
 
 function subtractRationalTimes(

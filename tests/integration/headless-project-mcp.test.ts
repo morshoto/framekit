@@ -11,6 +11,7 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
+import { compileTimelineIrToFcpxml } from "../../adapters/final-cut/typescript/src/timeline-ir-fcpxml.js";
 import { HeadlessProjectService } from "@framekit/headless-application";
 import { type TimelineIr } from "@framekit/runtime";
 import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer } from "../../adapters/headless/typescript/src/index.js";
@@ -786,6 +787,25 @@ test("inferred rough-cut ranges align duration to the sequence frame grid", asyn
     assert.deepEqual(fractionalPreview.after.timeline.sequence.occurrences[0]?.durationTime, { value: "3003", timescale: "4000" });
     const nearEnd = await fractionalService.previewRoughCut({ ...fractionalRequest, plan: { ...fractionalRequest.plan, shots: [{ ...fractionalRequest.plan.shots[0]!, range: { start: 1.5, end: sourceDuration } }] } });
     assert.ok(rationalSeconds(nearEnd.provenance[0]!.sourceRange.startTime!) + rationalSeconds(nearEnd.provenance[0]!.sourceRange.durationTime!) <= sourceDuration);
+
+    // The FCPXML compiler also rounds source starts to the sequence grid.
+    // A long range ending at the media boundary must remain within the source
+    // after that second rounding step, not just in the canonical timeline.
+    const longSourcePath = join(directory, "long-source.mp4");
+    await generateVideoAtFrameRate(longSourcePath, 24, 1002 / 24);
+    const longRegistered = await fractionalService.registerMedia(fractionalCreated.timeline.project.id, longSourcePath, fractionalRegistered.project.timeline.revision);
+    const longSource = longRegistered.resource;
+    const longDuration = rationalSeconds(longSource.metadata!.durationTime);
+    const longRequest = { ...fractionalRequest, plan: { ...fractionalRequest.plan, revision: longRegistered.project.timeline.revision, shots: [{ ...fractionalRequest.plan.shots[0]!, sourceIdentity: { mediaId: longSource.id, source: longSource.source!, sourceDigest: longSource.sourceDigest!, mediaKind: "video" as const, duration: longDuration }, range: { start: 1 / 24, end: longDuration } }] } };
+    const longPreview = await fractionalService.previewRoughCut(longRequest);
+    const compiled = compileTimelineIrToFcpxml(longPreview.after.timeline, { target: longRequest.fcpxml.target });
+    const clip = compiled.xml.match(/<asset-clip\b[^>]*>/)?.[0];
+    assert.ok(clip);
+    const start = clip.match(/\bstart="(\d+)(?:\/(\d+))?s"/)?.slice(1);
+    const duration = clip.match(/\bduration="(\d+)(?:\/(\d+))?s"/)?.slice(1);
+    assert.ok(start && duration);
+    const renderedEnd = Number(start[0]) / Number(start[1] ?? 1) + Number(duration[0]) / Number(duration[1] ?? 1);
+    assert.ok(renderedEnd <= longDuration, `exported source end ${renderedEnd} exceeds ${longDuration}`);
 
     await assert.rejects(
       service.previewRoughCut(makeRequest({ start: -0.01, end: 0.75 })),
