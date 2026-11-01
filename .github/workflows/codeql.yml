@@ -1,9 +1,6 @@
 name: CodeQL
 
 on:
-    push:
-        branches:
-            - main
     pull_request:
         branches:
             - main
@@ -12,13 +9,18 @@ on:
             - reopened
             - synchronize
             - ready_for_review
-    schedule:
-        - cron: '30 1 * * 0'
-    workflow_dispatch:
+    workflow_call:
         inputs:
+            swift_only:
+                type: boolean
+                default: false
+            scan_ref:
+                type: string
+                default: ''
+            scan_sha:
+                type: string
+                default: ''
             profile_swift:
-                description: Benchmark the Swift compiler without and with CodeQL extraction
-                required: false
                 type: boolean
                 default: false
 
@@ -29,8 +31,8 @@ permissions:
     pull-requests: read
 
 concurrency:
-    group: codeql-${{ github.workflow }}-${{ github.ref }}
-    # Keep active default-branch scans intact; supersede stale PR scans.
+    group: codeql-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+    # Only PR runs share a group; main and release scans must not cancel each other.
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -41,14 +43,16 @@ jobs:
             contents: read
             pull-requests: read
         outputs:
-            run_codeql: ${{ steps.scope.outputs.run_codeql }}
-            swift: ${{ steps.scope.outputs.swift }}
+            run_codeql: ${{ steps.scope.outputs.run_codeql || steps.full.outputs.run_codeql }}
+            swift: ${{ steps.scope.outputs.swift || steps.full.outputs.swift }}
         steps:
             - name: Check out repository
+              if: ${{ github.event_name == 'pull_request' }}
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
               with:
                   persist-credentials: false
             - name: Detect changed files and PR readiness
+              if: ${{ github.event_name == 'pull_request' }}
               id: scope
               run: node .github/codeql/detect-changes.mjs
               env:
@@ -57,11 +61,18 @@ jobs:
                   PR_DRAFT: ${{ github.event.pull_request.draft }}
                   PUSH_BEFORE: ${{ github.event.before }}
 
+            - name: Select full security scan
+              if: ${{ github.event_name != 'pull_request' }}
+              id: full
+              run: |
+                  echo 'run_codeql=true' >> "$GITHUB_OUTPUT"
+                  echo 'swift=true' >> "$GITHUB_OUTPUT"
+
     analyze:
         name: Analyze (${{ matrix.language }})
         # Publish JavaScript/TypeScript results for every ready PR and normal full-scan event.
         needs: detect-changes
-        if: ${{ needs.detect-changes.outputs.run_codeql == 'true' }}
+        if: ${{ needs.detect-changes.outputs.run_codeql == 'true' && inputs.swift_only != true }}
         runs-on: ${{ matrix.os }}
         timeout-minutes: 30
         strategy:
@@ -75,6 +86,9 @@ jobs:
         steps:
             - name: Check out repository
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  ref: ${{ inputs.scan_sha || github.sha }}
+                  persist-credentials: false
 
             - name: Initialize CodeQL
               uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
@@ -109,9 +123,18 @@ jobs:
         steps:
             - name: Check out repository
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  ref: ${{ inputs.scan_sha || github.sha }}
+                  persist-credentials: false
+
+            - name: Verify requested release commit
+              if: ${{ inputs.scan_sha != '' }}
+              env:
+                  EXPECTED_SHA: ${{ inputs.scan_sha }}
+              run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
 
             - name: Capture Swift profiling environment
-              if: ${{ github.event_name == 'workflow_dispatch' && inputs.profile_swift }}
+              if: ${{ inputs.profile_swift }}
               run: |
                   uname -a
                   xcodebuild -version
@@ -121,7 +144,7 @@ jobs:
             # Before CodeQL init, no extractor/tracing environment has been installed.
             # Compare this with the same script after init in the next type-check step.
             - name: Benchmark Swift compiler without CodeQL tracing
-              if: ${{ github.event_name == 'workflow_dispatch' && inputs.profile_swift }}
+              if: ${{ inputs.profile_swift }}
               run: bash .github/codeql/typecheck-swift.sh
 
             - name: Initialize CodeQL
@@ -139,3 +162,5 @@ jobs:
               with:
                   category: /language:swift
                   wait-for-processing: true
+                  ref: ${{ inputs.scan_ref || github.ref }}
+                  sha: ${{ inputs.scan_sha || github.sha }}

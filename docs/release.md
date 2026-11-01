@@ -31,7 +31,9 @@ npm trust github @morshoto/framekit \
 
 1. Merge the tagpr release pull request into `main`.
 2. The release workflow creates or reuses the exact version tag and draft
-   release, then checks package, plugin, and server alignment.
+   release, then checks package, plugin, and server alignment. Swift CodeQL
+   scans the tagged commit and blocks publication for open error or
+   high-or-higher security alerts.
 3. Hosted validation runs the release gate and publishes the package through
    npm Trusted Publishing. It verifies the public registry version and a
    clean client installation before publishing the GitHub release.
@@ -54,7 +56,8 @@ The `release.published` event starts native validation and packaging. When the
 release workflow publishes a release with `GITHUB_TOKEN`, it also sends a
 `repository_dispatch` event because token-created release events do not start a
 new workflow run. Both paths validate that the exact tag is reachable from
-`main` and has a GitHub release before packaging and signing on the self-hosted
+`main`, has a GitHub release, and has passing Swift CodeQL evidence for the
+tagged commit before packaging and signing on the self-hosted
 macOS runner labelled `self-hosted`, `macOS`, and `framekit-release`. Configure
 the `FRAMEKIT_CODESIGN_IDENTITY` secret and, when notarization is used, the
 `FRAMEKIT_NOTARY_PROFILE` variable. A missing or offline runner does not block

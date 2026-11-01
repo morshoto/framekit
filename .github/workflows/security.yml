@@ -1,0 +1,87 @@
+name: Security
+
+on:
+    push:
+        branches:
+            - main
+    schedule:
+        - cron: '30 1 * * 0'
+    workflow_dispatch:
+        inputs:
+            profile_swift:
+                description: Benchmark the Swift compiler with and without CodeQL tracing
+                required: false
+                type: boolean
+                default: false
+
+permissions:
+    contents: read
+
+jobs:
+    codeql:
+        uses: ./.github/workflows/codeql.yml
+        permissions:
+            contents: read
+            actions: read
+            pull-requests: read
+            security-events: write
+        with:
+            profile_swift: ${{ inputs.profile_swift || false }}
+
+    deep-validation:
+        name: Full security and integration validation
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+        steps:
+            - name: Check out repository
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  persist-credentials: false
+            - name: Run full validation
+              uses: ./.github/action/test
+              with:
+                  node-version: 22.14.0
+
+    consumer-runtime:
+        name: Published package consumer minimum
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+        steps:
+            - name: Check out repository
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  persist-credentials: false
+            - name: Verify the published package consumer minimum
+              uses: ./.github/action/consumer-runtime
+              with:
+                  node-version: 22.14.0
+                  consumer-node-version: 20.0.0
+
+    report-failure:
+        needs: [codeql, deep-validation, consumer-runtime]
+        if: >-
+            ${{ always() && github.ref == 'refs/heads/main' &&
+                (needs.codeql.result == 'failure' || needs.codeql.result == 'cancelled' ||
+                 needs.deep-validation.result == 'failure' || needs.deep-validation.result == 'cancelled' ||
+                 needs.consumer-runtime.result == 'failure' || needs.consumer-runtime.result == 'cancelled') }}
+        runs-on: ubuntu-latest
+        concurrency:
+            group: security-ci-failure-issue
+            queue: max
+        permissions:
+            contents: read
+            issues: write
+        steps:
+            - name: Check out reporting policy
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  persist-credentials: false
+            - name: Report failure on main
+              run: node .github/codeql/report-security-failure.mjs
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  CODEQL_RESULT: ${{ needs.codeql.result }}
+                  DEEP_RESULT: ${{ needs.deep-validation.result }}
+                  CONSUMER_RESULT: ${{ needs.consumer-runtime.result }}

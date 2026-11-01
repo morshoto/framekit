@@ -1,15 +1,9 @@
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { classifyCodeQLAlert, extractCodeQLAlertNumbers } from './sarif-evidence.mjs';
 
 const JAVASCRIPT_CATEGORY = '/language:javascript-typescript';
 const SWIFT_CATEGORY = '/language:swift';
-
-function isBlockingAlert(alert) {
-  if (alert.state !== 'open') return false;
-  const severity = alert.rule?.severity?.toLowerCase();
-  const securitySeverity = alert.rule?.security_severity_level?.toLowerCase();
-  return severity === 'error' || ['high', 'critical'].includes(securitySeverity);
-}
 
 function newestAnalysis(analyses, category, mergeSha, pullRef) {
   return analyses
@@ -19,8 +13,8 @@ function newestAnalysis(analyses, category, mergeSha, pullRef) {
 }
 
 export function evaluateCodeQLPolicy({
-  workflowHeadSha, pullRequestHeadSha, pullRequestNumber, mergeSha, swiftRequired,
-  analyses, pullRequestAlerts, baseAlerts,
+  workflowHeadSha, pullRequestHeadSha, pullRequestNumber, mergeSha,
+  analyses, pullRequestAlerts, baseAlerts, baseSha, baseRef, baseAnalyses,
 }) {
   const reasons = [];
   if (!pullRequestHeadSha || workflowHeadSha !== pullRequestHeadSha) {
@@ -38,7 +32,6 @@ export function evaluateCodeQLPolicy({
 
   const expectedRef = `refs/pull/${pullRequestNumber}/merge`;
   const requiredCategories = [JAVASCRIPT_CATEGORY];
-  if (swiftRequired) requiredCategories.push(SWIFT_CATEGORY);
   for (const category of requiredCategories) {
     const analysis = newestAnalysis(analyses, category, mergeSha, expectedRef);
     if (!analysis) {
@@ -51,14 +44,39 @@ export function evaluateCodeQLPolicy({
     }
   }
 
-  const baselineAlertNumbers = new Set(baseAlerts.filter((alert) => alert.state === 'open').map((alert) => String(alert.number)));
+  if (baseSha || baseRef || baseAnalyses) {
+    const baseline = Array.isArray(baseAnalyses) && baseAnalyses
+      .filter((analysis) => analysis.ref === baseRef && analysis.category === JAVASCRIPT_CATEGORY && analysis.tool?.name === 'CodeQL')
+      .sort((left, right) => Date.parse(right.created_at ?? '') - Date.parse(left.created_at ?? ''))[0];
+    if (!baseline || baseline.commit_sha !== baseSha || baseline.error || !Number.isInteger(baseline.rules_count) || baseline.rules_count <= 0) {
+      reasons.push('Current JavaScript CodeQL analysis is missing for the pull request base.');
+    }
+  }
+
+  const baselineAlerts = new Map(baseAlerts.filter((alert) => alert.state === 'open').map((alert) => [String(alert.number), alert]));
   let newBlockingAlerts = 0;
   for (const alert of pullRequestAlerts) {
-    if (!isBlockingAlert(alert) || baselineAlertNumbers.has(String(alert.number))) continue;
+    const classification = classifyCodeQLAlert(alert);
+    if (classification === 'unknown') {
+      reasons.push(`CodeQL alert ${alert.number ?? 'unknown'} has an unknown severity or state.`);
+      continue;
+    }
+    if (classification !== 'blocking') continue;
+    const baselineAlert = baselineAlerts.get(String(alert.number));
+    if (baselineAlert) {
+      const instance = baselineAlert.most_recent_instance;
+      if (baseSha && (!instance || instance.ref !== baseRef || instance.commit_sha !== baseSha || instance.state !== 'open')) {
+        reasons.push(`Current base alert evidence is unavailable for alert ${alert.number}.`);
+      }
+      continue;
+    }
     const instances = alert.instances?.filter((instance) => instance.ref === expectedRef && instance.commit_sha === mergeSha);
     if (!instances?.length) {
       reasons.push(`Current CodeQL alert evidence is unavailable for alert ${alert.number ?? 'unknown'}.`);
-    } else if (instances.some((instance) => requiredCategories.includes(instance.category))) {
+    } else if (instances.some((instance) => ![JAVASCRIPT_CATEGORY, SWIFT_CATEGORY].includes(instance.category) ||
+      !['open', 'fixed', 'dismissed'].includes(instance.state))) {
+      reasons.push(`CodeQL alert ${alert.number} has an unknown category or state.`);
+    } else if (instances.some((instance) => instance.state === 'open' && requiredCategories.includes(instance.category))) {
       newBlockingAlerts++;
     }
   }
@@ -70,9 +88,9 @@ function apiURL(repository, path) {
   return `https://api.github.com/repos/${repository}${path}`;
 }
 
-async function getJSON(url, token) {
+async function getJSON(url, token, accept = 'application/vnd.github+json') {
   const response = await fetch(url, { headers: {
-    Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}`,
+    Accept: accept, Authorization: `Bearer ${token}`,
     'X-GitHub-Api-Version': '2022-11-28',
   } });
   if (!response.ok) throw new Error(`GitHub API request failed (${response.status})`);
@@ -111,14 +129,26 @@ async function main() {
 
   const pullRef = `refs/pull/${number}/merge`;
   const baseRefName = `refs/heads/${baseRef}`;
-  const [analyses, pullRequestAlerts, baseAlerts] = await Promise.all([
+  const [analyses, baseAlerts, baseAnalyses] = await Promise.all([
     getPages(repository, `/code-scanning/analyses?ref=${encodeURIComponent(pullRef)}&tool_name=CodeQL`, token),
-    getPages(repository, `/code-scanning/alerts?ref=${encodeURIComponent(pullRef)}&tool_name=CodeQL&state=open`, token),
     getPages(repository, `/code-scanning/alerts?ref=${encodeURIComponent(baseRefName)}&tool_name=CodeQL&state=open`, token),
+    getPages(repository, `/code-scanning/analyses?ref=${encodeURIComponent(baseRefName)}&tool_name=CodeQL`, token),
   ]);
+  const analysis = newestAnalysis(analyses, JAVASCRIPT_CATEGORY, mergeSha, pullRef);
+  if (!analysis || analysis.error || !Number.isInteger(analysis.rules_count) || analysis.rules_count <= 0 || !Number.isInteger(analysis.id)) {
+    throw new Error('Current JavaScript CodeQL analysis is missing or failed');
+  }
+  const sarif = await getJSON(apiURL(repository, `/code-scanning/analyses/${analysis.id}`), token, 'application/sarif+json');
+  const numbers = extractCodeQLAlertNumbers(sarif, analysis.results_count);
+  const pullRequestAlerts = [];
+  for (const alertNumber of numbers) {
+    pullRequestAlerts.push(await getJSON(apiURL(repository, `/code-scanning/alerts/${alertNumber}`), token));
+  }
   const baselineNumbers = new Set(baseAlerts.map((alert) => String(alert.number)));
   for (const alert of pullRequestAlerts) {
-    if (isBlockingAlert(alert) && !baselineNumbers.has(String(alert.number))) {
+    const classification = classifyCodeQLAlert(alert);
+    if (classification === 'unknown') throw new Error('CodeQL alert has an unknown severity or state');
+    if (classification === 'blocking' && !baselineNumbers.has(String(alert.number))) {
       if (!Number.isInteger(alert.number)) throw new Error('CodeQL alert has no valid number');
       alert.instances = await getPages(repository,
         `/code-scanning/alerts/${alert.number}/instances?ref=${encodeURIComponent(pullRef)}`, token);
@@ -134,7 +164,8 @@ async function main() {
   }
   const result = evaluateCodeQLPolicy({
     workflowHeadSha: headSha, pullRequestHeadSha: currentPull.head.sha, pullRequestNumber: Number(number),
-    mergeSha, swiftRequired: false, analyses, pullRequestAlerts, baseAlerts,
+    mergeSha, analyses, pullRequestAlerts, baseAlerts,
+    baseSha, baseRef: baseRefName, baseAnalyses,
   });
   if (!result.pass) throw new Error(result.reasons.join('\n'));
   console.log('Current JavaScript/TypeScript CodeQL analysis satisfies the pull request policy.');
