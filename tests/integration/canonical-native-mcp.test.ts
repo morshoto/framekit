@@ -19,6 +19,7 @@ import {
   type EditorLiveState,
   type ProjectSnapshot,
 } from "@framekit/runtime";
+import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 const identity: EditorIdentity = {
@@ -151,7 +152,7 @@ test("MCP recovery inspection reports checkpoint evidence without touching the e
     const checkpoint = { projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "b".repeat(64), operation: "rename-clip" };
     await guard.begin(checkpoint);
     const pending = await client.callTool({ name: "editor.native.recovery.inspect", arguments: {} });
-    assert.deepEqual(JSON.parse(textFrom(pending)), { status: "recovery-required", scope: "configured-state-directory", checkpoint });
+    assert.deepEqual(JSON.parse(textFrom(pending)), { status: "recovery-required", scope: "configured-state-directory", checkpointId: (await guard.inspectVersioned())!.checkpointId, checkpoint });
     assert.doesNotMatch(textFrom(pending), /owner/);
     await writeFile(path, "invalid");
     const invalid = await client.callTool({ name: "editor.native.recovery.inspect", arguments: {} });
@@ -193,10 +194,105 @@ test("MCP recovery preview requires exact consent and never clears the checkpoin
     assert.equal(evidence.checkpointId, checkpointId);
     assert.equal(evidence.comparison, "matches-before");
     assert.equal(evidence.quiescence, "unproven");
+    assert.equal(evidence.pointInTime, true);
+    assert.equal(typeof evidence.observedRevision.id, "string");
     assert.equal(evidence.checkpointCleared, false);
-    assert.ok(reads > 0);
+    assert.equal(reads, 1, "one confirmed preview must not export twice");
     await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     assert.deepEqual(calls, []);
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("MCP recovery preview reports restoration matches and differences without clearing", async () => {
+  for (const [observedName, expectedComparison] of [["Original", "matches-expected-restoration"], ["Different", "different"]] as const) {
+    const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-comparison-"));
+    const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+    const original = snapshot("Original");
+    const target = { projectId: original.projectId, sequenceId: original.timeline.id };
+    await guard.begin({ ...target, baseRevision: "baseline", beforeDigest: "a".repeat(64), operation: "undo", expectedRestoreDigest: canonicalSnapshotDigest(original) });
+    const checkpointId = (await guard.inspectVersioned())!.checkpointId;
+    const { client, server } = await connect(createRuntime([], async () => snapshot(observedName)), { canonicalRecovery: guard });
+    try {
+      const result = await client.callTool({ name: "editor.native.recovery.preview", arguments: { confirmHeadedRead: true, expectedTarget: target, expectedCheckpointId: checkpointId } });
+      assert.equal(result.isError ?? false, false, textFrom(result));
+      assert.equal(JSON.parse(textFrom(result)).comparison, expectedComparison);
+      await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    } finally {
+      await client.close();
+      await server.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+});
+
+test("MCP recovery preview rejects a live target mismatch before canonical read", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-wrong-live-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const original = snapshot("Original");
+  const target = { projectId: original.projectId, sequenceId: "different-sequence" };
+  await guard.begin({ ...target, baseRevision: "baseline", beforeDigest: canonicalSnapshotDigest(original), operation: "rename-clip" });
+  const checkpointId = (await guard.inspectVersioned())!.checkpointId;
+  let reads = 0;
+  const { client, server } = await connect(createRuntime([], async () => { reads += 1; return original; }), { canonicalRecovery: guard });
+  try {
+    const result = await client.callTool({ name: "editor.native.recovery.preview", arguments: { confirmHeadedRead: true, expectedTarget: target, expectedCheckpointId: checkpointId } });
+    assert.equal(result.isError, true);
+    assert.match(textFrom(result), /TARGET_MISMATCH/);
+    assert.equal(reads, 0);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("MCP recovery preview rejects a checkpoint replaced during read", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-replaced-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const original = snapshot("Original");
+  const target = { projectId: original.projectId, sequenceId: original.timeline.id };
+  const checkpoint = { ...target, baseRevision: "baseline", beforeDigest: canonicalSnapshotDigest(original), operation: "rename-clip" };
+  await guard.begin(checkpoint);
+  const checkpointId = (await guard.inspectVersioned())!.checkpointId;
+  let replaced = false;
+  const { client, server } = await connect(createRuntime([], async () => {
+    if (!replaced) { replaced = true; await guard.complete(); await guard.begin(checkpoint); }
+    return structuredClone(original);
+  }), { canonicalRecovery: guard });
+  try {
+    const result = await client.callTool({ name: "editor.native.recovery.preview", arguments: { confirmHeadedRead: true, expectedTarget: target, expectedCheckpointId: checkpointId } });
+    assert.equal(result.isError, true);
+    assert.equal(JSON.parse(textFrom(result)).code, "CHECKPOINT_MISMATCH");
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("MCP recovery preview does not promote a fixture provider", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-unsupported-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const target = { projectId: "fixture-project", sequenceId: "fixture-sequence" };
+  await guard.begin({ ...target, baseRevision: "baseline", beforeDigest: "a".repeat(64), operation: "rename-clip" });
+  const checkpointId = (await guard.inspectVersioned())!.checkpointId;
+  const adapter = new InMemoryEditorAdapter({ projectId: target.projectId, projectName: "Fixture", timelineId: target.sequenceId, timelineName: "Main", clips: [] });
+  let reads = 0;
+  const readProject = adapter.readProject.bind(adapter);
+  adapter.readProject = async () => { reads += 1; return readProject(); };
+  const { client, server } = await connect(new AgentVideoRuntime(adapter), { canonicalRecovery: guard });
+  try {
+    const result = await client.callTool({ name: "editor.native.recovery.preview", arguments: { confirmHeadedRead: true, expectedTarget: target, expectedCheckpointId: checkpointId } });
+    assert.equal(result.isError, true);
+    assert.match(textFrom(result), /CAPABILITY_UNAVAILABLE/);
+    assert.equal(reads, 0);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   } finally {
     await client.close();
     await server.close();
