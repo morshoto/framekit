@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -48,6 +49,29 @@ test("publisher QA checks the independent fixture order, ranges, title and music
   assert.doesNotThrow(() => verifyAcceptanceFixture(snapshot));
   snapshot.timeline.clips[0]!.sourceStartTime = time(4);
   assert.throws(() => verifyAcceptanceFixture(snapshot), /PUBLISH_FIXTURE_MISMATCH/);
+});
+
+test("publisher QA recognizes the acceptance edit from a parsed FCPXML artifact", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-publisher-qa-"));
+  const path = join(directory, "source.fcpxml");
+  const xml = `<?xml version="1.0" encoding="UTF-8"?><fcpxml version="1.11"><resources>
+  <format id="f" frameDuration="1/24s" width="1280" height="720"/>
+  <asset id="a" name="clip-a.mp4" src="file:///fixture/clip-a.mp4" duration="24s" hasVideo="1" format="f"/>
+  <asset id="b" name="clip-b.mp4" src="file:///fixture/clip-b.mp4" duration="15s" hasVideo="1" format="f"/>
+  <asset id="c" name="clip-c.mp4" src="file:///fixture/clip-c.mp4" duration="14s" hasVideo="1" format="f"/>
+  <asset id="m" name="generated-music.wav" src="file:///fixture/generated-music.wav" duration="30s" hasAudio="1"/>
+  <effect id="t" name="Basic Title" uid="basic"/>
+  </resources><library><event><project uid="p" name="Fixture"><sequence format="f" duration="30s"><spine>
+  <asset-clip ref="b" offset="0s" start="5s" duration="8s"><title ref="t" lane="1" offset="0s" duration="6s"><text>FrameKit MVP Test</text></title><asset-clip ref="m" lane="1" audioRole="music" offset="0s" start="0s" duration="30s"><adjust-volume amount="-12dB"/></asset-clip></asset-clip>
+  <asset-clip ref="a" offset="8s" start="10s" duration="12s"/><asset-clip ref="c" offset="20s" start="2s" duration="10s"/>
+  </spine></sequence></project></event></library></fcpxml>`;
+  try {
+    await writeFile(path, xml);
+    const snapshot = await new FcpxmlDocumentAdapter(path, undefined, { allowMissingImmutableIdsForReadback: true }).readProject();
+    assert.doesNotThrow(() => verifyAcceptanceFixture(snapshot));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("publisher QA dispatches once and separately confirms native verification", async () => {
