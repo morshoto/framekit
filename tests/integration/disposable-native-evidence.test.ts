@@ -3,6 +3,40 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { join } from "node:path";
 import { sanitizeDisposableNativeEvidence } from "../../scripts/final-cut-evidence.mjs";
+import { readBoundNativeProject } from "../../scripts/final-cut-bound-native-read.mjs";
+
+test("headed read confirms the catalog target before probing canonical capability", async () => {
+  const calls: Array<[string, unknown]> = [];
+  const call = async (name: string, args?: unknown) => {
+    calls.push([name, args]);
+    if (name === "project.list") return { activeProjectId: "p", activeSequenceId: "s", projects: [{ id: "p", name: "Disposable", sequences: [{ id: "s" }] }] };
+    if (name === "project.inspect") return { projectId: "p", projectName: "Disposable", timeline: { id: "s" } };
+    throw new Error(`unexpected ${name}`);
+  };
+  const result = await readBoundNativeProject(call, "Disposable");
+  assert.equal(result.snapshot.projectId, "p");
+  assert.deepEqual(calls, [
+    ["project.list", undefined],
+    ["project.inspect", { confirmHeadedRead: true, expectedTarget: { projectId: "p", sequenceId: "s" } }],
+  ]);
+});
+
+test("headed read rejects a mismatched active project before export", async () => {
+  const calls: string[] = [];
+  const call = async (name: string) => {
+    calls.push(name);
+    return { activeProjectId: "p", activeSequenceId: "s", projects: [{ id: "p", name: "Other", sequences: [{ id: "s" }] }] };
+  };
+  await assert.rejects(readBoundNativeProject(call, "Disposable"), /FINAL_CUT_E2E_PROJECT_MISMATCH/);
+  assert.deepEqual(calls, ["project.list"]);
+});
+
+test("headed read rejects a snapshot for a different sequence", async () => {
+  const call = async (name: string) => name === "project.list"
+    ? { activeProjectId: "p", activeSequenceId: "s", projects: [{ id: "p", name: "Disposable", sequences: [{ id: "s" }] }] }
+    : { projectId: "p", projectName: "Disposable", timeline: { id: "other" } };
+  await assert.rejects(readBoundNativeProject(call, "Disposable"), /TARGET_MISMATCH/);
+});
 
 test("disposable native headed runner publishes the sanitized evidence contract", async () => {
   const runner = await readFile(join(process.cwd(), "scripts/final-cut-disposable-native-headed-e2e.mjs"), "utf8");
