@@ -1,6 +1,6 @@
 # Test suites
 
-`pnpm run test` is the required aggregate gate. It runs the documentation tests
+`pnpm run test` is the aggregate validation gate. It runs the documentation tests
 and every reviewed TypeScript test file under `tests/`, `packages/`, `apps/`,
 and `adapters/`. The manifest at `scripts/test-suite-manifest.json` records the
 collected files and suite tags. If a file is added, moved, or removed, the
@@ -12,6 +12,7 @@ isolated home and writable-state setup as the aggregate gate.
 
 | Command | Coverage | Prerequisites |
 | --- | --- | --- |
+| `pnpm run test:fast` | Documentation, unit, selected contract, and critical integration tests required on PRs. | Node.js 20 or newer and the prerequisites listed in the test inventory. |
 | `pnpm run test:unit` | Owner-local runtime, adapter, and app tests plus focused shared unit tests. | Node.js 20 or newer. |
 | `pnpm run test:contracts` | MCP schemas, protocol, capabilities, and service contracts. | Node.js 20 or newer; FFmpeg is needed for any selected headless contract test. |
 | `pnpm run test:fixtures` | Fixture-backed workflows across shared test owners. | Node.js 20 or newer, FFmpeg, ffprobe, and npm. |

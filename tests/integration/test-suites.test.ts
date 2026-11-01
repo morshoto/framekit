@@ -93,9 +93,13 @@ test("fast CI and post-merge validation preserve reviewed test coverage", async 
   assert.match(workflow, /Install FFmpeg fixture toolchain/);
   const manifest = await loadTestSuiteManifest(repository);
   const fast = selectTestFiles(manifest, "fast");
+  const deepOnly = ["tests/integration/finalcut-mcp.test.ts", "tests/integration/headless-project-mcp.test.ts"];
   for (const suite of ["unit", "contract"]) {
-    for (const file of selectTestFiles(manifest, suite)) assert.ok(fast.includes(file), file);
+    for (const file of selectTestFiles(manifest, suite)) {
+      assert.equal(fast.includes(file), !deepOnly.includes(file), file);
+    }
   }
+  for (const file of deepOnly) assert.ok(selectTestFiles(manifest, "all").includes(file), file);
   for (const file of ["tests/integration/basic-editing-mvp.test.ts", "tests/integration/runtime.test.ts", "tests/integration/codeql-workflow.test.ts"]) {
     assert.ok(fast.includes(file), file);
   }

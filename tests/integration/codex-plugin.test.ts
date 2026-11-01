@@ -168,11 +168,11 @@ test("Codex video handoff records artifact-only and native follow-up provenance"
   }
 });
 
-test("CI runs the clean Codex plugin installation smoke test", async () => {
+test("Security CI runs the clean Codex plugin installation smoke test", async () => {
   const packageManifest = await readJson("package.json") as { scripts?: Record<string, string> };
   assert.equal(packageManifest.scripts?.["test:codex-plugin"], "node scripts/codex-plugin-smoke.mjs");
 
-  const workflow = await readFile(resolve(repository, ".github/action/test/action.yml"), "utf8");
+  const workflow = await readFile(resolve(repository, ".github/action/deep-validation/action.yml"), "utf8");
   assert.match(workflow, /pnpm run test:codex-plugin/);
   assert.doesNotMatch(workflow, /npm install --global @openai\/codex/);
 

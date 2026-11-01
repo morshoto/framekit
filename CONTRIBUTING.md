@@ -148,14 +148,12 @@ colors and animation.
 ## Pull requests
 
 Start PRs as Draft, including agent-created PRs. Mark Ready for review once
-implementation and fast CI are complete; this triggers CodeQL. The
-JavaScript/TypeScript results are evaluated by the trusted `security.yml`
-workflow after CodeQL completes. Its `CodeQL policy gate` check fails on new
-error or high-or-higher security alerts and becomes the required CodeQL merge
-check during the fast-CI rollout. During the transition, Swift CodeQL runs for
-Swift-affecting paths, including native and CodeQL extraction inputs; it also
-runs if change detection returns no paths or fails. The Security workflow runs
-both scans after pushes to `main`, weekly, and on manual request.
+implementation and fast CI are complete; this triggers JavaScript/TypeScript
+CodeQL analysis. The trusted `security.yml` workflow evaluates the results after
+CodeQL completes and posts `CodeQL policy gate`, failing on new error or
+high-or-higher security alerts. The fast-CI rollout makes that gate a required
+merge check. Swift type-check remains required on PRs; Swift CodeQL runs in the
+Security workflow after pushes to `main`, weekly, and on manual request.
 
 Every pull request should explain the behavior or structure being changed,
 include the commands used for validation, and call out MCP, package, or native

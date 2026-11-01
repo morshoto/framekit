@@ -46,7 +46,7 @@ jobs:
               with:
                   persist-credentials: false
             - name: Run full validation
-              uses: ./.github/action/test
+              uses: ./.github/action/deep-validation
               with:
                   node-version: 22.14.0
 
