@@ -4,9 +4,44 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { FcpxmlDocumentAdapter } from "../../adapters/final-cut/typescript/src/fcpxml.js";
-import { verifyPublishedTarget } from "../../scripts/final-cut-publisher-verification.mjs";
+import { runPublishStages, verifyPublishedTarget } from "../../scripts/final-cut-publisher-verification.mjs";
 
 const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
+
+test("publisher QA dispatches once and separately confirms native verification", async () => {
+  const calls: Array<{ name: string; args: any }> = [];
+  const stages: string[] = [];
+  const result = await runPublishStages(async (name, args) => {
+    calls.push({ name, args });
+    if (name === "artifact.publish.preview") return { jobId: "job-1", state: "awaiting-confirmation", artifactDigest: "a".repeat(64), targetLibraryPath: "/tmp/new.fcpbundle" };
+    if (calls.length === 2) return { jobId: "job-1", state: "verification-pending", delivery: { route: "headed-apple-event" } };
+    return { jobId: "job-1", state: "verified", result: { verified: true } };
+  }, { artifactPath: "/tmp/source.fcpxml", transactionId: "txn-1", targetLibraryPath: "/tmp/new.fcpbundle", artifactDigest: "a".repeat(64) }, (stage) => stages.push(stage));
+  assert.equal(result.state, "verified");
+  assert.deepEqual(stages, ["prepared", "dispatched", "verified"]);
+  assert.deepEqual(calls.map(({ name }) => name), ["artifact.publish.preview", "artifact.publish.execute", "artifact.publish.execute"]);
+  assert.deepEqual(calls[1]!.args, { jobId: "job-1", confirm: true });
+  assert.deepEqual(calls[2]!.args, { jobId: "job-1", confirm: true, confirmVerification: true });
+});
+
+test("publisher QA refuses a changed preview digest without dispatch", async () => {
+  const calls: string[] = [];
+  await assert.rejects(runPublishStages(async (name) => {
+    calls.push(name);
+    return { jobId: "job-1", state: "awaiting-confirmation", artifactDigest: "b".repeat(64), targetLibraryPath: "/tmp/new.fcpbundle" };
+  }, { artifactPath: "/tmp/source.fcpxml", transactionId: "txn-1", targetLibraryPath: "/tmp/new.fcpbundle", artifactDigest: "a".repeat(64) }, () => {}), /PUBLISH_PREVIEW_MISMATCH/);
+  assert.deepEqual(calls, ["artifact.publish.preview"]);
+});
+
+test("publisher QA stops on ambiguous dispatch without retrying", async () => {
+  const calls: string[] = [];
+  await assert.rejects(runPublishStages(async (name) => {
+    calls.push(name);
+    if (name === "artifact.publish.preview") return { jobId: "job-1", state: "awaiting-confirmation", artifactDigest: "a".repeat(64), targetLibraryPath: "/tmp/new.fcpbundle" };
+    throw new Error("transport lost");
+  }, { artifactPath: "/tmp/source.fcpxml", transactionId: "txn-1", targetLibraryPath: "/tmp/new.fcpbundle", artifactDigest: "a".repeat(64) }, () => {}), /job-1.*do not redispatch/i);
+  assert.deepEqual(calls, ["artifact.publish.preview", "artifact.publish.execute"]);
+});
 
 test("publisher headed E2E is a separate FCPXML workflow", async () => {
   const packageJson = JSON.parse(await readFile(join(repositoryRoot, "package.json"), "utf8")) as {
