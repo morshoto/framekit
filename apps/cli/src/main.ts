@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { FinalCutConnectionManager } from "@framekit/final-cut";
+import { collectDevDoctorReport, type DevDoctorProfile, type DevDoctorReport } from "./dev-doctor.js";
 
 const execFile = promisify(execFileCallback);
 type StatusOutput = Pick<NodeJS.WriteStream, "write">;
@@ -23,6 +24,10 @@ async function main(): Promise<void> {
     return;
   }
   if (command === "doctor") {
+    if (args[0] === "dev") {
+      await doctorDev(args.slice(1));
+      return;
+    }
     await doctorFinalCut(args);
     return;
   }
@@ -64,6 +69,32 @@ async function doctorFinalCut(args: string[]): Promise<void> {
   const status = await new FinalCutConnectionManager().ensureConnected();
   printStatus(status, args.includes("--json"));
   if (status.state !== "ready") process.exitCode = 1;
+}
+
+async function doctorDev(args: string[]): Promise<void> {
+  let profile: DevDoctorProfile = "fixture";
+  let json = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    if (argument === "--json") {
+      json = true;
+      continue;
+    }
+    if (argument === "--profile") {
+      const value = args[index + 1];
+      if (value !== "fixture" && value !== "headless" && value !== "native") {
+        throw new Error("Usage: framekit doctor dev [--profile fixture|headless|native] [--json]");
+      }
+      profile = value;
+      index += 1;
+      continue;
+    }
+    throw new Error("Usage: framekit doctor dev [--profile fixture|headless|native] [--json]");
+  }
+
+  const report = await collectDevDoctorReport({ profile, rootDirectory: repoRoot() });
+  printDevDoctorReport(report, json);
+  if (!report.ready) process.exitCode = 1;
 }
 
 export async function runMcp(args: string[], dependencies: McpStartupDependencies = {}): Promise<void> {
@@ -139,12 +170,25 @@ function printStatus(
   if (status.lastError) output.write(`Reason: ${status.lastError.code}: ${status.lastError.message}\n`);
 }
 
+function printDevDoctorReport(report: DevDoctorReport, json: boolean): void {
+  if (json) {
+    process.stdout.write(`${JSON.stringify(report)}\n`);
+    return;
+  }
+  process.stdout.write(`Framekit development profile ${report.profile}: ${report.ready ? "ready" : "needs attention"}\n`);
+  for (const check of report.checks) {
+    const status = check.status === "pass" ? "OK" : check.status === "unavailable" ? "OPTIONAL" : "MISSING";
+    process.stdout.write(`${status} ${check.name}: ${check.message}\n`);
+  }
+}
+
 function printHelp(): void {
   process.stdout.write([
     "Framekit local editor connection",
     "",
     "  framekit connect finalcut [--development] [--json]",
     "  framekit doctor finalcut [--json]",
+    "  framekit doctor dev [--profile fixture|headless|native] [--json]",
     "  framekit mcp --editor final-cut-live [--headless] [--development]",
     "",
     "Codex registration:",
