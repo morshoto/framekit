@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
-import { collectDevDoctorReport } from "../src/dev-doctor.js";
+import { collectDevDoctorReport } from "../../apps/cli/src/dev-doctor.js";
 
-const repositoryRoot = new URL("../../../", import.meta.url).pathname;
+const repositoryRoot = new URL("../../", import.meta.url).pathname;
+const homeDirectory = join(tmpdir(), "framekit-dev-doctor-home");
 
 function checkNamed(report: Awaited<ReturnType<typeof collectDevDoctorReport>>, name: string) {
   const check = report.checks.find((entry) => entry.name === name);
@@ -17,11 +20,11 @@ test("fixture doctor checks contributor tools and writable paths without native 
     profile: "fixture",
     rootDirectory: repositoryRoot,
     environment: {
-      HOME: "/home/contributor",
-      FRAMEKIT_STATE_DIR: "/home/contributor/.framekit-state",
-      XDG_CACHE_HOME: "/home/contributor/.cache",
+      HOME: homeDirectory,
+      FRAMEKIT_STATE_DIR: join(homeDirectory, ".framekit-state"),
+      XDG_CACHE_HOME: join(homeDirectory, ".cache"),
     },
-    homeDirectory: "/home/contributor",
+    homeDirectory,
     nodeVersion: "v22.14.0",
     platform: "linux",
     runCommand: async (command) => {
@@ -43,8 +46,8 @@ test("fixture doctor checks contributor tools and writable paths without native 
   assert.equal(checkNamed(report, "ffprobe").requirement, "optional");
   assert.equal(checkNamed(report, "SQLite").requirement, "optional");
   assert.deepEqual(checkedPaths, [
-    "/home/contributor/.framekit-state",
-    "/home/contributor/.cache",
+    join(homeDirectory, ".framekit-state"),
+    join(homeDirectory, ".cache"),
   ]);
   assert.ok(!commands.includes("xcodebuild"));
   assert.ok(!commands.includes("Final Cut Pro"));
@@ -55,8 +58,8 @@ test("headless doctor reports missing render prerequisites with actionable messa
   const report = await collectDevDoctorReport({
     profile: "headless",
     rootDirectory: repositoryRoot,
-    environment: { HOME: "/home/contributor" },
-    homeDirectory: "/home/contributor",
+    environment: { HOME: homeDirectory },
+    homeDirectory,
     nodeVersion: "v22.14.0",
     platform: "linux",
     runCommand: async (command) => {
@@ -82,8 +85,8 @@ test("native doctor checks Xcode only for the native profile", async () => {
   const report = await collectDevDoctorReport({
     profile: "native",
     rootDirectory: repositoryRoot,
-    environment: { HOME: "/home/contributor" },
-    homeDirectory: "/home/contributor",
+    environment: { HOME: homeDirectory },
+    homeDirectory,
     nodeVersion: "v22.14.0",
     platform: "darwin",
     runCommand: async (command) => {
