@@ -41,7 +41,6 @@ jobs:
         runs-on: ubuntu-latest
         permissions:
             contents: read
-            pull-requests: read
         outputs:
             run_codeql: ${{ steps.scope.outputs.run_codeql || steps.full.outputs.run_codeql }}
             swift: ${{ steps.scope.outputs.swift || steps.full.outputs.swift }}
@@ -51,15 +50,12 @@ jobs:
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
               with:
                   persist-credentials: false
-            - name: Detect changed files and PR readiness
+            - name: Detect PR readiness
               if: ${{ github.event_name == 'pull_request' }}
               id: scope
               run: node .github/codeql/detect-changes.mjs
               env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
                   PR_DRAFT: ${{ github.event.pull_request.draft }}
-                  PUSH_BEFORE: ${{ github.event.before }}
 
             - name: Select full security scan
               if: ${{ github.event_name != 'pull_request' }}
@@ -104,10 +100,9 @@ jobs:
 
     analyze-swift:
         name: Analyze (swift)
-        # Skip the expensive macOS scan on PRs and pushes without Swift inputs.
-        # Manual and weekly scans still cover Swift unconditionally.
+        # Swift is scanned by Security and release workflows after PR merge.
         needs: detect-changes
-        if: ${{ needs.detect-changes.outputs.run_codeql == 'true' && needs.detect-changes.outputs.swift == 'true' }}
+        if: ${{ github.event_name != 'pull_request' && needs.detect-changes.outputs.run_codeql == 'true' && needs.detect-changes.outputs.swift == 'true' }}
         runs-on: macos-26
         timeout-minutes: 40
 

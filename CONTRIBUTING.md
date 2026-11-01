@@ -148,6 +148,7 @@ colors and animation.
 ## Pull requests
 
 Start PRs as Draft, including agent-created PRs. Mark Ready for review once
+
 implementation and fast CI are complete; this triggers CodeQL. The
 JavaScript/TypeScript results are evaluated by the trusted `security.yml`
 workflow after CodeQL completes. Its `CodeQL PR policy` status fails on new
@@ -156,6 +157,7 @@ check during the fast-CI rollout. During the transition, Swift CodeQL runs for
 Swift-affecting paths, including native and CodeQL extraction inputs; it also
 runs if change detection returns no paths or fails. The Security workflow runs
 both scans after pushes to `main`, weekly, and on manual request.
+
 
 Every pull request should explain the behavior or structure being changed,
 include the commands used for validation, and call out MCP, package, or native

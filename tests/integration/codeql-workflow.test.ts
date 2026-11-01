@@ -81,45 +81,33 @@ test('CodeQL retains both analysis jobs for default-branch runs', async () => {
 	assert.match(javascriptJob, /needs\.detect-changes\.outputs\.run_codeql == 'true'/);
 	assert.match(swiftJob, /name: Analyze \(swift\)/);
 	assert.match(swiftJob, /needs: detect-changes/);
+	assert.match(swiftJob, /github\.event_name != 'pull_request'/);
 	assert.match(swiftJob, /needs\.detect-changes\.outputs\.swift == 'true'/);
 	assert.doesNotMatch(workflow, /\n  changes:\n|needs: changes/);
 });
 
-test('detect-changes gates Swift while preserving full weekly and manual scans', async () => {
+test('PRs run JavaScript only while full security events include Swift', async () => {
 	const workflow = await readRepositoryFile('.github/workflows/codeql.yml');
 	const detectorJob = getJob(workflow, 'detect-changes');
 	const javascriptJob = getJob(workflow, 'analyze');
 	const swiftJob = getJob(workflow, 'analyze-swift');
 	assert.ok(detectorJob && javascriptJob && swiftJob);
 	assert.match(detectorJob, /name: Detect CodeQL scope/);
-	assert.match(detectorJob, /pull-requests: read/);
 	assert.match(detectorJob, /node \.github\/codeql\/detect-changes\.mjs/);
 	assert.match(javascriptJob, /needs\.detect-changes\.outputs\.run_codeql == 'true'/);
 	assert.match(swiftJob, /needs\.detect-changes\.outputs\.swift == 'true'/);
 	assert.match(swiftJob, /category: \/language:swift/);
 
 	const detector = await import(new URL('../../.github/codeql/detect-changes.mjs', import.meta.url).href) as {
-		affectsSwift: (paths: string[]) => boolean;
 		selectScans: (options: { eventName: string; draft?: boolean; paths?: string[] | null }) => {
 			runCodeQL: boolean; swift: boolean;
 		};
 	};
-	for (const file of [
-		'adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/project.yml',
-		'adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift',
-		'.github/codeql/FinalCutWorkflowExtensionShim.swift',
-		'.github/workflows/codeql.yml',
-		'.github/workflows/ci.yml',
-		'other/SomeFeature.swift',
-	]) {
-		assert.equal(detector.affectsSwift([file]), true, file);
-	}
-	assert.equal(detector.affectsSwift(['README.md', 'packages/runtime/src/model.ts']), false);
 	assert.deepEqual(detector.selectScans({ eventName: 'pull_request', draft: true, paths: ['file.swift'] }), { runCodeQL: false, swift: false });
 	assert.deepEqual(detector.selectScans({ eventName: 'pull_request', paths: ['packages/runtime/src/model.ts'] }), { runCodeQL: true, swift: false });
-	assert.deepEqual(detector.selectScans({ eventName: 'push', paths: ['README.md'] }), { runCodeQL: true, swift: false });
-	assert.deepEqual(detector.selectScans({ eventName: 'pull_request', paths: [] }), { runCodeQL: true, swift: true });
-	for (const eventName of ['schedule', 'workflow_dispatch']) {
+	assert.deepEqual(detector.selectScans({ eventName: 'pull_request', paths: ['file.swift'] }), { runCodeQL: true, swift: false });
+	assert.deepEqual(detector.selectScans({ eventName: 'pull_request', paths: [] }), { runCodeQL: true, swift: false });
+	for (const eventName of ['push', 'schedule', 'workflow_dispatch']) {
 		assert.deepEqual(detector.selectScans({ eventName }), { runCodeQL: true, swift: true });
 	}
 });

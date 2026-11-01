@@ -49,6 +49,7 @@ jobs:
               uses: ./.github/action/test
               with:
                   node-version: 22.14.0
+                  validation-level: full
 
     consumer-runtime:
         name: Published package consumer minimum
