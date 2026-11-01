@@ -1084,6 +1084,15 @@ test("publish reservation excludes edits and permits verification of only the sa
     await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     const otherJob = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "job-2", confirm: true } });
     assert.equal(otherJob.isError, true);
+    const restarted = await connect(createRuntime([]), { canonicalRecovery: other, projectPublisher });
+    try {
+      const unowned = await restarted.client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "job-1", confirm: true, confirmVerification: true } });
+      assert.equal(unowned.isError, true);
+      assert.equal(verifications, 0);
+    } finally {
+      await restarted.client.close();
+      await restarted.server.close();
+    }
     const verified = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "job-1", confirm: true, confirmVerification: true } });
     assert.equal(verified.isError ?? false, false, textFrom(verified));
     assert.equal(JSON.parse(textFrom(verified)).recoveryReservation.reason, "native-quiescence-unproven");

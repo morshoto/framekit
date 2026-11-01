@@ -434,6 +434,7 @@ test("FCPXML publisher previews and dispatches the selected headed route once", 
   const appleScripts: string[] = [];
   let stagedXml = "";
   let backgroundDeliveries = 0;
+  let dispatchMarks = 0;
   const options = {
     enabled: true,
     sourcePath,
@@ -448,6 +449,7 @@ test("FCPXML publisher previews and dispatches the selected headed route once", 
       },
     },
     executor: async (script: string) => {
+      assert.equal(dispatchMarks, 1, "dispatch must be marked before native delivery");
       appleScripts.push(script);
       const stagedPath = /open POSIX file "([^"]+)"/.exec(script)?.[1];
       if (stagedPath) stagedXml = await readFile(stagedPath, "utf8");
@@ -488,8 +490,9 @@ test("FCPXML publisher previews and dispatches the selected headed route once", 
     publishRoute: "background-document-open",
   });
   assert.equal(restartedPublisher.getPublishJob(preview.jobId).handoff.route, "headed-apple-event");
-  assert.equal((await restartedPublisher.executePublishJob(preview.jobId, true)).state, "verification-pending");
-  assert.equal((await restartedPublisher.executePublishJob(preview.jobId, true, true)).state, "verified");
+  assert.equal((await restartedPublisher.trackNativeDispatch(() => restartedPublisher.executePublishJob(preview.jobId, true), () => { dispatchMarks += 1; })).state, "verification-pending");
+  assert.equal((await restartedPublisher.trackNativeDispatch(() => restartedPublisher.executePublishJob(preview.jobId, true, true), () => { dispatchMarks += 1; })).state, "verified");
+  assert.equal(dispatchMarks, 1, "verification must not dispatch a second import");
   assert.equal(backgroundDeliveries, 0);
   assert.equal(appleScripts.length, 1);
   assert.match(appleScripts[0] ?? "", /open POSIX file ".*selected route\.fcpxml"/);
