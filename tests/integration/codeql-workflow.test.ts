@@ -183,6 +183,21 @@ test('a Swift-only finding does not block the JavaScript PR policy', async () =>
 	assert.deepEqual(result, { pass: true, reasons: [] });
 });
 
+test('the JavaScript policy blocks a new current high-severity finding', async () => {
+	const { evaluateCodeQLPolicy } = await import(
+		new URL('../../.github/codeql/verify-policy.mjs', import.meta.url).href
+	) as { evaluateCodeQLPolicy: (input: Record<string, unknown>) => { pass: boolean; reasons: string[] } };
+	const result = evaluateCodeQLPolicy({
+		workflowHeadSha: 'head-sha', pullRequestHeadSha: 'head-sha', pullRequestNumber: 7,
+		mergeSha: 'merge-sha', swiftRequired: false,
+		analyses: [{ ref: 'refs/pull/7/merge', commit_sha: 'merge-sha', category: '/language:javascript-typescript', error: '', rules_count: 87, tool: { name: 'CodeQL' } }],
+		pullRequestAlerts: [{ number: 9, state: 'open', rule: { severity: 'warning', security_severity_level: 'high' }, instances: [{ ref: 'refs/pull/7/merge', commit_sha: 'merge-sha', category: '/language:javascript-typescript', state: 'open' }] }],
+		baseAlerts: [],
+	});
+	assert.equal(result.pass, false);
+	assert.match(result.reasons.join('\n'), /1 new CodeQL alert/);
+});
+
 test('CodeQL policy accepts a current JavaScript scan when Swift is unchanged', async () => {
 	const { evaluateCodeQLPolicy } = await import(
 		new URL('../../.github/codeql/verify-policy.mjs', import.meta.url).href
