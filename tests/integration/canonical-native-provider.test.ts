@@ -2408,3 +2408,21 @@ test("uncertain target preparation keeps its checkpoint without dispatching an e
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("target validation that fails before native dispatch releases its checkpoint", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-target-preflight-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const calls: string[] = [];
+  const resolveTarget = Object.assign(async () => { throw new Error("TARGET_MISMATCH: missing media binding"); }, {
+    trackNativeDispatch: async <T>(operation: () => Promise<T>) => operation(),
+  });
+  const provider = providerFor([snapshot("Original"), snapshot("Original")], calls, resolveTarget, liveState(), undefined, {}, guard);
+  try {
+    const before = await provider.readProject();
+    await assert.rejects(provider.apply({ type: "rename-clip", clipId: "final-cut:occurrence:clip-1", name: "Renamed" }, before.revision), /TARGET_MISMATCH: missing media binding/);
+    assert.deepEqual(calls, []);
+    await guard.assertClear();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
