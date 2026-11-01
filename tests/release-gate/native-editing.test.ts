@@ -460,3 +460,50 @@ test("complete headed evidence promotes every claimed native workflow", async ()
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+function canonicalRenameEvidence() {
+  return {
+    schemaVersion: 1,
+    evidenceType: "headed-native-canonical-mutation",
+    passed: true,
+    environment: { framekitVersion: "0.1.6", finalCutVersion: "10.7.1", gitCommit: "d".repeat(40) },
+    project: { id: "project-1", name: "Disposable Canonical", sequenceId: "sequence-1" },
+    target: { occurrenceId: "occurrence-1", mediaId: "media-1" },
+    capabilities: { editor: { canonicalTimelineMode: "canonical-write", semanticOperations: { "rename-clip": true } } },
+    sourceMediaIntegrity: { sourceCount: 1, digests: ["c".repeat(64)] },
+    toolResults: [
+      ["editor.inspect", "passed"], ["project.list", "passed"], ["project.select", "passed"],
+      ["project.inspect", "passed"], ["editor.inspect", "passed"],
+      ["editor.timeline.edit", "rejected-stale-context"], ["project.inspect", "unchanged"],
+      ["editor.timeline.edit", "rejected-target-mismatch"], ["project.inspect", "unchanged"],
+      ["editor.timeline.edit", "VERIFIED"], ["edit.undo", "passed"],
+    ].map(([name, status]) => ({ name, status })),
+    mutation: {
+      operation: "rename-clip", status: "VERIFIED", timelineChanged: true,
+      beforeRevision: { id: "rev-1", sequence: 1 }, afterRevision: { id: "rev-2", sequence: 2 },
+      diff: { addedCount: 0, removedCount: 0, modifiedCount: 1, modifiedItemIds: ["occurrence-1"], durationDelta: 0 },
+    },
+    restoration: { operation: "edit.undo", status: "VERIFIED", restored: true, beforeDigest: "a".repeat(64), restoredDigest: "a".repeat(64), restoredRevision: { id: "rev-3", sequence: 3 } },
+  };
+}
+
+test("canonical release evidence requires the rename-specific safety record", () => {
+  const workflow = loadNativeEditingManifest().workflows.find((candidate) => candidate.id === "canonical-live");
+  assert.ok(workflow);
+  const valid = canonicalRenameEvidence();
+  assert.equal(summarizeHeadedEvidence(valid, workflow).status, "verified");
+  const generic = { evidenceType: valid.evidenceType, passed: true, environment: valid.environment, target: { project: "Disposable", projectId: "p", sequenceId: "s", occurrenceId: "o" }, revisions: { before: "1", after: "2", restored: "3" }, verification: { execute: true, undo: true } };
+  assert.throws(() => summarizeHeadedEvidence(generic, workflow), /canonical/i);
+  for (const change of [
+    (x: typeof valid) => { x.capabilities.editor.semanticOperations["rename-clip"] = false; },
+    (x: typeof valid) => { x.sourceMediaIntegrity.digests = []; },
+    (x: typeof valid) => { x.restoration.restoredDigest = "b".repeat(64); },
+    (x: typeof valid) => { x.restoration.restoredRevision.sequence = 2; },
+    (x: typeof valid) => { x.mutation.diff.modifiedItemIds = ["other"]; },
+    (x: typeof valid) => { x.toolResults.splice(5, 1); },
+  ]) {
+    const broken = structuredClone(valid);
+    change(broken);
+    assert.throws(() => summarizeHeadedEvidence(broken, workflow), /canonical/i);
+  }
+});
