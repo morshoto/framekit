@@ -15,6 +15,12 @@ import ProExtensionHost
 
 private let protocolVersion = 1
 
+func unavailableLiveTimeFields(_ fields: [(String, CMTime)]) -> [String] {
+    fields.compactMap { name, time in
+        time.isValid && time.isNumeric && time.timescale > 0 ? nil : name
+    }
+}
+
 private struct BuildFingerprint: Codable {
     let version: String
     let commit: String
@@ -649,9 +655,17 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
         guard let host, let timeline = host.timeline, let sequence = timeline.activeSequence else {
             throw NSError(domain: "Framekit", code: 1, userInfo: [NSLocalizedDescriptionKey: "no active sequence"])
         }
-        guard usable(sequence.startTime), usable(sequence.duration), usable(sequence.frameDuration),
-              usable(timeline.playheadTime()), usable(timeline.sequenceTimeRange.start), usable(timeline.sequenceTimeRange.duration) else {
-            throw NSError(domain: "Framekit", code: 2, userInfo: [NSLocalizedDescriptionKey: "live timeline times are not available yet"])
+        let playhead = timeline.playheadTime()
+        let range = timeline.sequenceTimeRange
+        let unavailable = unavailableLiveTimeFields([
+            ("sequence.startTime", sequence.startTime), ("sequence.duration", sequence.duration),
+            ("sequence.frameDuration", sequence.frameDuration), ("timeline.playheadTime", playhead),
+            ("timeline.sequenceTimeRange.start", range.start), ("timeline.sequenceTimeRange.duration", range.duration),
+        ])
+        guard unavailable.isEmpty else {
+            let message = "live timeline times are not available yet: \(unavailable.joined(separator: ", "))"
+            NSLog("Framekit %@", message)
+            throw NSError(domain: "Framekit", code: 2, userInfo: [NSLocalizedDescriptionKey: message])
         }
         let project = (sequence.container as? FCPXProject).flatMap(stableProject)
         let projectID = project?.id ?? "final-cut:project:unavailable"
@@ -664,9 +678,9 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
             sequenceID = "final-cut:sequence:unavailable"
         }
         let liveSequence = LiveState.Sequence(id: sequenceID, name: sequenceName, startTime: RationalTime(sequence.startTime), duration: RationalTime(sequence.duration), frameDuration: RationalTime(sequence.frameDuration))
-        let selectedRange = RationalTimeRange(start: RationalTime(timeline.sequenceTimeRange.start), duration: RationalTime(timeline.sequenceTimeRange.duration))
+        let selectedRange = RationalTimeRange(start: RationalTime(range.start), duration: RationalTime(range.duration))
         let currentRevision = stateLock.withLock { revision }
-        return LiveState(project: project, sequence: liveSequence, playheadTime: RationalTime(timeline.playheadTime()), sequenceTimeRange: selectedRange, revision: Revision(id: "rev-\(currentRevision)", sequence: currentRevision, timestamp: ISO8601DateFormatter().string(from: Date())))
+        return LiveState(project: project, sequence: liveSequence, playheadTime: RationalTime(playhead), sequenceTimeRange: selectedRange, revision: Revision(id: "rev-\(currentRevision)", sequence: currentRevision, timestamp: ISO8601DateFormatter().string(from: Date())))
     }
 
     private func stableProject(_ project: FCPXProject) -> LiveState.Project? {
@@ -684,9 +698,6 @@ public final class FinalCutLiveWorkflowExtension: NSViewController {
         return uidValue
     }
 
-    private func usable(_ time: CMTime) -> Bool {
-        time.isValid && time.isNumeric && time.timescale > 0
-    }
 }
 
 private extension NSLock {
