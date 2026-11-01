@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { FcpxmlDocumentAdapter } from "../adapters/final-cut/typescript/src/fcpxml.ts";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { runPublishStages, verifyAcceptanceFixture, verifyPublishedTarget } from "./final-cut-publisher-verification.mjs";
@@ -74,7 +75,7 @@ try {
     throw new Error(`PUBLISH_TARGET_MISMATCH: expected managed FCPXML artifact ${artifactPath}`);
   }
 
-  const source = await callJson("project.inspect");
+  const source = await new FcpxmlDocumentAdapter(artifactPath).readProject();
   verifyAcceptanceFixture(source);
   if (source.projectName !== expectedProject) {
     throw new Error(`FINAL_CUT_E2E_PUBLISH_PROJECT_MISMATCH: expected ${expectedProject}, observed ${source.projectName ?? "unknown"}`);
