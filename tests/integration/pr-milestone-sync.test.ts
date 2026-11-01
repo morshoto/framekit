@@ -181,15 +181,15 @@ test('ignores body references that GitHub has not linked to the PR', async () =>
 	assert.equal(requests.some(({ method }) => method === 'PATCH'), false);
 });
 
-test('rechecks PR body edits with write permission for milestones', async () => {
+test('rechecks same-repository PR body edits with write permission for milestones', async () => {
 	const workflow = await readFile(new URL('../../.github/workflows/assign.yml', import.meta.url), 'utf8');
-	assert.match(workflow, /types:\s*\[[^\]]*edited/);
-	assert.match(workflow, /pull_request_target:\s*\n\s+types:/);
-	assert.match(workflow, /sync-pull-request-milestone:/);
-	assert.match(workflow, /head\.repo\.full_name == github\.repository/);
-	assert.match(workflow, /head\.repo\.full_name != github\.repository/);
-	assert.match(workflow, /ref:\s*\$\{\{\s*github\.sha\s*\}\}/);
-	assert.match(workflow, /pull-requests:\s*write/);
+	const activeWorkflow = workflow.replace(/^[ \t]*#.*$/gm, '');
+	assert.match(activeWorkflow, /pull_request:\s*\n\s+types:\s*\[[^\]]*edited/);
+	assert.doesNotMatch(activeWorkflow, /^[ \t]+pull_request_target:/m);
+	assert.match(activeWorkflow, /sync-pull-request-milestone:/);
+	assert.match(activeWorkflow, /head\.repo\.full_name == github\.repository/);
+	assert.match(activeWorkflow, /ref:\s*\$\{\{\s*github\.sha\s*\}\}/);
+	assert.match(activeWorkflow, /pull-requests:\s*write/);
 });
 
 function jsonResponse(value: unknown): Response {

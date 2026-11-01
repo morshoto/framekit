@@ -150,6 +150,7 @@ export interface CapabilityFamilyOptions {
   connection?: boolean | CapabilityDescriptor;
   native?: Partial<Record<NativeCapabilityOperation, boolean>>;
   publishing?: boolean | CapabilityDescriptor;
+  publishingGuarantee?: Exclude<CapabilityDescriptor["guarantee"], "none">;
   export?: boolean | CapabilityDescriptor;
   backgroundExport?: boolean | CapabilityDescriptor;
   externalExport?: boolean | CapabilityDescriptor;
@@ -275,7 +276,7 @@ export function withCapabilityFamilies(
       projectCreation: descriptorFrom(
         options.publishing ?? previous?.publishing.projectCreation ?? false,
         options.publishingBackend ?? backend,
-        "verified",
+        options.publishingGuarantee ?? "verified",
         "new project publishing is unavailable",
       ),
     },

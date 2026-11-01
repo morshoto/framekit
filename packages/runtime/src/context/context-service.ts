@@ -19,8 +19,8 @@ export class ContextService {
     private readonly context: ContextEngine,
   ) {}
 
-  public async inspectContext(capabilities: RuntimeCapabilities): Promise<AgentContext> {
-    return this.context.inspectContext(capabilities);
+  public async inspectContext(capabilities: RuntimeCapabilities, options: { includeCanonicalSnapshot?: boolean } = {}): Promise<AgentContext> {
+    return this.context.inspectContext(capabilities, options);
   }
 
   public async inspectLiveEditor(): Promise<EditorLiveState> {

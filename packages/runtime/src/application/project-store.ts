@@ -18,6 +18,12 @@ export interface FramekitProjectDocument {
   timeline: TimelineIr;
 }
 
+export interface ProjectStore {
+  create(project: FramekitProjectDocument): Promise<FramekitProjectDocument>;
+  load(): Promise<FramekitProjectDocument>;
+  save(project: FramekitProjectDocument, expectedRevision?: ContextRevision): Promise<FramekitProjectDocument>;
+}
+
 export interface ProjectStoreFileSystem {
   mkdir(path: string, options: { recursive: true }): Promise<void>;
   readFile(path: string, encoding: "utf8"): Promise<string>;
@@ -66,7 +72,7 @@ const fileSystem: ProjectStoreFileSystem = {
   unlink: async (path) => { await nodeUnlink(path); },
 };
 
-export class FramekitProjectStore {
+export class FramekitProjectStore implements ProjectStore {
   public constructor(
     private readonly path: string,
     private readonly fs: ProjectStoreFileSystem = fileSystem,

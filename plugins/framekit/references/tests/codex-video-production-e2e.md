@@ -162,8 +162,12 @@ In the headed session:
 3. Show those details and ask the user to authorize importing that artifact
    into that library. Then call `artifact.publish.execute` with the returned
    `jobId` and literal `confirm: true`.
-4. Read `artifact.publish.status` for that same job. Report successful delivery
-   only when status is `verified` and includes a target-matching live readback.
+4. Read `artifact.publish.status` for that same job. If verification is pending,
+   obtain separate authorization for headed semantic readback of the exact job,
+   artifact digest, and target. Then call `artifact.publish.execute` for the same
+   job with `confirm: true` and `confirmVerification: true`.
+5. Report successful delivery only when status is `verified` and includes a
+   target-matching live readback.
 
 If the job is `awaiting-final-cut`, retain its `jobId`, report that delivery is
 pending, and wait until the user makes Final Cut ready. Inspect that same job

@@ -69,6 +69,7 @@ import {
 } from "@framekit/headless-application";
 import { projectSnapshotFromTimelineIr } from "./headless-project-snapshot.js";
 import { chooseTimelineReadback } from "./readback-policy.js";
+import { registerSkillTools, skillPreviewResult } from "./tools/skills/register.js";
 
 export type { SessionMaterializationPublisher } from "@framekit/headless-application";
 
@@ -86,6 +87,8 @@ const timelineReadbackSchema = z.object({
   sessionId: z.string().min(1).optional(),
   requestedCanonical: z.boolean().optional().default(false),
   finalVerification: z.boolean().optional().default(false),
+  confirmHeadedRead: z.boolean().optional(),
+  expectedTarget: contextTargetSchema.optional(),
 }).strict();
 const contextCursorSchema = z.object({
   revision: revisionValueSchema,
@@ -116,6 +119,8 @@ const mediaIndexQuerySchema = z.object({
 const timelineSemanticContextQuerySchema = z.object({
   query: z.string().optional(),
   occurrenceIds: z.array(z.string().min(1)).optional(),
+  confirmHeadedRead: z.boolean().optional(),
+  expectedTarget: contextTargetSchema.optional(),
 }).strict();
 const roughCutPlanSchema = mediaIndexQuerySchema.extend({
   maxShots: z.number().int().positive().optional(),
@@ -416,6 +421,7 @@ const artifactPublishInputSchema = z.object({
   targetLibraryPath: z.string().trim().min(1),
   transactionId: z.string().min(1),
   confirm: z.boolean(),
+  confirmVerification: z.boolean().optional(),
 }).strict();
 const artifactTransactionInputSchema = z.object({
   artifactPath: z.string().trim().min(1),
@@ -856,34 +862,6 @@ function isDirectoryMediaImportError(error: unknown): error is Error & {
     && typeof (guidance as Record<string, unknown>).executeTool === "string";
 }
 
-function skillErrorResult(error: unknown) {
-  const value = error && typeof error === "object" ? error as Record<string, unknown> : {};
-  const message = error instanceof Error ? error.message : String(error);
-  const code = error instanceof z.ZodError
-    ? "SKILL_INPUT_INVALID"
-    : typeof value.code === "string" ? value.code : message.split(":", 1)[0] || "SKILL_ERROR";
-  return {
-    isError: true,
-    content: [{
-      type: "text" as const,
-      text: JSON.stringify({
-        code,
-        message,
-        ...(value.availability ? { availability: value.availability } : {}),
-      }),
-    }],
-  };
-}
-
-function skillPreviewResult(preview: Awaited<ReturnType<AgentVideoRuntime["previewSkill"]>>) {
-  const details = preview.plan.details ?? {};
-  return jsonResult({
-    ...preview,
-    ...details,
-    plan: { ...preview.plan, ...details },
-  });
-}
-
 function normalizeConnectionStatus(value: unknown): unknown {
   if (!value || typeof value !== "object") return value;
   const status = value as Record<string, unknown>;
@@ -1199,71 +1177,12 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     await inspectNativeHandoffReadiness(runtime, options, publishJobId),
   ));
 
-  server.registerTool("skill.list", {
-    description: "List registered versioned Framekit Skills with current capability availability.",
-    inputSchema: {},
-  }, async () => {
-    try {
-      return jsonResult((await runtime.listSkillAvailability()).map(({ manifest, availability }) => ({
-        ...manifest,
-        availability,
-      })));
-    } catch (error) {
-      return skillErrorResult(error);
-    }
-  });
-
-  server.registerTool("skill.inspect", {
-    description: "Inspect one registered Framekit Skill version and its current capability availability.",
-    inputSchema: { skill: z.string().min(1), version: z.string().min(1).optional() },
-  }, async ({ skill, version }) => {
-    try {
-      const { manifest, availability } = await runtime.inspectSkillAvailability(skill, version);
-      return jsonResult({ ...manifest, availability });
-    } catch (error) {
-      return skillErrorResult(error);
-    }
-  });
-
-  server.registerTool("skill.preview", {
-    description: "Validate and preview a registered Skill without mutating the editor.",
-    inputSchema: {
-      skill: z.string().min(1),
-      version: z.string().min(1).optional(),
-      arguments: z.record(z.unknown()),
-    },
-  }, async ({ skill, version, arguments: skillArguments }) => {
-    try {
-      const baseRevision = revisionValueSchema.parse(skillArguments.baseRevision);
-      const { baseRevision: _baseRevision, ...input } = skillArguments;
-      return skillPreviewResult(await runtime.previewSkill({
-        skillId: skill,
-        ...(version ? { version } : {}),
-        baseRevision,
-        input,
-      }));
-    } catch (error) {
-      return skillErrorResult(error);
-    }
-  });
-
-  server.registerTool("skill.execute", {
-    description: "Execute only a runtime-issued Skill preview token and return verification/rollback evidence.",
-    inputSchema: {
-      previewToken: z.string().min(1),
-    },
-  }, async ({ previewToken }) => {
-    try {
-      return jsonResult(await runtime.executeSkill(previewToken));
-    } catch (error) {
-      return skillErrorResult(error);
-    }
-  });
+  registerSkillTools(server, runtime);
 
   server.registerTool("project.inspect", {
     description: "Read a bound session baseline or perform an explicit canonical project resync before editing.route selects a capability-checked path.",
     inputSchema: timelineReadbackSchema,
-  }, async ({ sessionId, requestedCanonical, finalVerification }) => {
+  }, async ({ sessionId, requestedCanonical, finalVerification, confirmHeadedRead, expectedTarget }) => {
     if (sessionId) {
       const { stored, decision } = await prepareSessionReadback(sessionId, requestedCanonical, finalVerification);
       if (decision.route === "session" || decision.route === "fast-observation") {
@@ -1274,19 +1193,12 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
           snapshot: stored.document.base,
         });
       }
-      const resynced = await canonicalResyncSession(sessionId, stored.document.provider?.id);
-      return jsonResult({ sessionId, readback: decision, ...resynced });
+      return inspectCanonicalReadForMcp(runtime, options, "project.inspect", confirmHeadedRead, expectedTarget,
+        async () => ({ sessionId, readback: decision, ...await canonicalResyncSession(sessionId, stored.document.provider?.id) }),
+        (result) => ({ projectId: result.snapshot.projectId, sequenceId: result.snapshot.timeline.id }));
     }
-    const inspected = await inspectMcpEditor(runtime, options);
-    const capability = inspected.capabilities.families.canonicalDocument.read;
-    if (!capability.available) {
-      return capabilityErrorResult("project.inspect", "canonicalDocument.read", capability);
-    }
-    try {
-      return jsonResult(await runtime.inspectProject());
-    } catch (error) {
-      return capabilityUnavailableErrorResult(error);
-    }
+    return inspectCanonicalReadForMcp(runtime, options, "project.inspect", confirmHeadedRead, expectedTarget,
+      () => runtime.inspectProject(), (result) => ({ projectId: result.projectId, sequenceId: result.timeline.id }));
   });
 
   server.registerTool("artifact.inspect", {
@@ -1932,17 +1844,18 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("artifact.publish.execute", {
-    description: "Execute an experimental native handoff after explicit confirmation; dispatch alone is not project-creation proof, and success requires target readback.",
+    description: "Dispatch a prepared native handoff with confirm=true; for a pending job separately authorize headed readback with confirmVerification=true. Dispatch does not prove project creation.",
     inputSchema: {
       jobId: z.string().trim().min(1),
       confirm: z.literal(true),
+      confirmVerification: z.boolean().optional(),
     },
-  }, async ({ jobId, confirm }) => {
+  }, async ({ jobId, confirm, confirmVerification }) => {
     if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
     if (options.projectPublisher.isAvailable() && requiresHeadedPublishingRoute(options.projectPublisher)) {
       await requireEditingRoute(runtime, options, "timeline.publish.new-project");
     }
-    return jsonResult(await options.projectPublisher.executePublishJob(jobId, confirm));
+    return jsonResult(await options.projectPublisher.executePublishJob(jobId, confirm, confirmVerification));
   });
 
   server.registerTool("artifact.publish.status", {
@@ -1954,9 +1867,9 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("artifact.publish", {
-    description: "Experimental, opt-in native import of validated FCPXML. Dispatch alone does not prove project creation; success requires matching created-target readback and explicit confirmation.",
+    description: "Experimental direct import; explicitly confirm both creation and headed readback for this artifact. Dispatch alone does not prove project creation.",
     inputSchema: artifactPublishInputSchema,
-  }, async ({ artifactPath, targetLibraryPath, transactionId, confirm }) => {
+  }, async ({ artifactPath, targetLibraryPath, transactionId, confirm, confirmVerification }) => {
     if (!options.projectPublisher?.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
     if (requiresHeadedPublishingRoute(options.projectPublisher)) {
       await requireEditingRoute(runtime, options, "timeline.publish.new-project");
@@ -1976,17 +1889,19 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       artifactDigest: transaction.artifactDigest,
       targetLibraryPath,
       confirm,
+      confirmVerification,
     }));
   });
 
   server.registerTool("timeline.publish.new-project", {
-    description: "Experimental, opt-in native import of a verified artifact transaction; reports verified delivery only after matching created-target readback and explicit confirmation.",
+    description: "Experimental direct import of a verified artifact; explicitly confirm creation and headed readback before verified delivery.",
     inputSchema: {
       transactionId: z.string().min(1),
       targetLibraryPath: z.string().trim().min(1),
       confirm: z.literal(true),
+      confirmVerification: z.boolean().optional(),
     },
-  }, async ({ transactionId, targetLibraryPath, confirm }) => {
+  }, async ({ transactionId, targetLibraryPath, confirm, confirmVerification }) => {
     if (!options.projectPublisher?.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
     if (requiresHeadedPublishingRoute(options.projectPublisher)) {
       await requireEditingRoute(runtime, options, "timeline.publish.new-project");
@@ -2006,6 +1921,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       artifactDigest: transaction.artifactDigest,
       targetLibraryPath,
       confirm,
+      confirmVerification,
     }));
   });
 
@@ -2069,9 +1985,25 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("context.inspect", {
-    description: "Read the queryable agent editing context and its current revision.",
-    inputSchema: {},
-  }, async () => jsonResult(await runtime.inspectContext()));
+    description: "Read editing context passively, or explicitly confirm a headed read for the expected project and sequence.",
+    inputSchema: {
+      confirmHeadedRead: z.boolean().optional(),
+      expectedTarget: contextTargetSchema.optional(),
+    },
+  }, async ({ confirmHeadedRead, expectedTarget }) => sessionResult(async () => {
+    if (!confirmHeadedRead) return runtime.inspectContext({ probeCanonicalSnapshot: false });
+    if (!expectedTarget) throw new Error("EXPECTED_TARGET_REQUIRED: headed context read requires a project and sequence");
+    const matches = (live: Awaited<ReturnType<typeof runtime.inspectLiveEditor>>) =>
+      live.project?.id === expectedTarget.projectId && live.sequence?.id === expectedTarget.sequenceId;
+    if (!matches(await runtime.inspectLiveEditor())) throw new Error("TARGET_MISMATCH: active project or sequence differs from expected target");
+    const context = await runtime.inspectContext({ probeCanonicalSnapshot: true });
+    if (!context.project) throw new Error("CAPABILITY_UNAVAILABLE: headed canonical context could not be read");
+    if (!matches(await runtime.inspectLiveEditor()) ||
+      context.project.projectId !== expectedTarget.projectId || context.project.timeline.id !== expectedTarget.sequenceId) {
+      throw new Error("TARGET_MISMATCH: context target changed during headed read");
+    }
+    return context;
+  }));
 
   server.registerTool("context.changes", {
     description: "Read incremental timeline, live-state, and native-asset changes after a context revision.",
@@ -2122,7 +2054,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("timeline.inspect", {
     description: "Read a bound session baseline or perform an explicit canonical timeline resync after canonical capability checks.",
     inputSchema: timelineReadbackSchema,
-  }, async ({ sessionId, requestedCanonical, finalVerification }) => {
+  }, async ({ sessionId, requestedCanonical, finalVerification, confirmHeadedRead, expectedTarget }) => {
     if (sessionId) {
       const { stored, decision } = await prepareSessionReadback(sessionId, requestedCanonical, finalVerification);
       if (decision.route === "session" || decision.route === "fast-observation") {
@@ -2133,40 +2065,24 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
           timeline: stored.document.base,
         });
       }
-      const resynced = await canonicalResyncSession(sessionId, stored.document.provider?.id);
-      return jsonResult({
-        sessionId,
-        readback: decision,
-        snapshot: resynced.snapshot.timeline,
-        session: resynced.session,
-      });
+      return inspectCanonicalReadForMcp(runtime, options, "timeline.inspect", confirmHeadedRead, expectedTarget,
+        async () => {
+          const resynced = await canonicalResyncSession(sessionId, stored.document.provider?.id);
+          return { sessionId, readback: decision, snapshot: resynced.snapshot.timeline, session: resynced.session };
+        },
+        (result) => ({ sequenceId: result.snapshot.id }));
     }
-    const inspected = await inspectMcpEditor(runtime, options);
-    const capability = inspected.capabilities.families.canonicalDocument.read;
-    if (!capability.available) {
-      return capabilityErrorResult("timeline.inspect", "canonicalDocument.read", capability);
-    }
-    try {
-      return jsonResult(await runtime.inspectTimeline());
-    } catch (error) {
-      return capabilityUnavailableErrorResult(error);
-    }
+    return inspectCanonicalReadForMcp(runtime, options, "timeline.inspect", confirmHeadedRead, expectedTarget,
+      () => runtime.inspectTimeline(), (result) => ({ sequenceId: result.id }));
   });
 
   server.registerTool("timeline.semantic.inspect", {
     description: "Enrich timeline occurrences with source-range-bound semantic speech, visual, and metadata context without mutating the timeline.",
     inputSchema: timelineSemanticContextQuerySchema.shape,
   }, async (query) => {
-    const inspected = await inspectMcpEditor(runtime, options);
-    const capability = inspected.capabilities.families.canonicalDocument.read;
-    if (!capability.available) {
-      return capabilityErrorResult("timeline.semantic.inspect", "canonicalDocument.read", capability);
-    }
-    try {
-      return jsonResult(await runtime.inspectTimelineSemanticContext(query));
-    } catch (error) {
-      return capabilityUnavailableErrorResult(error);
-    }
+    const { confirmHeadedRead, expectedTarget, ...contextQuery } = query;
+    return inspectCanonicalReadForMcp(runtime, options, "timeline.semantic.inspect", confirmHeadedRead, expectedTarget,
+      () => runtime.inspectTimelineSemanticContext(contextQuery), (result) => ({ sequenceId: result.timelineId }));
   });
 
   server.registerTool("timeline.frame.capture", {
@@ -2254,6 +2170,17 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       sequence: z.number().int().nonnegative().optional(),
     },
   }, async ({ projectId, sequenceId, revision, sequence }) => {
+    if (!(projectId && sequenceId && revision)) {
+      const inspected = await inspectMcpEditor(runtime, options);
+      const capability = inspected.capabilities.families.canonicalDocument.read;
+      if (!capability.available) return capabilityErrorResult("timeline.changes", "canonicalDocument.read", capability);
+      if (capability.evidenceTier === "headed-native") {
+        return capabilityErrorResult("timeline.changes", "canonicalDocument.read", {
+          available: false, backend: capability.backend, guarantee: "none",
+          unavailableReason: "canonical timeline changes require an explicitly authorized headed read",
+        });
+      }
+    }
     const project = projectId && sequenceId && revision
       ? undefined
       : await runtime.inspectProject();
@@ -2690,8 +2617,68 @@ async function effectiveConnectionStatus(
   }
 }
 
-async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOptions) {
-  const inspected = await runtime.inspectEditor();
+async function inspectCanonicalReadForMcp<T>(
+  runtime: AgentVideoRuntime,
+  options: McpServerOptions,
+  operation: string,
+  confirmHeadedRead: boolean | undefined,
+  expectedTarget: { projectId: string; sequenceId: string } | undefined,
+  read: () => Promise<T>,
+  targetOf: (result: T) => { projectId?: string; sequenceId?: string },
+) {
+  const passive = await inspectMcpEditor(runtime, options);
+  const headed = passive.identity.backend === "final-cut-native-canonical";
+  if (headed && (!confirmHeadedRead || !expectedTarget)) {
+    return mcpReadErrorResult(
+      "HEADED_READ_CONFIRMATION_REQUIRED",
+      `${operation} requires confirmHeadedRead and expectedTarget projectId and sequenceId before exporting a canonical snapshot`,
+      operation,
+    );
+  }
+
+  if (headed && expectedTarget) {
+    const before = await runtime.inspectLiveEditor();
+    if (!liveTargetMatches(before, expectedTarget)) {
+      return mcpReadErrorResult("TARGET_MISMATCH", `${operation} active project or sequence differs from expectedTarget`, operation);
+    }
+  }
+
+  const inspected = await inspectMcpEditor(runtime, options, true);
+  const capability = inspected.capabilities.families.canonicalDocument.read;
+  if (!capability.available) return capabilityErrorResult(operation, "canonicalDocument.read", capability);
+  try {
+    const result = await read();
+    if (headed && expectedTarget) {
+      const live = await runtime.inspectLiveEditor();
+      const returnedTarget = targetOf(result);
+      if (!liveTargetMatches(live, expectedTarget)
+        || (returnedTarget.projectId !== undefined && returnedTarget.projectId !== expectedTarget.projectId)
+        || (returnedTarget.sequenceId !== undefined && returnedTarget.sequenceId !== expectedTarget.sequenceId)) {
+        return mcpReadErrorResult("TARGET_MISMATCH", `${operation} result or active target changed during the headed read`, operation);
+      }
+    }
+    return jsonResult(result);
+  } catch (error) {
+    return capabilityUnavailableErrorResult(error);
+  }
+}
+
+function liveTargetMatches(
+  live: Awaited<ReturnType<AgentVideoRuntime["inspectLiveEditor"]>>,
+  target: { projectId: string; sequenceId: string },
+): boolean {
+  return live.project?.id === target.projectId && live.sequence?.id === target.sequenceId;
+}
+
+function mcpReadErrorResult(code: string, message: string, operation: string) {
+  return {
+    isError: true,
+    content: [{ type: "text" as const, text: JSON.stringify({ code, message, operation }) }],
+  };
+}
+
+async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOptions, probeCanonicalSnapshot = false) {
+  const inspected = await runtime.inspectEditor({ probeCanonicalSnapshot });
   const fingerprint = options.buildFingerprint ?? FRAMEKIT_BUILD_FINGERPRINT;
   const buildAlignment = assessBuildAlignment(
     fingerprint,
@@ -2724,6 +2711,7 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
       ...inspected.capabilities.editor,
       artifactPublish: publishingAvailable,
       artifactPublishMode: publishingMode,
+      ...(publishingAvailable ? { artifactPublishDispatchGuarantee: "requested-unverified" as const } : {}),
       ...(publishingAvailable ? {} : { timelinePublishNewProject: false }),
       videoExport: exportAvailable,
       backgroundRender: backgroundExportAvailable,
@@ -2758,6 +2746,7 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
     },
     publishing: publishingAvailable,
     publishingBackend: publishingMode === "background-capable" ? "fcpxml-document-open" : "fcpxml-publisher",
+    publishingGuarantee: "native-verified",
     export: exportAvailable,
     exportBackend: "final-cut-native-export",
     backgroundExport: {
@@ -2807,7 +2796,7 @@ async function inspectNativeHandoffReadiness(
   const fingerprint = options.buildFingerprint ?? FRAMEKIT_BUILD_FINGERPRINT;
   let extensionFingerprint: FramekitBuildFingerprint | undefined;
   try {
-    extensionFingerprint = (await runtime.inspectEditor()).identity.buildFingerprint;
+    extensionFingerprint = (await runtime.inspectEditor({ probeCanonicalSnapshot: false })).identity.buildFingerprint;
   } catch {
     const status = await connectionStatus(options).catch(() => undefined);
     extensionFingerprint = status?.identity?.buildFingerprint;
@@ -2915,7 +2904,7 @@ function inspectProjectPublisherReadiness(
 }
 
 async function assertRequiredBuildAlignment(runtime: AgentVideoRuntime, options: McpServerOptions): Promise<void> {
-  const inspected = await runtime.inspectEditor();
+  const inspected = await runtime.inspectEditor({ probeCanonicalSnapshot: false });
   const fingerprint = options.buildFingerprint ?? FRAMEKIT_BUILD_FINGERPRINT;
   const alignment = assessBuildAlignment(
     fingerprint,
