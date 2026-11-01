@@ -63,6 +63,12 @@ export async function runPublishStages(call, input, onStage) {
     || preview.artifactDigest !== artifactDigest || preview.targetLibraryPath !== input.targetLibraryPath) {
     throw new Error("PUBLISH_PREVIEW_MISMATCH: prepared job does not match the approved artifact and destination");
   }
+  const proofDigests = preview.sourceProof?.sourceMediaDigests;
+  if (input.headlessExecutionId && (!Array.isArray(proofDigests) || proofDigests.length !== 4
+    || new Set(proofDigests.map((item) => item.source)).size !== 4
+    || !proofDigests.every((item) => typeof item.source === "string" && item.source.length > 0 && /^[a-f0-9]{64}$/.test(item.sha256 ?? "")))) {
+    throw new Error("PUBLISH_SOURCE_PROOF_INCOMPLETE: the fixture requires four distinct hashed media sources");
+  }
   onStage("prepared", preview);
   let dispatched;
   try {
@@ -77,6 +83,13 @@ export async function runPublishStages(call, input, onStage) {
   const verified = await call("artifact.publish.execute", { jobId: preview.jobId, confirm: true, confirmVerification: true });
   if (verified.jobId !== preview.jobId || verified.state !== "verified" || verified.result?.verified !== true) {
     throw new Error(`PUBLISH_VERIFICATION_INCOMPLETE: job ${preview.jobId} is ${verified.state}; inspect status without redispatching`);
+  }
+  if (input.headlessExecutionId) {
+    const integrity = verified.result.sourceMediaIntegrity;
+    if (integrity?.unchanged !== true || !Array.isArray(integrity.digests) || integrity.digests.length !== proofDigests.length
+      || !proofDigests.every((expected) => integrity.digests.some((actual) => actual.source === expected.source && actual.sha256 === expected.sha256))) {
+      throw new Error(`PUBLISH_SOURCE_INTEGRITY_MISMATCH: job ${preview.jobId} does not preserve the approved source digests`);
+    }
   }
   onStage("verified", verified);
   return verified;
