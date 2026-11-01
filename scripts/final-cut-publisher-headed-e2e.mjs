@@ -47,6 +47,7 @@ const execFile = promisify(execFileCallback);
 const head = (await execFile("git", ["rev-parse", "HEAD"], { cwd: root })).stdout.trim();
 const dirty = (await execFile("git", ["status", "--porcelain"], { cwd: root })).stdout.trim();
 if (head !== candidateCommit || dirty) throw new Error("FINAL_CUT_E2E_CANDIDATE_MISMATCH: checkout must be clean and match the approved candidate");
+await execFile("bash", [join(root, ".agents/skills/verify-final-cut-native/scripts/run-headed-check.sh"), "publisher"], { cwd: root });
 try {
   await stat(targetLibraryPath);
   throw new Error("FINAL_CUT_E2E_LIBRARY_EXISTS: destination must be new");
