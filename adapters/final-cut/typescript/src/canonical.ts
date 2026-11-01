@@ -1020,6 +1020,9 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     const before = await this.readProject();
     assertSameRevision(expectedRevision, before.revision);
     const supported = supportedCanonicalOperation([operation]);
+    if (supported.type === "add-marker" && before.timeline.markers.some(({ id }) => id === supported.marker.id)) {
+      throw new Error(`MARKER_ALREADY_EXISTS: ${supported.marker.id}`);
+    }
     const markerRange = supported.type === "add-marker" ? canonicalMarkerRange(before, supported.marker) : undefined;
     const clipTarget = supported.type === "rename-clip" || supported.type === "trim-clip" || supported.type === "set-gain"
       ? canonicalTargetForOperation(before, supported)
