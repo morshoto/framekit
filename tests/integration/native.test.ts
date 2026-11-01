@@ -4193,3 +4193,24 @@ test("canonical native occurrence discovery does not select before target valida
   assert.equal(mouseCalls, 0);
   assert.doesNotMatch(discoveryScript, /candidateRole & \(ASCII character 31\) & sourceIdentity &/);
 });
+
+test("native target lookup rejects an occurrence with unobserved source identity", async () => {
+  const separator = String.fromCharCode(31);
+  const recordSeparator = String.fromCharCode(30);
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => ({
+      project: { id: "project-1", name: "Edit" },
+      sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: "20", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+      playheadTime: { value: "1", timescale: "1" },
+      revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
+    }),
+    executor: async (script) => {
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview.mov", 1, true);
+      if (script.includes("AXBrowserMedia")) return `Interview.mov${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${recordSeparator}`;
+      if (script.includes("collectTimelineClipMatches")) return `Interview.mov${separator}AXLayoutItem${separator}${separator}800${separator}0/1${separator}20/1${separator}native-occurrence-1${recordSeparator}`;
+      return "";
+    },
+  });
+  await assert.rejects(adapter.targetMedia("Interview.mov"), /FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE.*source/i);
+});
