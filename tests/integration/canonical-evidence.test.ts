@@ -125,6 +125,7 @@ test("canonical headed evidence keeps mutation proof while omitting private snap
       { name: "project.list", status: "passed" },
       { name: "project.select", status: "passed" },
       { name: "project.inspect", status: "passed" },
+      { name: "editor.inspect", status: "passed" },
       { name: "editor.timeline.edit", status: "rejected-stale-context" },
       { name: "project.inspect", status: "unchanged" },
       { name: "editor.timeline.edit", status: "rejected-target-mismatch" },
@@ -431,6 +432,7 @@ const rawRun = {
     { name: "project.list", status: "passed" },
     { name: "project.select", status: "passed" },
     { name: "project.inspect", status: "passed" },
+    { name: "editor.inspect", status: "passed" },
     { name: "editor.timeline.edit", status: "rejected-stale-context" },
     { name: "project.inspect", status: "unchanged" },
     { name: "editor.timeline.edit", status: "rejected-target-mismatch" },
@@ -735,4 +737,9 @@ test("canonical headed write runner requires explicit candidate and bound reads"
   assert.match(runner, /selectCanonicalWriteTarget\(callJson, approvedTarget\)/);
   assert.equal((runner.match(/readCanonicalWriteTarget\(callJson, approvedTarget\)/g) ?? []).length, 3);
   assert.doesNotMatch(runner, /callJson\("project\.inspect"\)/);
+});
+
+test("canonical headed runner never retries an uncertain undo", async () => {
+  const runner = await readFile(join(process.cwd(), "scripts/final-cut-canonical-headed-e2e.mjs"), "utf8");
+  assert.equal((runner.match(/callJson\("edit\.undo"/g) ?? []).length, 1);
 });

@@ -1238,3 +1238,9 @@ test("live canonical reads do not silently retarget after explicit selection", a
   await assert.rejects(adapter.restore(selectedSnapshot, selectedSnapshot.revision), /TARGET_MISMATCH/);
   assert.equal(restoreCalls, 0);
 });
+
+test("headed canonical write requires an approved target and candidate before connecting", async () => {
+  const env = { ...process.env, FRAMEKIT_FINAL_CUT_E2E_PROJECT: "Disposable", FRAMEKIT_FINAL_CUT_E2E_CLIP_ID: "clip" };
+  for (const key of ["FRAMEKIT_FINAL_CUT_E2E_PROJECT_ID", "FRAMEKIT_FINAL_CUT_E2E_SEQUENCE_ID", "FRAMEKIT_FINAL_CUT_E2E_REVISION_ID", "FRAMEKIT_FINAL_CUT_E2E_CANDIDATE_COMMIT", "FRAMEKIT_FINAL_CUT_E2E_ALLOW_MUTATION"]) delete env[key];
+  await assert.rejects(execFile(process.execPath, [join(process.cwd(), "scripts/final-cut-canonical-headed-e2e.mjs")], { env }), (error: unknown) => /FINAL_CUT_E2E_AUTHORIZATION_REQUIRED/.test(String((error as { stderr?: string }).stderr ?? "")));
+});
