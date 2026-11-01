@@ -160,14 +160,27 @@ test('CodeQL waits for remote processing before policy evaluation', async () => 
 	assert.doesNotMatch(javascriptJob, /wait-for-processing: false/);
 });
 
-test('CodeQL policy gate runs from a trusted workflow-run event', async () => {
-	const workflow = await readRepositoryFile('.github/workflows/codeql-policy.yml');
-	assert.match(workflow, /^name: CodeQL Policy Gate$/m);
-	assert.match(workflow, /workflow_run:\s+workflows:\s+- CodeQL\s+types:\s+- completed/);
-	assert.match(workflow, /checks: write/);
-	assert.match(workflow, /security-events: read/);
-	assert.match(workflow, /node \.github\/codeql\/verify-policy\.mjs/);
-	assert.doesNotMatch(workflow, /^\s+pull_request:/m);
+test('the required JavaScript CodeQL job evaluates PR security findings', async () => {
+	const workflow = await readRepositoryFile('.github/workflows/codeql.yml');
+	const job = getJob(workflow, 'analyze');
+	assert.ok(job);
+	assert.match(job, /if: \$\{\{ github\.event_name == 'pull_request' \}\}/);
+	assert.match(job, /node \.github\/codeql\/verify-policy\.mjs/);
+	assert.match(job, /PR_NUMBER: \$\{\{ github\.event\.pull_request\.number \}\}/);
+});
+
+test('a Swift-only finding does not block the JavaScript PR policy', async () => {
+	const { evaluateCodeQLPolicy } = await import(
+		new URL('../../.github/codeql/verify-policy.mjs', import.meta.url).href
+	) as { evaluateCodeQLPolicy: (input: Record<string, unknown>) => { pass: boolean; reasons: string[] } };
+	const result = evaluateCodeQLPolicy({
+		workflowHeadSha: 'head-sha', pullRequestHeadSha: 'head-sha', pullRequestNumber: 7,
+		mergeSha: 'merge-sha', swiftRequired: false,
+		analyses: [{ ref: 'refs/pull/7/merge', commit_sha: 'merge-sha', category: '/language:javascript-typescript', error: '', rules_count: 87, tool: { name: 'CodeQL' } }],
+		pullRequestAlerts: [{ number: 9, state: 'open', rule: { severity: 'warning', security_severity_level: 'high' }, instances: [{ ref: 'refs/pull/7/merge', commit_sha: 'merge-sha', category: '/language:swift', state: 'open' }] }],
+		baseAlerts: [],
+	});
+	assert.deepEqual(result, { pass: true, reasons: [] });
 });
 
 test('CodeQL policy accepts a current JavaScript scan when Swift is unchanged', async () => {
