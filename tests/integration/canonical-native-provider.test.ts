@@ -800,6 +800,20 @@ test("canonical native provider previews and applies a revision-guarded gain", a
   assert.deepEqual(calls, ["gain:3", "undo"]);
 });
 
+test("gain readback accepts equivalent rational frame and source times", async () => {
+  const { before: original, after } = gainSnapshots();
+  original.timeline.clips[0] = { ...original.timeline.clips[0]!, sourceStart: 1, sourceStartTime: { value: "24", timescale: "24" } };
+  after.timeline.clips[0] = { ...after.timeline.clips[0]!, sourceStart: 1, sourceStartTime: { value: "1", timescale: "1" } };
+  after.timeline.frameDuration = { value: "2", timescale: "48" };
+  const calls: string[] = [];
+  const provider = providerFor([original, original, after], calls, undefined, liveState(), undefined, {
+    setSelectedClipGain: async () => { calls.push("gain"); return { operationId: "native-gain", undoAvailable: true }; },
+  });
+  const before = await provider.readProject();
+  await provider.apply({ type: "set-gain", clipId: before.timeline.clips[0]!.id, gainDb: 3 }, before.revision);
+  assert.deepEqual(calls, ["gain"]);
+});
+
 test("canonical native provider rejects unbounded gains before native mutation", async () => {
   for (const gainDb of [-7, 7, Number.POSITIVE_INFINITY]) {
     const calls: string[] = [];
