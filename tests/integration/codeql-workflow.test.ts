@@ -202,6 +202,15 @@ test('Swift CodeQL extraction uses the checked-in shim only', async () => {
 });
 
 test('opt-in Swift profiling uses a fresh module cache without changing normal flags', async () => {
+	const workflow = await readRepositoryFile('.github/workflows/codeql.yml');
+	const swiftJob = getJob(workflow, 'analyze-swift');
+	assert.ok(swiftJob, 'Swift CodeQL job should be present');
+	const profilingFlag = /FRAMEKIT_SWIFT_TYPECHECK_PROFILE: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.profile_swift && 'true' \|\| 'false' \}\}/;
+	assert.equal((swiftJob.match(/FRAMEKIT_SWIFT_TYPECHECK_PROFILE:/g) ?? []).length, 2);
+	assert.match(swiftJob, /- name: Benchmark Swift compiler without CodeQL tracing[\s\S]*?FRAMEKIT_SWIFT_TYPECHECK_PROFILE:[^\n]+/);
+	assert.match(swiftJob, /- name: Type-check Swift sources for CodeQL extraction[\s\S]*?FRAMEKIT_SWIFT_TYPECHECK_PROFILE:[^\n]+/);
+	assert.equal((swiftJob.match(profilingFlag) ?? []).length, 2);
+
 	const temp = await mkdtemp(resolve(tmpdir(), 'framekit-codeql-cache-'));
 	try {
 		const bin = resolve(temp, 'bin');
