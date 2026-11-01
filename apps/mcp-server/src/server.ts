@@ -1009,7 +1009,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     options = {
       ...options,
       ...(options.nativeEditor
-        ? { nativeEditor: withRecoveryCheckpointGuard(options.nativeEditor, recovery, ["capabilities", "inspect"], ["edit", "undo"]) }
+        ? { nativeEditor: withRecoveryCheckpointGuard(options.nativeEditor, recovery, ["capabilities", "inspect"], [
+            "edit", "undo", "executeBlade", "executeMask", "executeTitleAdd", "executeTransitionAdd",
+            "executeAppendMedia", "executeAppendSelectedMedia", "executeInsertMedia", "executeDeleteRange",
+            "executeTrimToDuration", "executePictureInPicture",
+          ]) }
         : {}),
       ...(options.disposableNative
         ? { disposableNative: withRecoveryCheckpointGuard(options.disposableNative, recovery, [], ["execute", "undo"], "disposable") }
