@@ -2641,6 +2641,7 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
       ...inspected.capabilities.editor,
       artifactPublish: publishingAvailable,
       artifactPublishMode: publishingMode,
+      ...(publishingAvailable ? { artifactPublishDispatchGuarantee: "requested-unverified" as const } : {}),
       ...(publishingAvailable ? {} : { timelinePublishNewProject: false }),
       videoExport: exportAvailable,
       backgroundRender: backgroundExportAvailable,
@@ -2675,6 +2676,7 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
     },
     publishing: publishingAvailable,
     publishingBackend: publishingMode === "background-capable" ? "fcpxml-document-open" : "fcpxml-publisher",
+    publishingGuarantee: "native-verified",
     export: exportAvailable,
     exportBackend: "final-cut-native-export",
     backgroundExport: {
