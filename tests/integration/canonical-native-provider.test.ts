@@ -11,6 +11,7 @@ import {
   FinalCutCanonicalExportError,
   FinalCutCanonicalSnapshotSource,
   FinalCutCanonicalNativeProvider,
+  FileCanonicalRecoveryGuard,
   FinalCutSessionAdapter,
   parseFinalCutCanonicalExportResult,
   type FinalCutBackgroundCatalogProvider,
@@ -912,6 +913,24 @@ test("uncertain native edit failure blocks another mutation", async () => {
   await assert.rejects(provider.apply(operation, before.revision), /native dispatch failed after possible mutation/);
   await assert.rejects(provider.apply(operation, before.revision), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   assert.deepEqual(calls, ["edit"]);
+});
+
+test("durable canonical recovery checkpoint blocks other instances until its owner completes", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-canonical-recovery-"));
+  try {
+    const path = join(directory, "recovery", "checkpoint.json");
+    const owner = new FileCanonicalRecoveryGuard(path);
+    const restarted = new FileCanonicalRecoveryGuard(path);
+    await owner.assertClear();
+    await owner.begin();
+    await assert.rejects(restarted.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await assert.rejects(restarted.begin(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await assert.rejects(restarted.complete(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await owner.complete();
+    await restarted.assertClear();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("uncertain edit remains blocked after provider restart", async () => {
