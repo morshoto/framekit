@@ -4,9 +4,17 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { FcpxmlDocumentAdapter } from "../../adapters/final-cut/typescript/src/fcpxml.js";
-import { runPublishStages, verifyAcceptanceFixture, verifyPublishedTarget, verifyPublisherPreflight } from "../../scripts/final-cut-publisher-verification.mjs";
+import { buildPublisherEvidence, runPublishStages, verifyAcceptanceFixture, verifyPublishedTarget, verifyPublisherPreflight } from "../../scripts/final-cut-publisher-verification.mjs";
 
 const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
+
+test("publisher evidence keeps the overall gate open and excludes private paths", () => {
+  const evidence = buildPublisherEvidence({ candidateCommit: "a".repeat(40), artifactDigest: "b".repeat(64), executionId: "execution", job: { jobId: "job", result: { importedDigest: "c".repeat(64), sourceTransactionId: "transaction", createdTarget: { libraryId: "library", eventId: "event", projectId: "project", sequenceId: "sequence", libraryPath: "/private/library" }, semanticReadback: { verified: true }, sourceMediaIntegrity: { unchanged: true, digests: [{ source: "/private/source", sha256: "d".repeat(64) }] } } } });
+  assert.equal(evidence.issueVerdict, "NO_GO");
+  assert.equal(evidence.jobId, "job");
+  assert.doesNotMatch(JSON.stringify(evidence), /\/private/);
+  assert.ok(evidence.outstanding.includes("plugin-and-package-identities"));
+});
 
 test("publisher QA refuses a mismatched loaded extension before dispatch", () => {
   const commit = "a".repeat(40);
