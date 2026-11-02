@@ -226,6 +226,9 @@ export class SessionMaterializationJobs {
     }
     const provenance = job.provenance;
     if (!job.target || !job.destination || !provenance
+      || job.target.provider !== "final-cut" || job.destination.mode !== "versioned"
+      || ![job.target.libraryUid, job.target.eventUid, job.target.projectUid, job.target.sequenceUid,
+        job.destination.projectUid, job.destination.sequenceUid].every((value) => typeof value === "string" && value.trim().length > 0)
       || provenance.target?.libraryUid !== job.target.libraryUid
       || provenance.target?.eventUid !== job.target.eventUid
       || provenance.target?.projectUid !== job.target.projectUid
