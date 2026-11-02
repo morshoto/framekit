@@ -123,6 +123,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "session.inspect",
         "session.materialize.execute",
         "session.materialize.preview",
+        "session.materialize.recovery.inspect",
         "session.materialize.retry",
         "session.materialize.resync",
         "session.materialize.status",
