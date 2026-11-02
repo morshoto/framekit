@@ -1186,6 +1186,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { jobId: z.string().min(1) },
   }, async ({ jobId }) => sessionResult(async () => requireMaterializations().status(jobId)));
 
+  server.registerTool("session.materialize.recovery.inspect", {
+    description: "Inspect recorded materialization target evidence bound to a retained reservation. Does not prove native quiescence or clear the reservation.",
+    inputSchema: { jobId: z.string().min(1), expectedReservationId: z.string().regex(/^[a-f0-9]{64}$/) },
+  }, async ({ jobId, expectedReservationId }) => sessionResult(async () => requireMaterializations().inspectRecovery(jobId, expectedReservationId)));
+
   server.registerTool("session.materialize.retry", {
     description: "Resume a retryable persisted materialization job with its verified immutable artifact.",
     inputSchema: { jobId: z.string().min(1) },

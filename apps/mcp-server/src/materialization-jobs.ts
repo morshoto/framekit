@@ -120,7 +120,7 @@ export class SessionMaterializationJobs {
     private readonly directory: string,
     private readonly sessions: EditingSessionRepository,
     private readonly publisher?: SessionMaterializationPublisher,
-    private readonly recoveryGuard?: Pick<FileCanonicalRecoveryGuard, "beginNative">,
+    private readonly recoveryGuard?: Pick<FileCanonicalRecoveryGuard, "beginNative" | "inspectNativeReservation">,
   ) {}
 
   public async preview(sessionId: string, target: TimelineIrToFcpxmlTarget) {
@@ -210,6 +210,29 @@ export class SessionMaterializationJobs {
       }
       throw error;
     }
+  }
+
+  /** Read recorded evidence only; this does not prove native completion or authorize release. */
+  public async inspectRecovery(jobId: string, expectedReservationId: string) {
+    if (!this.recoveryGuard) throw new Error("CAPABILITY_UNAVAILABLE: native reservation inspection is not configured");
+    const reservation = await this.recoveryGuard.inspectNativeReservation();
+    const operation = `native.materialize.${createHash("sha256").update(jobId).digest("hex")}`;
+    if (!reservation || reservation.reservationId !== expectedReservationId || reservation.operation !== operation) {
+      throw new Error("MATERIALIZATION_RECOVERY_MISMATCH: reservation does not match the requested job");
+    }
+    const job = await this.status(jobId);
+    if (job.recoveryReservation?.reservationId !== expectedReservationId) {
+      throw new Error("MATERIALIZATION_RECOVERY_MISMATCH: persisted job does not match the reservation");
+    }
+    const after = await this.recoveryGuard.inspectNativeReservation();
+    if (after?.reservationId !== reservation.reservationId || after.operation !== operation) {
+      throw new Error("MATERIALIZATION_RECOVERY_MISMATCH: reservation changed during inspection");
+    }
+    return {
+      jobId, reservationId: reservation.reservationId,
+      recordedTarget: job.target, recordedDestination: job.destination,
+      quiescence: "unproven" as const, reservationCleared: false as const,
+    };
   }
 
   public async retry(jobId: string): Promise<SessionMaterializationJob> {
