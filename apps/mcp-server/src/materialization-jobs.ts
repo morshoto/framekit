@@ -224,6 +224,16 @@ export class SessionMaterializationJobs {
     if (job.recoveryReservation?.reservationId !== expectedReservationId) {
       throw new Error("MATERIALIZATION_RECOVERY_MISMATCH: persisted job does not match the reservation");
     }
+    const provenance = job.provenance;
+    if (!job.target || !job.destination || !provenance
+      || provenance.target?.libraryUid !== job.target.libraryUid
+      || provenance.target?.eventUid !== job.target.eventUid
+      || provenance.target?.projectUid !== job.target.projectUid
+      || provenance.target?.sequenceUid !== job.target.sequenceUid
+      || provenance.destination?.projectUid !== job.destination.projectUid
+      || provenance.destination?.sequenceUid !== job.destination.sequenceUid) {
+      throw new Error("MATERIALIZATION_PROVENANCE_INVALID: recorded target or destination differs from provenance");
+    }
     const after = await this.recoveryGuard.inspectNativeReservation();
     if (after?.reservationId !== reservation.reservationId || after.operation !== operation) {
       throw new Error("MATERIALIZATION_RECOVERY_MISMATCH: reservation changed during inspection");
