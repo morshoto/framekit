@@ -135,7 +135,11 @@ is no automatic checkpoint reset or supported recovery flow yet. The read-only
 native-operation reservation in the configured state directory without inventing
 a target, contacting Final Cut, or clearing it; a
 clear result is point-in-time and does not establish recovery or the state of
-other directories. `editor.native.recovery.preview` requires the inspected
+other directories. `session.materialize.recovery.inspect` binds a specified
+persisted materialization job to its inspected reservation ID and reports its
+recorded target and destination. This is recorded evidence, not a validated
+canonical outcome; inspection neither proves quiescence nor clears the reservation.
+`editor.native.recovery.preview` requires the inspected
 checkpoint ID, matching target IDs, and explicit headed-read confirmation; it
 compares a canonical snapshot with the recorded digests. Its point-in-time
 result does not prove that a native operation has stopped and never clears the
