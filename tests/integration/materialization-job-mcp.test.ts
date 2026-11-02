@@ -752,6 +752,12 @@ test("recovery inspection binds a restarted materialization to its reservation",
       await writeFile(jobPath, JSON.stringify(wrongTarget));
       const tampered = await restarted.client.callTool({ name: "session.materialize.recovery.inspect", arguments: { jobId: job.jobId, expectedReservationId: job.recoveryReservation.reservationId } });
       assert.equal(tampered.isError, true);
+      const missingTarget = JSON.parse(original);
+      delete missingTarget.target.libraryUid;
+      delete missingTarget.provenance.target.libraryUid;
+      await writeFile(jobPath, JSON.stringify(missingTarget));
+      const incomplete = await restarted.client.callTool({ name: "session.materialize.recovery.inspect", arguments: { jobId: job.jobId, expectedReservationId: job.recoveryReservation.reservationId } });
+      assert.equal(incomplete.isError, true);
       await writeFile(jobPath, original);
       await assert.rejects(new FileCanonicalRecoveryGuard(path).assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     } finally { await restarted.client.close(); await restarted.server.close(); }
