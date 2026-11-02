@@ -737,6 +737,16 @@ test("recovery inspection binds a restarted materialization to its reservation",
       assert.equal(evidence.reservationCleared, false);
       const wrong = await restarted.client.callTool({ name: "session.materialize.recovery.inspect", arguments: { jobId: job.jobId, expectedReservationId: "0".repeat(64) } });
       assert.equal(wrong.isError, true);
+      const otherJob = await restarted.client.callTool({ name: "session.materialize.recovery.inspect", arguments: { jobId: "materialization-another", expectedReservationId: job.recoveryReservation.reservationId } });
+      assert.equal(otherJob.isError, true);
+      const jobPath = join(directory, "materializations", "jobs", `${job.jobId}.json`);
+      const original = await readFile(jobPath, "utf8");
+      const changed = JSON.parse(original);
+      changed.recoveryReservation.reservationId = "f".repeat(64);
+      await writeFile(jobPath, JSON.stringify(changed));
+      const altered = await restarted.client.callTool({ name: "session.materialize.recovery.inspect", arguments: { jobId: job.jobId, expectedReservationId: job.recoveryReservation.reservationId } });
+      assert.equal(altered.isError, true);
+      await writeFile(jobPath, original);
       await assert.rejects(new FileCanonicalRecoveryGuard(path).assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     } finally { await restarted.client.close(); await restarted.server.close(); }
   } finally { await first.client.close(); await first.server.close(); await rm(directory, { recursive: true, force: true }); }
