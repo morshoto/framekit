@@ -717,6 +717,31 @@ test("materialization excludes canonical edits and never retries an uncertain pu
   }
 });
 
+test("recovery inspection binds a restarted materialization to its reservation", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-recovery-"));
+  const path = join(directory, "pending.json");
+  const publisher: SessionMaterializationPublisher = { publish: async () => ({ state: "blocked", code: "DELIVERY_TIMEOUT", message: "unknown", retryable: true }) };
+  const first = await connect(directory, publisher, undefined, "default", new FileCanonicalRecoveryGuard(path));
+  try {
+    await first.client.callTool({ name: "session.create", arguments: { sessionId: "recovery-session", provider: { id: "final-cut" }, base: timeline() } });
+    const job = payload(await first.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "recovery-session", target, confirm: true } }));
+    const restarted = await connect(directory, publisher, undefined, "default", new FileCanonicalRecoveryGuard(path));
+    try {
+      const response = await restarted.client.callTool({ name: "session.materialize.recovery.inspect", arguments: { jobId: job.jobId, expectedReservationId: job.recoveryReservation.reservationId } });
+      assert.equal(response.isError ?? false, false);
+      const evidence = payload(response);
+      assert.equal(evidence.reservationId, job.recoveryReservation.reservationId);
+      assert.deepEqual(evidence.recordedTarget, job.target);
+      assert.deepEqual(evidence.recordedDestination, job.destination);
+      assert.equal(evidence.quiescence, "unproven");
+      assert.equal(evidence.reservationCleared, false);
+      const wrong = await restarted.client.callTool({ name: "session.materialize.recovery.inspect", arguments: { jobId: job.jobId, expectedReservationId: "0".repeat(64) } });
+      assert.equal(wrong.isError, true);
+      await assert.rejects(new FileCanonicalRecoveryGuard(path).assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    } finally { await restarted.client.close(); await restarted.server.close(); }
+  } finally { await first.client.close(); await first.server.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test("a checkpoint won before provider dispatch preserves truthful materialization evidence", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-checkpoint-race-"));
   const path = join(directory, "pending.json");
