@@ -93,6 +93,8 @@ discovery. The observed Browser source must also match the canonical snapshot's
 absolute local path or file URL; a matching basename alone is insufficient.
 Equal-named Browser items are distinguishable only when every candidate has an
 observed source and exactly one matches the canonical path.
+An incomplete Accessibility occurrence scan fails rather than treating its
+partial results as a complete or unique match.
 Capability loss during target preparation prevents the edit. The
 bundled native adapter reports that capability unavailable. If a native edit has
 an uncertain outcome or Undo cannot be verified, the canonical provider blocks further previews and
