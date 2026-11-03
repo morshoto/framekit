@@ -326,7 +326,13 @@ export class SessionMaterializationJobs {
       if (this.recoveryGuard) {
         try {
           const id = createHash("sha256").update(claimed.jobId).digest("hex");
-          reservation = await this.recoveryGuard.beginNative(`native.materialize.${id}`);
+          reservation = await this.recoveryGuard.beginNative(`native.materialize.${id}`, {
+            kind: "materialization", jobId: claimed.jobId, dispatchId: randomUUID(),
+            requestedTarget: { libraryUid: claimed.target.libraryUid, eventUid: claimed.target.eventUid,
+              projectUid: claimed.destination.projectUid, sequenceUid: claimed.destination.sequenceUid },
+            artifactDigest: claimed.artifactDigest, desiredDigest: claimed.desiredDigest,
+            executorIdentity: null, nativeQuiescence: "unproven",
+          });
         } catch {
           const blocked: SessionMaterializationJob = {
             ...claimed, state: "blocked", nextAction: "retry", claim: undefined,

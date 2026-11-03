@@ -791,6 +791,7 @@ test("recovery inspection reports a native reservation without inventing a targe
     const evidence = JSON.parse(textFrom(inspected));
     assert.equal(evidence.status, "recovery-required");
     assert.equal(evidence.nativeReservation.operation, "editor.native.edit");
+    assert.deepEqual(evidence.nativeExecution, { status: "unknown", nativeQuiescence: "unproven" });
     assert.match(evidence.nativeReservation.reservationId, /^[a-f0-9]{64}$/);
     assert.equal(evidence.checkpoint, undefined);
     const preview = await client.callTool({ name: "editor.native.recovery.preview", arguments: { confirmHeadedRead: true, expectedTarget: { projectId: "project-1", sequenceId: "sequence-1" }, expectedCheckpointId: evidence.nativeReservation.reservationId } });
@@ -867,6 +868,10 @@ test("a direct adapter failure after native dispatch retains its reservation", a
     const reservation = await guard.inspectNativeReservation();
     assert.equal(reservation?.operation, "native.edit");
     assert.equal(nativeEditor.nativeExecutionStatus(reservation!.reservationId), "executor-settled");
+    const inspected = await client.callTool({ name: "editor.native.recovery.inspect", arguments: {} });
+    const evidence = JSON.parse(textFrom(inspected));
+    assert.deepEqual(evidence.nativeExecution, { status: "executor-settled", nativeQuiescence: "unproven" });
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   } finally {
     await client.close();
     await server.close();

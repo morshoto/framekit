@@ -699,7 +699,7 @@ test("materialization excludes canonical edits and never retries an uncertain pu
       assert.equal(persisted?.reservationId, running.recoveryReservation.reservationId);
       assert.equal(persisted?.recoveryContext?.jobId, runningJobId);
       assert.match(persisted?.recoveryContext?.dispatchId ?? "", /^[0-9a-f-]{36}$/);
-      assert.deepEqual(persisted?.recoveryContext?.target, {
+      assert.deepEqual(persisted?.recoveryContext?.requestedTarget, {
         libraryUid: running.target.libraryUid, eventUid: running.target.eventUid,
         projectUid: running.destination.projectUid, sequenceUid: running.destination.sequenceUid,
       });
