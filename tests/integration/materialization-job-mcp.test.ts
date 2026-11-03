@@ -863,14 +863,24 @@ test("timed out materialization keeps its sender marker until the command exits"
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-sender-timeout-"));
   const path = join(directory, "pending.json");
   const command = join(directory, "hanging-publisher");
-  await writeFile(command, "#!/bin/sh\ntrap '' TERM\nwhile :; do :; done\n");
+  await writeFile(command, "#!/bin/sh\ntrap '' TERM\ntouch \"$(dirname \"$0\")/ready\"\nwhile :; do :; done\n");
   await chmod(command, 0o755);
   const guard = new FileCanonicalRecoveryGuard(path);
-  const publisher = new FinalCutBackgroundMaterializationPublisher({ command, commandTimeoutMs: 250 });
+  const publisher = new FinalCutBackgroundMaterializationPublisher({ command, commandTimeoutMs: 2000 });
   const connected = await connect(directory, publisher, undefined, "default", guard);
   try {
     await connected.client.callTool({ name: "session.create", arguments: { sessionId: "session-timeout", provider: { id: "final-cut" }, base: timeline() } });
-    const job = payload(await connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "session-timeout", target, confirm: true } }));
+    const pending = connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "session-timeout", target, confirm: true } });
+    const readyPath = join(directory, "ready");
+    const readyDeadline = Date.now() + 1800;
+    while (Date.now() < readyDeadline) {
+      try { await lstat(readyPath); break; } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.ok((await lstat(readyPath)).isFile(), "the sender must install its signal handler before timeout");
+    const job = payload(await pending);
     assert.equal(job.providerError.code, "FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND_TIMEOUT");
     assert.ok((await lstat(`${path}.active`)).isFile(), "live command must retain the sender marker");
     const deadline = Date.now() + 5000;
