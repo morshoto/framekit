@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { FileCanonicalRecoveryGuard } from "@framekit/final-cut";
+import * as native from "../../adapters/final-cut/typescript/src/native.js";
 
 test("another guard cannot recover while a publisher is active", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-native-activity-"));
@@ -65,4 +66,31 @@ test("sender status remains inspectable after restart without asserting native q
     await rm(join(`${path}.sender-settled`, tracked.reservationId));
     assert.deepEqual(await inspect(tracked.reservationId), { status: "unknown", nativeQuiescence: "unproven" });
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("aborted sender execution remains pending until the child closes", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-native-child-"));
+  const ready = join(directory, "ready");
+  const controller = new AbortController();
+  let pid: number | undefined;
+  const run = (native as unknown as { executeNativeSender: (command: string, args: string[], signal: AbortSignal) => Promise<unknown> }).executeNativeSender;
+  try {
+    const pending = run(process.execPath, ["-e", "process.on('SIGTERM', () => {}); require('fs').writeFileSync(process.argv[1], String(process.pid)); setInterval(() => {}, 1000)", ready], controller.signal);
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      try { pid = Number(await readFile(ready, "utf8")); break; }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.ok(pid && Number.isSafeInteger(pid));
+    controller.abort();
+    const settled = await Promise.race([pending.then(() => true, () => true), new Promise<false>((resolve) => setTimeout(() => resolve(false), 100))]);
+    assert.equal(settled, false, "abort must not be reported as executor settlement while the child is alive");
+    process.kill(pid, "SIGKILL");
+    pid = undefined;
+    await assert.rejects(pending);
+  } finally {
+    if (pid) process.kill(pid, "SIGKILL");
+    await rm(directory, { recursive: true, force: true });
+  }
 });
