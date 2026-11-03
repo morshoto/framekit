@@ -56,6 +56,7 @@ import {
   type EditingRouteOperation,
 } from "./routing.js";
 import { assessBuildAlignment, type BuildAlignmentReport } from "./build-alignment.js";
+import { recoverVerifiedNative, type NativeRecoveryEvidenceSource } from "./native-recovery-verification.js";
 import {
   FRAMEKIT_BUILD_FINGERPRINT,
   FRAMEKIT_VERSION,
@@ -962,7 +963,8 @@ export interface McpServerOptions {
   disposableNative?: Pick<DisposableNativeEditWorkflow, "preview" | "execute" | "undo">;
   nativeOperationSession?: Pick<NativeOperationSession, "submit" | "status" | "retry" | "cancel">;
   projectPublisher?: FinalCutProjectPublisher;
-  canonicalRecovery?: Pick<FileCanonicalRecoveryGuard, "inspectVersioned" | "inspectNativeReservation" | "assertClear" | "beginNative">;
+  canonicalRecovery?: Pick<FileCanonicalRecoveryGuard, "inspectVersioned" | "inspectNativeReservation" | "assertClear" | "beginNative"> & Partial<Pick<FileCanonicalRecoveryGuard, "completeVerifiedNative">>;
+  nativeRecoveryEvidence?: NativeRecoveryEvidenceSource;
   videoExporter?: FinalCutVideoExporter;
   backgroundRenderer?: BackgroundRenderExportProvider;
   buildFingerprint?: FramekitBuildFingerprint;
@@ -1215,6 +1217,17 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ publishJobId }) => jsonResult(
     await inspectNativeHandoffReadiness(runtime, options, publishJobId),
   ));
+
+  server.registerTool("editor.native.recovery.execute", {
+    description: "Verify receiver quiescence and canonical outcome before releasing a matching native reservation; unavailable without an authoritative evidence provider. Confirmation alone does not authorize a headed read.",
+    inputSchema: { expectedReservationId: z.string().regex(/^[a-f0-9]{64}$/), outcome: z.enum(["completed", "restored"]), confirm: z.boolean() },
+  }, async ({ expectedReservationId, outcome, confirm }) => sessionResult(async () => {
+    if (!confirm) throw new Error("CONFIRMATION_REQUIRED: confirm the target-bound native recovery");
+    if (!options.nativeRecoveryEvidence || !options.canonicalRecovery?.completeVerifiedNative) {
+      throw new Error("CAPABILITY_UNAVAILABLE: authoritative native recovery evidence is not configured");
+    }
+    return recoverVerifiedNative({ completeVerifiedNative: options.canonicalRecovery.completeVerifiedNative.bind(options.canonicalRecovery) }, expectedReservationId, outcome, options.nativeRecoveryEvidence);
+  }));
 
   server.registerTool("editor.native.recovery.inspect", {
     description: "Inspect recovery checkpoint evidence in the configured state directory without contacting Final Cut or clearing the checkpoint.",
