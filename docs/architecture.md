@@ -130,7 +130,7 @@ established. Other direct operations and
 background jobs still use entry checks, so shared exclusion
 across all native routes is not proven. Native command acceptance does not prove
 later native quiescence. Restarting or changing state directories does not establish that recovery succeeded. There
-is no automatic checkpoint reset or supported recovery flow yet. The read-only
+is no automatic checkpoint reset or supported production recovery flow yet. The read-only
 `editor.native.recovery.inspect` MCP tool reports a canonical checkpoint or a
 native-operation reservation in the configured state directory without inventing
 a target, contacting Final Cut, or clearing it. For a native reservation it
@@ -165,8 +165,14 @@ checkpoint ID, matching target IDs, and explicit headed-read confirmation; it
 compares a canonical snapshot with the recorded digests. Its point-in-time
 result does not prove that a native operation has stopped and never clears the
 checkpoint. An Undo checkpoint also records the digest of the state it was
-intended to restore. Canonical
-revision tokens are scoped to the provider session and change when the live revision changes. Where live project
+intended to restore.
+`editor.native.recovery.execute` requires a matching reservation ID, an expected
+outcome and confirmation. It is unavailable unless an authoritative receiver
+and independent canonical evidence source are configured; current production
+routes do not supply one. Confirmation alone does not authorize a headed read.
+The tool never resends a native operation, and old reservations without bound
+receiver identity remain blocked.
+Canonical revision tokens are scoped to the provider session and change when the live revision changes. Where live project
 selection is supported, subsequent canonical reads remain bound to the selected
 project and sequence until an explicit new selection succeeds. Passive MCP
 capability and routing inspection does not initiate a headed snapshot export;
