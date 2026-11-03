@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { link, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -922,6 +922,9 @@ test("verified mock recovery releases only its reservation and is idempotent", a
       await replacement.release();
       const next = await new FileCanonicalRecoveryGuard(path).beginNative(operation, context as never);
       const nextReceipt = { ...receipt, reservationId: next.reservationId };
+      const interrupted = join(`${path}.completed`, next.reservationId);
+      await writeFile(`${interrupted}.proof`, JSON.stringify({ reservationId: next.reservationId, outcome: "completed", receiptId: nextReceipt.receiptId }) + "\n");
+      await link(path, interrupted);
       assert.deepEqual(await recoverVerifiedNative(guard, next.reservationId, "completed", { ...source, observeReceiver: async () => nextReceipt }), { outcome: "completed", alreadyReleased: false });
     } finally { await rm(directory, { recursive: true, force: true }); }
   }
