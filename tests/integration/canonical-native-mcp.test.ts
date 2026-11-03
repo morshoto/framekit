@@ -1562,3 +1562,47 @@ test("recovery refuses an active local publisher", async () => {
     assert.equal(publishes, 2);
   } finally { finish(); finishRead(); await client.close(); await server.close(); await other.client.close(); await other.server.close(); await rm(directory, { recursive: true, force: true }); }
 });
+
+test("publish binds a trusted receiver without a replacement guard", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-publish-receiver-binding-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const target = { libraryPath: join(directory, "target.fcpbundle"), projectUid: "project-1", sequenceUid: "sequence-1" };
+  const artifactPath = join(directory, "source.fcpxml");
+  await writeFile(artifactPath, "<fcpxml/>");
+  const artifactDigest = createHash("sha256").update("<fcpxml/>").digest("hex");
+  let sent: { reservationId?: string; dispatchId?: string } | undefined;
+  const publisher = {
+    recoveryExecutorIdentity: "mock-authenticated-receiver",
+    isAvailable: () => false,
+    getPublishJob: (jobId: string) => ({ jobId, state: "awaiting-confirmation", targetLibraryPath: target.libraryPath,
+      artifactDigest, sourceTarget: { kind: "artifact", artifactPath } }),
+    trackNativeDispatch: async <T>(invoke: () => Promise<T>, onDispatch: () => void, reservationId?: string, dispatchId?: string): Promise<T> => {
+      sent = { reservationId, dispatchId }; onDispatch(); return invoke();
+    },
+    executePublishJob: async (jobId: string) => ({ jobId, state: "verification-pending" }),
+  };
+  const source = {
+    publishReceiverIdentity: "mock-authenticated-receiver",
+    preparePublishRecovery: async (input: { artifactPath: string; artifactDigest: string; targetLibraryPath: string }) => {
+      assert.equal(input.artifactPath, artifactPath); assert.equal(input.artifactDigest, artifactDigest); assert.equal(input.targetLibraryPath, target.libraryPath);
+      return { canonicalTarget: target, expectedCanonicalDigest: "b".repeat(64) };
+    },
+    observeReceiver: async (binding: { reservationId: string; dispatchId: string; jobId: string; executorIdentity: string }) => {
+      assert.equal(binding.reservationId, sent?.reservationId); assert.equal(binding.dispatchId, sent?.dispatchId);
+      return { ...binding, state: "terminal", outcome: "completed", receiptId: "mock-receipt" };
+    },
+    readCanonical: async (binding: { target: Record<string, string>; expectedDigest: string }) => ({ target: binding.target, digest: binding.expectedDigest, complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true }),
+  };
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher: publisher, nativeRecoveryEvidence: source } as never);
+  try {
+    const result = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "publish-job-123", confirm: true } });
+    assert.equal(result.isError ?? false, false, textFrom(result));
+    const reservation = await guard.inspectNativeReservation();
+    assert.equal(reservation?.recoveryContext?.executorIdentity, source.publishReceiverIdentity);
+    assert.equal(sent?.reservationId, reservation?.reservationId);
+    assert.equal(sent?.dispatchId, reservation?.recoveryContext?.dispatchId);
+    const recovered = await client.callTool({ name: "editor.native.recovery.execute", arguments: { expectedReservationId: reservation!.reservationId, outcome: "completed", confirm: true } });
+    assert.equal(recovered.isError ?? false, false, textFrom(recovered));
+    await guard.assertClear();
+  } finally { await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
+});
