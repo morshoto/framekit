@@ -120,25 +120,25 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
     if (recoveryContext && !validRecoveryContext(recoveryContext, operation)) throw new Error("INVALID_OPERATION: invalid native recovery context");
     await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
     return this.withTransaction(async () => {
-    const owner = randomUUID();
-    const version = recoveryContext ? 3 : 2;
-    const contents = JSON.stringify({ version, kind: "native-operation", owner, operation, ...(recoveryContext ? { recoveryContext } : {}) }) + "\n";
-    let handle;
-    try {
-      handle = await open(this.path, "wx", 0o600);
-      await handle.writeFile(contents, "utf8");
-      await handle.sync();
-    } catch (error) {
-      throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot create exclusive native reservation", { cause: error });
-    } finally {
-      await handle?.close();
-    }
-    let released = false;
-    return { reservationId: createHash("sha256").update(contents).digest("hex"), release: async () => {
-      if (released) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: native reservation was already released");
-      await this.completeOwned(owner, version);
-      released = true;
-    } };
+      const owner = randomUUID();
+      const version = recoveryContext ? 3 : 2;
+      const contents = JSON.stringify({ version, kind: "native-operation", owner, operation, ...(recoveryContext ? { recoveryContext } : {}) }) + "\n";
+      let handle;
+      try {
+        handle = await open(this.path, "wx", 0o600);
+        await handle.writeFile(contents, "utf8");
+        await handle.sync();
+      } catch (error) {
+        throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot create exclusive native reservation", { cause: error });
+      } finally {
+        await handle?.close();
+      }
+      let released = false;
+      return { reservationId: createHash("sha256").update(contents).digest("hex"), release: async () => {
+        if (released) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: native reservation was already released");
+        await this.completeOwned(owner, version);
+        released = true;
+      } };
     });
   }
 
@@ -184,18 +184,18 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
   public async begin(checkpoint: CanonicalRecoveryCheckpoint): Promise<void> {
     await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
     await this.withTransaction(async () => {
-    let handle;
-    try {
-      handle = await open(this.path, "wx", 0o600);
-      const owner = randomUUID();
-      await handle.writeFile(JSON.stringify({ version: 1, owner, checkpoint }) + "\n", "utf8");
-      await handle.sync();
-      this.owner = owner;
-    } catch (error) {
-      throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot create exclusive recovery checkpoint", { cause: error });
-    } finally {
-      await handle?.close();
-    }
+      let handle;
+      try {
+        handle = await open(this.path, "wx", 0o600);
+        const owner = randomUUID();
+        await handle.writeFile(JSON.stringify({ version: 1, owner, checkpoint }) + "\n", "utf8");
+        await handle.sync();
+        this.owner = owner;
+      } catch (error) {
+        throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot create exclusive recovery checkpoint", { cause: error });
+      } finally {
+        await handle?.close();
+      }
     });
   }
 
@@ -207,15 +207,15 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
 
   private async completeOwned(owner: string, version: number): Promise<void> {
     await this.withTransaction(async () => {
-    try {
-      const info = await lstat(this.path);
-      if (!info.isFile() || info.isSymbolicLink()) throw new Error("invalid checkpoint");
-      const record = JSON.parse(await readFile(this.path, "utf8")) as { version?: unknown; owner?: unknown };
-      if (record.version !== version || record.owner !== owner) throw new Error("checkpoint ownership changed");
-      await unlink(this.path);
-    } catch (error) {
-      throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot safely complete recovery checkpoint", { cause: error });
-    }
+      try {
+        const info = await lstat(this.path);
+        if (!info.isFile() || info.isSymbolicLink()) throw new Error("invalid checkpoint");
+        const record = JSON.parse(await readFile(this.path, "utf8")) as { version?: unknown; owner?: unknown };
+        if (record.version !== version || record.owner !== owner) throw new Error("checkpoint ownership changed");
+        await unlink(this.path);
+      } catch (error) {
+        throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot safely complete recovery checkpoint", { cause: error });
+      }
     });
   }
 
