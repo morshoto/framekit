@@ -93,6 +93,7 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
 
   public async assertClear(): Promise<void> {
     await this.assertNoTransaction();
+    await this.assertNoNativeExecution();
     try {
       await lstat(this.path);
     } catch (error) {
@@ -142,12 +143,13 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
   }
 
   /** Atomically reserve the same path used by canonical checkpoints. */
-  public async beginNative(operation: string, recoveryContext?: NativeRecoveryContext): Promise<{ reservationId: string; release(): Promise<void> }> {
+  public async beginNative(operation: string, recoveryContext?: NativeRecoveryContext, options?: { trackExecution?: boolean }): Promise<{ reservationId: string; release(): Promise<void>; finishExecution?: () => Promise<void> }> {
     if (!/^[a-z][a-z0-9.-]{0,127}$/.test(operation)) throw new Error("INVALID_OPERATION: invalid native reservation operation");
     const context = recoveryContext && structuredClone(recoveryContext);
     if (context && !(context.executorIdentity === null ? validRecoveryContext(context, operation) : validRecoverableContext(context, operation))) throw new Error("INVALID_OPERATION: invalid native recovery context");
     await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
     return this.withTransaction(async () => {
+      await this.assertNoNativeExecution();
       const owner = randomUUID();
       const version = context ? (context.executorIdentity === null ? 3 : 4) : 2;
       const contents = JSON.stringify({ version, kind: "native-operation", owner, operation, ...(context ? { recoveryContext: context } : {}) }) + "\n";
@@ -161,9 +163,26 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
       } finally {
         await handle?.close();
       }
+      const reservationId = createHash("sha256").update(contents).digest("hex");
+      let finishExecution: (() => Promise<void>) | undefined;
+      if (options?.trackExecution) {
+        const activity = JSON.stringify({ reservationId, owner }) + "\n";
+        const activityHandle = await open(`${this.path}.active`, "wx", 0o600);
+        try { await activityHandle.writeFile(activity); await activityHandle.sync(); } finally { await activityHandle.close(); }
+        const parent = await open(dirname(this.path), "r");
+        try { await parent.sync(); } finally { await parent.close(); }
+        finishExecution = async () => this.withTransaction(async () => {
+          if ((await this.readRecoveryFile(`${this.path}.active`)).toString("utf8") !== activity) {
+            throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: native execution ownership changed");
+          }
+          await unlink(`${this.path}.active`);
+          const parent = await open(dirname(this.path), "r");
+          try { await parent.sync(); } finally { await parent.close(); }
+        });
+      }
       let released = false;
       let releaseInFlight: Promise<void> | undefined;
-      return { reservationId: createHash("sha256").update(contents).digest("hex"), release: async () => {
+      return { reservationId, ...(finishExecution ? { finishExecution } : {}), release: async () => {
         if (released) return;
         if (!releaseInFlight) {
           releaseInFlight = this.completeOwned(owner, version).then(() => { released = true; });
@@ -304,6 +323,7 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
       }
       const current = await this.readNativeReservation();
       if (!current || current.reservationId !== reservationId) throw new Error("RECOVERY_EVIDENCE_INVALID: reservation changed before verification");
+      await this.assertNoNativeExecution();
       if (!current.recoveryContext || typeof current.recoveryContext.executorIdentity !== "string" || !("canonicalTarget" in current.recoveryContext)) {
         throw new Error("RECOVERY_EVIDENCE_INVALID: reservation lacks a bound receiver");
       }
@@ -354,6 +374,7 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
   private async completeOwned(owner: string, version: number): Promise<void> {
     await this.withTransaction(async () => {
       try {
+        await this.assertNoNativeExecution();
         const info = await lstat(this.path);
         if (!info.isFile() || info.isSymbolicLink()) throw new Error("invalid checkpoint");
         const record = JSON.parse(await readFile(this.path, "utf8")) as { version?: unknown; owner?: unknown };
@@ -363,6 +384,16 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
         throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot safely complete recovery checkpoint", { cause: error });
       }
     });
+  }
+
+  private async assertNoNativeExecution(): Promise<void> {
+    try {
+      await lstat(`${this.path}.active`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot inspect native execution", { cause: error });
+    }
+    throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: native execution is active or unresolved");
   }
 
   private async assertNoTransaction(): Promise<void> {

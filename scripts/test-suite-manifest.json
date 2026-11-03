@@ -929,6 +929,16 @@
       "requires": []
     },
     {
+      "path": "tests/integration/native-recovery-activity.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration",
+        "native"
+      ],
+      "requires": []
+    },
+    {
       "path": "tests/integration/native-title-discovery.test.ts",
       "owner": "shared",
       "tags": [
