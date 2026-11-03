@@ -3178,7 +3178,7 @@ function withPublishRecoveryGuard<T extends object>(
                 artifactDigest: job.artifactDigest, executorIdentity: null, nativeQuiescence: "unproven" as const }
             : undefined;
           const receiverIdentity: unknown = Reflect.get(target, "recoveryExecutorIdentity", target);
-          const receiverBound = Boolean(context && job?.sourceTarget?.artifactPath && typeof receiverIdentity === "string" && receiverIdentity.length > 0
+          const receiverBound = Boolean(!pending && context && job?.sourceTarget?.artifactPath && typeof receiverIdentity === "string" && receiverIdentity.length > 0
             && receiverIdentity === evidence?.publishReceiverIdentity && evidence.preparePublishRecovery);
           let boundContext: NativeRecoveryContext | undefined = context;
           if (receiverBound && context && job?.sourceTarget?.artifactPath && typeof receiverIdentity === "string" && evidence?.preparePublishRecovery) {
