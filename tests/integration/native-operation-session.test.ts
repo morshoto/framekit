@@ -17,7 +17,7 @@ import {
   type NativeOperationReadinessResult,
 } from "@framekit/final-cut";
 import type { ContextRevision } from "@framekit/runtime";
-import { recoveryBindingFromReservation, verifyNativeRecovery, type RecoveryBinding, type ReceiverObservation, type CanonicalRecoveryObservation } from "../../apps/mcp-server/src/native-recovery-verification.js";
+import { recoveryBindingFromReservation, recoverVerifiedNative, verifyNativeRecovery, type RecoveryBinding, type ReceiverObservation, type CanonicalRecoveryObservation } from "../../apps/mcp-server/src/native-recovery-verification.js";
 
 const baseRevision: ContextRevision = {
   id: "revision-1",
@@ -888,6 +888,38 @@ test("recovery binding is reconstructed from the same durable reservation", asyn
       const legacy = await new FileCanonicalRecoveryGuard(path).beginNative("native.searchmedia");
       await assert.rejects(recoveryBindingFromReservation(restarted, legacy.reservationId, "completed"), /RECOVERY_EVIDENCE_INVALID/);
       await legacy.release();
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  }
+});
+
+test("verified mock recovery releases only its reservation and is idempotent", async () => {
+  for (const kind of ["publish", "materialization"] as const) {
+    const directory = await mkdtemp(join(tmpdir(), "framekit-verified-release-"));
+    const path = join(directory, "pending.json");
+    const jobId = kind === "publish" ? "publish-job-123" : "materialization-123";
+    const operation = `native.${kind === "publish" ? "publish" : "materialize"}.${createHash("sha256").update(jobId).digest("hex")}`;
+    const target: Record<string, string> = kind === "publish" ? { libraryPath: "/tmp/target.fcpbundle", projectUid: "project-1", sequenceUid: "sequence-1" }
+      : { libraryUid: "library", eventUid: "event", projectUid: "project-1", sequenceUid: "sequence-1" };
+    const context = { kind, jobId, dispatchId: "00000000-0000-4000-8000-000000000001", executorIdentity: "mock-receiver-1",
+      dispatchState: "intent", nativeQuiescence: "unproven", artifactDigest: "a".repeat(64), desiredDigest: "b".repeat(64),
+      requestedTarget: kind === "publish" ? { libraryPath: "/tmp/target.fcpbundle" } : target,
+      canonicalTarget: target, expectedCanonicalDigest: "b".repeat(64) };
+    try {
+      const owner = await new FileCanonicalRecoveryGuard(path).beginNative(operation, context as never);
+      const guard = new FileCanonicalRecoveryGuard(path);
+      const receipt: ReceiverObservation = { reservationId: owner.reservationId, jobId, dispatchId: context.dispatchId,
+        executorIdentity: context.executorIdentity, state: "terminal", outcome: "completed", receiptId: "mock-receipt" };
+      const source = { observeReceiver: async () => receipt, readCanonical: async () => ({ target, digest: context.expectedCanonicalDigest,
+        complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true }) };
+      await assert.rejects(recoverVerifiedNative(guard, owner.reservationId, "completed", { ...source, observeReceiver: async () => ({ ...receipt, state: "running" as const }) }), /RECOVERY_EVIDENCE_INVALID/);
+      await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+      assert.deepEqual(await recoverVerifiedNative(guard, owner.reservationId, "completed", source), { outcome: "completed", alreadyReleased: false });
+      await guard.assertClear();
+      const replacement = await new FileCanonicalRecoveryGuard(path).beginNative("native.other");
+      assert.deepEqual(await recoverVerifiedNative(new FileCanonicalRecoveryGuard(path), owner.reservationId, "completed", source), { outcome: "completed", alreadyReleased: true });
+      assert.equal((await guard.inspectNativeReservation())?.reservationId, replacement.reservationId);
+      await assert.rejects(recoverVerifiedNative(guard, replacement.reservationId, "completed", source), /RECOVERY_EVIDENCE_INVALID/);
+      await replacement.release();
     } finally { await rm(directory, { recursive: true, force: true }); }
   }
 });
