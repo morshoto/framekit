@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -908,6 +909,38 @@ test("uncertain native search remains reserved after restart and cannot be repla
       await assert.rejects(restartedGuard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     } finally { await restarted.client.close(); await restarted.server.close(); }
   } finally { await first.client.close().catch(() => {}); await first.server.close().catch(() => {}); await rm(directory, { recursive: true, force: true }); }
+});
+
+test("an owner process exit leaves an uncertain search reserved for a new MCP process", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-search-process-recovery-"));
+  const path = join(directory, "canonical-recovery", "pending.json");
+  const owner = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", `
+    import { FileCanonicalRecoveryGuard } from "@framekit/final-cut";
+    await new FileCanonicalRecoveryGuard(process.argv[1]).beginNative("native.searchmedia");
+    process.exit(17);
+  `, path], { cwd: process.cwd(), encoding: "utf8" });
+  assert.equal(owner.status, 17, owner.stderr);
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: ["--import", "tsx", join(process.cwd(), "apps/mcp-server/src/main.ts")],
+    env: finalCutMcpEnvironment({
+      FRAMEKIT_STATE_DIR: directory, FRAMEKIT_FINAL_CUT_HEADLESS: "1", FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
+      FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER: "", FRAMEKIT_FINAL_CUT_CANONICAL_REQUIRED: "", FRAMEKIT_FCPXML_PATH: "",
+      FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"),
+    }),
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "search-owner-exit-test", version: "0.1.0" });
+  try {
+    await client.connect(transport);
+    const response = await client.callTool({ name: "editor.native.recovery.inspect", arguments: {} });
+    assert.equal(response.isError ?? false, false);
+    const evidence = JSON.parse(textFrom(response));
+    assert.equal(evidence.status, "recovery-required");
+    assert.equal(evidence.nativeReservation.operation, "native.searchmedia");
+    assert.match(evidence.nativeReservation.reservationId, /^[a-f0-9]{64}$/);
+    await assert.rejects(new FileCanonicalRecoveryGuard(path).assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally { await client.close(); await transport.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
 test("an in-flight direct native undo excludes a canonical checkpoint", async () => {
