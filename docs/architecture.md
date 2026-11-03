@@ -129,6 +129,10 @@ the planned target and digest are persisted before dispatch. Missing or
 mismatched declarations retain the legacy fail-closed reservation. The shipped
 Final Cut provider does not declare this capability, and an identity declaration
 alone does not prove receiver completion.
+For publish, the matching trusted source must also derive the canonical target
+and expected digest from the immutable artifact without dispatching. Only a
+publisher that accepts the reservation and dispatch correlation IDs can use
+that path. The shipped Final Cut publisher does not yet provide this capability.
 A provider that proves it
 did not dispatch can release the reservation and retain a safe retry. After a
 dispatch or an unknown outcome, the reservation remains and automatic retry is
