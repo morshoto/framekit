@@ -147,12 +147,13 @@ a shared filesystem transaction lock; a lock left by an interrupted transaction 
 when the reservation file is absent. This exclusion requires all writers to use
 the updated guard; older processes and external file changes do not participate.
 The lock is not evidence of receiver completion and does not authorize recovery.
-Publish and materialization also retain a shared sender-execution marker while
+Native automation, publish and materialization retain a shared sender-execution marker while
 the local operation is active. Cooperating servers refuse recovery while it
 exists; an orphaned marker fails closed and must be preserved for investigation.
 Recovery additionally requires a durable settlement record created when the
-tracked sender returns; for a timed-out materialization command this waits for
-the direct child process to close. A missing marker alone is insufficient. Older
+tracked sender returns; timed-out native automation waits for its local executor,
+and a timed-out materialization command waits for the direct child process to
+close. A missing marker alone is insufficient. Older
 reservations without recorded sender tracking cannot use this recovery path.
 Removing the marker after the sender returns does not prove Final Cut stopped,
 and older clients do not participate in this exclusion.
