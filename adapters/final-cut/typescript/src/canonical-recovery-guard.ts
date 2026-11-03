@@ -87,6 +87,10 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
 
   /** Inspect a direct native reservation without fabricating a canonical target. */
   public async inspectNativeReservation(): Promise<{ reservationId: string; operation: string; recoveryContext?: NativeRecoveryContext } | undefined> {
+    return this.withInspectionTransaction(() => this.readNativeReservation());
+  }
+
+  private async readNativeReservation(): Promise<{ reservationId: string; operation: string; recoveryContext?: NativeRecoveryContext } | undefined> {
     let handle;
     try {
       handle = await open(this.path, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -104,10 +108,7 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
       return { reservationId: createHash("sha256").update(contents).digest("hex"), operation: record.operation,
         ...(record.version === 3 ? { recoveryContext: record.recoveryContext as NativeRecoveryContext } : {}) };
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        await this.assertNoTransaction();
-        return undefined;
-      }
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
       throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot inspect native reservation", { cause: error });
     } finally {
       await handle?.close();
@@ -143,6 +144,10 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
   }
 
   public async inspectVersioned(): Promise<{ checkpointId: string; checkpoint: CanonicalRecoveryCheckpoint } | undefined> {
+    return this.withInspectionTransaction(() => this.readVersioned());
+  }
+
+  private async readVersioned(): Promise<{ checkpointId: string; checkpoint: CanonicalRecoveryCheckpoint } | undefined> {
     let handle;
     try {
       handle = await open(this.path, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -171,10 +176,7 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
           ...(typeof expectedRestoreDigest === "string" ? { expectedRestoreDigest } : {}) },
       };
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        await this.assertNoTransaction();
-        return undefined;
-      }
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
       throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot inspect recovery evidence", { cause: error });
     } finally {
       await handle?.close();
@@ -227,6 +229,16 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
       throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot inspect recovery transaction", { cause: error });
     }
     throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: recovery transaction is unresolved");
+  }
+
+  private async withInspectionTransaction<T>(read: () => Promise<T | undefined>): Promise<T | undefined> {
+    try {
+      await lstat(dirname(this.path));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot inspect recovery directory", { cause: error });
+    }
+    return this.withTransaction(read);
   }
 
   /** A crashed transaction deliberately leaves the lock in place for manual investigation. */
