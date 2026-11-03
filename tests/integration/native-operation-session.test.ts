@@ -909,7 +909,8 @@ test("verified mock recovery releases only its reservation and is idempotent", a
       requestedTarget: kind === "publish" ? { libraryPath: "/tmp/target.fcpbundle" } : target,
       canonicalTarget: target, expectedCanonicalDigest: "b".repeat(64) };
     try {
-      const owner = await new FileCanonicalRecoveryGuard(path).beginNative(operation, context as never);
+      const owner = await new FileCanonicalRecoveryGuard(path).beginNative(operation, context as never, { trackExecution: true });
+      await owner.finishExecution!();
       const guard = new FileCanonicalRecoveryGuard(path);
       const receipt: ReceiverObservation = { reservationId: owner.reservationId, jobId, dispatchId: context.dispatchId,
         executorIdentity: context.executorIdentity, state: "terminal", outcome: "completed", receiptId: "mock-receipt" };
@@ -948,9 +949,10 @@ test("verified mock recovery releases only its reservation and is idempotent", a
       const replacement = await new FileCanonicalRecoveryGuard(path).beginNative("native.other");
       assert.deepEqual(await recoverVerifiedNative(new FileCanonicalRecoveryGuard(path), owner.reservationId, "completed", source), { outcome: "completed", alreadyReleased: true });
       assert.equal((await guard.inspectNativeReservation())?.reservationId, replacement.reservationId);
-      await assert.rejects(recoverVerifiedNative(guard, replacement.reservationId, "completed", source), /RECOVERY_EVIDENCE_INVALID/);
+      await assert.rejects(recoverVerifiedNative(guard, replacement.reservationId, "completed", source), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED|RECOVERY_EVIDENCE_INVALID/);
       await replacement.release();
-      const next = await new FileCanonicalRecoveryGuard(path).beginNative(operation, context as never);
+      const next = await new FileCanonicalRecoveryGuard(path).beginNative(operation, context as never, { trackExecution: true });
+      await next.finishExecution!();
       const nextReceipt = { ...receipt, reservationId: next.reservationId };
       const interrupted = join(`${path}.completed`, next.reservationId);
       await writeFile(`${interrupted}.proof`, JSON.stringify({ reservationId: next.reservationId, outcome: "completed", receiptId: nextReceipt.receiptId }) + "\n");
@@ -1053,6 +1055,30 @@ test("untracked receiver reservation cannot claim sender settlement", async () =
   try {
     const guard = new FileCanonicalRecoveryGuard(path);
     const reservation = await guard.beginNative(operation, context as never);
+    let verified = false;
+    await assert.rejects(guard.completeVerifiedNative(reservation.reservationId, "completed", async () => {
+      verified = true;
+      return { receiptId: "untrusted", outcome: "completed" };
+    }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    assert.equal(verified, false);
+    assert.equal((await guard.inspectNativeReservation())?.reservationId, reservation.reservationId);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("a missing active marker does not prove sender settlement", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-native-missing-activity-"));
+  const path = join(directory, "pending.json");
+  const jobId = "publish-job-marker";
+  const operation = `native.publish.${createHash("sha256").update(jobId).digest("hex")}`;
+  const context = { kind: "publish", jobId, dispatchId: "00000000-0000-4000-8000-000000000001", executorIdentity: "mock-receiver",
+    dispatchState: "intent", nativeQuiescence: "unproven", artifactDigest: "a".repeat(64), requestedTarget: { libraryPath: "/tmp/target.fcpbundle" },
+    canonicalTarget: { libraryPath: "/tmp/target.fcpbundle", projectUid: "project", sequenceUid: "sequence" }, expectedCanonicalDigest: "b".repeat(64) };
+  try {
+    const guard = new FileCanonicalRecoveryGuard(path);
+    const reservation = await guard.beginNative(operation, context as never, { trackExecution: true });
+    await reservation.finishExecution!();
+    await guard.beginNativeExecution(reservation.reservationId);
+    await rm(`${path}.active`);
     let verified = false;
     await assert.rejects(guard.completeVerifiedNative(reservation.reservationId, "completed", async () => {
       verified = true;

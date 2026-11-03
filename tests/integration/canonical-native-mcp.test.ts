@@ -1377,7 +1377,8 @@ test("MCP recovery requires confirmation and trusted evidence for both routes", 
       requestedTarget: kind === "publish" ? { libraryPath: "/tmp/target.fcpbundle" } : target,
       canonicalTarget: target, expectedCanonicalDigest: "b".repeat(64) };
     const guard = new FileCanonicalRecoveryGuard(path);
-    const reservation = await guard.beginNative(operation, context as never);
+    const reservation = await guard.beginNative(operation, context as never, { trackExecution: true });
+    await reservation.finishExecution!();
     let reads = 0;
     let wrongTarget = false;
     const source: NativeRecoveryEvidenceSource = {
