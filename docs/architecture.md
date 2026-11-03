@@ -142,8 +142,8 @@ correlation evidence, not a receiver-issued operation ID or an observed native
 target; executor identity and quiescence remain unproven. Executor settlement
 does not prove native quiescence and the inspection never authorizes release. A
 clear result is point-in-time and does not establish recovery or the state of
-other directories. Reservation creation and owner release use a shared filesystem
-transaction lock; a lock left by an interrupted transaction fails closed, even
+other directories. Reservation creation, evidence inspection and owner release use
+a shared filesystem transaction lock; a lock left by an interrupted transaction fails closed, even
 when the reservation file is absent. This exclusion requires all writers to use
 the updated guard; older processes and external file changes do not participate.
 The lock is not evidence of receiver completion and does not authorize recovery.
