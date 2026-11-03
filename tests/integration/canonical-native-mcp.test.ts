@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -7,6 +8,7 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import type { NativeRecoveryEvidenceSource } from "../../apps/mcp-server/src/native-recovery-verification.js";
 import {
   FinalCutCanonicalNativeProvider,
   FinalCutNativeAutomationAdapter,
@@ -1359,5 +1361,50 @@ test("native preparation unavailable before dispatch releases its reservation", 
     await client.close();
     await server.close();
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("MCP recovery requires confirmation and trusted evidence for both routes", async () => {
+  for (const kind of ["publish", "materialization"] as const) {
+    const directory = await mkdtemp(join(tmpdir(), "framekit-mcp-verified-recovery-"));
+    const path = join(directory, "pending.json");
+    const jobId = kind === "publish" ? "publish-job-123" : "materialization-123";
+    const operation = `native.${kind === "publish" ? "publish" : "materialize"}.${createHash("sha256").update(jobId).digest("hex")}`;
+    const target: Record<string, string> = kind === "publish" ? { libraryPath: "/tmp/target.fcpbundle", projectUid: "project", sequenceUid: "sequence" }
+      : { libraryUid: "library", eventUid: "event", projectUid: "project", sequenceUid: "sequence" };
+    const context = { kind, jobId, dispatchId: "00000000-0000-4000-8000-000000000001", executorIdentity: "mock-receiver-1",
+      dispatchState: "intent", nativeQuiescence: "unproven", artifactDigest: "a".repeat(64), desiredDigest: "b".repeat(64),
+      requestedTarget: kind === "publish" ? { libraryPath: "/tmp/target.fcpbundle" } : target,
+      canonicalTarget: target, expectedCanonicalDigest: "b".repeat(64) };
+    const guard = new FileCanonicalRecoveryGuard(path);
+    const reservation = await guard.beginNative(operation, context as never);
+    let reads = 0;
+    const source: NativeRecoveryEvidenceSource = {
+      observeReceiver: async (binding) => ({ reservationId: binding.reservationId, jobId: binding.jobId, dispatchId: binding.dispatchId,
+        executorIdentity: binding.executorIdentity, state: "terminal", outcome: "completed", receiptId: "mock-receipt" }),
+      readCanonical: async () => { reads++; return { target, digest: context.expectedCanonicalDigest, complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true }; },
+    };
+    const absent = await connect(createRuntime([]), { canonicalRecovery: guard });
+    const ready = await connect(createRuntime([]), { canonicalRecovery: guard, nativeRecoveryEvidence: source } as never);
+    try {
+      const args = { expectedReservationId: reservation.reservationId, outcome: "completed", confirm: true };
+      const unavailable = await absent.client.callTool({ name: "editor.native.recovery.execute", arguments: args });
+      assert.equal(unavailable.isError, true);
+      assert.match(textFrom(unavailable), /CAPABILITY_UNAVAILABLE/);
+      const unconfirmed = await ready.client.callTool({ name: "editor.native.recovery.execute", arguments: { ...args, confirm: false } });
+      assert.equal(unconfirmed.isError, true);
+      assert.equal(reads, 0);
+      await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+      const recovered = await ready.client.callTool({ name: "editor.native.recovery.execute", arguments: args });
+      assert.equal(recovered.isError ?? false, false, textFrom(recovered));
+      assert.deepEqual(JSON.parse(textFrom(recovered)), { outcome: "completed", alreadyReleased: false });
+      await guard.assertClear();
+      const repeated = await ready.client.callTool({ name: "editor.native.recovery.execute", arguments: args });
+      assert.deepEqual(JSON.parse(textFrom(repeated)), { outcome: "completed", alreadyReleased: true });
+      assert.equal(reads, 1);
+    } finally {
+      await absent.client.close(); await absent.server.close(); await ready.client.close(); await ready.server.close();
+      await rm(directory, { recursive: true, force: true });
+    }
   }
 });
