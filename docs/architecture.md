@@ -151,7 +151,8 @@ Publish and materialization also retain a shared sender-execution marker while
 the local operation is active. Cooperating servers refuse recovery while it
 exists; an orphaned marker fails closed and must be preserved for investigation.
 Recovery additionally requires a durable settlement record created when the
-tracked sender returns; a missing marker alone is insufficient. Older
+tracked sender returns; for a timed-out materialization command this waits for
+the direct child process to close. A missing marker alone is insufficient. Older
 reservations without recorded sender tracking cannot use this recovery path.
 Removing the marker after the sender returns does not prove Final Cut stopped,
 and older clients do not participate in this exclusion.
