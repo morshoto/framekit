@@ -1427,6 +1427,7 @@ test("MCP recovery requires confirmation and trusted evidence for both routes", 
     let wrongTarget = false;
     const source: NativeRecoveryEvidenceSource = {
       materializationReceiverIdentity: "mock-receiver-1",
+      publishReceiverIdentity: "mock-receiver-1",
       observeReceiver: async (binding) => ({ reservationId: binding.reservationId, jobId: binding.jobId, dispatchId: binding.dispatchId,
         executorIdentity: binding.executorIdentity, state: "terminal", outcome: "completed", receiptId: "mock-receipt" }),
       readCanonical: async () => { reads++; return { target: wrongTarget ? { ...target, projectUid: "wrong" } : target, digest: context.expectedCanonicalDigest, complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true }; },
@@ -1480,6 +1481,7 @@ test("verified publish recovery permits a later publish across servers", async (
     executePublishJob: async (jobId: string) => { publishes++; return { jobId, state: "verification-pending" }; },
   };
   const source: NativeRecoveryEvidenceSource = {
+    publishReceiverIdentity: "mock-receiver-1",
     observeReceiver: async (binding) => ({ reservationId: binding.reservationId, dispatchId: binding.dispatchId, jobId: binding.jobId,
       executorIdentity: binding.executorIdentity, state: "terminal", outcome: "completed", receiptId: "mock-receipt" }),
     readCanonical: async () => ({ target, digest: "b".repeat(64), complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true }),
@@ -1530,6 +1532,7 @@ test("recovery refuses an active local publisher", async () => {
     executePublishJob: async (jobId: string) => { publishes++; if (publishes === 1) { started(); await held; } return { jobId, state: "verification-pending" }; },
   };
   const source: NativeRecoveryEvidenceSource = {
+    publishReceiverIdentity: "mock-receiver-1",
     observeReceiver: async (binding) => ({ reservationId: binding.reservationId, dispatchId: binding.dispatchId, jobId: binding.jobId,
       executorIdentity: binding.executorIdentity, state: "terminal", outcome: "completed", receiptId: "mock-receipt" }),
     readCanonical: async () => { if (holdCanonical) { readStarted(); await heldRead; } return { target, digest: "b".repeat(64), complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true }; },
@@ -1571,27 +1574,36 @@ test("publish binds a trusted receiver without a replacement guard", async () =>
   await writeFile(artifactPath, "<fcpxml/>");
   const artifactDigest = createHash("sha256").update("<fcpxml/>").digest("hex");
   let sent: { reservationId?: string; dispatchId?: string } | undefined;
+  let wrongPlan = false;
+  let changeDuringRead = false;
+  let changeBeforeInvoke = false;
+  let publishes = 0;
   const publisher = {
     recoveryExecutorIdentity: "mock-authenticated-receiver",
     isAvailable: () => false,
     getPublishJob: (jobId: string) => ({ jobId, state: "awaiting-confirmation", targetLibraryPath: target.libraryPath,
       artifactDigest, sourceTarget: { kind: "artifact", artifactPath } }),
     trackNativeDispatch: async <T>(invoke: () => Promise<T>, onDispatch: () => void, reservationId?: string, dispatchId?: string): Promise<T> => {
-      sent = { reservationId, dispatchId }; onDispatch(); return invoke();
+      sent = { reservationId, dispatchId };
+      if (changeBeforeInvoke) source.publishReceiverIdentity = "other-receiver";
+      onDispatch(); return invoke();
     },
-    executePublishJob: async (jobId: string) => ({ jobId, state: "verification-pending" }),
+    executePublishJob: async (jobId: string) => { publishes++; return { jobId, state: "verification-pending" }; },
   };
   const source = {
     publishReceiverIdentity: "mock-authenticated-receiver",
     preparePublishRecovery: async (input: { artifactPath: string; artifactDigest: string; targetLibraryPath: string }) => {
       assert.equal(input.artifactPath, artifactPath); assert.equal(input.artifactDigest, artifactDigest); assert.equal(input.targetLibraryPath, target.libraryPath);
-      return { canonicalTarget: target, expectedCanonicalDigest: "b".repeat(64) };
+      return { canonicalTarget: wrongPlan ? { ...target, libraryPath: join(directory, "other.fcpbundle") } : target, expectedCanonicalDigest: "b".repeat(64) };
     },
     observeReceiver: async (binding: { reservationId: string; dispatchId: string; jobId: string; executorIdentity: string }) => {
       assert.equal(binding.reservationId, sent?.reservationId); assert.equal(binding.dispatchId, sent?.dispatchId);
       return { ...binding, state: "terminal", outcome: "completed", receiptId: "mock-receipt" };
     },
-    readCanonical: async (binding: { target: Record<string, string>; expectedDigest: string }) => ({ target: binding.target, digest: binding.expectedDigest, complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true }),
+    readCanonical: async (binding: { target: Record<string, string>; expectedDigest: string }) => {
+      if (changeDuringRead) source.publishReceiverIdentity = "other-receiver";
+      return { target: binding.target, digest: binding.expectedDigest, complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true };
+    },
   };
   const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher: publisher, nativeRecoveryEvidence: source } as never);
   try {
@@ -1601,8 +1613,25 @@ test("publish binds a trusted receiver without a replacement guard", async () =>
     assert.equal(reservation?.recoveryContext?.executorIdentity, source.publishReceiverIdentity);
     assert.equal(sent?.reservationId, reservation?.reservationId);
     assert.equal(sent?.dispatchId, reservation?.recoveryContext?.dispatchId);
+    changeDuringRead = true;
+    const changed = await client.callTool({ name: "editor.native.recovery.execute", arguments: { expectedReservationId: reservation!.reservationId, outcome: "completed", confirm: true } });
+    assert.equal(changed.isError, true);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    changeDuringRead = false;
+    source.publishReceiverIdentity = "mock-authenticated-receiver";
     const recovered = await client.callTool({ name: "editor.native.recovery.execute", arguments: { expectedReservationId: reservation!.reservationId, outcome: "completed", confirm: true } });
     assert.equal(recovered.isError ?? false, false, textFrom(recovered));
     await guard.assertClear();
+    wrongPlan = true;
+    const invalid = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "publish-job-456", confirm: true } });
+    assert.equal(invalid.isError, true);
+    assert.equal(publishes, 1);
+    await guard.assertClear();
+    wrongPlan = false;
+    changeBeforeInvoke = true;
+    const changedBefore = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "publish-job-789", confirm: true } });
+    assert.equal(changedBefore.isError, true);
+    assert.equal(publishes, 1);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   } finally { await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
 });
