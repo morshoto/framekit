@@ -703,6 +703,14 @@ test("materialization excludes canonical edits and never retries an uncertain pu
       assert.match(persisted?.recoveryContext?.dispatchId ?? "", /^[0-9a-f-]{36}$/);
       assert.equal(running.recoveryReservation.dispatchId, persisted?.recoveryContext?.dispatchId);
       assert.equal(receivedDispatchId, persisted?.recoveryContext?.dispatchId);
+      const active = JSON.parse(await readFile(`${path}.active`, "utf8"));
+      assert.equal(active.reservationId, persisted?.reservationId);
+      let verified = false;
+      await assert.rejects(other.completeVerifiedNative(persisted!.reservationId, "completed", async () => {
+        verified = true;
+        return { receiptId: "unexpected", outcome: "completed" };
+      }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+      assert.equal(verified, false);
       assert.deepEqual(persisted?.recoveryContext?.requestedTarget, {
         libraryUid: running.target.libraryUid, eventUid: running.target.eventUid,
         projectUid: running.destination.projectUid, sequenceUid: running.destination.sequenceUid,
@@ -714,6 +722,7 @@ test("materialization excludes canonical edits and never retries an uncertain pu
       await assert.rejects(other.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "a".repeat(64), operation: "rename-clip" }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     } finally { finish(); }
     const result = payload(await execution);
+    await assert.rejects(readFile(`${path}.active`, "utf8"), { code: "ENOENT" });
     assert.equal(result.state, "blocked");
     assert.equal(result.error.code, "FINAL_CUT_CANONICAL_RECOVERY_REQUIRED");
     assert.equal(result.error.retryable, false);
