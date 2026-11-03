@@ -3086,7 +3086,7 @@ function withPublishRecoveryGuard<T extends object>(
   recovery: Pick<FileCanonicalRecoveryGuard, "assertClear" | "beginNative" | "inspectNativeReservation">,
 ): T {
   const allowed = new Set<PropertyKey>(["isAvailable", "inspectReadiness", "executionMode", "getPublishJob", "loadPublishJob", "preparePublish"]);
-  let current: { jobId?: string; reservation: Awaited<ReturnType<FileCanonicalRecoveryGuard["beginNative"]>>; active: boolean; dispatched: boolean } | undefined;
+  let current: { jobId?: string; dispatchId?: string; reservation: Awaited<ReturnType<FileCanonicalRecoveryGuard["beginNative"]>>; active: boolean; dispatched: boolean } | undefined;
   return new Proxy(provider, {
     get(target, property) {
       const value = Reflect.get(target, property, target) as unknown;
@@ -3128,7 +3128,7 @@ function withPublishRecoveryGuard<T extends object>(
             : undefined;
           const reservation = await recovery.beginNative(operation, context);
           const track = Reflect.get(target, "trackNativeDispatch", target);
-          entry = { jobId, reservation, active: true, dispatched: pending || typeof track !== "function" };
+          entry = { jobId, dispatchId: context?.dispatchId, reservation, active: true, dispatched: pending || typeof track !== "function" };
           current = entry;
         }
         const track = Reflect.get(target, "trackNativeDispatch", target) as unknown;
@@ -3138,7 +3138,8 @@ function withPublishRecoveryGuard<T extends object>(
             ? await Reflect.apply(track, target, [invoke, () => { entry!.dispatched = true; }, entry.reservation.reservationId])
             : await invoke();
           if (entry.dispatched && result && typeof result === "object" && !Array.isArray(result)) {
-            return { ...result, recoveryReservation: { status: "recovery-required", reservationId: entry.reservation.reservationId, reason: "native-quiescence-unproven" } };
+            return { ...result, recoveryReservation: { status: "recovery-required", reservationId: entry.reservation.reservationId,
+              ...(entry.dispatchId ? { dispatchId: entry.dispatchId } : {}), reason: "native-quiescence-unproven" } };
           }
           return result;
         } finally {
