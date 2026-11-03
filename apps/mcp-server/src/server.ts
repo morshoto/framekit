@@ -963,7 +963,7 @@ export interface McpServerOptions {
   disposableNative?: Pick<DisposableNativeEditWorkflow, "preview" | "execute" | "undo">;
   nativeOperationSession?: Pick<NativeOperationSession, "submit" | "status" | "retry" | "cancel">;
   projectPublisher?: FinalCutProjectPublisher;
-  canonicalRecovery?: Pick<FileCanonicalRecoveryGuard, "inspectVersioned" | "inspectNativeReservation" | "assertClear" | "beginNative"> & Partial<Pick<FileCanonicalRecoveryGuard, "completeVerifiedNative" | "inspectCompletedNative" | "inspectCompletedNativeEvidence" | "beginNativeExecution">>;
+  canonicalRecovery?: Pick<FileCanonicalRecoveryGuard, "inspectVersioned" | "inspectNativeReservation" | "assertClear" | "beginNative"> & Partial<Pick<FileCanonicalRecoveryGuard, "completeVerifiedNative" | "inspectCompletedNative" | "inspectCompletedNativeEvidence" | "beginNativeExecution" | "inspectNativeSender">>;
   nativeRecoveryEvidence?: NativeRecoveryEvidenceSource;
   videoExporter?: FinalCutVideoExporter;
   backgroundRenderer?: BackgroundRenderExportProvider;
@@ -1252,8 +1252,13 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
         const observed = await options.nativeEditor?.nativeExecutionStatus?.(nativeReservation.reservationId);
         if (observed === "running" || observed === "abort-requested" || observed === "executor-settled") executionStatus = observed;
       } catch { /* Missing local evidence never implies native quiescence. */ }
+      let senderExecution: Awaited<ReturnType<FileCanonicalRecoveryGuard["inspectNativeSender"]>> | undefined;
+      if (options.canonicalRecovery.inspectNativeSender) {
+        try { senderExecution = await options.canonicalRecovery.inspectNativeSender(nativeReservation.reservationId); }
+        catch { senderExecution = { status: "unknown", nativeQuiescence: "unproven" }; }
+      }
       return { status: "recovery-required", scope: "configured-state-directory", nativeReservation,
-        nativeExecution: { status: executionStatus, nativeQuiescence: "unproven" } };
+        nativeExecution: { status: executionStatus, nativeQuiescence: "unproven" }, ...(senderExecution ? { senderExecution } : {}) };
     }
     return evidence
       ? { status: "recovery-required", scope: "configured-state-directory", ...evidence }
