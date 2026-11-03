@@ -1,4 +1,5 @@
 import { isAbsolute } from "node:path";
+import type { FileCanonicalRecoveryGuard } from "@framekit/final-cut";
 
 /** Immutable data recorded before dispatch. A local dispatch ID is not a receiver receipt. */
 export interface RecoveryBinding {
@@ -40,6 +41,23 @@ export interface NativeRecoveryEvidenceSource {
 
 function invalid(): never {
   throw new Error("RECOVERY_EVIDENCE_INVALID: recovery evidence is incomplete or does not match the reserved operation");
+}
+
+/** Read an immutable v4 intent; a receiver must independently authenticate the identity. */
+export async function recoveryBindingFromReservation(
+  guard: Pick<FileCanonicalRecoveryGuard, "inspectNativeReservation">,
+  expectedReservationId: string,
+  outcome: RecoveryBinding["outcome"],
+): Promise<RecoveryBinding> {
+  const reservation = await guard.inspectNativeReservation();
+  const context = reservation?.recoveryContext;
+  if (!reservation || reservation.reservationId !== expectedReservationId || !context
+    || typeof context.executorIdentity !== "string" || !("canonicalTarget" in context)
+    || (outcome !== "completed" && outcome !== "restored")) invalid();
+  const expectedDigest = outcome === "completed" ? context.expectedCanonicalDigest : context.expectedRestoreDigest;
+  if (!expectedDigest) invalid();
+  return { kind: context.kind, reservationId: reservation.reservationId, dispatchId: context.dispatchId, jobId: context.jobId,
+    executorIdentity: context.executorIdentity, target: structuredClone(context.canonicalTarget), expectedDigest, outcome };
 }
 
 function targetMatches(kind: RecoveryBinding["kind"], expected: Record<string, string>, observed: Record<string, string>): boolean {
