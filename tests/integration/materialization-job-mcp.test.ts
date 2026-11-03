@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -857,6 +857,33 @@ test("materialization retains provider failure evidence and forbids an uncertain
     await connected.server.close();
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("timed out materialization keeps its sender marker until the command exits", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-sender-timeout-"));
+  const path = join(directory, "pending.json");
+  const command = join(directory, "hanging-publisher");
+  await writeFile(command, "#!/bin/sh\ntrap '' TERM\nwhile :; do :; done\n");
+  await chmod(command, 0o755);
+  const guard = new FileCanonicalRecoveryGuard(path);
+  const publisher = new FinalCutBackgroundMaterializationPublisher({ command, commandTimeoutMs: 250 });
+  const connected = await connect(directory, publisher, undefined, "default", guard);
+  try {
+    await connected.client.callTool({ name: "session.create", arguments: { sessionId: "session-timeout", provider: { id: "final-cut" }, base: timeline() } });
+    const job = payload(await connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "session-timeout", target, confirm: true } }));
+    assert.equal(job.providerError.code, "FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND_TIMEOUT");
+    assert.ok((await lstat(`${path}.active`)).isFile(), "live command must retain the sender marker");
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      try { await lstat(`${path}.active`); } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") break;
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    await assert.rejects(lstat(`${path}.active`), { code: "ENOENT" });
+    assert.ok(await guard.inspectNativeReservation(), "executor exit alone must not release the reservation");
+  } finally { await connected.client.close(); await connected.server.close(); await new Promise((resolve) => setTimeout(resolve, 1200)); await rm(directory, { recursive: true, force: true }); }
 });
 
 test("materialization can retry when the provider proves no dispatch occurred", async () => {
