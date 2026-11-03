@@ -972,16 +972,20 @@ test("verified materialization recovery permits fresh target-bound resync withou
     inspectCompletedNativeEvidence: guard.inspectCompletedNativeEvidence.bind(guard),
     beginNative: (operation: string, context: Record<string, unknown>, options?: { trackExecution?: boolean }) => guard.beginNative(operation, {
       ...context, executorIdentity: "mock-receiver", dispatchState: "intent", canonicalTarget: context.requestedTarget,
-      expectedCanonicalDigest: context.desiredDigest,
+      expectedCanonicalDigest: context.desiredDigest, expectedRestoreDigest: "c".repeat(64),
     } as never, options),
   };
   let publishes = 0;
   let reads = 0;
+  let removeProofDuringRead = false;
+  let recoveryProofPath = "";
+  let receiverOutcome: "completed" | "failed" = "completed";
   let desired: TimelineIr | undefined;
   const publisher: SessionMaterializationPublisher = {
     publish: async (request) => { publishes++; desired = structuredClone(request.desired); return { state: "completed", canonicalReadback: request.desired, canonicalTarget: canonicalTarget(request), headedNativeVerified: false }; },
     readCanonicalTarget: async ({ target: bound }) => {
       reads++;
+      if (removeProofDuringRead) await rm(recoveryProofPath);
       const canonicalReadback = structuredClone(desired!);
       canonicalReadback.project.id = bound.projectUid;
       canonicalReadback.sequence.id = bound.sequenceUid;
@@ -990,7 +994,7 @@ test("verified materialization recovery permits fresh target-bound resync withou
   };
   const source: NativeRecoveryEvidenceSource = {
     observeReceiver: async (binding) => ({ reservationId: binding.reservationId, dispatchId: binding.dispatchId, jobId: binding.jobId,
-      executorIdentity: binding.executorIdentity, state: "terminal", outcome: "completed", receiptId: "mock-receipt" }),
+      executorIdentity: binding.executorIdentity, state: "terminal", outcome: receiverOutcome, receiptId: "mock-receipt" }),
     readCanonical: async (binding) => ({ target: binding.target, digest: binding.expectedDigest, complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true }),
   };
   const server = createMcpServer(runtime(), { sessionDirectory: join(directory, "sessions"), materializationDirectory: join(directory, "materializations"),
@@ -1009,10 +1013,43 @@ test("verified materialization recovery permits fresh target-bound resync withou
     assert.equal(reads, 0);
     const recovered = await client.callTool({ name: "editor.native.recovery.execute", arguments: { expectedReservationId: job.recoveryReservation.reservationId, outcome: "completed", confirm: true } });
     assert.equal(recovered.isError ?? false, false);
+    const jobPath = join(directory, "materializations", "jobs", `${job.jobId}.json`);
+    const originalJob = await readFile(jobPath, "utf8");
+    const changedJob = JSON.parse(originalJob);
+    changedJob.desiredDigest = "f".repeat(64);
+    await writeFile(jobPath, JSON.stringify(changedJob));
+    const mismatched = await client.callTool({ name: "session.materialize.resync", arguments: { jobId: job.jobId, sessionId: "continued" } });
+    assert.equal(mismatched.isError, true);
+    assert.equal(reads, 0);
+    await writeFile(jobPath, originalJob);
+    const competing = await guard.beginNative("native.competing");
+    const blocked = await client.callTool({ name: "session.materialize.resync", arguments: { jobId: job.jobId, sessionId: "continued" } });
+    assert.equal(blocked.isError, true);
+    assert.equal(reads, 0);
+    await competing.release();
+    recoveryProofPath = join(`${join(directory, "pending.json")}.completed`, `${job.recoveryReservation.reservationId}.proof`);
+    const proof = await readFile(recoveryProofPath, "utf8");
+    removeProofDuringRead = true;
+    const changedProof = await client.callTool({ name: "session.materialize.resync", arguments: { jobId: job.jobId, sessionId: "continued" } });
+    assert.equal(changedProof.isError, true);
+    await writeFile(recoveryProofPath, proof);
+    removeProofDuringRead = false;
     const resumed = await client.callTool({ name: "session.materialize.resync", arguments: { jobId: job.jobId, sessionId: "continued" } });
     assert.equal(resumed.isError ?? false, false, JSON.stringify(resumed));
     assert.equal(payload(resumed).state, "resynced");
-    assert.equal(reads, 1);
+    assert.equal(reads, 2);
     assert.equal(publishes, 1);
+    const status = payload(await client.callTool({ name: "session.materialize.status", arguments: { jobId: job.jobId } }));
+    assert.equal(status.state, "completed");
+    assert.deepEqual(status.recoveryResolution, { reservationId: job.recoveryReservation.reservationId, outcome: "completed" });
+    await client.callTool({ name: "session.create", arguments: { sessionId: "source-restored", provider: { id: "final-cut" }, base: timeline() } });
+    const restoredJob = payload(await client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "source-restored", target, confirm: true } }));
+    receiverOutcome = "failed";
+    const restored = await client.callTool({ name: "editor.native.recovery.execute", arguments: { expectedReservationId: restoredJob.recoveryReservation.reservationId, outcome: "restored", confirm: true } });
+    assert.equal(restored.isError ?? false, false);
+    const notCompleted = await client.callTool({ name: "session.materialize.resync", arguments: { jobId: restoredJob.jobId, sessionId: "should-not-exist" } });
+    assert.equal(notCompleted.isError, true);
+    assert.equal(reads, 2);
+    assert.equal(publishes, 2);
   } finally { await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
 });
