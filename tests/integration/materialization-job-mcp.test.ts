@@ -767,6 +767,12 @@ test("recovery inspection binds a restarted materialization to its reservation",
       await writeFile(jobPath, JSON.stringify(wrongTarget));
       const tampered = await restarted.client.callTool({ name: "session.materialize.recovery.inspect", arguments: { jobId: job.jobId, expectedReservationId: job.recoveryReservation.reservationId } });
       assert.equal(tampered.isError, true);
+      const consistentlyChanged = JSON.parse(original);
+      consistentlyChanged.destination.projectUid = "other-project";
+      consistentlyChanged.provenance.destination.projectUid = "other-project";
+      await writeFile(jobPath, JSON.stringify(consistentlyChanged));
+      const wrongReservedTarget = await restarted.client.callTool({ name: "session.materialize.recovery.inspect", arguments: { jobId: job.jobId, expectedReservationId: job.recoveryReservation.reservationId } });
+      assert.equal(wrongReservedTarget.isError, true);
       const missingTarget = JSON.parse(original);
       delete missingTarget.target.libraryUid;
       delete missingTarget.provenance.target.libraryUid;
