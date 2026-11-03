@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -813,4 +814,25 @@ test("an unresolved receiver never permits canonical readback", async () => {
   rejectReceiver(new Error("receiver timeout"));
   await assert.rejects(pending, /receiver timeout/);
   assert.equal(read, false);
+});
+
+test("recovery evidence can be queried after a mock receiver process exits", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-receiver-"));
+  const recordPath = join(directory, "receiver.json");
+  const binding: RecoveryBinding = { kind: "materialization", reservationId: "a".repeat(64), dispatchId: "dispatch-1", jobId: "job-1", executorIdentity: "mock-receiver-1",
+    target: { libraryUid: "library", eventUid: "event", projectUid: "project", sequenceUid: "sequence" }, expectedDigest: "b".repeat(64), outcome: "completed" };
+  try {
+    const receiver = spawnSync(process.execPath, ["-e", `
+      const fs = require("node:fs");
+      const b = JSON.parse(process.argv[2]);
+      fs.writeFileSync(process.argv[1], JSON.stringify({reservationId: b.reservationId, dispatchId: b.dispatchId, jobId: b.jobId,
+        executorIdentity: b.executorIdentity, state: "terminal", outcome: "completed", receiptId: "mock-receipt"}));
+    `, recordPath, JSON.stringify(binding)], { encoding: "utf8" });
+    assert.equal(receiver.status, 0, receiver.stderr);
+    const result = await verifyNativeRecovery(binding, {
+      observeReceiver: async () => JSON.parse(await readFile(recordPath, "utf8")) as ReceiverObservation,
+      readCanonical: async () => ({ target: binding.target, digest: binding.expectedDigest, complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true }),
+    });
+    assert.equal(result.receiptId, "mock-receipt");
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
