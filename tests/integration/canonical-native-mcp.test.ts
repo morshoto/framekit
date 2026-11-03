@@ -901,6 +901,11 @@ test("timed out native search retains sender activity until its executor settles
     assert.equal(reservation?.operation, "native.searchmedia");
     assert.equal(nativeEditor.nativeExecutionStatus(reservation!.reservationId), "abort-requested");
     assert.ok((await lstat(`${path}.active`)).isFile());
+    const restarted = await connect(createRuntime([]), { canonicalRecovery: new FileCanonicalRecoveryGuard(path) });
+    try {
+      const inspected = JSON.parse(textFrom(await restarted.client.callTool({ name: "editor.native.recovery.inspect", arguments: {} })));
+      assert.deepEqual(inspected.senderExecution, { status: "active-or-interrupted", nativeQuiescence: "unproven" });
+    } finally { await restarted.client.close(); await restarted.server.close(); }
     finish("");
     const deadline = Date.now() + 3000;
     while (Date.now() < deadline) {
@@ -912,6 +917,8 @@ test("timed out native search retains sender activity until its executor settles
     }
     await assert.rejects(lstat(`${path}.active`), { code: "ENOENT" });
     assert.equal((await guard.inspectNativeReservation())?.reservationId, reservation!.reservationId);
+    const inspected = JSON.parse(textFrom(await client.callTool({ name: "editor.native.recovery.inspect", arguments: {} })));
+    assert.deepEqual(inspected.senderExecution, { status: "sender-settled", nativeQuiescence: "unproven" });
   } finally { finish(""); await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
