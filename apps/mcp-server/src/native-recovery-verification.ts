@@ -50,6 +50,14 @@ export async function recoveryBindingFromReservation(
   outcome: RecoveryBinding["outcome"],
 ): Promise<RecoveryBinding> {
   const reservation = await guard.inspectNativeReservation();
+  return bindingFromRecord(reservation, expectedReservationId, outcome);
+}
+
+function bindingFromRecord(
+  reservation: Awaited<ReturnType<FileCanonicalRecoveryGuard["inspectNativeReservation"]>>,
+  expectedReservationId: string,
+  outcome: RecoveryBinding["outcome"],
+): RecoveryBinding {
   const context = reservation?.recoveryContext;
   if (!reservation || reservation.reservationId !== expectedReservationId || !context
     || typeof context.executorIdentity !== "string" || !("canonicalTarget" in context)
@@ -58,6 +66,19 @@ export async function recoveryBindingFromReservation(
   if (!expectedDigest) invalid();
   return { kind: context.kind, reservationId: reservation.reservationId, dispatchId: context.dispatchId, jobId: context.jobId,
     executorIdentity: context.executorIdentity, target: structuredClone(context.canonicalTarget), expectedDigest, outcome };
+}
+
+/** Internal only: production does not configure an authoritative receiver source. */
+export async function recoverVerifiedNative(
+  guard: FileCanonicalRecoveryGuard,
+  expectedReservationId: string,
+  outcome: RecoveryBinding["outcome"],
+  source: NativeRecoveryEvidenceSource,
+): Promise<{ outcome: RecoveryBinding["outcome"]; alreadyReleased: boolean }> {
+  return guard.completeVerifiedNative(expectedReservationId, outcome, async (reservation) => {
+    const binding = bindingFromRecord(reservation, expectedReservationId, outcome);
+    return verifyNativeRecovery(binding, source);
+  });
 }
 
 function targetMatches(kind: RecoveryBinding["kind"], expected: Record<string, string>, observed: Record<string, string>): boolean {
