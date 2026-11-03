@@ -1271,6 +1271,22 @@ test("native inspect classifies a bounded preflight timeout", async () => {
   assert.equal(inspected.readiness.nextAction, "retry");
 });
 
+test("native executor remains pending after a timed-out request until it settles", async () => {
+  let finish!: (value: string) => void;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    nativePreflightTimeoutMs: 20,
+    executor: async () => await new Promise<string>((resolve) => { finish = resolve; }),
+  });
+
+  const result = await adapter.inspect();
+  assert.equal(result.error?.code, "FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT");
+  assert.equal(adapter.hasPendingNativeExecution(), true);
+  finish("");
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(adapter.hasPendingNativeExecution(), false);
+});
+
 test("native inspect propagates caller cancellation to the native executor", async () => {
   const controller = new AbortController();
   let executorSignal: AbortSignal | undefined;
