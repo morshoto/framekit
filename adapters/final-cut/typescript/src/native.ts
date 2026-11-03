@@ -811,7 +811,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly requestContext = new AsyncLocalStorage<NativeFinalCutRequestOptions>();
   private readonly dispatchContext = new AsyncLocalStorage<{ onDispatch: () => void; reservationId?: string }>();
   private readonly pendingNativeExecutions = new Set<Promise<unknown>>();
-  private readonly executionStates = new Map<string, { pending: number; aborted: boolean; started: boolean }>();
+  private readonly executionStates = new Map<string, { pending: number; aborted: boolean; started: boolean; active: boolean }>();
   private nativeUiDepth = 0;
   private readonly operations = new Map<string, NativeOperationRecord>();
   private latestOperationId?: string;
@@ -943,7 +943,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   /** Process-local executor status; even settled execution does not prove native quiescence. */
   public nativeExecutionStatus(reservationId: string): "unknown" | "running" | "abort-requested" | "executor-settled" {
     const state = this.executionStates.get(reservationId);
-    return !state?.started ? "unknown" : state.pending === 0 ? "executor-settled" : state.aborted ? "abort-requested" : "running";
+    return !state?.started ? "unknown" : state.active || state.pending > 0 ? state.aborted ? "abort-requested" : "running" : "executor-settled";
   }
 
   private trackNativeExecution<T>(execution: Promise<T>): Promise<T> {
@@ -1096,17 +1096,23 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   }
 
   public async trackNativeDispatch<T>(operation: () => Promise<T>, onDispatch: () => void, reservationId?: string): Promise<T> {
+    let state: { pending: number; aborted: boolean; started: boolean; active: boolean } | undefined;
     if (reservationId) {
       if (this.executionStates.has(reservationId)) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: reservation execution already tracked");
       if (this.executionStates.size >= 256) {
         for (const [id, state] of this.executionStates) {
-          if (state.pending === 0) this.executionStates.delete(id);
+          if (!state.active && state.pending === 0) this.executionStates.delete(id);
           if (this.executionStates.size < 256) break;
         }
       }
-      this.executionStates.set(reservationId, { pending: 0, aborted: false, started: false });
+      state = { pending: 0, aborted: false, started: false, active: true };
+      this.executionStates.set(reservationId, state);
     }
-    return this.dispatchContext.run({ onDispatch, reservationId }, operation);
+    try {
+      return await this.dispatchContext.run({ onDispatch, reservationId }, operation);
+    } finally {
+      if (state) state.active = false;
+    }
   }
 
   public async trimSelectedClipToRange(
