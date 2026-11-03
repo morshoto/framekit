@@ -676,11 +676,13 @@ test("materialization excludes canonical edits and never retries an uncertain pu
   const held = new Promise<void>((resolve) => { finish = resolve; });
   let publishes = 0;
   let runningJobId = "";
+  let receivedDispatchId = "";
   let execution: ReturnType<Client["callTool"]> | undefined;
   const connected = await connect(directory, {
     publish: async (request) => {
       publishes += 1;
       runningJobId = request.jobId;
+      receivedDispatchId = request.dispatchId ?? "";
       started();
       await held;
       return { state: "completed", canonicalReadback: request.desired, canonicalTarget: canonicalTarget(request), headedNativeVerified: false };
@@ -699,6 +701,8 @@ test("materialization excludes canonical edits and never retries an uncertain pu
       assert.equal(persisted?.reservationId, running.recoveryReservation.reservationId);
       assert.equal(persisted?.recoveryContext?.jobId, runningJobId);
       assert.match(persisted?.recoveryContext?.dispatchId ?? "", /^[0-9a-f-]{36}$/);
+      assert.equal(running.recoveryReservation.dispatchId, persisted?.recoveryContext?.dispatchId);
+      assert.equal(receivedDispatchId, persisted?.recoveryContext?.dispatchId);
       assert.deepEqual(persisted?.recoveryContext?.requestedTarget, {
         libraryUid: running.target.libraryUid, eventUid: running.target.eventUid,
         projectUid: running.destination.projectUid, sequenceUid: running.destination.sequenceUid,
