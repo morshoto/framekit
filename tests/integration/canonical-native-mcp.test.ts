@@ -1147,6 +1147,7 @@ test("publish reserves its requested target and dispatch identity across restart
     assert.equal(afterRestart?.recoveryContext?.kind, "publish");
     assert.equal(afterRestart?.recoveryContext?.jobId, jobId);
     assert.match(afterRestart?.recoveryContext?.dispatchId ?? "", /^[0-9a-f-]{36}$/);
+    assert.equal(result.recoveryReservation.dispatchId, afterRestart?.recoveryContext?.dispatchId);
     assert.deepEqual(afterRestart?.recoveryContext?.requestedTarget, { libraryPath: requestedLibraryPath });
     assert.equal(afterRestart?.recoveryContext?.artifactDigest, artifactDigest);
     assert.equal(afterRestart?.recoveryContext?.nativeQuiescence, "unproven");
