@@ -780,6 +780,7 @@ test("recovery requires proven restoration and propagates unavailable receiver",
     complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true };
   const provider = { observeReceiver: async () => receipt, readCanonical: async () => observation };
   assert.equal((await verifyNativeRecovery(binding, provider)).outcome, "restored");
+  assert.equal((await verifyNativeRecovery(binding, { ...provider, observeReceiver: async () => ({ ...receipt, outcome: "completed" as const }) })).outcome, "restored");
   await assert.rejects(verifyNativeRecovery(binding, { ...provider, readCanonical: async () => ({ ...observation, digest: "c".repeat(64) }) }), /RECOVERY_EVIDENCE_INVALID/);
   await assert.rejects(verifyNativeRecovery(binding, { ...provider, observeReceiver: async () => { throw new Error("receiver unavailable"); } }), /receiver unavailable/);
 });
