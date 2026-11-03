@@ -1423,9 +1423,9 @@ test("verified publish recovery permits a later publish across servers", async (
     assertClear: guard.assertClear.bind(guard), inspectVersioned: guard.inspectVersioned.bind(guard),
     inspectNativeReservation: guard.inspectNativeReservation.bind(guard), completeVerifiedNative: guard.completeVerifiedNative.bind(guard),
     inspectCompletedNative: (id: string) => (guard as unknown as { inspectCompletedNative(id: string): Promise<boolean> }).inspectCompletedNative(id),
-    beginNative: async (operation: string, context: Record<string, unknown>) => guard.beginNative(operation, {
+    beginNative: async (operation: string, context: Record<string, unknown>, options?: { trackExecution?: boolean }) => guard.beginNative(operation, {
       ...context, executorIdentity: "mock-receiver-1", dispatchState: "intent", canonicalTarget: target, expectedCanonicalDigest: "b".repeat(64),
-    } as never),
+    } as never, options),
   };
   let publishes = 0;
   const projectPublisher = {

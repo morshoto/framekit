@@ -25,6 +25,11 @@ test("another guard cannot recover while a publisher is active", async () => {
     assert.equal(verified, false);
     assert.equal((await other.inspectNativeReservation())?.reservationId, owner.reservationId);
     await owner.finishExecution();
+    await assert.rejects(other.beginNativeExecution("c".repeat(64)), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    const finishContinuation = await other.beginNativeExecution(owner.reservationId);
+    await assert.rejects(guard.beginNativeExecution(owner.reservationId), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await assert.rejects(guard.completeVerifiedNative(owner.reservationId, "completed", verify), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await finishContinuation();
     assert.deepEqual(await other.completeVerifiedNative(owner.reservationId, "completed", verify), { outcome: "completed", alreadyReleased: false });
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

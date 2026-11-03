@@ -166,19 +166,7 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
       const reservationId = createHash("sha256").update(contents).digest("hex");
       let finishExecution: (() => Promise<void>) | undefined;
       if (options?.trackExecution) {
-        const activity = JSON.stringify({ reservationId, owner }) + "\n";
-        const activityHandle = await open(`${this.path}.active`, "wx", 0o600);
-        try { await activityHandle.writeFile(activity); await activityHandle.sync(); } finally { await activityHandle.close(); }
-        const parent = await open(dirname(this.path), "r");
-        try { await parent.sync(); } finally { await parent.close(); }
-        finishExecution = async () => this.withTransaction(async () => {
-          if ((await this.readRecoveryFile(`${this.path}.active`)).toString("utf8") !== activity) {
-            throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: native execution ownership changed");
-          }
-          await unlink(`${this.path}.active`);
-          const parent = await open(dirname(this.path), "r");
-          try { await parent.sync(); } finally { await parent.close(); }
-        });
+        finishExecution = await this.createNativeExecution(reservationId);
       }
       let released = false;
       let releaseInFlight: Promise<void> | undefined;
@@ -194,6 +182,32 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
           if (releaseInFlight === pending) releaseInFlight = undefined;
         }
       } };
+    });
+  }
+
+  /** Protect a continuation of an existing reservation across cooperating processes. */
+  public async beginNativeExecution(reservationId: string): Promise<() => Promise<void>> {
+    if (!/^[a-f0-9]{64}$/.test(reservationId)) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: invalid reservation identity");
+    return this.withTransaction(async () => {
+      if ((await this.readNativeReservation())?.reservationId !== reservationId) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: reservation changed before native execution");
+      await this.assertNoNativeExecution();
+      return this.createNativeExecution(reservationId);
+    });
+  }
+
+  private async createNativeExecution(reservationId: string): Promise<() => Promise<void>> {
+    const activity = JSON.stringify({ reservationId, owner: randomUUID() }) + "\n";
+    const activityHandle = await open(`${this.path}.active`, "wx", 0o600);
+    try { await activityHandle.writeFile(activity); await activityHandle.sync(); } finally { await activityHandle.close(); }
+    const parent = await open(dirname(this.path), "r");
+    try { await parent.sync(); } finally { await parent.close(); }
+    return async () => this.withTransaction(async () => {
+      if ((await this.readRecoveryFile(`${this.path}.active`)).toString("utf8") !== activity) {
+        throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: native execution ownership changed");
+      }
+      await unlink(`${this.path}.active`);
+      const parent = await open(dirname(this.path), "r");
+      try { await parent.sync(); } finally { await parent.close(); }
     });
   }
 

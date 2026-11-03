@@ -963,7 +963,7 @@ export interface McpServerOptions {
   disposableNative?: Pick<DisposableNativeEditWorkflow, "preview" | "execute" | "undo">;
   nativeOperationSession?: Pick<NativeOperationSession, "submit" | "status" | "retry" | "cancel">;
   projectPublisher?: FinalCutProjectPublisher;
-  canonicalRecovery?: Pick<FileCanonicalRecoveryGuard, "inspectVersioned" | "inspectNativeReservation" | "assertClear" | "beginNative"> & Partial<Pick<FileCanonicalRecoveryGuard, "completeVerifiedNative" | "inspectCompletedNative">>;
+  canonicalRecovery?: Pick<FileCanonicalRecoveryGuard, "inspectVersioned" | "inspectNativeReservation" | "assertClear" | "beginNative"> & Partial<Pick<FileCanonicalRecoveryGuard, "completeVerifiedNative" | "inspectCompletedNative" | "beginNativeExecution">>;
   nativeRecoveryEvidence?: NativeRecoveryEvidenceSource;
   videoExporter?: FinalCutVideoExporter;
   backgroundRenderer?: BackgroundRenderExportProvider;
@@ -3103,7 +3103,7 @@ async function assertRequiredBuildAlignment(runtime: AgentVideoRuntime, options:
 
 function withPublishRecoveryGuard<T extends object>(
   provider: T,
-  recovery: Pick<FileCanonicalRecoveryGuard, "assertClear" | "beginNative" | "inspectNativeReservation"> & Partial<Pick<FileCanonicalRecoveryGuard, "inspectCompletedNative">>,
+  recovery: Pick<FileCanonicalRecoveryGuard, "assertClear" | "beginNative" | "inspectNativeReservation"> & Partial<Pick<FileCanonicalRecoveryGuard, "inspectCompletedNative" | "beginNativeExecution">>,
   notification: { active: number; recovering: boolean; completed(reservationId: string): void },
 ): T {
   const allowed = new Set<PropertyKey>(["isAvailable", "inspectReadiness", "executionMode", "getPublishJob", "loadPublishJob", "preparePublish"]);
@@ -3128,6 +3128,7 @@ function withPublishRecoveryGuard<T extends object>(
         try {
         const jobId = property === "executePublishJob" && typeof args[0] === "string" ? args[0] : undefined;
         let entry = current;
+        let finishExecution: (() => Promise<void>) | undefined;
         if (entry && !entry.active && recovery.inspectCompletedNative) {
           const candidate = entry;
           candidate.active = true;
@@ -3146,12 +3147,15 @@ function withPublishRecoveryGuard<T extends object>(
           }
           entry.active = true;
           try {
+            if (!recovery.beginNativeExecution) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: shared execution tracking unavailable");
+            finishExecution = await recovery.beginNativeExecution(entry.reservation.reservationId);
             const observed = await recovery.inspectNativeReservation();
             const getJob = Reflect.get(target, "getPublishJob", target) as (id: string) => { state?: string };
             if (observed?.reservationId !== entry.reservation.reservationId || getJob.call(target, jobId).state !== "verification-pending") {
               throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish reservation or job changed before verification");
             }
           } catch (error) {
+            if (finishExecution) await finishExecution();
             entry.active = false;
             throw error;
           }
@@ -3166,7 +3170,9 @@ function withPublishRecoveryGuard<T extends object>(
             ? { kind: "publish" as const, jobId, dispatchId: randomUUID(), requestedTarget: { libraryPath: job.targetLibraryPath },
                 artifactDigest: job.artifactDigest, executorIdentity: null, nativeQuiescence: "unproven" as const }
             : undefined;
-          const reservation = await recovery.beginNative(operation, context);
+          const reservation = await recovery.beginNative(operation, context, { trackExecution: true });
+          if (!reservation.finishExecution) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: shared execution tracking unavailable");
+          finishExecution = reservation.finishExecution;
           const track = Reflect.get(target, "trackNativeDispatch", target);
           entry = { jobId, dispatchId: context?.dispatchId, reservation, active: true, dispatched: pending || typeof track !== "function", recovered: false };
           current = entry;
@@ -3183,6 +3189,7 @@ function withPublishRecoveryGuard<T extends object>(
           }
           return result;
         } finally {
+          if (finishExecution) await finishExecution();
           entry.active = false;
           if (entry.recovered && current === entry) current = undefined;
           if (!entry.dispatched) {
