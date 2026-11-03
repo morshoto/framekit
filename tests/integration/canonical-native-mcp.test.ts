@@ -1415,13 +1415,14 @@ test("MCP recovery requires confirmation and trusted evidence for both routes", 
   }
 });
 
-test("verified publish recovery permits a later publish in the same server", async () => {
+test("verified publish recovery permits a later publish across servers", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-mcp-publish-recovered-"));
   const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
   const target = { libraryPath: join(directory, "target.fcpbundle"), projectUid: "project-1", sequenceUid: "sequence-1" };
   const recovery = {
     assertClear: guard.assertClear.bind(guard), inspectVersioned: guard.inspectVersioned.bind(guard),
     inspectNativeReservation: guard.inspectNativeReservation.bind(guard), completeVerifiedNative: guard.completeVerifiedNative.bind(guard),
+    inspectCompletedNative: (id: string) => (guard as unknown as { inspectCompletedNative(id: string): Promise<boolean> }).inspectCompletedNative(id),
     beginNative: async (operation: string, context: Record<string, unknown>) => guard.beginNative(operation, {
       ...context, executorIdentity: "mock-receiver-1", dispatchState: "intent", canonicalTarget: target, expectedCanonicalDigest: "b".repeat(64),
     } as never),
@@ -1438,14 +1439,15 @@ test("verified publish recovery permits a later publish in the same server", asy
     readCanonical: async () => ({ target, digest: "b".repeat(64), complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true }),
   };
   const { client, server } = await connect(createRuntime([]), { canonicalRecovery: recovery, projectPublisher, nativeRecoveryEvidence: source } as never);
+  const other = await connect(createRuntime([]), { canonicalRecovery: recovery, nativeRecoveryEvidence: source } as never);
   try {
     const first = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "publish-job-1", confirm: true } });
     assert.equal(first.isError ?? false, false, textFrom(first));
     const reservationId = JSON.parse(textFrom(first)).recoveryReservation.reservationId;
-    const recovered = await client.callTool({ name: "editor.native.recovery.execute", arguments: { expectedReservationId: reservationId, outcome: "completed", confirm: true } });
+    const recovered = await other.client.callTool({ name: "editor.native.recovery.execute", arguments: { expectedReservationId: reservationId, outcome: "completed", confirm: true } });
     assert.equal(recovered.isError ?? false, false, textFrom(recovered));
     const second = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "publish-job-2", confirm: true } });
     assert.equal(second.isError ?? false, false, textFrom(second));
     assert.equal(publishes, 2);
-  } finally { await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
+  } finally { await client.close(); await server.close(); await other.client.close(); await other.server.close(); await rm(directory, { recursive: true, force: true }); }
 });
