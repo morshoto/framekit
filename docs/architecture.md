@@ -135,7 +135,11 @@ is no automatic checkpoint reset or supported recovery flow yet. The read-only
 native-operation reservation in the configured state directory without inventing
 a target, contacting Final Cut, or clearing it. For a native reservation it
 also reports the current process's executor status for that reservation ID;
-missing, restarted, or evicted observations are `unknown`. Executor settlement
+missing, restarted, or evicted observations are `unknown`. New materialization
+reservations and publish jobs with a requested library path also record their
+job, local dispatch ID, requested target and artifact digest. These are request
+correlation evidence, not a receiver-issued operation ID or an observed native
+target; executor identity and quiescence remain unproven. Executor settlement
 does not prove native quiescence and the inspection never authorizes release. A
 clear result is point-in-time and does not establish recovery or the state of
 other directories. `session.materialize.recovery.inspect` binds a specified
