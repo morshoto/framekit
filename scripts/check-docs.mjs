@@ -12,7 +12,8 @@ export const CANONICAL_DOCS = Object.freeze([
 ]);
 
 export function findNonCanonicalDocs(paths) {
-  const allowed = new Set(CANONICAL_DOCS);
+  // Issue 676 explicitly requires this decision record; other ADRs remain disallowed.
+  const allowed = new Set([...CANONICAL_DOCS, "docs/adr/0676-native-recovery.md"]);
   return [...new Set(paths.filter((filePath) => filePath === "docs" || filePath.startsWith("docs/")))]
     .filter((filePath) => !allowed.has(filePath))
     .sort();
