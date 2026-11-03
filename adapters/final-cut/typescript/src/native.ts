@@ -4,7 +4,6 @@ import { execFile as execFileCallback } from "node:child_process";
 import { access, constants, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, extname, resolve } from "node:path";
-import { promisify } from "node:util";
 import { assertValidTimelineTarget } from "@framekit/runtime";
 import type {
   ContextRevision,
@@ -17,8 +16,6 @@ import type {
   TimelineTarget,
 } from "@framekit/runtime";
 import type { NativeOperationLease } from "./native-operation.js";
-
-const execFile = promisify(execFileCallback);
 
 class NativeFinalCutPreflightError extends Error {
   public constructor(
@@ -3581,7 +3578,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       })
       : undefined;
     this.dispatchContext.getStore()?.onDispatch();
-    const execution = this.trackNativeExecution(execFile("swift", ["-e", source], { signal: controller.signal }));
+    const execution = this.trackNativeExecution(executeNativeSender("swift", ["-e", source], controller.signal));
     try {
       await Promise.race([execution, timeout, ...(cancellation ? [cancellation] : [])]);
     } catch (error) {
@@ -4274,10 +4271,32 @@ function rationalText(value: RationalTime): string {
   return `${value.value}/${value.timescale}`;
 }
 
+/** Resolves only after the directly spawned sender closes, including after abort. */
+export function executeNativeSender(command: string, args: string[], signal?: AbortSignal): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let closed = false;
+    let callbackReceived = false;
+    let failure: Error | null = null;
+    let output = "";
+    const settle = () => {
+      if (!closed || !callbackReceived) return;
+      if (failure) reject(failure);
+      else resolve(output);
+    };
+    const child = execFileCallback(command, args, { maxBuffer: 1_000_000, signal }, (error, stdout) => {
+      failure = error;
+      output = stdout;
+      callbackReceived = true;
+      settle();
+    });
+    child.once("close", () => { closed = true; settle(); });
+  });
+}
+
 async function runAppleScript(script: string, options: NativeFinalCutExecutorOptions = {}): Promise<string> {
   try {
-    const result = await execFile("osascript", ["-e", script], { maxBuffer: 1_000_000, signal: options.signal });
-    return result.stdout.trim();
+    const result = await executeNativeSender("osascript", ["-e", script], options.signal);
+    return result.trim();
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     if (detail.includes("not authorized") || detail.includes("-1743") || detail.includes("-25211")) {
