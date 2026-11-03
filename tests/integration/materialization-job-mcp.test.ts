@@ -905,3 +905,22 @@ test("materialization does not claim a provider request when tracking fails firs
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("materialization refuses dispatch when shared execution tracking is missing", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-no-tracking-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const withoutTracking = {
+    assertClear: guard.assertClear.bind(guard), inspectVersioned: guard.inspectVersioned.bind(guard), inspectNativeReservation: guard.inspectNativeReservation.bind(guard),
+    beginNative: (operation: string, context: Parameters<typeof guard.beginNative>[1]) => guard.beginNative(operation, context),
+  };
+  let publishes = 0;
+  const connected = await connect(directory, { publish: async () => { publishes++; throw new Error("unexpected dispatch"); } }, undefined, "default", withoutTracking as never);
+  try {
+    await connected.client.callTool({ name: "session.create", arguments: { sessionId: "session-no-tracking", provider: { id: "final-cut" }, base: timeline() } });
+    const result = payload(await connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "session-no-tracking", target, confirm: true } }));
+    assert.equal(result.state, "blocked");
+    assert.equal(result.error.code, "FINAL_CUT_CANONICAL_RECOVERY_REQUIRED");
+    assert.equal(publishes, 0);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally { await connected.client.close(); await connected.server.close(); await rm(directory, { recursive: true, force: true }); }
+});
