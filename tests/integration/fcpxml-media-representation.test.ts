@@ -37,6 +37,7 @@ test("missing original media paths are not invented from resource names or IDs",
       <asset id="r2" name="same.mov" duration="1s" hasVideo="1"/>
       <asset id="r3" duration="1s" hasVideo="1"><media-rep kind="proxy-media" src="file:///proxy.mov"/></asset>
       <asset id="r4" name="blank.mov" src="" duration="1s" hasVideo="1"/>
+      <asset id="r5" name="remote.mov" src="https://example.test/remote.mov" duration="1s" hasVideo="1"/>
       </resources><library><event><project uid="project" name="QA">
       <sequence uid="sequence" duration="1s"><spine>
         <asset-clip ref="r2" offset="0s" duration="1s"/>
@@ -46,6 +47,7 @@ test("missing original media paths are not invented from resource names or IDs",
       { mediaId: "r2", source: "" },
       { mediaId: "r3", source: "" },
       { mediaId: "r4", source: "" },
+      { mediaId: "r5", source: "https://example.test/remote.mov" },
     ]);
     let searches = 0;
     const resolve = createFinalCutNativeTargetResolver({
@@ -53,6 +55,8 @@ test("missing original media paths are not invented from resource names or IDs",
       locateOccurrence: async () => { throw new Error("unexpected occurrence discovery"); },
     });
     await assert.rejects(resolve(snapshot.timeline.clips[0]!, snapshot), /TARGET_MISMATCH: media r2 has no source binding/);
+    const remoteClip = { ...snapshot.timeline.clips[0]!, mediaId: "r5" };
+    await assert.rejects(resolve(remoteClip, snapshot), /TARGET_MISMATCH: independently observed Browser source/);
     assert.equal(searches, 0);
   } finally {
     await rm(directory, { recursive: true, force: true });

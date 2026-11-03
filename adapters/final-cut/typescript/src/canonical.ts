@@ -708,14 +708,17 @@ export function createFinalCutNativeTargetResolver(
     if (!media?.source) throw new Error(`TARGET_MISMATCH: media ${clip.mediaId} has no source binding`);
     const query = sourceBasename(media.source);
     if (!query) throw new Error(`TARGET_MISMATCH: media ${clip.mediaId} has no searchable source basename`);
+    const expectedSource = exactLocalSourcePath(media.source);
+    if (!expectedSource) {
+      throw new Error(`TARGET_MISMATCH: independently observed Browser source does not match the canonical source for ${clip.id}`);
+    }
 
     const searchMedia = native.searchMediaForCanonicalTarget ?? native.searchMedia;
     const matches = (await searchMedia.call(native, query))
       .filter((match) => match.name.toLocaleLowerCase() === query.toLocaleLowerCase());
     if (matches.length === 0) throw new Error(`TARGET_MISMATCH: Final Cut Browser has no exact media match for ${query}`);
-    const expectedSource = exactLocalSourcePath(media.source);
     const observedSources = matches.map((candidate) => candidate.source ? exactLocalSourcePath(candidate.source) : undefined);
-    if (!expectedSource || observedSources.some((source) => !source)) {
+    if (observedSources.some((source) => !source)) {
       throw new Error(`TARGET_MISMATCH: independently observed Browser source does not match the canonical source for ${clip.id}`);
     }
     const sourceMatches = matches.filter((_candidate, index) => observedSources[index] === expectedSource);

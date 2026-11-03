@@ -1121,6 +1121,7 @@ export function resolveMediaSource(source: string, documentPath: string): string
       return source;
     }
   }
+  if (/^[a-z][a-z0-9+.-]*:/i.test(source)) return source;
   if (isAbsolute(source)) return source;
   return resolve(dirname(documentPath), source);
 }
