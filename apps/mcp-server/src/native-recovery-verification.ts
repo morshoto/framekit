@@ -65,7 +65,8 @@ export async function verifyNativeRecovery(binding: RecoveryBinding, source: Nat
   if (!receipt || receipt.state !== "terminal" || receipt.reservationId !== expected.reservationId
     || receipt.dispatchId !== expected.dispatchId || receipt.jobId !== expected.jobId
     || receipt.executorIdentity !== expected.executorIdentity
-    || receipt.outcome !== (expected.outcome === "completed" ? "completed" : "failed")
+    || (receipt.outcome !== "completed" && receipt.outcome !== "failed")
+    || (expected.outcome === "completed" && receipt.outcome !== "completed")
     || typeof receipt.receiptId !== "string" || !receipt.receiptId.trim() || receipt.receiptId.length > 1024) invalid();
   const receiptId = receipt.receiptId;
   const observed = await source.readCanonical(structuredClone(expected));
