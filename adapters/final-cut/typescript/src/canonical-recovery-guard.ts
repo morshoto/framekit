@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readFile, rmdir, unlink } from "node:fs/promises";
-import { dirname, isAbsolute } from "node:path";
+import { link, lstat, mkdir, open, readFile, rmdir, unlink } from "node:fs/promises";
+import { dirname, isAbsolute, join } from "node:path";
 import type { CanonicalRecoveryCheckpoint, CanonicalRecoveryGuard } from "./canonical.js";
 
 /** Requested evidence only: none of these fields establishes dispatch or quiescence. */
@@ -162,10 +162,18 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
         await handle?.close();
       }
       let released = false;
+      let releaseInFlight: Promise<void> | undefined;
       return { reservationId: createHash("sha256").update(contents).digest("hex"), release: async () => {
-        if (released) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: native reservation was already released");
-        await this.completeOwned(owner, version);
-        released = true;
+        if (released) return;
+        if (!releaseInFlight) {
+          releaseInFlight = this.completeOwned(owner, version).then(() => { released = true; });
+        }
+        const pending = releaseInFlight;
+        try {
+          await pending;
+        } finally {
+          if (releaseInFlight === pending) releaseInFlight = undefined;
+        }
       } };
     });
   }
@@ -232,6 +240,76 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
     if (!this.owner) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: checkpoint ownership is unavailable");
     await this.completeOwned(this.owner, 1);
     this.owner = undefined;
+  }
+
+  /** Internal recovery seam. The verifier must be backed by an authoritative receiver. */
+  public async completeVerifiedNative(
+    reservationId: string,
+    outcome: "completed" | "restored",
+    verify: (reservation: NonNullable<Awaited<ReturnType<FileCanonicalRecoveryGuard["inspectNativeReservation"]>>>) => Promise<{ receiptId: string; outcome: "completed" | "restored" }>,
+  ): Promise<{ outcome: "completed" | "restored"; alreadyReleased: boolean }> {
+    if (!/^[a-f0-9]{64}$/.test(reservationId) || !["completed", "restored"].includes(outcome)) throw new Error("RECOVERY_EVIDENCE_INVALID: invalid recovery identity");
+    return this.withTransaction(async () => {
+      const receiptDirectory = `${this.path}.completed`;
+      const receiptPath = join(receiptDirectory, reservationId);
+      const proofPath = `${receiptPath}.proof`;
+      const current = await this.readNativeReservation();
+      if (!current || current.reservationId !== reservationId) {
+        try {
+          const record = await this.readRecoveryFile(receiptPath);
+          const proof = JSON.parse((await this.readRecoveryFile(proofPath)).toString("utf8")) as { reservationId?: unknown; outcome?: unknown; receiptId?: unknown };
+          if (createHash("sha256").update(record).digest("hex") !== reservationId || proof.reservationId !== reservationId
+            || proof.outcome !== outcome || typeof proof.receiptId !== "string" || !proof.receiptId.trim()) throw new Error("invalid completed recovery record");
+          return { outcome, alreadyReleased: true };
+        } catch (error) {
+          throw new Error("RECOVERY_EVIDENCE_INVALID: no matching completed recovery", { cause: error });
+        }
+      }
+      if (!current.recoveryContext || typeof current.recoveryContext.executorIdentity !== "string" || !("canonicalTarget" in current.recoveryContext)) {
+        throw new Error("RECOVERY_EVIDENCE_INVALID: reservation lacks a bound receiver");
+      }
+      const verified = await verify(current);
+      if (!verified || verified.outcome !== outcome || typeof verified.receiptId !== "string" || !verified.receiptId.trim() || verified.receiptId.length > 1024) {
+        throw new Error("RECOVERY_EVIDENCE_INVALID: verification did not prove the requested outcome");
+      }
+      if ((await this.readNativeReservation())?.reservationId !== reservationId) throw new Error("RECOVERY_EVIDENCE_INVALID: reservation changed during verification");
+      try {
+        await mkdir(receiptDirectory, { mode: 0o700 });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        const info = await lstat(receiptDirectory);
+        if (!info.isDirectory() || info.isSymbolicLink()) {
+          throw new Error("RECOVERY_EVIDENCE_INVALID: invalid completed recovery directory", { cause: error });
+        }
+      }
+      const proof = JSON.stringify({ reservationId, outcome, receiptId: verified.receiptId }) + "\n";
+      try {
+        const proofHandle = await open(proofPath, "wx", 0o600);
+        try { await proofHandle.writeFile(proof); await proofHandle.sync(); } finally { await proofHandle.close(); }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST" || (await this.readRecoveryFile(proofPath)).toString("utf8") !== proof) throw error;
+      }
+      try {
+        await link(this.path, receiptPath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST" || createHash("sha256").update(await this.readRecoveryFile(receiptPath)).digest("hex") !== reservationId) throw error;
+      }
+      const directory = await open(receiptDirectory, "r");
+      try { await directory.sync(); } finally { await directory.close(); }
+      await unlink(this.path);
+      const parent = await open(dirname(this.path), "r");
+      try { await parent.sync(); } finally { await parent.close(); }
+      return { outcome, alreadyReleased: false };
+    });
+  }
+
+  private async readRecoveryFile(path: string): Promise<Buffer> {
+    const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      const info = await handle.stat();
+      if (!info.isFile() || info.size > 16_384) throw new Error("invalid recovery record");
+      return await handle.readFile();
+    } finally { await handle.close(); }
   }
 
   private async completeOwned(owner: string, version: number): Promise<void> {
