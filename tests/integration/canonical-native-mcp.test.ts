@@ -1379,10 +1379,11 @@ test("MCP recovery requires confirmation and trusted evidence for both routes", 
     const guard = new FileCanonicalRecoveryGuard(path);
     const reservation = await guard.beginNative(operation, context as never);
     let reads = 0;
+    let wrongTarget = false;
     const source: NativeRecoveryEvidenceSource = {
       observeReceiver: async (binding) => ({ reservationId: binding.reservationId, jobId: binding.jobId, dispatchId: binding.dispatchId,
         executorIdentity: binding.executorIdentity, state: "terminal", outcome: "completed", receiptId: "mock-receipt" }),
-      readCanonical: async () => { reads++; return { target, digest: context.expectedCanonicalDigest, complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true }; },
+      readCanonical: async () => { reads++; return { target: wrongTarget ? { ...target, projectUid: "wrong" } : target, digest: context.expectedCanonicalDigest, complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true }; },
     };
     const absent = await connect(createRuntime([]), { canonicalRecovery: guard });
     const ready = await connect(createRuntime([]), { canonicalRecovery: guard, nativeRecoveryEvidence: source } as never);
@@ -1395,13 +1396,18 @@ test("MCP recovery requires confirmation and trusted evidence for both routes", 
       assert.equal(unconfirmed.isError, true);
       assert.equal(reads, 0);
       await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+      wrongTarget = true;
+      const mismatch = await ready.client.callTool({ name: "editor.native.recovery.execute", arguments: args });
+      assert.equal(mismatch.isError, true);
+      await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+      wrongTarget = false;
       const recovered = await ready.client.callTool({ name: "editor.native.recovery.execute", arguments: args });
       assert.equal(recovered.isError ?? false, false, textFrom(recovered));
       assert.deepEqual(JSON.parse(textFrom(recovered)), { outcome: "completed", alreadyReleased: false });
       await guard.assertClear();
       const repeated = await ready.client.callTool({ name: "editor.native.recovery.execute", arguments: args });
       assert.deepEqual(JSON.parse(textFrom(repeated)), { outcome: "completed", alreadyReleased: true });
-      assert.equal(reads, 1);
+      assert.equal(reads, 2);
     } finally {
       await absent.client.close(); await absent.server.close(); await ready.client.close(); await ready.server.close();
       await rm(directory, { recursive: true, force: true });
