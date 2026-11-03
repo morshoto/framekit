@@ -2629,6 +2629,10 @@ test("canonical source binding is enabled only for an explicitly capable nonsele
   sourceAvailable = true;
   const { locateOccurrenceForCanonicalTarget: _removed, ...withoutDedicatedLocator } = native;
   assert.equal(createFinalCutNativeTargetResolver(withoutDedicatedLocator).sourceBindingAvailable, false);
+  const { selectOccurrence: _removedSelector, ...withoutSelector } = native;
+  const unsafe = createFinalCutNativeTargetResolver(withoutSelector);
+  assert.equal(unsafe.sourceBindingAvailable, false);
+  await assert.rejects(unsafe(project.timeline.clips[0]!, project), /TARGET_MISMATCH.*selection/i);
   assert.equal(createFinalCutNativeTargetResolver({ ...native, capabilities: () => ({ timelineOccurrenceSourceBinding: false }) as never }).sourceBindingAvailable, false);
   assert.equal(createFinalCutNativeTargetResolver({ ...native, capabilities: () => { throw new Error("provider unavailable"); } }).sourceBindingAvailable, false);
 });
