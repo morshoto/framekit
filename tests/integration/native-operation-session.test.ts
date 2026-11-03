@@ -782,3 +782,35 @@ test("recovery requires proven restoration and propagates unavailable receiver",
   await assert.rejects(verifyNativeRecovery(binding, { ...provider, readCanonical: async () => ({ ...observation, digest: "c".repeat(64) }) }), /RECOVERY_EVIDENCE_INVALID/);
   await assert.rejects(verifyNativeRecovery(binding, { ...provider, observeReceiver: async () => { throw new Error("receiver unavailable"); } }), /receiver unavailable/);
 });
+
+test("recovery evidence is fixed before an asynchronous readback", async () => {
+  const binding: RecoveryBinding = { kind: "publish", reservationId: "a".repeat(64), dispatchId: "dispatch-1", jobId: "job-1",
+    executorIdentity: "receiver-1", target: { libraryPath: "/tmp/target.fcpbundle" }, expectedDigest: "b".repeat(64), outcome: "completed" };
+  const receipt: ReceiverObservation = { reservationId: binding.reservationId, dispatchId: binding.dispatchId, jobId: binding.jobId,
+    executorIdentity: binding.executorIdentity, state: "terminal", outcome: "completed", receiptId: "receipt-original" };
+  const result = await verifyNativeRecovery(binding, {
+    observeReceiver: async () => receipt,
+    readCanonical: async () => {
+      receipt.receiptId = "receipt-changed";
+      return { target: binding.target, digest: binding.expectedDigest, complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true };
+    },
+  });
+  assert.equal(result.receiptId, "receipt-original");
+});
+
+test("an unresolved receiver never permits canonical readback", async () => {
+  const binding: RecoveryBinding = { kind: "materialization", reservationId: "a".repeat(64), dispatchId: "dispatch-1", jobId: "job-1", executorIdentity: "receiver-1",
+    target: { libraryUid: "library", eventUid: "event", projectUid: "project", sequenceUid: "sequence" }, expectedDigest: "b".repeat(64), outcome: "completed" };
+  let rejectReceiver!: (reason: Error) => void;
+  let read = false;
+  const receiver = new Promise<ReceiverObservation>((_, reject) => { rejectReceiver = reject; });
+  const pending = verifyNativeRecovery(binding, {
+    observeReceiver: () => receiver,
+    readCanonical: async () => { read = true; throw new Error("unexpected read"); },
+  });
+  await Promise.resolve();
+  assert.equal(read, false);
+  rejectReceiver(new Error("receiver timeout"));
+  await assert.rejects(pending, /receiver timeout/);
+  assert.equal(read, false);
+});
