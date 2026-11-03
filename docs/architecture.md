@@ -142,7 +142,16 @@ correlation evidence, not a receiver-issued operation ID or an observed native
 target; executor identity and quiescence remain unproven. Executor settlement
 does not prove native quiescence and the inspection never authorizes release. A
 clear result is point-in-time and does not establish recovery or the state of
-other directories. `session.materialize.recovery.inspect` binds a specified
+other directories. For an older reservation without execution identity, isolate
+the incident by stopping guarded native automation across clients, retaining the
+configured state directory and recording the inspected reservation ID and
+operation together with any known target and job evidence. Preserve the original
+reservation and related job records for investigation; do not replay the
+operation, remove the reservation, or use another state directory to bypass it.
+Escalate for an operation-specific recovery method when receiver completion and
+the target outcome cannot be established. A passive inspection, process absence,
+or elapsed time alone does not authorize resuming native writes.
+`session.materialize.recovery.inspect` binds a specified
 persisted materialization job to its inspected reservation ID and reports its
 recorded target and destination. This is recorded evidence, not a validated
 canonical outcome; inspection neither proves quiescence nor clears the reservation.
