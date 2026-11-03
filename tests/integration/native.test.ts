@@ -1287,6 +1287,25 @@ test("native executor remains pending after a timed-out request until it settles
   assert.equal(adapter.hasPendingNativeExecution(), false);
 });
 
+test("native execution status stays bound to the reservation after timeout", async () => {
+  let finish!: (value: string) => void;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    nativePreflightTimeoutMs: 20,
+    executor: async () => await new Promise<string>((resolve) => { finish = resolve; }),
+  });
+  const reservationId = "a".repeat(64);
+  const pending = adapter.trackNativeDispatch(() => adapter.inspect(), () => {}, reservationId);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(adapter.nativeExecutionStatus(reservationId), "running");
+  await pending;
+  assert.equal(adapter.nativeExecutionStatus(reservationId), "abort-requested");
+  assert.equal(adapter.nativeExecutionStatus("b".repeat(64)), "unknown");
+  finish("");
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(adapter.nativeExecutionStatus(reservationId), "executor-settled");
+});
+
 test("native inspect propagates caller cancellation to the native executor", async () => {
   const controller = new AbortController();
   let executorSignal: AbortSignal | undefined;
