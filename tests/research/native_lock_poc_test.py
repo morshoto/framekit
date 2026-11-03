@@ -1,6 +1,7 @@
 """Separate-process characterization of a proposed advisory lock (not production)."""
 import json
 import os
+import select
 from pathlib import Path
 import subprocess
 import sys
@@ -37,6 +38,8 @@ class NativeLockPocTest(unittest.TestCase):
                                  stderr=subprocess.PIPE, text=True)
         self.children.append(child)
         # The worker sends an acknowledgement only after acquiring the lock.
+        ready, _, _ = select.select([child.stdout], [], [], 5)
+        self.assertTrue(ready, "worker did not acknowledge lock acquisition")
         self.assertEqual(json.loads(child.stdout.readline()), {"locked": True})
         return child
 
