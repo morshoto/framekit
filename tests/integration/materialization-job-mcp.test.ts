@@ -9,6 +9,7 @@ import { createMcpServer, type SessionMaterializationPublisher } from "../../app
 import { FileCanonicalRecoveryGuard, FinalCutBackgroundMaterializationPublisher } from "@framekit/final-cut";
 import { AgentVideoRuntime, type TimelineIr } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
+import type { NativeRecoveryEvidenceSource } from "../../apps/mcp-server/src/native-recovery-verification.js";
 
 function timeline(): TimelineIr {
   return {
@@ -960,4 +961,58 @@ test("materialization refuses dispatch when shared execution tracking is missing
     assert.equal(publishes, 0);
     await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   } finally { await connected.client.close(); await connected.server.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test("verified materialization recovery permits fresh target-bound resync without replay", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-recovered-resync-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const recovery = {
+    assertClear: guard.assertClear.bind(guard), inspectVersioned: guard.inspectVersioned.bind(guard),
+    inspectNativeReservation: guard.inspectNativeReservation.bind(guard), completeVerifiedNative: guard.completeVerifiedNative.bind(guard),
+    inspectCompletedNativeEvidence: guard.inspectCompletedNativeEvidence.bind(guard),
+    beginNative: (operation: string, context: Record<string, unknown>, options?: { trackExecution?: boolean }) => guard.beginNative(operation, {
+      ...context, executorIdentity: "mock-receiver", dispatchState: "intent", canonicalTarget: context.requestedTarget,
+      expectedCanonicalDigest: context.desiredDigest,
+    } as never, options),
+  };
+  let publishes = 0;
+  let reads = 0;
+  let desired: TimelineIr | undefined;
+  const publisher: SessionMaterializationPublisher = {
+    publish: async (request) => { publishes++; desired = structuredClone(request.desired); return { state: "completed", canonicalReadback: request.desired, canonicalTarget: canonicalTarget(request), headedNativeVerified: false }; },
+    readCanonicalTarget: async ({ target: bound }) => {
+      reads++;
+      const canonicalReadback = structuredClone(desired!);
+      canonicalReadback.project.id = bound.projectUid;
+      canonicalReadback.sequence.id = bound.sequenceUid;
+      return { canonicalReadback, canonicalTarget: bound };
+    },
+  };
+  const source: NativeRecoveryEvidenceSource = {
+    observeReceiver: async (binding) => ({ reservationId: binding.reservationId, dispatchId: binding.dispatchId, jobId: binding.jobId,
+      executorIdentity: binding.executorIdentity, state: "terminal", outcome: "completed", receiptId: "mock-receipt" }),
+    readCanonical: async (binding) => ({ target: binding.target, digest: binding.expectedDigest, complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true }),
+  };
+  const server = createMcpServer(runtime(), { sessionDirectory: join(directory, "sessions"), materializationDirectory: join(directory, "materializations"),
+    sessionMaterializationPublisher: publisher, canonicalRecovery: recovery, nativeRecoveryEvidence: source,
+    sessionChangeSource: { changesSince: async (revision: TimelineIr["revision"]) => ({ from: revision, to: revision }) } } as never);
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "materialization-recovery-test", version: "0.1.0" });
+  await server.connect(serverTransport); await client.connect(clientTransport);
+  try {
+    await client.callTool({ name: "session.create", arguments: { sessionId: "source", provider: { id: "final-cut" }, base: timeline() } });
+    const job = payload(await client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "source", target, confirm: true } }));
+    assert.equal(job.state, "blocked");
+    assert.equal(job.verification.tier, "canonical-verified");
+    const early = await client.callTool({ name: "session.materialize.resync", arguments: { jobId: job.jobId, sessionId: "continued" } });
+    assert.equal(early.isError, true);
+    assert.equal(reads, 0);
+    const recovered = await client.callTool({ name: "editor.native.recovery.execute", arguments: { expectedReservationId: job.recoveryReservation.reservationId, outcome: "completed", confirm: true } });
+    assert.equal(recovered.isError ?? false, false);
+    const resumed = await client.callTool({ name: "session.materialize.resync", arguments: { jobId: job.jobId, sessionId: "continued" } });
+    assert.equal(resumed.isError ?? false, false, JSON.stringify(resumed));
+    assert.equal(payload(resumed).state, "resynced");
+    assert.equal(reads, 1);
+    assert.equal(publishes, 1);
+  } finally { await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
 });
