@@ -152,7 +152,8 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
       await this.assertNoNativeExecution();
       const owner = randomUUID();
       const version = context ? (context.executorIdentity === null ? 3 : 4) : 2;
-      const contents = JSON.stringify({ version, kind: "native-operation", owner, operation, ...(context ? { recoveryContext: context } : {}) }) + "\n";
+      const contents = JSON.stringify({ version, kind: "native-operation", owner, operation,
+        ...(options?.trackExecution ? { senderTracked: true } : {}), ...(context ? { recoveryContext: context } : {}) }) + "\n";
       let handle;
       try {
         handle = await open(this.path, "wx", 0o600);
@@ -190,12 +191,24 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
     if (!/^[a-f0-9]{64}$/.test(reservationId)) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: invalid reservation identity");
     return this.withTransaction(async () => {
       if ((await this.readNativeReservation())?.reservationId !== reservationId) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: reservation changed before native execution");
+      const record = JSON.parse((await this.readRecoveryFile(this.path)).toString("utf8")) as { version?: unknown; senderTracked?: unknown };
+      if (record.version === 4 && record.senderTracked !== true) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: reservation lacks sender tracking");
       await this.assertNoNativeExecution();
       return this.createNativeExecution(reservationId);
     });
   }
 
   private async createNativeExecution(reservationId: string): Promise<() => Promise<void>> {
+    const settledDirectory = `${this.path}.sender-settled`;
+    try { await mkdir(settledDirectory, { mode: 0o700 }); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const info = await lstat(settledDirectory);
+      if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: invalid sender evidence directory");
+    }
+    const settledPath = join(settledDirectory, reservationId);
+    try { await unlink(settledPath); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    const evidenceDirectory = await open(settledDirectory, "r");
+    try { await evidenceDirectory.sync(); } finally { await evidenceDirectory.close(); }
     const activity = JSON.stringify({ reservationId, owner: randomUUID() }) + "\n";
     const activityHandle = await open(`${this.path}.active`, "wx", 0o600);
     try { await activityHandle.writeFile(activity); await activityHandle.sync(); } finally { await activityHandle.close(); }
@@ -205,6 +218,10 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
       if ((await this.readRecoveryFile(`${this.path}.active`)).toString("utf8") !== activity) {
         throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: native execution ownership changed");
       }
+      const settled = await open(settledPath, "wx", 0o600);
+      try { await settled.writeFile(activity); await settled.sync(); } finally { await settled.close(); }
+      const evidenceDirectory = await open(settledDirectory, "r");
+      try { await evidenceDirectory.sync(); } finally { await evidenceDirectory.close(); }
       await unlink(`${this.path}.active`);
       const parent = await open(dirname(this.path), "r");
       try { await parent.sync(); } finally { await parent.close(); }
@@ -341,6 +358,17 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
       await this.assertNoNativeExecution();
       if (!current.recoveryContext || typeof current.recoveryContext.executorIdentity !== "string" || !("canonicalTarget" in current.recoveryContext)) {
         throw new Error("RECOVERY_EVIDENCE_INVALID: reservation lacks a bound receiver");
+      }
+      const stored = JSON.parse((await this.readRecoveryFile(this.path)).toString("utf8")) as { senderTracked?: unknown };
+      if (stored.senderTracked !== true) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: sender tracking was not recorded");
+      try {
+        const directory = `${this.path}.sender-settled`;
+        const info = await lstat(directory);
+        if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("invalid sender settlement directory");
+        const settled = JSON.parse((await this.readRecoveryFile(join(directory, reservationId))).toString("utf8")) as { reservationId?: unknown; owner?: unknown };
+        if (settled.reservationId !== reservationId || typeof settled.owner !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(settled.owner)) throw new Error("invalid sender settlement");
+      } catch (error) {
+        throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: sender settlement is unproven", { cause: error });
       }
       const verified = await verify(current);
       if (!verified || verified.outcome !== outcome || typeof verified.receiptId !== "string" || !verified.receiptId.trim() || verified.receiptId.length > 1024) {
