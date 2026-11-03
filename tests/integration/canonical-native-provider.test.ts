@@ -2388,7 +2388,7 @@ test("a concurrent recovery transaction fails closed for readers and writers", a
     const reservation = await guard.beginNative("native.test");
     await mkdir(lock);
     await assert.rejects(reservation.release(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
-    assert.equal((await guard.inspectNativeReservation())?.reservationId, reservation.reservationId);
+    await assert.rejects(guard.inspectNativeReservation(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     await rm(lock, { recursive: true });
     await reservation.release();
     await mkdir(lock);
@@ -2400,6 +2400,20 @@ test("a concurrent recovery transaction fails closed for readers and writers", a
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("recovery inspection refuses a checkpoint while a transaction is active", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-inspection-lock-"));
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  try {
+    await guard.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "rev-1", beforeDigest: "a".repeat(64), operation: "rename-clip" });
+    await mkdir(`${path}.lock`);
+    await assert.rejects(guard.inspectVersioned(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await rm(`${path}.lock`, { recursive: true });
+    assert.equal((await guard.inspectVersioned())?.checkpoint.projectId, "project-1");
+    await guard.complete();
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
 test("canonical resolver rejects mismatched native identity before selecting an occurrence", async () => {
