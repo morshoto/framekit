@@ -242,6 +242,36 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
     this.owner = undefined;
   }
 
+  /** Inspect a completed recovery without authorizing or clearing a reservation. */
+  public async inspectCompletedNative(reservationId: string): Promise<boolean> {
+    if (!/^[a-f0-9]{64}$/.test(reservationId)) throw new Error("RECOVERY_EVIDENCE_INVALID: invalid recovery identity");
+    const result = await this.withInspectionTransaction(async () => {
+      try {
+        if (createHash("sha256").update(await this.readRecoveryFile(this.path)).digest("hex") === reservationId) return false;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      const directory = `${this.path}.completed`;
+      try {
+        const info = await lstat(directory);
+        if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("invalid completed recovery directory");
+        const recordBytes = await this.readRecoveryFile(join(directory, reservationId));
+        const record = JSON.parse(recordBytes.toString("utf8")) as Record<string, unknown>;
+        const proof = JSON.parse((await this.readRecoveryFile(join(directory, `${reservationId}.proof`))).toString("utf8")) as Record<string, unknown>;
+        if (createHash("sha256").update(recordBytes).digest("hex") !== reservationId || record.version !== 4 || record.kind !== "native-operation"
+          || typeof record.owner !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(record.owner)
+          || typeof record.operation !== "string" || !validRecoverableContext(record.recoveryContext, record.operation)
+          || proof.reservationId !== reservationId || (proof.outcome !== "completed" && proof.outcome !== "restored")
+          || typeof proof.receiptId !== "string" || !proof.receiptId.trim() || proof.receiptId.length > 1024) throw new Error("invalid completed recovery evidence");
+        return true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+        throw new Error("RECOVERY_EVIDENCE_INVALID: cannot inspect completed recovery", { cause: error });
+      }
+    });
+    return result ?? false;
+  }
+
   /** Internal recovery seam. The verifier must be backed by an authoritative receiver. */
   public async completeVerifiedNative(
     reservationId: string,
