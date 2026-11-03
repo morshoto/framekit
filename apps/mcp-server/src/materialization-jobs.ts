@@ -107,6 +107,7 @@ export interface SessionMaterializationJob {
   sessionDigest: string;
   claim?: { id: string; claimedAt: string };
   recoveryReservation?: { reservationId: string; dispatchId?: string; reason: "native-quiescence-unproven" };
+  recoveryResolution?: { reservationId: string; outcome: "completed" };
   providerError?: { code: string; message: string; retryable: boolean };
   providerRequestPhase?: "dispatch-intent" | "returned";
   evidence: {
@@ -123,7 +124,7 @@ export class SessionMaterializationJobs {
     private readonly directory: string,
     private readonly sessions: EditingSessionRepository,
     private readonly publisher?: SessionMaterializationPublisher,
-    private readonly recoveryGuard?: Pick<FileCanonicalRecoveryGuard, "beginNative" | "inspectNativeReservation">,
+    private readonly recoveryGuard?: Pick<FileCanonicalRecoveryGuard, "beginNative" | "inspectNativeReservation"> & Partial<Pick<FileCanonicalRecoveryGuard, "inspectCompletedNativeEvidence" | "assertClear">>,
   ) {}
 
   public async preview(sessionId: string, target: TimelineIrToFcpxmlTarget) {
@@ -270,11 +271,34 @@ export class SessionMaterializationJobs {
 
   public async resync(jobId: string, sessionId: string) {
     const job = await this.status(jobId);
-    if (job.state !== "completed") {
-      throw new Error("MATERIALIZATION_NOT_COMPLETED: canonical continuation requires a completed handoff");
-    }
     const verification = job.verification;
     const target = verification?.canonicalTarget;
+    let recoveredReservationId: string | undefined;
+    let recoveredEvidence: string | undefined;
+    if (job.state !== "completed") {
+      const reservationId = job.recoveryReservation?.reservationId;
+      if (job.state !== "blocked" || job.error?.code !== "FINAL_CUT_CANONICAL_RECOVERY_REQUIRED" || !reservationId
+        || !this.recoveryGuard?.inspectCompletedNativeEvidence || !this.recoveryGuard.assertClear) {
+        throw new Error("MATERIALIZATION_NOT_COMPLETED: canonical continuation requires a completed handoff");
+      }
+      const completion = await this.recoveryGuard.inspectCompletedNativeEvidence(reservationId);
+      const context = completion?.recoveryContext;
+      const expectedTarget = { libraryUid: job.target.libraryUid, eventUid: job.target.eventUid,
+        projectUid: job.destination.projectUid, sequenceUid: job.destination.sequenceUid };
+      if (!completion || completion.outcome !== "completed" || context?.kind !== "materialization"
+        || completion.operation !== `native.materialize.${createHash("sha256").update(job.jobId).digest("hex")}`
+        || context.jobId !== job.jobId || context.dispatchId !== job.recoveryReservation?.dispatchId
+        || context.artifactDigest !== job.artifactDigest || context.desiredDigest !== job.desiredDigest
+        || context.expectedCanonicalDigest !== job.desiredDigest || timelineIrDigest(job.desired) !== job.desiredDigest
+        || !sameTarget(context.requestedTarget, expectedTarget) || !sameTarget(context.canonicalTarget as typeof expectedTarget, expectedTarget)
+        || !target || !sameTarget(target, expectedTarget) || verification?.tier !== "canonical-verified" || verification.status !== "verified"
+        || verification.canonicalReadbackDigest !== job.desiredDigest || !job.evidence.canonicalReadback) {
+        throw new Error("MATERIALIZATION_RECOVERY_MISMATCH: completed recovery does not match the verified handoff");
+      }
+      await this.recoveryGuard.assertClear();
+      recoveredReservationId = reservationId;
+      recoveredEvidence = JSON.stringify(completion);
+    }
     if (!target) {
       throw new Error("MATERIALIZATION_TARGET_UNAVAILABLE: completed handoff has no verified target identity");
     }
@@ -282,6 +306,13 @@ export class SessionMaterializationJobs {
       throw new Error("MATERIALIZATION_CANONICAL_RESYNC_UNAVAILABLE: no target-bound canonical readback capability is configured");
     }
     const result = await this.publisher.readCanonicalTarget({ target: structuredClone(target) });
+    if (recoveredReservationId) {
+      await this.recoveryGuard!.assertClear!();
+      const after = await this.recoveryGuard!.inspectCompletedNativeEvidence!(recoveredReservationId);
+      if (!after || JSON.stringify(after) !== recoveredEvidence) {
+        throw new Error("MATERIALIZATION_RECOVERY_MISMATCH: recovery evidence changed during canonical readback");
+      }
+    }
     validateTimelineIr(result.canonicalReadback);
     if (!sameTarget(result.canonicalTarget, target)
       || result.canonicalReadback.project.id !== target.projectUid
@@ -309,7 +340,8 @@ export class SessionMaterializationJobs {
       changeSinceHandoff,
       ...(result.delivery ? { delivery: result.delivery } : {}),
     };
-    await this.save({ ...job, continuation });
+    await this.save({ ...job, ...(recoveredReservationId ? { state: "completed" as const, error: undefined, recoveryReservation: undefined,
+      recoveryResolution: { reservationId: recoveredReservationId, outcome: "completed" as const } } : {}), continuation });
     return {
       jobId,
       state: continuation.state,

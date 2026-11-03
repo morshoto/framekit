@@ -963,7 +963,7 @@ export interface McpServerOptions {
   disposableNative?: Pick<DisposableNativeEditWorkflow, "preview" | "execute" | "undo">;
   nativeOperationSession?: Pick<NativeOperationSession, "submit" | "status" | "retry" | "cancel">;
   projectPublisher?: FinalCutProjectPublisher;
-  canonicalRecovery?: Pick<FileCanonicalRecoveryGuard, "inspectVersioned" | "inspectNativeReservation" | "assertClear" | "beginNative"> & Partial<Pick<FileCanonicalRecoveryGuard, "completeVerifiedNative" | "inspectCompletedNative" | "beginNativeExecution">>;
+  canonicalRecovery?: Pick<FileCanonicalRecoveryGuard, "inspectVersioned" | "inspectNativeReservation" | "assertClear" | "beginNative"> & Partial<Pick<FileCanonicalRecoveryGuard, "completeVerifiedNative" | "inspectCompletedNative" | "inspectCompletedNativeEvidence" | "beginNativeExecution">>;
   nativeRecoveryEvidence?: NativeRecoveryEvidenceSource;
   videoExporter?: FinalCutVideoExporter;
   backgroundRenderer?: BackgroundRenderExportProvider;
