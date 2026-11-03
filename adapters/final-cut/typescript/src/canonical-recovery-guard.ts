@@ -261,6 +261,8 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
       }
       if (currentId !== reservationId) {
         try {
+          const directoryInfo = await lstat(receiptDirectory);
+          if (!directoryInfo.isDirectory() || directoryInfo.isSymbolicLink()) throw new Error("invalid completed recovery directory");
           const record = await this.readRecoveryFile(receiptPath);
           const proof = JSON.parse((await this.readRecoveryFile(proofPath)).toString("utf8")) as { reservationId?: unknown; outcome?: unknown; receiptId?: unknown };
           if (createHash("sha256").update(record).digest("hex") !== reservationId || proof.reservationId !== reservationId
