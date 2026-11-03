@@ -980,6 +980,7 @@ export interface McpServerOptions {
 
 export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
   runtime.registerBuiltinSkills();
+  const publishRecovery = { completed: (_reservationId: string): void => {} };
   if (options.requireBuildAlignment) {
     const assertAlignment = () => assertRequiredBuildAlignment(runtime, options);
     options = {
@@ -1029,7 +1030,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
         ? { nativeOperationSession: withRecoveryCheckpointGuard(options.nativeOperationSession, recovery, ["status", "cancel"]) }
         : {}),
       ...(options.projectPublisher
-        ? { projectPublisher: withPublishRecoveryGuard(options.projectPublisher, recovery) }
+        ? { projectPublisher: withPublishRecoveryGuard(options.projectPublisher, recovery, publishRecovery) }
         : {}),
     };
   }
@@ -1226,7 +1227,9 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     if (!options.nativeRecoveryEvidence || !options.canonicalRecovery?.completeVerifiedNative) {
       throw new Error("CAPABILITY_UNAVAILABLE: authoritative native recovery evidence is not configured");
     }
-    return recoverVerifiedNative({ completeVerifiedNative: options.canonicalRecovery.completeVerifiedNative.bind(options.canonicalRecovery) }, expectedReservationId, outcome, options.nativeRecoveryEvidence);
+    const result = await recoverVerifiedNative({ completeVerifiedNative: options.canonicalRecovery.completeVerifiedNative.bind(options.canonicalRecovery) }, expectedReservationId, outcome, options.nativeRecoveryEvidence);
+    publishRecovery.completed(expectedReservationId);
+    return result;
   }));
 
   server.registerTool("editor.native.recovery.inspect", {
@@ -3097,9 +3100,15 @@ async function assertRequiredBuildAlignment(runtime: AgentVideoRuntime, options:
 function withPublishRecoveryGuard<T extends object>(
   provider: T,
   recovery: Pick<FileCanonicalRecoveryGuard, "assertClear" | "beginNative" | "inspectNativeReservation">,
+  notification: { completed(reservationId: string): void },
 ): T {
   const allowed = new Set<PropertyKey>(["isAvailable", "inspectReadiness", "executionMode", "getPublishJob", "loadPublishJob", "preparePublish"]);
-  let current: { jobId?: string; dispatchId?: string; reservation: Awaited<ReturnType<FileCanonicalRecoveryGuard["beginNative"]>>; active: boolean; dispatched: boolean } | undefined;
+  let current: { jobId?: string; dispatchId?: string; reservation: Awaited<ReturnType<FileCanonicalRecoveryGuard["beginNative"]>>; active: boolean; dispatched: boolean; recovered: boolean } | undefined;
+  notification.completed = (reservationId) => {
+    if (!current || current.reservation.reservationId !== reservationId) return;
+    current.recovered = true;
+    if (!current.active) current = undefined;
+  };
   return new Proxy(provider, {
     get(target, property) {
       const value = Reflect.get(target, property, target) as unknown;
@@ -3141,7 +3150,7 @@ function withPublishRecoveryGuard<T extends object>(
             : undefined;
           const reservation = await recovery.beginNative(operation, context);
           const track = Reflect.get(target, "trackNativeDispatch", target);
-          entry = { jobId, dispatchId: context?.dispatchId, reservation, active: true, dispatched: pending || typeof track !== "function" };
+          entry = { jobId, dispatchId: context?.dispatchId, reservation, active: true, dispatched: pending || typeof track !== "function", recovered: false };
           current = entry;
         }
         const track = Reflect.get(target, "trackNativeDispatch", target) as unknown;
@@ -3157,6 +3166,7 @@ function withPublishRecoveryGuard<T extends object>(
           return result;
         } finally {
           entry.active = false;
+          if (entry.recovered && current === entry) current = undefined;
           if (!entry.dispatched) {
             await entry.reservation.release();
             if (current === entry) current = undefined;
