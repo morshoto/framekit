@@ -916,6 +916,14 @@ test("timed out native search retains sender activity until its executor settles
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
     await assert.rejects(lstat(`${path}.active`), { code: "ENOENT" });
+    while (Date.now() < deadline) {
+      try { await lstat(`${path}.lock`); } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") break;
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    await assert.rejects(lstat(`${path}.lock`), { code: "ENOENT" });
     assert.equal((await guard.inspectNativeReservation())?.reservationId, reservation!.reservationId);
     const inspected = JSON.parse(textFrom(await client.callTool({ name: "editor.native.recovery.inspect", arguments: {} })));
     assert.deepEqual(inspected.senderExecution, { status: "sender-settled", nativeQuiescence: "unproven" });
