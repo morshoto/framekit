@@ -1125,6 +1125,35 @@ test("native media imports reserve until verified and retain partial outcomes", 
   }
 });
 
+test("publish reserves its requested target and dispatch identity across restart", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-publish-recovery-context-"));
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  const jobId = "publish-job-123";
+  const requestedLibraryPath = join(directory, "new.fcpbundle");
+  const artifactDigest = "a".repeat(64);
+  const projectPublisher = {
+    isAvailable: () => false,
+    getPublishJob: () => ({ jobId, state: "awaiting-confirmation", targetLibraryPath: requestedLibraryPath, artifactDigest }),
+    executePublishJob: async () => ({ jobId, state: "verification-pending" }),
+  } as unknown as NonNullable<Parameters<typeof createMcpServer>[1]>["projectPublisher"];
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher });
+  try {
+    const response = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId, confirm: true } });
+    assert.equal(response.isError ?? false, false);
+    const result = JSON.parse(textFrom(response));
+    const afterRestart = await new FileCanonicalRecoveryGuard(path).inspectNativeReservation();
+    assert.equal(afterRestart?.reservationId, result.recoveryReservation.reservationId);
+    assert.equal(afterRestart?.recoveryContext?.kind, "publish");
+    assert.equal(afterRestart?.recoveryContext?.jobId, jobId);
+    assert.match(afterRestart?.recoveryContext?.dispatchId ?? "", /^[0-9a-f-]{36}$/);
+    assert.deepEqual(afterRestart?.recoveryContext?.requestedTarget, { libraryPath: requestedLibraryPath });
+    assert.equal(afterRestart?.recoveryContext?.artifactDigest, artifactDigest);
+    assert.equal(afterRestart?.recoveryContext?.nativeQuiescence, "unproven");
+    await assert.rejects(new FileCanonicalRecoveryGuard(path).assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally { await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test("publish reservation excludes edits and permits verification of only the same settled job", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-publish-reservation-"));
   const path = join(directory, "pending.json");
