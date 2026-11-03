@@ -173,12 +173,14 @@ or elapsed time alone does not authorize resuming native writes.
 persisted materialization job to its inspected reservation ID and reports its
 recorded target and destination. This is recorded evidence, not a validated
 canonical outcome; inspection neither proves quiescence nor clears the reservation.
-After a completed recovery, a previously canonical-verified materialization may
-use `session.materialize.resync` if its job, target, artifact and desired digest
-match the completed reservation. Resync checks that the guard is clear and that
-the same completion evidence remains after a fresh target-bound read; it never
-replays publication. A restored outcome does not count as a completed handoff.
-These checks are point-in-time and do not make the editor read atomic.
+After a completed recovery, a materialization may use `session.materialize.resync`
+if its job, target, artifact and desired digest match the completed reservation.
+If no earlier canonical readback exists, the fresh target-bound read must match
+the desired timeline after accounting for the versioned project and sequence
+IDs. Resync checks that the guard is clear and that the same completion evidence
+remains after the read; it never replays publication. A restored outcome does
+not count as a completed handoff. These checks are point-in-time and do not make
+the editor read atomic.
 `editor.native.recovery.preview` requires the inspected
 checkpoint ID, matching target IDs, and explicit headed-read confirmation; it
 compares a canonical snapshot with the recorded digests. Its point-in-time
