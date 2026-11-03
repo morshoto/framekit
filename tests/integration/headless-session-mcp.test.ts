@@ -5,10 +5,11 @@ import { join } from "node:path";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { createMcpServer } from "../../apps/mcp-server/src/server.js";
+import { createMcpServer, type McpServerOptions } from "../../apps/mcp-server/src/server.js";
 import { createCanonicalSessionChangeSource } from "../../apps/mcp-server/src/headless-sessions.js";
 import { AgentVideoRuntime, type EditorPort, type TimelineIr } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
+import { FinalCutSqliteInspectionProvider } from "@framekit/final-cut/experimental";
 import type { SessionSqliteObservationProvider } from "../../apps/mcp-server/src/headless-sessions.js";
 
 function timeline(): TimelineIr {
@@ -301,6 +302,37 @@ test("session observation fails closed without an explicitly supplied provider",
     assert.match(JSON.stringify(result), /FINAL_CUT_SQLITE_INSPECTION_UNAVAILABLE/);
     await connected.client.close();
     await connected.server.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("accepts the experimental SQLite provider and preserves unavailable failures", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-session-experimental-sqlite-"));
+  const sourcePath = "/disposable-fixture/CurrentVersion.fcpevent";
+  const provider = new FinalCutSqliteInspectionProvider({
+    executor: async () => {
+      throw new Error(`fixture unavailable: ${sourcePath}`);
+    },
+    digest: async () => "a".repeat(64),
+  });
+  try {
+    // This assignment and connect call are checked by pnpm run build, not only tsx.
+    const options = { sqliteObservationProvider: provider } satisfies McpServerOptions;
+    const connected = await connect(directory, options.sqliteObservationProvider);
+    try {
+      const result = await connected.client.callTool({
+        name: "session.observe",
+        arguments: { sessionId: "missing", sourcePath },
+      });
+      assert.equal(result.isError, true);
+      assert.match(JSON.stringify(result), /FINAL_CUT_SQLITE_INSPECTION_UNAVAILABLE/);
+      assert.match(JSON.stringify(result), /\[redacted\]/);
+      assert.equal(JSON.stringify(result).includes(sourcePath), false);
+    } finally {
+      await connected.client.close();
+      await connected.server.close();
+    }
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
