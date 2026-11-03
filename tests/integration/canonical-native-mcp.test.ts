@@ -1663,3 +1663,57 @@ test("a previously dispatched publish cannot acquire a new receiver identity", a
     await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   } finally { await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
 });
+
+test("a verified publish cannot acquire a new receiver identity", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-publish-old-dispatch-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const target = { libraryPath: join(directory, "target.fcpbundle"), projectUid: "project", sequenceUid: "sequence" };
+  let plans = 0;
+  const publisher = {
+    recoveryExecutorIdentity: "mock-receiver", isAvailable: () => false,
+    getPublishJob: (jobId: string) => ({ jobId, state: "verified", targetLibraryPath: target.libraryPath,
+      artifactDigest: "a".repeat(64), sourceTarget: { kind: "artifact", artifactPath: join(directory, "source.fcpxml") } }),
+    trackNativeDispatch: async <T>(invoke: () => Promise<T>): Promise<T> => invoke(),
+    executePublishJob: async (jobId: string) => ({ jobId, state: "verified" }),
+  };
+  const source = {
+    publishReceiverIdentity: "mock-receiver",
+    preparePublishRecovery: async () => { plans++; return { canonicalTarget: target, expectedCanonicalDigest: "b".repeat(64) }; },
+    observeReceiver: async () => { throw new Error("unexpected receiver call"); },
+    readCanonical: async () => { throw new Error("unexpected canonical read"); },
+  };
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher: publisher, nativeRecoveryEvidence: source } as never);
+  try {
+    const response = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "publish-job-old", confirm: true, confirmVerification: true } });
+    assert.equal(response.isError ?? false, false, textFrom(response));
+    assert.equal(plans, 0);
+    await guard.assertClear();
+  } finally { await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test("a failed publish cannot acquire a new receiver identity", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-publish-old-dispatch-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const target = { libraryPath: join(directory, "target.fcpbundle"), projectUid: "project", sequenceUid: "sequence" };
+  let plans = 0;
+  const publisher = {
+    recoveryExecutorIdentity: "mock-receiver", isAvailable: () => false,
+    getPublishJob: (jobId: string) => ({ jobId, state: "failed", targetLibraryPath: target.libraryPath,
+      artifactDigest: "a".repeat(64), sourceTarget: { kind: "artifact", artifactPath: join(directory, "source.fcpxml") } }),
+    trackNativeDispatch: async <T>(invoke: () => Promise<T>): Promise<T> => invoke(),
+    executePublishJob: async (jobId: string) => ({ jobId, state: "failed" }),
+  };
+  const source = {
+    publishReceiverIdentity: "mock-receiver",
+    preparePublishRecovery: async () => { plans++; return { canonicalTarget: target, expectedCanonicalDigest: "b".repeat(64) }; },
+    observeReceiver: async () => { throw new Error("unexpected receiver call"); },
+    readCanonical: async () => { throw new Error("unexpected canonical read"); },
+  };
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher: publisher, nativeRecoveryEvidence: source } as never);
+  try {
+    const response = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "publish-job-old", confirm: true, confirmVerification: true } });
+    assert.equal(response.isError ?? false, false, textFrom(response));
+    assert.equal(plans, 0);
+    await guard.assertClear();
+  } finally { await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
+});
