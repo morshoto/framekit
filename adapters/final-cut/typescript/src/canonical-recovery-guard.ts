@@ -104,7 +104,10 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
       return { reservationId: createHash("sha256").update(contents).digest("hex"), operation: record.operation,
         ...(record.version === 3 ? { recoveryContext: record.recoveryContext as NativeRecoveryContext } : {}) };
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        await this.assertNoTransaction();
+        return undefined;
+      }
       throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot inspect native reservation", { cause: error });
     } finally {
       await handle?.close();
@@ -168,7 +171,10 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
           ...(typeof expectedRestoreDigest === "string" ? { expectedRestoreDigest } : {}) },
       };
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        await this.assertNoTransaction();
+        return undefined;
+      }
       throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot inspect recovery evidence", { cause: error });
     } finally {
       await handle?.close();
