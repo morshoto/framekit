@@ -11,9 +11,12 @@ import {
   type TimelineIrToFcpxmlTarget,
 } from "@framekit/final-cut";
 import { EditingSessionRepository } from "./headless-sessions.js";
+import type { NativeRecoveryEvidenceSource } from "./native-recovery-verification.js";
 
 export interface SessionMaterializationPublishRequest {
   jobId: string;
+  /** Correlates a receiver-capable request to its durable reservation. */
+  reservationId?: string;
   /** Local attempt correlation only; this is not a native completion receipt. */
   dispatchId?: string;
   artifactPath: string;
@@ -58,6 +61,8 @@ export interface MaterializationVerification {
 }
 
 export interface SessionMaterializationPublisher {
+  /** Declared only when the receiver enforces the matching operation identity and terminal receipt contract. */
+  readonly recoveryExecutorIdentity?: string;
   trackNativeDispatch?<T>(operation: () => Promise<T>, onDispatch: () => void): Promise<T>;
   senderSettlement?(jobId: string): Promise<void> | undefined;
   readCanonicalTarget?(request: {
@@ -125,6 +130,7 @@ export class SessionMaterializationJobs {
     private readonly sessions: EditingSessionRepository,
     private readonly publisher?: SessionMaterializationPublisher,
     private readonly recoveryGuard?: Pick<FileCanonicalRecoveryGuard, "beginNative" | "inspectNativeReservation"> & Partial<Pick<FileCanonicalRecoveryGuard, "inspectCompletedNativeEvidence" | "assertClear">>,
+    private readonly recoveryEvidence?: Pick<NativeRecoveryEvidenceSource, "materializationReceiverIdentity">,
   ) {}
 
   public async preview(sessionId: string, target: TimelineIrToFcpxmlTarget) {
@@ -398,6 +404,8 @@ export class SessionMaterializationJobs {
       }
     };
     let dispatchId: string | undefined;
+    let receiverBound = false;
+    let boundReceiverIdentity: string | undefined;
     let providerRequested = false;
     let dispatched = typeof this.publisher.trackNativeDispatch !== "function";
     try {
@@ -407,13 +415,21 @@ export class SessionMaterializationJobs {
         try {
           const id = createHash("sha256").update(claimed.jobId).digest("hex");
           const attemptId = randomUUID();
-          reservation = await this.recoveryGuard.beginNative(`native.materialize.${id}`, {
+          const receiverIdentity = this.publisher.recoveryExecutorIdentity;
+          receiverBound = typeof receiverIdentity === "string" && receiverIdentity.length > 0
+            && receiverIdentity === this.recoveryEvidence?.materializationReceiverIdentity;
+          if (receiverBound) boundReceiverIdentity = receiverIdentity;
+          const requestedTarget = { libraryUid: claimed.target.libraryUid, eventUid: claimed.target.eventUid,
+            projectUid: claimed.destination.projectUid, sequenceUid: claimed.destination.sequenceUid };
+          const context = {
             kind: "materialization", jobId: claimed.jobId, dispatchId: attemptId,
-            requestedTarget: { libraryUid: claimed.target.libraryUid, eventUid: claimed.target.eventUid,
-              projectUid: claimed.destination.projectUid, sequenceUid: claimed.destination.sequenceUid },
+            requestedTarget,
             artifactDigest: claimed.artifactDigest, desiredDigest: claimed.desiredDigest,
-            executorIdentity: null, nativeQuiescence: "unproven",
-          }, { trackExecution: true });
+            executorIdentity: null, nativeQuiescence: "unproven" as const,
+          } as const;
+          reservation = await this.recoveryGuard.beginNative(`native.materialize.${id}`, receiverBound
+            ? { ...context, executorIdentity: receiverIdentity!, dispatchState: "intent", canonicalTarget: requestedTarget, expectedCanonicalDigest: claimed.desiredDigest }
+            : context, { trackExecution: true });
           if (!reservation.finishExecution) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: shared execution tracking unavailable");
           dispatchId = attemptId;
         } catch {
@@ -434,6 +450,7 @@ export class SessionMaterializationJobs {
       const request: SessionMaterializationPublishRequest = {
         jobId: claimed.jobId,
         ...(dispatchId ? { dispatchId } : {}),
+        ...(receiverBound && reservation ? { reservationId: reservation.reservationId } : {}),
         artifactPath: claimed.artifactPath,
         artifactDigest: claimed.artifactDigest,
         target: claimed.target,
@@ -447,12 +464,20 @@ export class SessionMaterializationJobs {
         provenance: structuredClone(claimed.provenance!),
       };
       const invoke = async () => {
+        const assertReceiverIdentity = () => {
+          if (receiverBound && (this.publisher?.recoveryExecutorIdentity !== boundReceiverIdentity
+            || this.recoveryEvidence?.materializationReceiverIdentity !== boundReceiverIdentity)) {
+            throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: receiver identity changed before dispatch");
+          }
+        };
+        assertReceiverIdentity();
         const intent: SessionMaterializationJob = {
           ...claimed, providerRequestPhase: "dispatch-intent",
           evidence: { ...claimed.evidence, providerRequested: true },
         };
         await this.save(intent);
         claimed = intent;
+        assertReceiverIdentity();
         providerRequested = true;
         return this.publisher!.publish(request);
       };

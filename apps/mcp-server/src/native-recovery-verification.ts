@@ -35,6 +35,8 @@ export interface CanonicalRecoveryObservation {
 
 /** Only a trusted receiver and a separately trusted canonical reader may implement these ports. */
 export interface NativeRecoveryEvidenceSource {
+  /** Declared only for a trusted materialization receiver that enforces operation-specific terminal receipts. */
+  readonly materializationReceiverIdentity?: string;
   observeReceiver(binding: Readonly<RecoveryBinding>): Promise<ReceiverObservation>;
   readCanonical(binding: Readonly<RecoveryBinding>): Promise<CanonicalRecoveryObservation>;
 }
@@ -77,7 +79,10 @@ export async function recoverVerifiedNative(
 ): Promise<{ outcome: RecoveryBinding["outcome"]; alreadyReleased: boolean }> {
   return guard.completeVerifiedNative(expectedReservationId, outcome, async (reservation) => {
     const binding = bindingFromRecord(reservation, expectedReservationId, outcome);
-    return verifyNativeRecovery(binding, source);
+    if (binding.kind === "materialization" && source.materializationReceiverIdentity !== binding.executorIdentity) invalid();
+    const verified = await verifyNativeRecovery(binding, source);
+    if (binding.kind === "materialization" && source.materializationReceiverIdentity !== binding.executorIdentity) invalid();
+    return verified;
   });
 }
 
