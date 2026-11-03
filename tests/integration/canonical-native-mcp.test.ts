@@ -871,6 +871,45 @@ test("a direct adapter failure after native dispatch retains its reservation", a
   }
 });
 
+test("uncertain native search remains reserved after restart and cannot be replayed", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-search-recovery-"));
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  let dispatches = 0;
+  let notifyDispatch: (() => void) | undefined;
+  const nativeEditor = {
+    capabilities: () => ({}),
+    trackNativeDispatch: async (operation: () => Promise<unknown>, onDispatch: () => void) => {
+      notifyDispatch = onDispatch;
+      try { return await operation(); } finally { notifyDispatch = undefined; }
+    },
+    searchMedia: async () => {
+      dispatches += 1;
+      notifyDispatch?.();
+      throw new Error("FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT: outcome unknown");
+    },
+  } as unknown as NativeFinalCutEditor;
+  const first = await connect(createRuntime([]), { canonicalRecovery: guard, nativeEditor });
+  try {
+    const result = await first.client.callTool({ name: "editor.native.media.search", arguments: { query: "clip.mov" } });
+    assert.equal(result.isError, true);
+    const reservation = await guard.inspectNativeReservation();
+    assert.equal(reservation?.operation, "native.searchmedia");
+    assert.equal(dispatches, 1);
+    await first.client.close();
+    await first.server.close();
+    const restartedGuard = new FileCanonicalRecoveryGuard(path);
+    const restarted = await connect(createRuntime([]), { canonicalRecovery: restartedGuard, nativeEditor });
+    try {
+      const retry = await restarted.client.callTool({ name: "editor.native.media.search", arguments: { query: "clip.mov" } });
+      assert.equal(retry.isError, true);
+      assert.equal(dispatches, 1);
+      assert.deepEqual(await restartedGuard.inspectNativeReservation(), reservation);
+      await assert.rejects(restartedGuard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    } finally { await restarted.client.close(); await restarted.server.close(); }
+  } finally { await first.client.close().catch(() => {}); await first.server.close().catch(() => {}); await rm(directory, { recursive: true, force: true }); }
+});
+
 test("an in-flight direct native undo excludes a canonical checkpoint", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-undo-race-"));
   const path = join(directory, "pending.json");
