@@ -153,7 +153,8 @@ Native automation, publish and materialization retain a shared sender-execution 
 the local operation is active. Cooperating servers refuse recovery while it
 exists; an orphaned marker fails closed and must be preserved for investigation.
 Recovery additionally requires a durable settlement record created when the
-tracked sender returns; timed-out native automation waits for its local executor,
+tracked sender returns; the built-in native automation waits for its direct
+sender process to close after a timeout,
 and a timed-out materialization command waits for the direct child process to
 close. A missing marker alone is insufficient. Older
 reservations without recorded sender tracking cannot use this recovery path.
