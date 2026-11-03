@@ -1102,3 +1102,41 @@ test("verified materialization recovery permits fresh target-bound resync withou
     assert.equal(publishes, 3);
   } finally { await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
 });
+
+test("materialization binds a trusted receiver without a replacement guard", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-receiver-binding-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  let sent: { jobId: string; dispatchId?: string; reservationId?: string } | undefined;
+  const publisher = { recoveryExecutorIdentity: "mock-authenticated-receiver", publish: async (request: { jobId: string; dispatchId?: string; reservationId?: string }) => {
+    sent = request;
+    return { state: "blocked", code: "TIMEOUT", message: "response unavailable", retryable: false };
+  } };
+  const source = {
+    executorIdentity: "mock-authenticated-receiver", supportsMaterialization: true,
+    observeReceiver: async (binding: { reservationId: string; dispatchId: string; jobId: string; executorIdentity: string }) => {
+      assert.equal(binding.reservationId, sent?.reservationId);
+      assert.equal(binding.dispatchId, sent?.dispatchId);
+      assert.equal(binding.jobId, sent?.jobId);
+      return { ...binding, state: "terminal", outcome: "completed", receiptId: "mock-receipt" };
+    },
+    readCanonical: async (binding: { target: Record<string, string>; expectedDigest: string }) => ({ target: binding.target, digest: binding.expectedDigest, complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true }),
+  };
+  const server = createMcpServer(runtime(), { sessionDirectory: join(directory, "sessions"), materializationDirectory: join(directory, "materializations"),
+    sessionMaterializationPublisher: publisher, canonicalRecovery: guard, nativeRecoveryEvidence: source,
+    sessionChangeSource: { changesSince: async (revision: TimelineIr["revision"]) => ({ from: revision, to: revision }) } } as never);
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "materialization-receiver-binding", version: "0.1.0" });
+  await server.connect(serverTransport); await client.connect(clientTransport);
+  try {
+    await client.callTool({ name: "session.create", arguments: { sessionId: "receiver-source", provider: { id: "final-cut" }, base: timeline() } });
+    const job = payload(await client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "receiver-source", target, confirm: true } }));
+    assert.equal(job.state, "blocked");
+    const reservation = await guard.inspectNativeReservation();
+    assert.equal(reservation?.recoveryContext?.executorIdentity, source.executorIdentity);
+    assert.equal(sent?.reservationId, job.recoveryReservation.reservationId);
+    assert.equal(sent?.dispatchId, job.recoveryReservation.dispatchId);
+    const recovered = await client.callTool({ name: "editor.native.recovery.execute", arguments: { expectedReservationId: job.recoveryReservation.reservationId, outcome: "completed", confirm: true } });
+    assert.equal(recovered.isError ?? false, false, JSON.stringify(recovered));
+    await guard.assertClear();
+  } finally { await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
+});
