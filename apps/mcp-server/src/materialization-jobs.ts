@@ -354,6 +354,7 @@ export class SessionMaterializationJobs {
             artifactDigest: claimed.artifactDigest, desiredDigest: claimed.desiredDigest,
             executorIdentity: null, nativeQuiescence: "unproven",
           }, { trackExecution: true });
+          if (!reservation.finishExecution) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: shared execution tracking unavailable");
           dispatchId = attemptId;
         } catch {
           const blocked: SessionMaterializationJob = {
