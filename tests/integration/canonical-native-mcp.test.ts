@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -155,6 +155,11 @@ test("MCP recovery inspection reports checkpoint evidence without touching the e
   try {
     const clear = await client.callTool({ name: "editor.native.recovery.inspect", arguments: {} });
     assert.deepEqual(JSON.parse(textFrom(clear)), { status: "clear", scope: "configured-state-directory" });
+    await mkdir(`${path}.lock`);
+    const inTransaction = await client.callTool({ name: "editor.native.recovery.inspect", arguments: {} });
+    assert.equal(inTransaction.isError, true);
+    assert.match(textFrom(inTransaction), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await rm(`${path}.lock`, { recursive: true });
     const checkpoint = { projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "b".repeat(64), operation: "rename-clip" };
     await guard.begin(checkpoint);
     const pending = await client.callTool({ name: "editor.native.recovery.inspect", arguments: {} });
