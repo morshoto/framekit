@@ -52,6 +52,7 @@ export interface FinalCutBackgroundMaterializationPublisherOptions {
 export class FinalCutBackgroundMaterializationPublisher {
   private readonly dispatchContext = new AsyncLocalStorage<() => void>();
   private readonly commandTimeoutMs: number;
+  private readonly pendingSenders = new Map<string, Promise<void>>();
 
   public constructor(private readonly options: FinalCutBackgroundMaterializationPublisherOptions = {}) {
     if (options.commandTimeoutMs !== undefined && (!Number.isFinite(options.commandTimeoutMs) || options.commandTimeoutMs <= 0)) {
@@ -68,10 +69,18 @@ export class FinalCutBackgroundMaterializationPublisher {
     return this.dispatchContext.run(onDispatch, operation);
   }
 
+  /** Sender process lifetime only; this is not Final Cut quiescence. */
+  public senderSettlement(jobId: string): Promise<void> | undefined {
+    return this.pendingSenders.get(jobId);
+  }
+
   public async publish(request: FinalCutBackgroundMaterializationRequest): Promise<FinalCutBackgroundMaterializationResult> {
     validateRequest(request);
     const executor = this.options.executor ?? (this.options.command?.trim()
-      ? commandExecutor(this.options.command.trim(), this.commandTimeoutMs)
+      ? commandExecutor(this.options.command.trim(), this.commandTimeoutMs, (jobId, pending) => {
+          this.pendingSenders.set(jobId, pending);
+          void pending.then(() => { if (this.pendingSenders.get(jobId) === pending) this.pendingSenders.delete(jobId); });
+        })
       : undefined);
     if (!executor) {
       return {
@@ -167,11 +176,11 @@ function validateTargetIdentity(target: FinalCutTargetIdentity): void {
   }
 }
 
-function commandExecutor(command: string, timeoutMs: number): (request: FinalCutBackgroundMaterializationRequest) => Promise<FinalCutBackgroundMaterializationResult> {
+function commandExecutor(command: string, timeoutMs: number, track: (jobId: string, pending: Promise<void>) => void): (request: FinalCutBackgroundMaterializationRequest) => Promise<FinalCutBackgroundMaterializationResult> {
   return async (request) => {
     let output: string;
     try {
-      output = await runCommand(command, request, timeoutMs);
+      output = await runCommand(command, request, timeoutMs, track);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       const timedOut = detail.startsWith("FINAL_CUT_BACKGROUND_MATERIALIZATION_COMMAND_TIMEOUT");
@@ -198,9 +207,12 @@ function runCommand(
   command: string,
   request: FinalCutBackgroundMaterializationRequest,
   timeoutMs: number,
+  track: (jobId: string, pending: Promise<void>) => void,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, [], { stdio: ["pipe", "pipe", "pipe"] });
+    const senderClosed = new Promise<void>((resolve) => child.once("close", () => resolve()));
+    track(request.jobId, senderClosed);
     let stdout = "";
     let stderr = "";
     let settled = false;

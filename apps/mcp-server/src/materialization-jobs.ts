@@ -59,6 +59,7 @@ export interface MaterializationVerification {
 
 export interface SessionMaterializationPublisher {
   trackNativeDispatch?<T>(operation: () => Promise<T>, onDispatch: () => void): Promise<T>;
+  senderSettlement?(jobId: string): Promise<void> | undefined;
   readCanonicalTarget?(request: {
     target: { libraryUid: string; eventUid: string; projectUid: string; sequenceUid: string };
   }): Promise<{
@@ -499,7 +500,15 @@ export class SessionMaterializationJobs {
       }
       return this.fail(claimed, materializationFailure(error, providerRequested || claimed.evidence.providerRequested));
     } finally {
-      try { await finishNativeExecution(); } finally { await this.release(claimed.jobId, claimed.claim!.id); }
+      const sender = providerRequested ? this.publisher?.senderSettlement?.(claimed.jobId) : undefined;
+      if (sender) {
+        // A timeout can return while the sender still runs. Leave its durable marker
+        // in place until the process really closes; crashes remain fail-closed.
+        void sender.then(finishNativeExecution).catch(() => {});
+        await this.release(claimed.jobId, claimed.claim!.id);
+      } else {
+        try { await finishNativeExecution(); } finally { await this.release(claimed.jobId, claimed.claim!.id); }
+      }
     }
   }
 
