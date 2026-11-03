@@ -3124,7 +3124,7 @@ function withPublishRecoveryGuard<T extends object>(
         try {
           const invoke = async () => Reflect.apply(value, target, args) as Promise<unknown>;
           const result: unknown = typeof track === "function"
-            ? await Reflect.apply(track, target, [invoke, () => { entry!.dispatched = true; }])
+            ? await Reflect.apply(track, target, [invoke, () => { entry!.dispatched = true; }, entry.reservation.reservationId])
             : await invoke();
           if (entry.dispatched && result && typeof result === "object" && !Array.isArray(result)) {
             return { ...result, recoveryReservation: { status: "recovery-required", reservationId: entry.reservation.reservationId, reason: "native-quiescence-unproven" } };
@@ -3166,7 +3166,7 @@ function withRecoveryCheckpointGuard<T extends object>(
           try {
             const invoke = async () => Reflect.apply(value, target, args) as Promise<unknown>;
             const result: unknown = typeof track === "function"
-              ? await Reflect.apply(track, target, [invoke, () => { dispatched = true; }])
+              ? await Reflect.apply(track, target, [invoke, () => { dispatched = true; }, reservation.reservationId])
               : await invoke();
             const evidence = result as { status?: unknown; undone?: unknown; beforeDigest?: unknown; restoredDigest?: unknown; verification?: { verified?: unknown; passed?: unknown } } | null;
             const restored = typeof evidence?.beforeDigest === "string" && /^[a-f0-9]{64}$/.test(evidence.beforeDigest)

@@ -740,7 +740,7 @@ export type NativeFinalCutExecutor = (
 export type NativeFinalCutMouseExecutor = (source: string) => Promise<void>;
 
 export interface NativeFinalCutEditor {
-  trackNativeDispatch?<T>(operation: () => Promise<T>, onDispatch: () => void): Promise<T>;
+  trackNativeDispatch?<T>(operation: () => Promise<T>, onDispatch: () => void, reservationId?: string): Promise<T>;
   capabilities(): NativeFinalCutCapabilities;
   inspect(options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;
   focusTimeline(options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;
@@ -809,8 +809,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly mediaImportDiscoveryTimeoutMs: number;
   private readonly mediaImportPollMs: number;
   private readonly requestContext = new AsyncLocalStorage<NativeFinalCutRequestOptions>();
-  private readonly dispatchContext = new AsyncLocalStorage<() => void>();
+  private readonly dispatchContext = new AsyncLocalStorage<{ onDispatch: () => void; reservationId?: string }>();
   private readonly pendingNativeExecutions = new Set<Promise<unknown>>();
+  private readonly executionStates = new Map<string, { pending: number; aborted: boolean; started: boolean }>();
   private nativeUiDepth = 0;
   private readonly operations = new Map<string, NativeOperationRecord>();
   private latestOperationId?: string;
@@ -939,11 +940,24 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return this.pendingNativeExecutions.size > 0;
   }
 
+  /** Process-local executor status; even settled execution does not prove native quiescence. */
+  public nativeExecutionStatus(reservationId: string): "unknown" | "running" | "abort-requested" | "executor-settled" {
+    const state = this.executionStates.get(reservationId);
+    return !state?.started ? "unknown" : state.pending === 0 ? "executor-settled" : state.aborted ? "abort-requested" : "running";
+  }
+
   private trackNativeExecution<T>(execution: Promise<T>): Promise<T> {
     this.pendingNativeExecutions.add(execution);
+    const id = this.dispatchContext.getStore()?.reservationId;
+    const state = id ? this.executionStates.get(id) : undefined;
+    if (state) { state.pending += 1; state.started = true; }
+    const settled = () => {
+      this.pendingNativeExecutions.delete(execution);
+      if (state) state.pending -= 1;
+    };
     void execution.then(
-      () => this.pendingNativeExecutions.delete(execution),
-      () => this.pendingNativeExecutions.delete(execution),
+      settled,
+      settled,
     );
     return execution;
   }
@@ -1081,8 +1095,18 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return this.withNativeUi(() => this.editNative(operation), options.signal);
   }
 
-  public async trackNativeDispatch<T>(operation: () => Promise<T>, onDispatch: () => void): Promise<T> {
-    return this.dispatchContext.run(onDispatch, operation);
+  public async trackNativeDispatch<T>(operation: () => Promise<T>, onDispatch: () => void, reservationId?: string): Promise<T> {
+    if (reservationId) {
+      if (this.executionStates.has(reservationId)) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: reservation execution already tracked");
+      if (this.executionStates.size >= 256) {
+        for (const [id, state] of this.executionStates) {
+          if (state.pending === 0) this.executionStates.delete(id);
+          if (this.executionStates.size < 256) break;
+        }
+      }
+      this.executionStates.set(reservationId, { pending: 0, aborted: false, started: false });
+    }
+    return this.dispatchContext.run({ onDispatch, reservationId }, operation);
   }
 
   public async trimSelectedClipToRange(
@@ -3499,8 +3523,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
 
   private async executeNativeMouseScript(source: string): Promise<void> {
     if (this.nativeMouseExecutor) {
-      this.dispatchContext.getStore()?.();
-      await this.nativeMouseExecutor(source);
+      this.dispatchContext.getStore()?.onDispatch();
+      await this.trackNativeExecution(this.nativeMouseExecutor(source));
       return;
     }
     const requestSignal = this.requestContext.getStore()?.signal;
@@ -3516,6 +3540,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
         timedOut = true;
+        this.markNativeAbortRequested();
         controller.abort();
         reject(new Error("FINAL_CUT_NATIVE_APPLE_EVENT_TIMEOUT: native automation deadline expired"));
       }, remaining);
@@ -3524,13 +3549,14 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       ? new Promise<never>((_, reject) => {
         cancelListener = () => {
           cancelled = true;
+          this.markNativeAbortRequested();
           controller.abort();
           reject(new Error("FINAL_CUT_NATIVE_CANCELLED: native request was cancelled"));
         };
         requestSignal.addEventListener("abort", cancelListener, { once: true });
       })
       : undefined;
-    this.dispatchContext.getStore()?.();
+    this.dispatchContext.getStore()?.onDispatch();
     const execution = this.trackNativeExecution(execFile("swift", ["-e", source], { signal: controller.signal }));
     try {
       await Promise.race([execution, timeout, ...(cancellation ? [cancellation] : [])]);
@@ -3547,6 +3573,12 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
 
   private stableMediaHandle(identity: string): string {
     return `media-import-${createHash("sha256").update(identity).digest("hex").slice(0, 24)}`;
+  }
+
+  private markNativeAbortRequested(): void {
+    const id = this.dispatchContext.getStore()?.reservationId;
+    const state = id ? this.executionStates.get(id) : undefined;
+    if (state) state.aborted = true;
   }
 
   private async executeNativeScript(
@@ -3567,6 +3599,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
         timedOut = true;
+        this.markNativeAbortRequested();
         controller.abort();
         reject(new Error(`${timeoutCode}: native automation deadline expired`));
       }, remaining);
@@ -3575,13 +3608,14 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       ? new Promise<never>((_, reject) => {
         cancelListener = () => {
           cancelled = true;
+          this.markNativeAbortRequested();
           controller.abort();
           reject(new Error("FINAL_CUT_NATIVE_CANCELLED: native request was cancelled"));
         };
         requestSignal.addEventListener("abort", cancelListener, { once: true });
       })
       : undefined;
-    this.dispatchContext.getStore()?.();
+    this.dispatchContext.getStore()?.onDispatch();
     const execution = this.trackNativeExecution(this.executor(script, { signal: controller.signal }));
     try {
       return await Promise.race([execution, timeout, ...(cancellation ? [cancellation] : [])]);

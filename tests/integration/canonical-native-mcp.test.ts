@@ -864,7 +864,9 @@ test("a direct adapter failure after native dispatch retains its reservation", a
     const result = await client.callTool({ name: "editor.native.edit", arguments: { type: "add-marker-at-playhead", name: "Review" } });
     assert.equal(result.isError, true);
     assert.ok(dispatches > 0);
-    assert.equal((await guard.inspectNativeReservation())?.operation, "native.edit");
+    const reservation = await guard.inspectNativeReservation();
+    assert.equal(reservation?.operation, "native.edit");
+    assert.equal(nativeEditor.nativeExecutionStatus(reservation!.reservationId), "executor-settled");
   } finally {
     await client.close();
     await server.close();
