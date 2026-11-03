@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { link, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1062,6 +1062,13 @@ test("untracked receiver reservation cannot claim sender settlement", async () =
     }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     assert.equal(verified, false);
     assert.equal((await guard.inspectNativeReservation())?.reservationId, reservation.reservationId);
+    const completed = `${path}.completed`;
+    await mkdir(completed);
+    await link(path, join(completed, reservation.reservationId));
+    await writeFile(join(completed, `${reservation.reservationId}.proof`), JSON.stringify({ reservationId: reservation.reservationId, outcome: "completed", receiptId: "legacy" }));
+    await rm(path);
+    await assert.rejects(guard.inspectCompletedNative(reservation.reservationId), /RECOVERY_EVIDENCE_INVALID/);
+    await assert.rejects(guard.completeVerifiedNative(reservation.reservationId, "completed", async () => ({ receiptId: "untrusted", outcome: "completed" })), /RECOVERY_EVIDENCE_INVALID/);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
