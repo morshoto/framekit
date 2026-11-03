@@ -985,7 +985,11 @@ test("verified materialization recovery permits fresh target-bound resync withou
     publish: async (request) => { publishes++; desired = structuredClone(request.desired); return { state: "completed", canonicalReadback: request.desired, canonicalTarget: canonicalTarget(request), headedNativeVerified: false }; },
     readCanonicalTarget: async ({ target: bound }) => {
       reads++;
-      if (removeProofDuringRead) await rm(recoveryProofPath);
+      if (removeProofDuringRead) {
+        const proof = JSON.parse(await readFile(recoveryProofPath, "utf8"));
+        proof.receiptId = "changed-receipt";
+        await writeFile(recoveryProofPath, JSON.stringify(proof));
+      }
       const canonicalReadback = structuredClone(desired!);
       canonicalReadback.project.id = bound.projectUid;
       canonicalReadback.sequence.id = bound.sequenceUid;
