@@ -856,10 +856,18 @@ test("recovery binding is reconstructed from the same durable reservation", asyn
       const restarted = new FileCanonicalRecoveryGuard(path);
       const reservation = await restarted.inspectNativeReservation();
       assert.ok(reservation);
-      assert.deepEqual(await recoveryBindingFromReservation(restarted, owner.reservationId, "completed"), {
+      const binding = await recoveryBindingFromReservation(restarted, owner.reservationId, "completed");
+      assert.deepEqual(binding, {
         kind, reservationId: owner.reservationId, jobId, dispatchId: context.dispatchId, executorIdentity: context.executorIdentity,
         target, expectedDigest: context.expectedCanonicalDigest, outcome: "completed",
       });
+      const receipt: ReceiverObservation = { reservationId: owner.reservationId, jobId, dispatchId: context.dispatchId,
+        executorIdentity: context.executorIdentity, state: "terminal", outcome: "completed", receiptId: "receiver-receipt" };
+      const source = { observeReceiver: async () => receipt, readCanonical: async () => ({ target, digest: context.expectedCanonicalDigest,
+        complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true }) };
+      assert.equal((await verifyNativeRecovery(binding, source)).receiptId, "receiver-receipt");
+      await assert.rejects(verifyNativeRecovery(binding, { ...source, observeReceiver: async () => ({ ...receipt, dispatchId: "wrong" }) }), /RECOVERY_EVIDENCE_INVALID/);
+      await assert.rejects(restarted.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
       assert.equal((await recoveryBindingFromReservation(restarted, owner.reservationId, "restored")).expectedDigest, context.expectedRestoreDigest);
       await assert.rejects(recoveryBindingFromReservation(restarted, "d".repeat(64), "completed"), /RECOVERY_EVIDENCE_INVALID/);
       await owner.release();
