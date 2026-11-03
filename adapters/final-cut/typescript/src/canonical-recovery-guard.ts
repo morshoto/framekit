@@ -27,7 +27,16 @@ export interface NativePublishRecoveryContext {
   nativeQuiescence: "unproven";
 }
 
-export type NativeRecoveryContext = NativeMaterializationRecoveryContext | NativePublishRecoveryContext;
+/** A planned receiver identity and target, not proof that dispatch or completion occurred. */
+export type RecoverableNativeContext = (Omit<NativeMaterializationRecoveryContext, "executorIdentity"> | Omit<NativePublishRecoveryContext, "executorIdentity">) & {
+  executorIdentity: string;
+  dispatchState: "intent";
+  canonicalTarget: Record<string, string>;
+  expectedCanonicalDigest: string;
+  expectedRestoreDigest?: string;
+};
+
+export type NativeRecoveryContext = NativeMaterializationRecoveryContext | NativePublishRecoveryContext | RecoverableNativeContext;
 
 function validPublishContext(value: unknown, operation: string): value is NativePublishRecoveryContext {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
@@ -44,6 +53,22 @@ function validPublishContext(value: unknown, operation: string): value is Native
 
 function validRecoveryContext(value: unknown, operation: string): value is NativeRecoveryContext {
   return validMaterializationContext(value, operation) || validPublishContext(value, operation);
+}
+
+function validRecoverableContext(value: unknown, operation: string): value is RecoverableNativeContext {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const c = value as RecoverableNativeContext;
+  if (typeof c.executorIdentity !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/.test(c.executorIdentity)
+    || c.dispatchState !== "intent" || !/^[a-f0-9]{64}$/.test(c.expectedCanonicalDigest)
+    || (c.expectedRestoreDigest !== undefined && !/^[a-f0-9]{64}$/.test(c.expectedRestoreDigest))
+    || !validRecoveryContext({ ...c, executorIdentity: null }, operation)) return false;
+  const t = c.canonicalTarget;
+  if (!t || typeof t !== "object" || Array.isArray(t)) return false;
+  const keys = c.kind === "publish" ? ["libraryPath", "projectUid", "sequenceUid"] : ["libraryUid", "eventUid", "projectUid", "sequenceUid"];
+  if (Object.keys(t).length !== keys.length || !keys.every((key) => typeof t[key] === "string" && t[key].trim().length > 0 && t[key].length <= 1024)) return false;
+  if (c.kind === "publish") return t.libraryPath === c.requestedTarget.libraryPath;
+  return keys.every((key) => t[key] === (c.requestedTarget as Record<string, string>)[key])
+    && c.expectedCanonicalDigest === c.desiredDigest;
 }
 
 function validMaterializationContext(value: unknown, operation: string): value is NativeMaterializationRecoveryContext {
@@ -98,15 +123,16 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
       if (!info.isFile() || info.size > 16_384) throw new Error("invalid reservation file");
       const contents = await handle.readFile("utf8");
       const record = JSON.parse(contents) as Record<string, unknown>;
-      if ((record.version !== 2 && record.version !== 3) || record.kind !== "native-operation"
+      if ((record.version !== 2 && record.version !== 3 && record.version !== 4) || record.kind !== "native-operation"
         || typeof record.owner !== "string"
         || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(record.owner)
         || typeof record.operation !== "string" || !/^[a-z][a-z0-9.-]{0,127}$/.test(record.operation)) {
         throw new Error("invalid native reservation");
       }
       if (record.version === 3 && !validRecoveryContext(record.recoveryContext, record.operation)) throw new Error("invalid recovery context");
+      if (record.version === 4 && !validRecoverableContext(record.recoveryContext, record.operation)) throw new Error("invalid recoverable context");
       return { reservationId: createHash("sha256").update(contents).digest("hex"), operation: record.operation,
-        ...(record.version === 3 ? { recoveryContext: record.recoveryContext as NativeRecoveryContext } : {}) };
+        ...(record.version === 3 || record.version === 4 ? { recoveryContext: record.recoveryContext as NativeRecoveryContext } : {}) };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
       throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot inspect native reservation", { cause: error });
@@ -118,12 +144,13 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
   /** Atomically reserve the same path used by canonical checkpoints. */
   public async beginNative(operation: string, recoveryContext?: NativeRecoveryContext): Promise<{ reservationId: string; release(): Promise<void> }> {
     if (!/^[a-z][a-z0-9.-]{0,127}$/.test(operation)) throw new Error("INVALID_OPERATION: invalid native reservation operation");
-    if (recoveryContext && !validRecoveryContext(recoveryContext, operation)) throw new Error("INVALID_OPERATION: invalid native recovery context");
+    const context = recoveryContext && structuredClone(recoveryContext);
+    if (context && !(context.executorIdentity === null ? validRecoveryContext(context, operation) : validRecoverableContext(context, operation))) throw new Error("INVALID_OPERATION: invalid native recovery context");
     await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
     return this.withTransaction(async () => {
       const owner = randomUUID();
-      const version = recoveryContext ? 3 : 2;
-      const contents = JSON.stringify({ version, kind: "native-operation", owner, operation, ...(recoveryContext ? { recoveryContext } : {}) }) + "\n";
+      const version = context ? (context.executorIdentity === null ? 3 : 4) : 2;
+      const contents = JSON.stringify({ version, kind: "native-operation", owner, operation, ...(context ? { recoveryContext: context } : {}) }) + "\n";
       let handle;
       try {
         handle = await open(this.path, "wx", 0o600);
