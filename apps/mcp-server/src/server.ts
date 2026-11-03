@@ -983,7 +983,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     options = {
       ...options,
       ...(options.nativeEditor
-        ? { nativeEditor: withBuildAlignmentGuard(options.nativeEditor, assertAlignment, ["capabilities"]) }
+        ? { nativeEditor: withBuildAlignmentGuard(options.nativeEditor, assertAlignment, ["capabilities", "nativeExecutionStatus"]) }
         : {}),
       ...(options.disposableNative
         ? { disposableNative: withBuildAlignmentGuard(options.disposableNative, assertAlignment) }
@@ -1010,7 +1010,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     options = {
       ...options,
       ...(options.nativeEditor
-        ? { nativeEditor: withRecoveryCheckpointGuard(options.nativeEditor, recovery, ["capabilities", "inspect"], [
+        ? { nativeEditor: withRecoveryCheckpointGuard(options.nativeEditor, recovery, ["capabilities", "inspect", "nativeExecutionStatus"], [
             "edit", "undo", "executeBlade", "executeMask", "executeTitleAdd", "executeTransitionAdd",
             "executeAppendMedia", "executeAppendSelectedMedia", "executeInsertMedia", "executeDeleteRange",
             "executeTrimToDuration", "executePictureInPicture", "importMedia", "executeImportMediaDirectory",
@@ -1227,7 +1227,13 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     } catch (error) {
       const nativeReservation = await options.canonicalRecovery.inspectNativeReservation();
       if (!nativeReservation) throw error;
-      return { status: "recovery-required", scope: "configured-state-directory", nativeReservation };
+      let executionStatus: "unknown" | "running" | "abort-requested" | "executor-settled" = "unknown";
+      try {
+        const observed = await options.nativeEditor?.nativeExecutionStatus?.(nativeReservation.reservationId);
+        if (observed === "running" || observed === "abort-requested" || observed === "executor-settled") executionStatus = observed;
+      } catch { /* Missing local evidence never implies native quiescence. */ }
+      return { status: "recovery-required", scope: "configured-state-directory", nativeReservation,
+        nativeExecution: { status: executionStatus, nativeQuiescence: "unproven" } };
     }
     return evidence
       ? { status: "recovery-required", scope: "configured-state-directory", ...evidence }

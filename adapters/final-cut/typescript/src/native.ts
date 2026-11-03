@@ -741,6 +741,7 @@ export type NativeFinalCutMouseExecutor = (source: string) => Promise<void>;
 
 export interface NativeFinalCutEditor {
   trackNativeDispatch?<T>(operation: () => Promise<T>, onDispatch: () => void, reservationId?: string): Promise<T>;
+  nativeExecutionStatus?(reservationId: string): "unknown" | "running" | "abort-requested" | "executor-settled";
   capabilities(): NativeFinalCutCapabilities;
   inspect(options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;
   focusTimeline(options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;

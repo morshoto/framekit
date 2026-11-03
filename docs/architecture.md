@@ -133,7 +133,10 @@ later native quiescence. Restarting or changing state directories does not estab
 is no automatic checkpoint reset or supported recovery flow yet. The read-only
 `editor.native.recovery.inspect` MCP tool reports a canonical checkpoint or a
 native-operation reservation in the configured state directory without inventing
-a target, contacting Final Cut, or clearing it; a
+a target, contacting Final Cut, or clearing it. For a native reservation it
+also reports the current process's executor status for that reservation ID;
+missing, restarted, or evicted observations are `unknown`. Executor settlement
+does not prove native quiescence and the inspection never authorizes release. A
 clear result is point-in-time and does not establish recovery or the state of
 other directories. `session.materialize.recovery.inspect` binds a specified
 persisted materialization job to its inspected reservation ID and reports its
