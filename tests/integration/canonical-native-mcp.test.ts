@@ -1474,6 +1474,9 @@ test("recovery refuses an active local publisher", async () => {
   let started!: () => void; let finish!: () => void;
   const publishing = new Promise<void>((resolve) => { started = resolve; });
   const held = new Promise<void>((resolve) => { finish = resolve; });
+  let readStarted!: () => void; let finishRead!: () => void;
+  const reading = new Promise<void>((resolve) => { readStarted = resolve; });
+  const heldRead = new Promise<void>((resolve) => { finishRead = resolve; });
   const projectPublisher = {
     isAvailable: () => false,
     getPublishJob: (jobId: string) => ({ jobId, state: "awaiting-confirmation", targetLibraryPath: target.libraryPath, artifactDigest: "a".repeat(64) }),
@@ -1482,7 +1485,7 @@ test("recovery refuses an active local publisher", async () => {
   const source: NativeRecoveryEvidenceSource = {
     observeReceiver: async (binding) => ({ reservationId: binding.reservationId, dispatchId: binding.dispatchId, jobId: binding.jobId,
       executorIdentity: binding.executorIdentity, state: "terminal", outcome: "completed", receiptId: "mock-receipt" }),
-    readCanonical: async () => ({ target, digest: "b".repeat(64), complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true }),
+    readCanonical: async () => { readStarted(); await heldRead; return { target, digest: "b".repeat(64), complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true }; },
   };
   const { client, server } = await connect(createRuntime([]), { canonicalRecovery: recovery, projectPublisher, nativeRecoveryEvidence: source } as never);
   try {
@@ -1495,10 +1498,16 @@ test("recovery refuses an active local publisher", async () => {
     assert.equal(premature.isError, true, "recovery must not release while publisher remains active");
     assert.equal(first.isError ?? false, false, textFrom(first));
     const reservationId = JSON.parse(textFrom(first)).recoveryReservation.reservationId;
-    const recovered = await client.callTool({ name: "editor.native.recovery.execute", arguments: { expectedReservationId: reservationId, outcome: "completed", confirm: true } });
+    const recoveryPending = client.callTool({ name: "editor.native.recovery.execute", arguments: { expectedReservationId: reservationId, outcome: "completed", confirm: true } });
+    await reading;
+    const overlap = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "publish-job-2", confirm: true } });
+    assert.equal(overlap.isError, true, "publish must not start during recovery");
+    assert.equal(publishes, 1);
+    finishRead();
+    const recovered = await recoveryPending;
     assert.equal(recovered.isError ?? false, false, textFrom(recovered));
     const second = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "publish-job-2", confirm: true } });
     assert.equal(second.isError ?? false, false, textFrom(second));
     assert.equal(publishes, 2);
-  } finally { await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
+  } finally { finish(); finishRead(); await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
 });
