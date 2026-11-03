@@ -810,6 +810,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly mediaImportPollMs: number;
   private readonly requestContext = new AsyncLocalStorage<NativeFinalCutRequestOptions>();
   private readonly dispatchContext = new AsyncLocalStorage<() => void>();
+  private readonly pendingNativeExecutions = new Set<Promise<unknown>>();
   private nativeUiDepth = 0;
   private readonly operations = new Map<string, NativeOperationRecord>();
   private latestOperationId?: string;
@@ -931,6 +932,20 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
 
   public async inspect(options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutContext> {
     return this.requestContext.run(options, () => this.inspectNative());
+  }
+
+  /** Executor settlement alone does not establish that the target processed an Apple Event. */
+  public hasPendingNativeExecution(): boolean {
+    return this.pendingNativeExecutions.size > 0;
+  }
+
+  private trackNativeExecution<T>(execution: Promise<T>): Promise<T> {
+    this.pendingNativeExecutions.add(execution);
+    void execution.then(
+      () => this.pendingNativeExecutions.delete(execution),
+      () => this.pendingNativeExecutions.delete(execution),
+    );
+    return execution;
   }
 
   public async focusTimeline(options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutContext> {
@@ -3516,7 +3531,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       })
       : undefined;
     this.dispatchContext.getStore()?.();
-    const execution = execFile("swift", ["-e", source], { signal: controller.signal });
+    const execution = this.trackNativeExecution(execFile("swift", ["-e", source], { signal: controller.signal }));
     try {
       await Promise.race([execution, timeout, ...(cancellation ? [cancellation] : [])]);
     } catch (error) {
@@ -3567,7 +3582,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       })
       : undefined;
     this.dispatchContext.getStore()?.();
-    const execution = this.executor(script, { signal: controller.signal });
+    const execution = this.trackNativeExecution(this.executor(script, { signal: controller.signal }));
     try {
       return await Promise.race([execution, timeout, ...(cancellation ? [cancellation] : [])]);
     } catch (error) {
