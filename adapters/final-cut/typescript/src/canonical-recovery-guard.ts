@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, mkdir, open, readFile, unlink } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, isAbsolute } from "node:path";
 import type { CanonicalRecoveryCheckpoint, CanonicalRecoveryGuard } from "./canonical.js";
 
 /** Requested evidence only: none of these fields establishes dispatch or quiescence. */
@@ -14,6 +14,36 @@ export interface NativeMaterializationRecoveryContext {
   desiredDigest: string;
   executorIdentity: null;
   nativeQuiescence: "unproven";
+}
+
+/** Requested library only; it is not a verified native target. */
+export interface NativePublishRecoveryContext {
+  kind: "publish";
+  jobId: string;
+  dispatchId: string;
+  requestedTarget: { libraryPath: string };
+  artifactDigest: string;
+  executorIdentity: null;
+  nativeQuiescence: "unproven";
+}
+
+export type NativeRecoveryContext = NativeMaterializationRecoveryContext | NativePublishRecoveryContext;
+
+function validPublishContext(value: unknown, operation: string): value is NativePublishRecoveryContext {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const c = value as Partial<NativePublishRecoveryContext>;
+  const path = c.requestedTarget?.libraryPath;
+  return c.kind === "publish"
+    && typeof c.jobId === "string" && /^publish-job-[a-z0-9-]{1,80}$/.test(c.jobId)
+    && operation === `native.publish.${createHash("sha256").update(c.jobId).digest("hex")}`
+    && typeof c.dispatchId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(c.dispatchId)
+    && typeof path === "string" && path.length <= 4096 && isAbsolute(path) && path.endsWith(".fcpbundle")
+    && typeof c.artifactDigest === "string" && /^[a-f0-9]{64}$/.test(c.artifactDigest)
+    && c.executorIdentity === null && c.nativeQuiescence === "unproven";
+}
+
+function validRecoveryContext(value: unknown, operation: string): value is NativeRecoveryContext {
+  return validMaterializationContext(value, operation) || validPublishContext(value, operation);
 }
 
 function validMaterializationContext(value: unknown, operation: string): value is NativeMaterializationRecoveryContext {
@@ -52,7 +82,7 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
   }
 
   /** Inspect a direct native reservation without fabricating a canonical target. */
-  public async inspectNativeReservation(): Promise<{ reservationId: string; operation: string; recoveryContext?: NativeMaterializationRecoveryContext } | undefined> {
+  public async inspectNativeReservation(): Promise<{ reservationId: string; operation: string; recoveryContext?: NativeRecoveryContext } | undefined> {
     let handle;
     try {
       handle = await open(this.path, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -66,9 +96,9 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
         || typeof record.operation !== "string" || !/^[a-z][a-z0-9.-]{0,127}$/.test(record.operation)) {
         throw new Error("invalid native reservation");
       }
-      if (record.version === 3 && !validMaterializationContext(record.recoveryContext, record.operation)) throw new Error("invalid recovery context");
+      if (record.version === 3 && !validRecoveryContext(record.recoveryContext, record.operation)) throw new Error("invalid recovery context");
       return { reservationId: createHash("sha256").update(contents).digest("hex"), operation: record.operation,
-        ...(record.version === 3 ? { recoveryContext: record.recoveryContext as NativeMaterializationRecoveryContext } : {}) };
+        ...(record.version === 3 ? { recoveryContext: record.recoveryContext as NativeRecoveryContext } : {}) };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
       throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot inspect native reservation", { cause: error });
@@ -78,9 +108,9 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
   }
 
   /** Atomically reserve the same path used by canonical checkpoints. */
-  public async beginNative(operation: string, recoveryContext?: NativeMaterializationRecoveryContext): Promise<{ reservationId: string; release(): Promise<void> }> {
+  public async beginNative(operation: string, recoveryContext?: NativeRecoveryContext): Promise<{ reservationId: string; release(): Promise<void> }> {
     if (!/^[a-z][a-z0-9.-]{0,127}$/.test(operation)) throw new Error("INVALID_OPERATION: invalid native reservation operation");
-    if (recoveryContext && !validMaterializationContext(recoveryContext, operation)) throw new Error("INVALID_OPERATION: invalid native recovery context");
+    if (recoveryContext && !validRecoveryContext(recoveryContext, operation)) throw new Error("INVALID_OPERATION: invalid native recovery context");
     await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
     const owner = randomUUID();
     const version = recoveryContext ? 3 : 2;

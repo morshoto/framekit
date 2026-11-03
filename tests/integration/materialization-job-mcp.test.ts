@@ -708,7 +708,8 @@ test("materialization excludes canonical edits and never retries an uncertain pu
         projectUid: running.destination.projectUid, sequenceUid: running.destination.sequenceUid,
       });
       assert.equal(persisted?.recoveryContext?.artifactDigest, running.artifactDigest);
-      assert.equal(persisted?.recoveryContext?.desiredDigest, running.desiredDigest);
+      if (persisted?.recoveryContext?.kind !== "materialization") throw new Error("expected materialization recovery context");
+      assert.equal(persisted.recoveryContext.desiredDigest, running.desiredDigest);
       assert.equal(persisted?.recoveryContext?.nativeQuiescence, "unproven");
       await assert.rejects(other.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "a".repeat(64), operation: "rename-clip" }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     } finally { finish(); }

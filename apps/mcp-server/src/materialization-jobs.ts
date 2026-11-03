@@ -240,7 +240,7 @@ export class SessionMaterializationJobs {
       throw new Error("MATERIALIZATION_PROVENANCE_INVALID: recorded target or destination differs from provenance");
     }
     const context = reservation.recoveryContext;
-    if (context && (context.jobId !== job.jobId
+    if (context && (context.kind !== "materialization" || context.jobId !== job.jobId
       || context.dispatchId !== job.recoveryReservation?.dispatchId
       || context.requestedTarget.libraryUid !== job.target.libraryUid
       || context.requestedTarget.eventUid !== job.target.eventUid

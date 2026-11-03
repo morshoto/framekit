@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { resolve as resolvePath } from "node:path";
 import { z } from "zod/v3";
 import {
@@ -3116,12 +3116,17 @@ function withPublishRecoveryGuard<T extends object>(
             throw error;
           }
         } else {
-          const getJob = Reflect.get(target, "getPublishJob", target) as ((id: string) => { state?: string }) | undefined;
-          const pending = Boolean(jobId && getJob?.call(target, jobId).state === "verification-pending");
+          const getJob = Reflect.get(target, "getPublishJob", target) as ((id: string) => { state?: string; targetLibraryPath?: string; artifactDigest?: string }) | undefined;
+          const job = jobId && getJob ? getJob.call(target, jobId) : undefined;
+          const pending = job?.state === "verification-pending";
           const operation = jobId
             ? `native.publish.${createHash("sha256").update(jobId).digest("hex")}`
             : "native.publish.direct";
-          const reservation = await recovery.beginNative(operation);
+          const context = jobId && job?.targetLibraryPath && job.artifactDigest
+            ? { kind: "publish" as const, jobId, dispatchId: randomUUID(), requestedTarget: { libraryPath: job.targetLibraryPath },
+                artifactDigest: job.artifactDigest, executorIdentity: null, nativeQuiescence: "unproven" as const }
+            : undefined;
+          const reservation = await recovery.beginNative(operation, context);
           const track = Reflect.get(target, "trackNativeDispatch", target);
           entry = { jobId, reservation, active: true, dispatched: pending || typeof track !== "function" };
           current = entry;
