@@ -239,6 +239,16 @@ export class SessionMaterializationJobs {
       || provenance.destination?.sequenceUid !== job.destination.sequenceUid) {
       throw new Error("MATERIALIZATION_PROVENANCE_INVALID: recorded target or destination differs from provenance");
     }
+    const context = reservation.recoveryContext;
+    if (context && (context.jobId !== job.jobId
+      || context.dispatchId !== job.recoveryReservation?.dispatchId
+      || context.requestedTarget.libraryUid !== job.target.libraryUid
+      || context.requestedTarget.eventUid !== job.target.eventUid
+      || context.requestedTarget.projectUid !== job.destination.projectUid
+      || context.requestedTarget.sequenceUid !== job.destination.sequenceUid
+      || context.artifactDigest !== job.artifactDigest || context.desiredDigest !== job.desiredDigest)) {
+      throw new Error("MATERIALIZATION_RECOVERY_MISMATCH: job evidence differs from its reserved request");
+    }
     const after = await this.recoveryGuard.inspectNativeReservation();
     if (after?.reservationId !== reservation.reservationId || after.operation !== operation) {
       throw new Error("MATERIALIZATION_RECOVERY_MISMATCH: reservation changed during inspection");
