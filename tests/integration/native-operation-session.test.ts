@@ -15,6 +15,7 @@ import {
   type NativeOperationReadinessResult,
 } from "@framekit/final-cut";
 import type { ContextRevision } from "@framekit/runtime";
+import { verifyNativeRecovery, type RecoveryBinding, type ReceiverObservation, type CanonicalRecoveryObservation } from "../../apps/mcp-server/src/native-recovery-verification.js";
 
 const baseRevision: ContextRevision = {
   id: "revision-1",
@@ -733,4 +734,51 @@ test("disposable job reservations distinguish validation from uncertain mutation
       await rm(directory, { recursive: true, force: true });
     }
   }
+});
+
+test("recovery evidence binds terminal receiver and canonical outcome for both routes", async () => {
+  for (const kind of ["publish", "materialization"] as const) {
+    const binding: RecoveryBinding = {
+      kind, reservationId: "a".repeat(64), dispatchId: "dispatch-1", jobId: "job-1", executorIdentity: "receiver-1",
+      target: kind === "publish" ? { libraryPath: "/tmp/target.fcpbundle" } : { libraryUid: "library", eventUid: "event", projectUid: "project", sequenceUid: "sequence" },
+      expectedDigest: "b".repeat(64), outcome: "completed",
+    };
+    const receipt: ReceiverObservation = { reservationId: binding.reservationId, dispatchId: binding.dispatchId, jobId: binding.jobId,
+      executorIdentity: binding.executorIdentity, state: "terminal", outcome: "completed", receiptId: "receipt-1" };
+    const readback: CanonicalRecoveryObservation = { target: binding.target, digest: binding.expectedDigest,
+      complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true };
+    let reads = 0;
+    const verify = (receiver: ReceiverObservation, canonical: CanonicalRecoveryObservation) => verifyNativeRecovery(binding, {
+      observeReceiver: async () => receiver,
+      readCanonical: async () => { reads++; return canonical; },
+    });
+    assert.equal((await verify(receipt, readback)).receiptId, "receipt-1");
+    for (const invalid of [
+      { ...receipt, state: "running" as const }, { ...receipt, dispatchId: "other" },
+      { ...receipt, executorIdentity: "other" }, { ...receipt, reservationId: "c".repeat(64) },
+      { ...receipt, outcome: "failed" as const },
+    ]) {
+      const before = reads;
+      await assert.rejects(verify(invalid, readback), /RECOVERY_EVIDENCE_INVALID/);
+      assert.equal(reads, before, "canonical read must follow receiver quiescence");
+    }
+    for (const invalid of [
+      { ...readback, target: { ...binding.target, unexpected: "other" } },
+      { ...readback, digest: "d".repeat(64) }, { ...readback, complete: false },
+      { ...readback, sourceIntegrity: false }, { ...readback, unrelatedProjectsUnchanged: false },
+    ]) await assert.rejects(verify(receipt, invalid), /RECOVERY_EVIDENCE_INVALID/);
+  }
+});
+
+test("recovery requires proven restoration and propagates unavailable receiver", async () => {
+  const binding: RecoveryBinding = { kind: "publish", reservationId: "a".repeat(64), dispatchId: "dispatch-1", jobId: "job-1",
+    executorIdentity: "receiver-1", target: { libraryPath: "/tmp/target.fcpbundle" }, expectedDigest: "b".repeat(64), outcome: "restored" };
+  const receipt: ReceiverObservation = { reservationId: binding.reservationId, dispatchId: binding.dispatchId, jobId: binding.jobId,
+    executorIdentity: binding.executorIdentity, state: "terminal", outcome: "failed", receiptId: "receipt-1" };
+  const observation: CanonicalRecoveryObservation = { target: binding.target, digest: binding.expectedDigest,
+    complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true };
+  const provider = { observeReceiver: async () => receipt, readCanonical: async () => observation };
+  assert.equal((await verifyNativeRecovery(binding, provider)).outcome, "restored");
+  await assert.rejects(verifyNativeRecovery(binding, { ...provider, readCanonical: async () => ({ ...observation, digest: "c".repeat(64) }) }), /RECOVERY_EVIDENCE_INVALID/);
+  await assert.rejects(verifyNativeRecovery(binding, { ...provider, observeReceiver: async () => { throw new Error("receiver unavailable"); } }), /receiver unavailable/);
 });
