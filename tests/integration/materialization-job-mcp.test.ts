@@ -695,6 +695,17 @@ test("materialization excludes canonical edits and never retries an uncertain pu
       assert.equal(running.state, "publishing");
       assert.equal(running.evidence.providerRequested, true);
       assert.equal(running.providerRequestPhase, "dispatch-intent");
+      const persisted = await new FileCanonicalRecoveryGuard(path).inspectNativeReservation();
+      assert.equal(persisted?.reservationId, running.recoveryReservation.reservationId);
+      assert.equal(persisted?.recoveryContext?.jobId, runningJobId);
+      assert.match(persisted?.recoveryContext?.dispatchId ?? "", /^[0-9a-f-]{36}$/);
+      assert.deepEqual(persisted?.recoveryContext?.target, {
+        libraryUid: running.target.libraryUid, eventUid: running.target.eventUid,
+        projectUid: running.destination.projectUid, sequenceUid: running.destination.sequenceUid,
+      });
+      assert.equal(persisted?.recoveryContext?.artifactDigest, running.artifactDigest);
+      assert.equal(persisted?.recoveryContext?.desiredDigest, running.desiredDigest);
+      assert.equal(persisted?.recoveryContext?.nativeQuiescence, "unproven");
       await assert.rejects(other.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "a".repeat(64), operation: "rename-clip" }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     } finally { finish(); }
     const result = payload(await execution);
