@@ -1657,6 +1657,7 @@ test("canonical target resolver requires one exact native occurrence", async () 
       sourceIdentity: "browser-source-1",
       source: "/tmp/clip.mov",
     }],
+    selectOccurrence: async () => ({ target: { kind: "selected-clip", identity: "native-occurrence-1" } }) as never,
     locateOccurrence: async () => ({
       status: "unique" as const,
       occurrences: [{
@@ -1688,6 +1689,7 @@ test("canonical target resolver searches literal source basenames outside the pu
       seenQueries.push(query);
       return [{ handle: "media-handle", name: query, sourceIdentity: "browser-source-1", source: "/tmp/interview?.mov" }];
     },
+    selectOccurrence: async () => ({ target: { kind: "selected-clip", identity: "native-occurrence-1" } }) as never,
     locateOccurrence: async () => ({
       status: "unique" as const,
       occurrences: [{
@@ -2720,6 +2722,7 @@ test("a same-named different source cannot dispatch a canonical edit", async () 
   const calls: string[] = [];
   const native = {
     capabilities: () => ({ timelineOccurrenceSourceBinding: true }) as never,
+    selectOccurrence: async () => { throw new Error("must not select a mismatched source"); },
     searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1", source: "/other/clip.mov" }],
     locateOccurrence: async () => { throw new Error("must not locate a mismatched source"); },
     locateOccurrenceForCanonicalTarget: async () => { throw new Error("must not locate a mismatched source"); },
