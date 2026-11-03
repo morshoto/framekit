@@ -1306,6 +1306,31 @@ test("native execution status stays bound to the reservation after timeout", asy
   assert.equal(adapter.nativeExecutionStatus(reservationId), "executor-settled");
 });
 
+test("reservation remains running between executor calls while operation continues", async () => {
+  let resume!: () => void;
+  let observed!: () => void;
+  const reachedPause = new Promise<void>((resolve) => { observed = resolve; });
+  const pause = new Promise<void>((resolve) => { resume = resolve; });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async () => context(true, "Final Cut Pro", "", 0, true),
+  });
+  const reservationId = "c".repeat(64);
+  const operation = adapter.trackNativeDispatch(async () => {
+    await adapter.inspect();
+    observed();
+    await pause;
+  }, () => {}, reservationId);
+  await reachedPause;
+  try {
+    assert.equal(adapter.nativeExecutionStatus(reservationId), "running");
+  } finally {
+    resume();
+    await operation;
+  }
+  assert.equal(adapter.nativeExecutionStatus(reservationId), "executor-settled");
+});
+
 test("native inspect propagates caller cancellation to the native executor", async () => {
   const controller = new AbortController();
   let executorSignal: AbortSignal | undefined;
