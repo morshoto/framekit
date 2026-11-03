@@ -1041,3 +1041,24 @@ test("sender crash leaves an uncertain reservation blocked after restart", async
     await assert.rejects(restarted.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
+
+test("untracked receiver reservation cannot claim sender settlement", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-native-untracked-sender-"));
+  const path = join(directory, "pending.json");
+  const jobId = "publish-job-untracked";
+  const operation = `native.publish.${createHash("sha256").update(jobId).digest("hex")}`;
+  const context = { kind: "publish", jobId, dispatchId: "00000000-0000-4000-8000-000000000001", executorIdentity: "mock-receiver",
+    dispatchState: "intent", nativeQuiescence: "unproven", artifactDigest: "a".repeat(64), requestedTarget: { libraryPath: "/tmp/target.fcpbundle" },
+    canonicalTarget: { libraryPath: "/tmp/target.fcpbundle", projectUid: "project", sequenceUid: "sequence" }, expectedCanonicalDigest: "b".repeat(64) };
+  try {
+    const guard = new FileCanonicalRecoveryGuard(path);
+    const reservation = await guard.beginNative(operation, context as never);
+    let verified = false;
+    await assert.rejects(guard.completeVerifiedNative(reservation.reservationId, "completed", async () => {
+      verified = true;
+      return { receiptId: "untrusted", outcome: "completed" };
+    }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    assert.equal(verified, false);
+    assert.equal((await guard.inspectNativeReservation())?.reservationId, reservation.reservationId);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
