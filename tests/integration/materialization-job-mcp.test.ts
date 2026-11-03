@@ -1058,7 +1058,7 @@ test("verified materialization recovery permits fresh target-bound resync withou
     assert.equal(publishes, 1);
     const status = payload(await client.callTool({ name: "session.materialize.status", arguments: { jobId: job.jobId } }));
     assert.equal(status.state, "completed");
-    assert.deepEqual(status.recoveryResolution, { reservationId: job.recoveryReservation.reservationId, dispatchId: job.recoveryReservation.dispatchId, outcome: "completed" });
+    assert.deepEqual(status.recoveryResolution, { reservationId: job.recoveryReservation.reservationId, dispatchId: job.recoveryReservation.dispatchId, outcome: "completed", canonicalReadbackDigest: job.desiredDigest });
     await rm(recoveryProofPath);
     const missingEvidence = await client.callTool({ name: "session.materialize.resync", arguments: { jobId: job.jobId, sessionId: "missing-evidence" } });
     assert.equal(missingEvidence.isError, true);
@@ -1093,6 +1093,12 @@ test("verified materialization recovery permits fresh target-bound resync withou
     const lateResync = await client.callTool({ name: "session.materialize.resync", arguments: { jobId: timedOut.jobId, sessionId: "after-timeout" } });
     assert.equal(lateResync.isError ?? false, false, JSON.stringify(lateResync));
     assert.equal(payload(lateResync).state, "resynced");
+    const lateStatus = payload(await client.callTool({ name: "session.materialize.status", arguments: { jobId: timedOut.jobId } }));
+    assert.equal(lateStatus.verification.tier, "canonical-verified");
+    assert.equal(lateStatus.evidence.canonicalReadback, true);
+    assert.equal(lateStatus.recoveryResolution.canonicalReadbackDigest, lateStatus.verification.canonicalReadbackDigest);
+    const repeatedLate = await client.callTool({ name: "session.materialize.resync", arguments: { jobId: timedOut.jobId, sessionId: "after-timeout-again" } });
+    assert.equal(repeatedLate.isError ?? false, false, JSON.stringify(repeatedLate));
     assert.equal(publishes, 3);
   } finally { await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
 });
