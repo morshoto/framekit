@@ -309,11 +309,12 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
         const recordBytes = await this.readRecoveryFile(join(directory, reservationId));
         const record = JSON.parse(recordBytes.toString("utf8")) as Record<string, unknown>;
         const proof = JSON.parse((await this.readRecoveryFile(join(directory, `${reservationId}.proof`))).toString("utf8")) as Record<string, unknown>;
-        if (createHash("sha256").update(recordBytes).digest("hex") !== reservationId || record.version !== 4 || record.kind !== "native-operation"
+        if (createHash("sha256").update(recordBytes).digest("hex") !== reservationId || record.version !== 4 || record.kind !== "native-operation" || record.senderTracked !== true
           || typeof record.owner !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(record.owner)
           || typeof record.operation !== "string" || !validRecoverableContext(record.recoveryContext, record.operation)
           || proof.reservationId !== reservationId || (proof.outcome !== "completed" && proof.outcome !== "restored")
           || typeof proof.receiptId !== "string" || !proof.receiptId.trim() || proof.receiptId.length > 1024) throw new Error("invalid completed recovery evidence");
+        await this.assertSenderSettlement(reservationId);
         return true;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
@@ -345,9 +346,13 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
           const directoryInfo = await lstat(receiptDirectory);
           if (!directoryInfo.isDirectory() || directoryInfo.isSymbolicLink()) throw new Error("invalid completed recovery directory");
           const record = await this.readRecoveryFile(receiptPath);
+          const stored = JSON.parse(record.toString("utf8")) as Record<string, unknown>;
           const proof = JSON.parse((await this.readRecoveryFile(proofPath)).toString("utf8")) as { reservationId?: unknown; outcome?: unknown; receiptId?: unknown };
           if (createHash("sha256").update(record).digest("hex") !== reservationId || proof.reservationId !== reservationId
+            || stored.version !== 4 || stored.kind !== "native-operation" || stored.senderTracked !== true
+            || typeof stored.operation !== "string" || !validRecoverableContext(stored.recoveryContext, stored.operation)
             || proof.outcome !== outcome || typeof proof.receiptId !== "string" || !proof.receiptId.trim()) throw new Error("invalid completed recovery record");
+          await this.assertSenderSettlement(reservationId);
           return { outcome, alreadyReleased: true };
         } catch (error) {
           throw new Error("RECOVERY_EVIDENCE_INVALID: no matching completed recovery", { cause: error });
@@ -361,15 +366,7 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
       }
       const stored = JSON.parse((await this.readRecoveryFile(this.path)).toString("utf8")) as { senderTracked?: unknown };
       if (stored.senderTracked !== true) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: sender tracking was not recorded");
-      try {
-        const directory = `${this.path}.sender-settled`;
-        const info = await lstat(directory);
-        if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("invalid sender settlement directory");
-        const settled = JSON.parse((await this.readRecoveryFile(join(directory, reservationId))).toString("utf8")) as { reservationId?: unknown; owner?: unknown };
-        if (settled.reservationId !== reservationId || typeof settled.owner !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(settled.owner)) throw new Error("invalid sender settlement");
-      } catch (error) {
-        throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: sender settlement is unproven", { cause: error });
-      }
+      await this.assertSenderSettlement(reservationId);
       const verified = await verify(current);
       if (!verified || verified.outcome !== outcome || typeof verified.receiptId !== "string" || !verified.receiptId.trim() || verified.receiptId.length > 1024) {
         throw new Error("RECOVERY_EVIDENCE_INVALID: verification did not prove the requested outcome");
@@ -403,6 +400,18 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
       try { await parent.sync(); } finally { await parent.close(); }
       return { outcome, alreadyReleased: false };
     });
+  }
+
+  private async assertSenderSettlement(reservationId: string): Promise<void> {
+    try {
+      const directory = `${this.path}.sender-settled`;
+      const info = await lstat(directory);
+      if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("invalid sender settlement directory");
+      const settled = JSON.parse((await this.readRecoveryFile(join(directory, reservationId))).toString("utf8")) as { reservationId?: unknown; owner?: unknown };
+      if (settled.reservationId !== reservationId || typeof settled.owner !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(settled.owner)) throw new Error("invalid sender settlement");
+    } catch (error) {
+      throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: sender settlement is unproven", { cause: error });
+    }
   }
 
   private async readRecoveryFile(path: string): Promise<Buffer> {
