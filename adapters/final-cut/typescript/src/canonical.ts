@@ -760,8 +760,9 @@ export function createFinalCutNativeTargetResolver(
       throw new Error(`TARGET_MISMATCH: native occurrence coordinates changed for ${clip.id}`);
     }
     const expectedSelectedIdentity = occurrence.nativeIdentity ?? occurrence.identity;
-    const selected = await native.selectOccurrence?.(occurrence.handle);
-    if (native.selectOccurrence && selected?.target?.identity !== expectedSelectedIdentity) {
+    if (!native.selectOccurrence) throw new Error(`TARGET_MISMATCH: native occurrence selection is unavailable for ${clip.id}`);
+    const selected = await native.selectOccurrence(occurrence.handle);
+    if (selected?.target?.identity !== expectedSelectedIdentity) {
       throw new Error(`TARGET_MISMATCH: selected native occurrence identity changed for ${clip.id}`);
     }
   };
@@ -770,6 +771,7 @@ export function createFinalCutNativeTargetResolver(
     get: () => {
       try {
         return Boolean(native.locateOccurrenceForCanonicalTarget
+          && native.selectOccurrence
           && native.capabilities?.().timelineOccurrenceSourceBinding === true);
       } catch {
         return false;
