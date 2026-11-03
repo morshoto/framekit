@@ -853,18 +853,18 @@ test("recovery binding is reconstructed from the same durable reservation", asyn
       canonicalTarget: target, expectedCanonicalDigest: "b".repeat(64), expectedRestoreDigest: "c".repeat(64) };
     try {
       const owner = await new FileCanonicalRecoveryGuard(path).beginNative(operation, context as never);
-      const reservation = await new FileCanonicalRecoveryGuard(path).inspectNativeReservation();
+      const restarted = new FileCanonicalRecoveryGuard(path);
+      const reservation = await restarted.inspectNativeReservation();
       assert.ok(reservation);
-      assert.deepEqual(recoveryBindingFromReservation(reservation, owner.reservationId, "completed"), {
+      assert.deepEqual(await recoveryBindingFromReservation(restarted, owner.reservationId, "completed"), {
         kind, reservationId: owner.reservationId, jobId, dispatchId: context.dispatchId, executorIdentity: context.executorIdentity,
         target, expectedDigest: context.expectedCanonicalDigest, outcome: "completed",
       });
-      assert.equal(recoveryBindingFromReservation(reservation, owner.reservationId, "restored").expectedDigest, context.expectedRestoreDigest);
-      assert.throws(() => recoveryBindingFromReservation(reservation, "d".repeat(64), "completed"), /RECOVERY_EVIDENCE_INVALID/);
+      assert.equal((await recoveryBindingFromReservation(restarted, owner.reservationId, "restored")).expectedDigest, context.expectedRestoreDigest);
+      await assert.rejects(recoveryBindingFromReservation(restarted, "d".repeat(64), "completed"), /RECOVERY_EVIDENCE_INVALID/);
       await owner.release();
       const legacy = await new FileCanonicalRecoveryGuard(path).beginNative("native.searchmedia");
-      const old = await new FileCanonicalRecoveryGuard(path).inspectNativeReservation();
-      assert.throws(() => recoveryBindingFromReservation(old!, legacy.reservationId, "completed"), /RECOVERY_EVIDENCE_INVALID/);
+      await assert.rejects(recoveryBindingFromReservation(restarted, legacy.reservationId, "completed"), /RECOVERY_EVIDENCE_INVALID/);
       await legacy.release();
     } finally { await rm(directory, { recursive: true, force: true }); }
   }
