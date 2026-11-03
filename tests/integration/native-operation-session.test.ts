@@ -925,6 +925,11 @@ test("verified mock recovery releases only its reservation and is idempotent", a
       } finally { finish(); }
       assert.deepEqual(await recovery, { outcome: "completed", alreadyReleased: false });
       await guard.assertClear();
+      const checkpointGuard = new FileCanonicalRecoveryGuard(path);
+      await checkpointGuard.begin({ projectId: "new-project", sequenceId: "new-sequence", baseRevision: "new-revision", beforeDigest: "a".repeat(64), operation: "rename-clip" });
+      assert.deepEqual(await recoverVerifiedNative(new FileCanonicalRecoveryGuard(path), owner.reservationId, "completed", source), { outcome: "completed", alreadyReleased: true });
+      assert.equal((await checkpointGuard.inspect())?.projectId, "new-project");
+      await checkpointGuard.complete();
       const replacement = await new FileCanonicalRecoveryGuard(path).beginNative("native.other");
       assert.deepEqual(await recoverVerifiedNative(new FileCanonicalRecoveryGuard(path), owner.reservationId, "completed", source), { outcome: "completed", alreadyReleased: true });
       assert.equal((await guard.inspectNativeReservation())?.reservationId, replacement.reservationId);
