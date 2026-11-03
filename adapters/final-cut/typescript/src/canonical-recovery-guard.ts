@@ -116,6 +116,28 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
     return this.withInspectionTransaction(() => this.readNativeReservation());
   }
 
+  /** Durable sender evidence only. An active marker may also be left by a crash. */
+  public async inspectNativeSender(reservationId: string): Promise<{ status: "untracked" | "active-or-interrupted" | "sender-settled" | "unknown"; nativeQuiescence: "unproven" }> {
+    if (!/^[a-f0-9]{64}$/.test(reservationId)) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: invalid reservation identity");
+    const result = await this.withInspectionTransaction(async () => {
+      if ((await this.readNativeReservation())?.reservationId !== reservationId) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: reservation identity changed");
+      const record = JSON.parse((await this.readRecoveryFile(this.path)).toString("utf8")) as { senderTracked?: unknown };
+      if (record.senderTracked !== true) return "untracked" as const;
+      try {
+        const activity = JSON.parse((await this.readRecoveryFile(`${this.path}.active`)).toString("utf8")) as { reservationId?: unknown; owner?: unknown };
+        return activity.reservationId === reservationId && typeof activity.owner === "string"
+          && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(activity.owner)
+          ? "active-or-interrupted" as const : "unknown" as const;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") return "unknown" as const;
+      }
+      try { await this.assertSenderSettlement(reservationId); return "sender-settled" as const; }
+      catch { return "unknown" as const; }
+    });
+    if (!result) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: reservation is unavailable");
+    return { status: result, nativeQuiescence: "unproven" };
+  }
+
   private async readNativeReservation(): Promise<{ reservationId: string; operation: string; recoveryContext?: NativeRecoveryContext } | undefined> {
     let handle;
     try {
