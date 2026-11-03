@@ -33,3 +33,16 @@ test("another guard cannot recover while a publisher is active", async () => {
     assert.deepEqual(await other.completeVerifiedNative(owner.reservationId, "completed", verify), { outcome: "completed", alreadyReleased: false });
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
+
+test("an orphaned execution marker blocks canonical and native reservations", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-orphaned-activity-"));
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  try {
+    await guard.beginNative("native.searchmedia", undefined, { trackExecution: true });
+    await rm(path); // Simulate an interrupted or externally altered test fixture.
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await assert.rejects(guard.beginNative("native.searchmedia"), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await assert.rejects(guard.begin({ projectId: "project", sequenceId: "sequence", baseRevision: "revision", beforeDigest: "a".repeat(64), operation: "rename-clip" }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
