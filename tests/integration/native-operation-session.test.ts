@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { link, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { link, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -925,6 +925,13 @@ test("verified mock recovery releases only its reservation and is idempotent", a
       } finally { finish(); }
       assert.deepEqual(await recovery, { outcome: "completed", alreadyReleased: false });
       await guard.assertClear();
+      const receiptDirectory = `${path}.completed`;
+      const movedReceipts = `${receiptDirectory}.moved`;
+      await rename(receiptDirectory, movedReceipts);
+      await symlink(movedReceipts, receiptDirectory);
+      await assert.rejects(recoverVerifiedNative(new FileCanonicalRecoveryGuard(path), owner.reservationId, "completed", source), /RECOVERY_EVIDENCE_INVALID/);
+      await rm(receiptDirectory);
+      await rename(movedReceipts, receiptDirectory);
       const checkpointGuard = new FileCanonicalRecoveryGuard(path);
       await checkpointGuard.begin({ projectId: "new-project", sequenceId: "new-sequence", baseRevision: "new-revision", beforeDigest: "a".repeat(64), operation: "rename-clip" });
       assert.deepEqual(await recoverVerifiedNative(new FileCanonicalRecoveryGuard(path), owner.reservationId, "completed", source), { outcome: "completed", alreadyReleased: true });
