@@ -147,6 +147,11 @@ a shared filesystem transaction lock; a lock left by an interrupted transaction 
 when the reservation file is absent. This exclusion requires all writers to use
 the updated guard; older processes and external file changes do not participate.
 The lock is not evidence of receiver completion and does not authorize recovery.
+Publish and materialization also retain a shared sender-execution marker while
+the local operation is active. Cooperating servers refuse recovery while it
+exists; an orphaned marker fails closed and must be preserved for investigation.
+Removing the marker after the sender returns does not prove Final Cut stopped,
+and older clients do not participate in this exclusion.
 For an older reservation without execution identity, isolate
 the incident by stopping guarded native automation across clients, retaining the
 configured state directory and recording the inspected reservation ID and
