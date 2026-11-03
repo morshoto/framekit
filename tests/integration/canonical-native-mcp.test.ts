@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -884,6 +884,35 @@ test("a direct adapter failure after native dispatch retains its reservation", a
     await server.close();
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("timed out native search retains sender activity until its executor settles", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-native-search-sender-"));
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  let finish!: (value: string) => void;
+  const execution = new Promise<string>((resolve) => { finish = resolve; });
+  const nativeEditor = new FinalCutNativeAutomationAdapter({ enabled: true, nativePreflightTimeoutMs: 30, executor: async () => execution });
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, nativeEditor });
+  try {
+    const result = await client.callTool({ name: "editor.native.media.search", arguments: { query: "clip.mov" } });
+    assert.equal(result.isError, true);
+    const reservation = await guard.inspectNativeReservation();
+    assert.equal(reservation?.operation, "native.searchmedia");
+    assert.equal(nativeEditor.nativeExecutionStatus(reservation!.reservationId), "abort-requested");
+    assert.ok((await lstat(`${path}.active`)).isFile());
+    finish("");
+    const deadline = Date.now() + 3000;
+    while (Date.now() < deadline) {
+      try { await lstat(`${path}.active`); } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") break;
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    await assert.rejects(lstat(`${path}.active`), { code: "ENOENT" });
+    assert.equal((await guard.inspectNativeReservation())?.reservationId, reservation!.reservationId);
+  } finally { finish(""); await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
 test("uncertain native search remains reserved after restart and cannot be replayed", async () => {
