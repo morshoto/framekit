@@ -963,7 +963,7 @@ export interface McpServerOptions {
   disposableNative?: Pick<DisposableNativeEditWorkflow, "preview" | "execute" | "undo">;
   nativeOperationSession?: Pick<NativeOperationSession, "submit" | "status" | "retry" | "cancel">;
   projectPublisher?: FinalCutProjectPublisher;
-  canonicalRecovery?: Pick<FileCanonicalRecoveryGuard, "inspectVersioned" | "inspectNativeReservation" | "assertClear" | "beginNative"> & Partial<Pick<FileCanonicalRecoveryGuard, "completeVerifiedNative">>;
+  canonicalRecovery?: Pick<FileCanonicalRecoveryGuard, "inspectVersioned" | "inspectNativeReservation" | "assertClear" | "beginNative"> & Partial<Pick<FileCanonicalRecoveryGuard, "completeVerifiedNative" | "inspectCompletedNative">>;
   nativeRecoveryEvidence?: NativeRecoveryEvidenceSource;
   videoExporter?: FinalCutVideoExporter;
   backgroundRenderer?: BackgroundRenderExportProvider;
@@ -3099,7 +3099,7 @@ async function assertRequiredBuildAlignment(runtime: AgentVideoRuntime, options:
 
 function withPublishRecoveryGuard<T extends object>(
   provider: T,
-  recovery: Pick<FileCanonicalRecoveryGuard, "assertClear" | "beginNative" | "inspectNativeReservation">,
+  recovery: Pick<FileCanonicalRecoveryGuard, "assertClear" | "beginNative" | "inspectNativeReservation"> & Partial<Pick<FileCanonicalRecoveryGuard, "inspectCompletedNative">>,
   notification: { completed(reservationId: string): void },
 ): T {
   const allowed = new Set<PropertyKey>(["isAvailable", "inspectReadiness", "executionMode", "getPublishJob", "loadPublishJob", "preparePublish"]);
@@ -3121,6 +3121,17 @@ function withPublishRecoveryGuard<T extends object>(
         }
         const jobId = property === "executePublishJob" && typeof args[0] === "string" ? args[0] : undefined;
         let entry = current;
+        if (entry && !entry.active && recovery.inspectCompletedNative) {
+          const candidate = entry;
+          candidate.active = true;
+          try {
+            if (await recovery.inspectCompletedNative(candidate.reservation.reservationId)) candidate.recovered = true;
+          } finally {
+            candidate.active = false;
+            if (candidate.recovered && current === candidate) current = undefined;
+          }
+          if (candidate.recovered) entry = undefined;
+        }
         if (entry) {
           if (entry.active || !jobId || entry.jobId !== jobId || args[1] !== true || args[2] !== true
           ) {
