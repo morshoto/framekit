@@ -254,6 +254,7 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
   public async begin(checkpoint: CanonicalRecoveryCheckpoint): Promise<void> {
     await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
     await this.withTransaction(async () => {
+      await this.assertNoNativeExecution();
       let handle;
       try {
         handle = await open(this.path, "wx", 0o600);
