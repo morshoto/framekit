@@ -295,10 +295,15 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
 
   /** Inspect a completed recovery without authorizing or clearing a reservation. */
   public async inspectCompletedNative(reservationId: string): Promise<boolean> {
+    return (await this.inspectCompletedNativeEvidence(reservationId)) !== undefined;
+  }
+
+  /** Return the verified record for binding continuation to the same job and target. */
+  public async inspectCompletedNativeEvidence(reservationId: string): Promise<{ reservationId: string; operation: string; recoveryContext: RecoverableNativeContext; outcome: "completed" | "restored" } | undefined> {
     if (!/^[a-f0-9]{64}$/.test(reservationId)) throw new Error("RECOVERY_EVIDENCE_INVALID: invalid recovery identity");
     const result = await this.withInspectionTransaction(async () => {
       try {
-        if (createHash("sha256").update(await this.readRecoveryFile(this.path)).digest("hex") === reservationId) return false;
+        if (createHash("sha256").update(await this.readRecoveryFile(this.path)).digest("hex") === reservationId) return undefined;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
@@ -315,13 +320,13 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
           || proof.reservationId !== reservationId || (proof.outcome !== "completed" && proof.outcome !== "restored")
           || typeof proof.receiptId !== "string" || !proof.receiptId.trim() || proof.receiptId.length > 1024) throw new Error("invalid completed recovery evidence");
         await this.assertSenderSettlement(reservationId);
-        return true;
+        return { reservationId, operation: record.operation, recoveryContext: record.recoveryContext as RecoverableNativeContext, outcome: proof.outcome as "completed" | "restored" };
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
         throw new Error("RECOVERY_EVIDENCE_INVALID: cannot inspect completed recovery", { cause: error });
       }
     });
-    return result ?? false;
+    return result;
   }
 
   /** Internal recovery seam. The verifier must be backed by an authoritative receiver. */
