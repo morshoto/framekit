@@ -887,8 +887,14 @@ test("timed out materialization keeps its sender marker until the command exits"
     const deadline = Date.now() + 5000;
     while (Date.now() < deadline) {
       try { await lstat(`${path}.active`); } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") break;
-        throw error;
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          try { await guard.inspectNativeReservation(); break; }
+          catch (inspectionError) {
+            if (!String(inspectionError).includes("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED")) throw inspectionError;
+          }
+        } else {
+          throw error;
+        }
       }
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
@@ -1046,6 +1052,11 @@ test("verified materialization recovery permits fresh target-bound resync withou
     const status = payload(await client.callTool({ name: "session.materialize.status", arguments: { jobId: job.jobId } }));
     assert.equal(status.state, "completed");
     assert.deepEqual(status.recoveryResolution, { reservationId: job.recoveryReservation.reservationId, outcome: "completed" });
+    const laterCompeting = await guard.beginNative("native.other");
+    const laterBlocked = await client.callTool({ name: "session.materialize.resync", arguments: { jobId: job.jobId, sessionId: "later" } });
+    assert.equal(laterBlocked.isError, true);
+    assert.equal(reads, 2);
+    await laterCompeting.release();
     await client.callTool({ name: "session.create", arguments: { sessionId: "source-restored", provider: { id: "final-cut" }, base: timeline() } });
     const restoredJob = payload(await client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "source-restored", target, confirm: true } }));
     receiverOutcome = "failed";
