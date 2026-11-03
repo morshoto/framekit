@@ -253,8 +253,13 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
       const receiptDirectory = `${this.path}.completed`;
       const receiptPath = join(receiptDirectory, reservationId);
       const proofPath = `${receiptPath}.proof`;
-      const current = await this.readNativeReservation();
-      if (!current || current.reservationId !== reservationId) {
+      let currentId: string | undefined;
+      try {
+        currentId = createHash("sha256").update(await this.readRecoveryFile(this.path)).digest("hex");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      if (currentId !== reservationId) {
         try {
           const record = await this.readRecoveryFile(receiptPath);
           const proof = JSON.parse((await this.readRecoveryFile(proofPath)).toString("utf8")) as { reservationId?: unknown; outcome?: unknown; receiptId?: unknown };
@@ -265,6 +270,8 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
           throw new Error("RECOVERY_EVIDENCE_INVALID: no matching completed recovery", { cause: error });
         }
       }
+      const current = await this.readNativeReservation();
+      if (!current || current.reservationId !== reservationId) throw new Error("RECOVERY_EVIDENCE_INVALID: reservation changed before verification");
       if (!current.recoveryContext || typeof current.recoveryContext.executorIdentity !== "string" || !("canonicalTarget" in current.recoveryContext)) {
         throw new Error("RECOVERY_EVIDENCE_INVALID: reservation lacks a bound receiver");
       }
