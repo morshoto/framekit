@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -116,5 +117,40 @@ test("repeated recovery rejects a malformed completed receipt", async () => {
     const restarted = new FileCanonicalRecoveryGuard(path);
     await assert.rejects(restarted.inspectCompletedNativeEvidence(owner.reservationId), /RECOVERY_EVIDENCE_INVALID/);
     await assert.rejects(restarted.completeVerifiedNative(owner.reservationId, "completed", verify), /RECOVERY_EVIDENCE_INVALID/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+
+test("legacy process ignores the transaction lock and creates a reservation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-legacy-lock-"));
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  try {
+    await mkdir(`${path}.lock`);
+    // Mirrors the old guard's exclusive reservation creation, which did not consult .lock.
+    const script = `const fs = require("fs"); const crypto = require("crypto");
+      const record = JSON.stringify({version:2, kind:"native-operation", owner:crypto.randomUUID(), operation:"native.searchmedia"}) + "\\n";
+      const fd = fs.openSync(process.argv[1], "wx", 0o600);
+      fs.writeFileSync(fd, record); fs.fsyncSync(fd); fs.closeSync(fd);`;
+    const child = spawnSync(process.execPath, ["-e", script, path], { encoding: "utf8", timeout: 10000 });
+    assert.equal(child.status, 0, child.stderr);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await rm(`${path}.lock`, { recursive: true }); // Test fixture releases its own simulated transaction.
+    assert.equal((await guard.inspectNativeReservation())?.operation, "native.searchmedia");
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("crashed transaction holder leaves a lock that remains closed on restart", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-crashed-lock-"));
+  const path = join(directory, "pending.json");
+  try {
+    const script = `require("fs").mkdirSync(process.argv[1]); process.kill(process.pid, "SIGKILL");`;
+    const child = spawnSync(process.execPath, ["-e", script, `${path}.lock`], { timeout: 10000 });
+    assert.equal(child.signal, "SIGKILL");
+    const restarted = new FileCanonicalRecoveryGuard(path);
+    await assert.rejects(restarted.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await assert.rejects(restarted.beginNative("native.searchmedia"), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await assert.rejects(new FileCanonicalRecoveryGuard(path).beginNative("native.searchmedia"), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
