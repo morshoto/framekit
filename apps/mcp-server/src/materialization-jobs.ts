@@ -271,6 +271,7 @@ export class SessionMaterializationJobs {
 
   public async resync(jobId: string, sessionId: string) {
     const job = await this.status(jobId);
+    await this.recoveryGuard?.assertClear?.();
     const verification = job.verification;
     const target = verification?.canonicalTarget;
     let recoveredReservationId: string | undefined;
@@ -295,7 +296,6 @@ export class SessionMaterializationJobs {
         || verification.canonicalReadbackDigest !== job.desiredDigest || !job.evidence.canonicalReadback) {
         throw new Error("MATERIALIZATION_RECOVERY_MISMATCH: completed recovery does not match the verified handoff");
       }
-      await this.recoveryGuard.assertClear();
       recoveredReservationId = reservationId;
       recoveredEvidence = JSON.stringify(completion);
     }
@@ -306,8 +306,8 @@ export class SessionMaterializationJobs {
       throw new Error("MATERIALIZATION_CANONICAL_RESYNC_UNAVAILABLE: no target-bound canonical readback capability is configured");
     }
     const result = await this.publisher.readCanonicalTarget({ target: structuredClone(target) });
+    await this.recoveryGuard?.assertClear?.();
     if (recoveredReservationId) {
-      await this.recoveryGuard!.assertClear!();
       const after = await this.recoveryGuard!.inspectCompletedNativeEvidence!(recoveredReservationId);
       if (!after || JSON.stringify(after) !== recoveredEvidence) {
         throw new Error("MATERIALIZATION_RECOVERY_MISMATCH: recovery evidence changed during canonical readback");
