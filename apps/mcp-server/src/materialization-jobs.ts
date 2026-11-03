@@ -330,6 +330,13 @@ export class SessionMaterializationJobs {
     if (!claim.owned) return claim.job;
     let claimed = claim.job;
     let reservation: Awaited<ReturnType<FileCanonicalRecoveryGuard["beginNative"]>> | undefined;
+    let executionFinished = false;
+    const finishNativeExecution = async () => {
+      if (!executionFinished && reservation?.finishExecution) {
+        await reservation.finishExecution();
+        executionFinished = true;
+      }
+    };
     let dispatchId: string | undefined;
     let providerRequested = false;
     let dispatched = typeof this.publisher.trackNativeDispatch !== "function";
@@ -346,7 +353,7 @@ export class SessionMaterializationJobs {
               projectUid: claimed.destination.projectUid, sequenceUid: claimed.destination.sequenceUid },
             artifactDigest: claimed.artifactDigest, desiredDigest: claimed.desiredDigest,
             executorIdentity: null, nativeQuiescence: "unproven",
-          });
+          }, { trackExecution: true });
           dispatchId = attemptId;
         } catch {
           const blocked: SessionMaterializationJob = {
@@ -393,6 +400,7 @@ export class SessionMaterializationJobs {
         : await invoke();
       claimed = { ...claimed, providerRequestPhase: "returned" };
       if (reservation && !dispatched) {
+        await finishNativeExecution();
         await reservation.release();
         reservation = undefined;
         claimed = { ...claimed, recoveryReservation: undefined };
@@ -484,12 +492,13 @@ export class SessionMaterializationJobs {
       return outcome;
     } catch (error) {
       if (reservation && (!providerRequested || !dispatched)) {
+        await finishNativeExecution();
         await reservation.release();
         claimed = { ...claimed, recoveryReservation: undefined };
       }
       return this.fail(claimed, materializationFailure(error, providerRequested || claimed.evidence.providerRequested));
     } finally {
-      await this.release(claimed.jobId, claimed.claim!.id);
+      try { await finishNativeExecution(); } finally { await this.release(claimed.jobId, claimed.claim!.id); }
     }
   }
 
