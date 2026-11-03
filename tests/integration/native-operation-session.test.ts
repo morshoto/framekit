@@ -786,19 +786,22 @@ test("recovery requires proven restoration and propagates unavailable receiver",
   await assert.rejects(verifyNativeRecovery(binding, { ...provider, observeReceiver: async () => { throw new Error("receiver unavailable"); } }), /receiver unavailable/);
 });
 
-test("recovery evidence is fixed before an asynchronous readback", async () => {
+test("recovery rejects a receiver that changes during canonical readback", async () => {
   const binding: RecoveryBinding = { kind: "publish", reservationId: "a".repeat(64), dispatchId: "dispatch-1", jobId: "job-1",
     executorIdentity: "receiver-1", target: { libraryPath: "/tmp/target.fcpbundle", projectUid: "project-1", sequenceUid: "sequence-1" }, expectedDigest: "b".repeat(64), outcome: "completed" };
   const receipt: ReceiverObservation = { reservationId: binding.reservationId, dispatchId: binding.dispatchId, jobId: binding.jobId,
     executorIdentity: binding.executorIdentity, state: "terminal", outcome: "completed", receiptId: "receipt-original" };
-  const result = await verifyNativeRecovery(binding, {
-    observeReceiver: async () => receipt,
-    readCanonical: async () => {
-      receipt.receiptId = "receipt-changed";
-      return { target: binding.target, digest: binding.expectedDigest, complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true };
-    },
-  });
-  assert.equal(result.receiptId, "receipt-original");
+  for (const changed of [
+    { ...receipt, receiptId: "receipt-changed" },
+    { ...receipt, state: "running" as const },
+    { ...receipt, jobId: "other-job" },
+  ]) {
+    let reads = 0;
+    await assert.rejects(verifyNativeRecovery(binding, {
+      observeReceiver: async () => ++reads === 1 ? receipt : changed,
+      readCanonical: async () => ({ target: binding.target, digest: binding.expectedDigest, complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true }),
+    }), /RECOVERY_EVIDENCE_INVALID/);
+  }
 });
 
 test("an unresolved receiver never permits canonical readback", async () => {
