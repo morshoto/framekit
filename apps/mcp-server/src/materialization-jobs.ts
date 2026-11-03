@@ -107,7 +107,7 @@ export interface SessionMaterializationJob {
   sessionDigest: string;
   claim?: { id: string; claimedAt: string };
   recoveryReservation?: { reservationId: string; dispatchId?: string; reason: "native-quiescence-unproven" };
-  recoveryResolution?: { reservationId: string; outcome: "completed" };
+  recoveryResolution?: { reservationId: string; dispatchId: string; outcome: "completed" };
   providerError?: { code: string; message: string; retryable: boolean };
   providerRequestPhase?: "dispatch-intent" | "returned";
   evidence: {
@@ -276,9 +276,11 @@ export class SessionMaterializationJobs {
     const target = verification?.canonicalTarget;
     let recoveredReservationId: string | undefined;
     let recoveredEvidence: string | undefined;
-    if (job.state !== "completed") {
-      const reservationId = job.recoveryReservation?.reservationId;
-      if (job.state !== "blocked" || job.error?.code !== "FINAL_CUT_CANONICAL_RECOVERY_REQUIRED" || !reservationId
+    if (job.state !== "completed" || job.recoveryResolution) {
+      const reservationId = job.state === "completed" ? job.recoveryResolution?.reservationId : job.recoveryReservation?.reservationId;
+      const dispatchId = job.state === "completed" ? job.recoveryResolution?.dispatchId : job.recoveryReservation?.dispatchId;
+      if ((job.state === "completed" && job.recoveryResolution?.outcome !== "completed")
+        || (job.state !== "completed" && (job.state !== "blocked" || job.error?.code !== "FINAL_CUT_CANONICAL_RECOVERY_REQUIRED")) || !reservationId || !dispatchId
         || !this.recoveryGuard?.inspectCompletedNativeEvidence || !this.recoveryGuard.assertClear) {
         throw new Error("MATERIALIZATION_NOT_COMPLETED: canonical continuation requires a completed handoff");
       }
@@ -288,7 +290,7 @@ export class SessionMaterializationJobs {
         projectUid: job.destination.projectUid, sequenceUid: job.destination.sequenceUid };
       if (!completion || completion.outcome !== "completed" || context?.kind !== "materialization"
         || completion.operation !== `native.materialize.${createHash("sha256").update(job.jobId).digest("hex")}`
-        || context.jobId !== job.jobId || context.dispatchId !== job.recoveryReservation?.dispatchId
+        || context.jobId !== job.jobId || context.dispatchId !== dispatchId
         || context.artifactDigest !== job.artifactDigest || context.desiredDigest !== job.desiredDigest
         || context.expectedCanonicalDigest !== job.desiredDigest || timelineIrDigest(job.desired) !== job.desiredDigest
         || !sameTarget(context.requestedTarget, expectedTarget) || !sameTarget(context.canonicalTarget as typeof expectedTarget, expectedTarget)
@@ -341,7 +343,7 @@ export class SessionMaterializationJobs {
       ...(result.delivery ? { delivery: result.delivery } : {}),
     };
     await this.save({ ...job, ...(recoveredReservationId ? { state: "completed" as const, error: undefined, recoveryReservation: undefined,
-      recoveryResolution: { reservationId: recoveredReservationId, outcome: "completed" as const } } : {}), continuation });
+      recoveryResolution: { reservationId: recoveredReservationId, dispatchId: job.recoveryReservation?.dispatchId ?? job.recoveryResolution!.dispatchId, outcome: "completed" as const } } : {}), continuation });
     return {
       jobId,
       state: continuation.state,
