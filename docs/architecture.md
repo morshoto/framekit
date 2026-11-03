@@ -150,6 +150,9 @@ The lock is not evidence of receiver completion and does not authorize recovery.
 Publish and materialization also retain a shared sender-execution marker while
 the local operation is active. Cooperating servers refuse recovery while it
 exists; an orphaned marker fails closed and must be preserved for investigation.
+Recovery additionally requires a durable settlement record created when the
+tracked sender returns; a missing marker alone is insufficient. Older
+reservations without recorded sender tracking cannot use this recovery path.
 Removing the marker after the sender returns does not prove Final Cut stopped,
 and older clients do not participate in this exclusion.
 For an older reservation without execution identity, isolate
