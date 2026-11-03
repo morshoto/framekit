@@ -920,6 +920,9 @@ test("verified mock recovery releases only its reservation and is idempotent", a
       assert.equal((await guard.inspectNativeReservation())?.reservationId, replacement.reservationId);
       await assert.rejects(recoverVerifiedNative(guard, replacement.reservationId, "completed", source), /RECOVERY_EVIDENCE_INVALID/);
       await replacement.release();
+      const next = await new FileCanonicalRecoveryGuard(path).beginNative(operation, context as never);
+      const nextReceipt = { ...receipt, reservationId: next.reservationId };
+      assert.deepEqual(await recoverVerifiedNative(guard, next.reservationId, "completed", { ...source, observeReceiver: async () => nextReceipt }), { outcome: "completed", alreadyReleased: false });
     } finally { await rm(directory, { recursive: true, force: true }); }
   }
 });
