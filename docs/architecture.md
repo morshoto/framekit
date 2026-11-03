@@ -135,7 +135,9 @@ is no automatic checkpoint reset or supported production recovery flow yet. The 
 native-operation reservation in the configured state directory without inventing
 a target, contacting Final Cut, or clearing it. For a native reservation it
 also reports the current process's executor status for that reservation ID;
-missing, restarted, or evicted observations are `unknown`. New materialization
+missing, restarted, or evicted observations are `unknown`. Its separate durable
+sender status reports `active-or-interrupted`, `sender-settled`, `untracked`, or
+`unknown`; it never establishes receiver quiescence. New materialization
 reservations and publish jobs with a requested library path also record their
 job, local dispatch ID, requested target and artifact digest. These are request
 correlation evidence, not a receiver-issued operation ID or an observed native
