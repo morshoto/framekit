@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -93,4 +93,28 @@ test("aborted sender execution remains pending until the child closes", async ()
     if (pid) process.kill(pid, "SIGKILL");
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+
+test("repeated recovery rejects a malformed completed receipt", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-native-receipt-"));
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  const jobId = "publish-job-123";
+  const operation = `native.publish.${createHash("sha256").update(jobId).digest("hex")}`;
+  const context = { kind: "publish", jobId, dispatchId: "00000000-0000-4000-8000-000000000001", executorIdentity: "receiver-1",
+    dispatchState: "intent", nativeQuiescence: "unproven", artifactDigest: "a".repeat(64),
+    requestedTarget: { libraryPath: "/tmp/target.fcpbundle" },
+    canonicalTarget: { libraryPath: "/tmp/target.fcpbundle", projectUid: "project", sequenceUid: "sequence" }, expectedCanonicalDigest: "b".repeat(64) };
+  try {
+    const owner = await (guard.beginNative as any)(operation, context, { trackExecution: true });
+    await owner.finishExecution();
+    const verify = async () => ({ receiptId: "receipt", outcome: "completed" as const });
+    await guard.completeVerifiedNative(owner.reservationId, "completed", verify);
+    const proof = join(`${path}.completed`, `${owner.reservationId}.proof`);
+    await writeFile(proof, JSON.stringify({ reservationId: owner.reservationId, outcome: "completed", receiptId: "x".repeat(1025) }));
+    const restarted = new FileCanonicalRecoveryGuard(path);
+    await assert.rejects(restarted.inspectCompletedNativeEvidence(owner.reservationId), /RECOVERY_EVIDENCE_INVALID/);
+    await assert.rejects(restarted.completeVerifiedNative(owner.reservationId, "completed", verify), /RECOVERY_EVIDENCE_INVALID/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
