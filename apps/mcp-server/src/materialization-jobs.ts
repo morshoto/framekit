@@ -14,6 +14,8 @@ import { EditingSessionRepository } from "./headless-sessions.js";
 
 export interface SessionMaterializationPublishRequest {
   jobId: string;
+  /** Local attempt correlation only; this is not a native completion receipt. */
+  dispatchId?: string;
   artifactPath: string;
   artifactDigest: string;
   target: TimelineIrToFcpxmlTarget;
@@ -103,7 +105,7 @@ export interface SessionMaterializationJob {
   };
   sessionDigest: string;
   claim?: { id: string; claimedAt: string };
-  recoveryReservation?: { reservationId: string; reason: "native-quiescence-unproven" };
+  recoveryReservation?: { reservationId: string; dispatchId?: string; reason: "native-quiescence-unproven" };
   providerError?: { code: string; message: string; retryable: boolean };
   providerRequestPhase?: "dispatch-intent" | "returned";
   evidence: {
@@ -318,6 +320,7 @@ export class SessionMaterializationJobs {
     if (!claim.owned) return claim.job;
     let claimed = claim.job;
     let reservation: Awaited<ReturnType<FileCanonicalRecoveryGuard["beginNative"]>> | undefined;
+    let dispatchId: string | undefined;
     let providerRequested = false;
     let dispatched = typeof this.publisher.trackNativeDispatch !== "function";
     try {
@@ -326,13 +329,15 @@ export class SessionMaterializationJobs {
       if (this.recoveryGuard) {
         try {
           const id = createHash("sha256").update(claimed.jobId).digest("hex");
+          const attemptId = randomUUID();
           reservation = await this.recoveryGuard.beginNative(`native.materialize.${id}`, {
-            kind: "materialization", jobId: claimed.jobId, dispatchId: randomUUID(),
+            kind: "materialization", jobId: claimed.jobId, dispatchId: attemptId,
             requestedTarget: { libraryUid: claimed.target.libraryUid, eventUid: claimed.target.eventUid,
               projectUid: claimed.destination.projectUid, sequenceUid: claimed.destination.sequenceUid },
             artifactDigest: claimed.artifactDigest, desiredDigest: claimed.desiredDigest,
             executorIdentity: null, nativeQuiescence: "unproven",
           });
+          dispatchId = attemptId;
         } catch {
           const blocked: SessionMaterializationJob = {
             ...claimed, state: "blocked", nextAction: "retry", claim: undefined,
@@ -345,11 +350,12 @@ export class SessionMaterializationJobs {
           await this.save(blocked);
           return blocked;
         }
-        claimed = { ...claimed, recoveryReservation: { reservationId: reservation.reservationId, reason: "native-quiescence-unproven" } };
+        claimed = { ...claimed, recoveryReservation: { reservationId: reservation.reservationId, dispatchId, reason: "native-quiescence-unproven" } };
         await this.save(claimed);
       }
       const request: SessionMaterializationPublishRequest = {
         jobId: claimed.jobId,
+        ...(dispatchId ? { dispatchId } : {}),
         artifactPath: claimed.artifactPath,
         artifactDigest: claimed.artifactDigest,
         target: claimed.target,
