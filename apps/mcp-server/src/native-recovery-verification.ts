@@ -70,7 +70,7 @@ function bindingFromRecord(
 
 /** Internal only: production does not configure an authoritative receiver source. */
 export async function recoverVerifiedNative(
-  guard: FileCanonicalRecoveryGuard,
+  guard: Pick<FileCanonicalRecoveryGuard, "completeVerifiedNative">,
   expectedReservationId: string,
   outcome: RecoveryBinding["outcome"],
   source: NativeRecoveryEvidenceSource,
