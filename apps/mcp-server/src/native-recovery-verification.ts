@@ -43,7 +43,7 @@ function invalid(): never {
 }
 
 function targetMatches(kind: RecoveryBinding["kind"], expected: Record<string, string>, observed: Record<string, string>): boolean {
-  const keys = kind === "publish" ? ["libraryPath"] : ["libraryUid", "eventUid", "projectUid", "sequenceUid"];
+  const keys = kind === "publish" ? ["libraryPath", "projectUid", "sequenceUid"] : ["libraryUid", "eventUid", "projectUid", "sequenceUid"];
   if (!expected || !observed || Object.keys(expected).length !== keys.length || Object.keys(observed).length !== keys.length) return false;
   return keys.every((key) => typeof expected[key] === "string" && expected[key].trim().length > 0
     && expected[key].length <= 4096 && observed[key] === expected[key]);
