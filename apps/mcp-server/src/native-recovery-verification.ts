@@ -67,9 +67,10 @@ export async function verifyNativeRecovery(binding: RecoveryBinding, source: Nat
     || receipt.executorIdentity !== expected.executorIdentity
     || receipt.outcome !== (expected.outcome === "completed" ? "completed" : "failed")
     || typeof receipt.receiptId !== "string" || !receipt.receiptId.trim() || receipt.receiptId.length > 1024) invalid();
+  const receiptId = receipt.receiptId;
   const observed = await source.readCanonical(structuredClone(expected));
   if (!observed || !targetMatches(expected.kind, expected.target, observed.target)
     || observed.digest !== expected.expectedDigest || observed.complete !== true
     || observed.sourceIntegrity !== true || observed.unrelatedProjectsUnchanged !== true) invalid();
-  return { receiptId: receipt.receiptId, outcome: expected.outcome };
+  return { receiptId, outcome: expected.outcome };
 }
