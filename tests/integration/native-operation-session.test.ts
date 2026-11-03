@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { once } from "node:events";
 import { link, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -959,5 +960,53 @@ test("verified mock recovery releases only its reservation and is idempotent", a
       assert.equal(await new FileCanonicalRecoveryGuard(path).inspectCompletedNative(next.reservationId), true);
       assert.equal(await guard.inspectCompletedNative("f".repeat(64)), false);
     } finally { await rm(directory, { recursive: true, force: true }); }
+  }
+});
+
+test("a separate sender process excludes recovery until its execution settles", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-native-sender-process-"));
+  const path = join(directory, "pending.json");
+  const jobId = "publish-job-process";
+  const operation = `native.publish.${createHash("sha256").update(jobId).digest("hex")}`;
+  const context = { kind: "publish", jobId, dispatchId: "00000000-0000-4000-8000-000000000001", executorIdentity: "mock-receiver",
+    dispatchState: "intent", nativeQuiescence: "unproven", artifactDigest: "a".repeat(64),
+    requestedTarget: { libraryPath: "/tmp/target.fcpbundle" },
+    canonicalTarget: { libraryPath: "/tmp/target.fcpbundle", projectUid: "project", sequenceUid: "sequence" }, expectedCanonicalDigest: "b".repeat(64) };
+  const script = `
+    import { FileCanonicalRecoveryGuard } from "@framekit/final-cut";
+    const owner = await new FileCanonicalRecoveryGuard(process.argv[1]).beginNative(process.argv[2], JSON.parse(process.argv[3]), {trackExecution:true});
+    process.stdout.write(owner.reservationId + "\\n");
+    await new Promise((resolve) => process.stdin.once("data", resolve));
+    await owner.finishExecution();
+  `;
+  const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script, path, operation, JSON.stringify(context)], { stdio: ["pipe", "pipe", "pipe"] });
+  let stderr = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk: string) => { stderr += chunk; });
+  const exited = once(child, "exit");
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const [chunk] = await Promise.race([
+      once(child.stdout, "data"),
+      exited.then(() => { throw new Error(`sender exited before reservation: ${stderr}`); }),
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("sender did not reserve")), 10_000); }),
+    ]);
+    clearTimeout(timer);
+    const reservationId = String(chunk).trim();
+    assert.match(reservationId, /^[a-f0-9]{64}$/);
+    const other = new FileCanonicalRecoveryGuard(path);
+    let reads = 0;
+    const verify = async () => { reads++; return { receiptId: "mock-receipt", outcome: "completed" as const }; };
+    await assert.rejects(other.completeVerifiedNative(reservationId, "completed", verify), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    assert.equal(reads, 0);
+    child.stdin.end("finish\n");
+    const [code] = await exited;
+    assert.equal(code, 0, stderr);
+    assert.deepEqual(await other.completeVerifiedNative(reservationId, "completed", verify), { outcome: "completed", alreadyReleased: false });
+    assert.equal(reads, 1);
+  } finally {
+    clearTimeout(timer);
+    if (child.exitCode === null && child.signalCode === null) { child.kill("SIGKILL"); await exited; }
+    await rm(directory, { recursive: true, force: true });
   }
 });
