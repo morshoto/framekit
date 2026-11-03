@@ -1051,7 +1051,12 @@ test("verified materialization recovery permits fresh target-bound resync withou
     assert.equal(publishes, 1);
     const status = payload(await client.callTool({ name: "session.materialize.status", arguments: { jobId: job.jobId } }));
     assert.equal(status.state, "completed");
-    assert.deepEqual(status.recoveryResolution, { reservationId: job.recoveryReservation.reservationId, outcome: "completed" });
+    assert.deepEqual(status.recoveryResolution, { reservationId: job.recoveryReservation.reservationId, dispatchId: job.recoveryReservation.dispatchId, outcome: "completed" });
+    await rm(recoveryProofPath);
+    const missingEvidence = await client.callTool({ name: "session.materialize.resync", arguments: { jobId: job.jobId, sessionId: "missing-evidence" } });
+    assert.equal(missingEvidence.isError, true);
+    assert.equal(reads, 2);
+    await writeFile(recoveryProofPath, proof);
     const laterCompeting = await guard.beginNative("native.other");
     const laterBlocked = await client.callTool({ name: "session.materialize.resync", arguments: { jobId: job.jobId, sessionId: "later" } });
     assert.equal(laterBlocked.isError, true);
