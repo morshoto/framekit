@@ -107,7 +107,7 @@ export interface SessionMaterializationJob {
   sessionDigest: string;
   claim?: { id: string; claimedAt: string };
   recoveryReservation?: { reservationId: string; dispatchId?: string; reason: "native-quiescence-unproven" };
-  recoveryResolution?: { reservationId: string; dispatchId: string; outcome: "completed" };
+  recoveryResolution?: { reservationId: string; dispatchId: string; outcome: "completed"; canonicalReadbackDigest?: string };
   providerError?: { code: string; message: string; retryable: boolean };
   providerRequestPhase?: "dispatch-intent" | "returned";
   evidence: {
@@ -273,7 +273,8 @@ export class SessionMaterializationJobs {
     const job = await this.status(jobId);
     await this.recoveryGuard?.assertClear?.();
     const verification = job.verification;
-    const target = verification?.canonicalTarget;
+    let target = verification?.canonicalTarget;
+    let requiresInitialReadback = false;
     let recoveredReservationId: string | undefined;
     let recoveredEvidence: string | undefined;
     if (job.state !== "completed" || job.recoveryResolution) {
@@ -293,10 +294,21 @@ export class SessionMaterializationJobs {
         || context.jobId !== job.jobId || context.dispatchId !== dispatchId
         || context.artifactDigest !== job.artifactDigest || context.desiredDigest !== job.desiredDigest
         || context.expectedCanonicalDigest !== job.desiredDigest || timelineIrDigest(job.desired) !== job.desiredDigest
-        || !sameTarget(context.requestedTarget, expectedTarget) || !sameTarget(context.canonicalTarget as typeof expectedTarget, expectedTarget)
-        || !target || !sameTarget(target, expectedTarget) || verification?.tier !== "canonical-verified" || verification.status !== "verified"
-        || verification.canonicalReadbackDigest !== job.desiredDigest || !job.evidence.canonicalReadback) {
+        || !sameTarget(context.requestedTarget, expectedTarget) || !sameTarget(context.canonicalTarget as typeof expectedTarget, expectedTarget)) {
         throw new Error("MATERIALIZATION_RECOVERY_MISMATCH: completed recovery does not match the verified handoff");
+      }
+      if (job.evidence.canonicalReadback) {
+        const expectedDigest = job.recoveryResolution?.canonicalReadbackDigest ?? job.desiredDigest;
+        if (!target || !sameTarget(target, expectedTarget) || verification?.tier !== "canonical-verified" || verification.status !== "verified"
+          || verification.canonicalReadbackDigest !== expectedDigest) {
+          throw new Error("MATERIALIZATION_RECOVERY_MISMATCH: recorded canonical evidence does not match the handoff");
+        }
+      } else {
+        if (job.state === "completed" || verification?.status !== "blocked") {
+          throw new Error("MATERIALIZATION_RECOVERY_MISMATCH: canonical handoff evidence is inconsistent");
+        }
+        target = expectedTarget;
+        requiresInitialReadback = true;
       }
       recoveredReservationId = reservationId;
       recoveredEvidence = JSON.stringify(completion);
@@ -322,7 +334,15 @@ export class SessionMaterializationJobs {
       throw new Error("MATERIALIZATION_RESYNC_TARGET_MISMATCH: canonical readback does not identify the completed handoff target");
     }
     const readbackDigest = timelineIrDigest(result.canonicalReadback);
-    const changeSinceHandoff = verification.canonicalReadbackDigest
+    if (requiresInitialReadback) {
+      const comparable = structuredClone(result.canonicalReadback);
+      comparable.project.id = job.desired.project.id;
+      comparable.sequence.id = job.desired.sequence.id;
+      if (timelineIrDigest(comparable) !== job.desiredDigest) {
+        throw new Error("MATERIALIZATION_READBACK_MISMATCH: recovered canonical content differs from the desired timeline");
+      }
+    }
+    const changeSinceHandoff = requiresInitialReadback ? "unchanged" as const : verification?.canonicalReadbackDigest
       ? readbackDigest === verification.canonicalReadbackDigest ? "unchanged" as const : "changed" as const
       : "unknown" as const;
     const created = await this.sessions.create({
@@ -342,8 +362,13 @@ export class SessionMaterializationJobs {
       changeSinceHandoff,
       ...(result.delivery ? { delivery: result.delivery } : {}),
     };
+    const handoffDigest = requiresInitialReadback ? readbackDigest : verification?.canonicalReadbackDigest;
     await this.save({ ...job, ...(recoveredReservationId ? { state: "completed" as const, error: undefined, recoveryReservation: undefined,
-      recoveryResolution: { reservationId: recoveredReservationId, dispatchId: job.recoveryReservation?.dispatchId ?? job.recoveryResolution!.dispatchId, outcome: "completed" as const } } : {}), continuation });
+      ...(requiresInitialReadback ? { evidence: { ...job.evidence, canonicalReadback: true }, verification: {
+        tier: "canonical-verified" as const, status: "verified" as const, artifactDigest: job.artifactDigest, desiredDigest: job.desiredDigest,
+        canonicalReadbackDigest: readbackDigest, canonicalTarget: structuredClone(target), ...(result.delivery ? { delivery: result.delivery } : {}) } } : {}),
+      recoveryResolution: { reservationId: recoveredReservationId, dispatchId: job.recoveryReservation?.dispatchId ?? job.recoveryResolution!.dispatchId,
+        outcome: "completed" as const, ...(handoffDigest ? { canonicalReadbackDigest: handoffDigest } : {}) } } : {}), continuation });
     return {
       jobId,
       state: continuation.state,
