@@ -863,6 +863,20 @@ test("recovery binding is reconstructed from the same durable reservation", asyn
       assert.equal((await recoveryBindingFromReservation(restarted, owner.reservationId, "restored")).expectedDigest, context.expectedRestoreDigest);
       await assert.rejects(recoveryBindingFromReservation(restarted, "d".repeat(64), "completed"), /RECOVERY_EVIDENCE_INVALID/);
       await owner.release();
+      for (const malformed of [
+        { ...context, executorIdentity: "" },
+        { ...context, dispatchState: "terminal" },
+        { ...context, canonicalTarget: { ...target, projectUid: "" } },
+        { ...context, canonicalTarget: kind === "publish" ? { ...target, libraryPath: "/tmp/other.fcpbundle" } : { ...target, libraryUid: "other" } },
+        { ...context, expectedCanonicalDigest: "invalid" },
+      ]) await assert.rejects(new FileCanonicalRecoveryGuard(path).beginNative(operation, malformed as never), /INVALID_OPERATION/);
+      const oldContext = { ...context, executorIdentity: null };
+      const v3 = await new FileCanonicalRecoveryGuard(path).beginNative(operation, oldContext as never);
+      await assert.rejects(recoveryBindingFromReservation(restarted, v3.reservationId, "completed"), /RECOVERY_EVIDENCE_INVALID/);
+      await v3.release();
+      const noRestore = await new FileCanonicalRecoveryGuard(path).beginNative(operation, { ...context, expectedRestoreDigest: undefined } as never);
+      await assert.rejects(recoveryBindingFromReservation(restarted, noRestore.reservationId, "restored"), /RECOVERY_EVIDENCE_INVALID/);
+      await noRestore.release();
       const legacy = await new FileCanonicalRecoveryGuard(path).beginNative("native.searchmedia");
       await assert.rejects(recoveryBindingFromReservation(restarted, legacy.reservationId, "completed"), /RECOVERY_EVIDENCE_INVALID/);
       await legacy.release();
