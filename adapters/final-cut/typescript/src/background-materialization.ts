@@ -16,6 +16,9 @@ const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
 
 export interface FinalCutBackgroundMaterializationRequest {
   jobId: string;
+  /** Local request correlation; neither field is a receiver completion receipt. */
+  dispatchId?: string;
+  reservationId?: string;
   artifactPath: string;
   artifactDigest: string;
   target: TimelineIrToFcpxmlTarget;
