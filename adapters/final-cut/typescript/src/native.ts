@@ -812,6 +812,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly requestContext = new AsyncLocalStorage<NativeFinalCutRequestOptions>();
   private readonly dispatchContext = new AsyncLocalStorage<{ onDispatch: () => void; reservationId?: string }>();
   private readonly pendingNativeExecutions = new Set<Promise<unknown>>();
+  private readonly reservationExecutions = new Map<string, Set<Promise<unknown>>>();
   private readonly executionStates = new Map<string, { pending: number; aborted: boolean; started: boolean; active: boolean }>();
   private nativeUiDepth = 0;
   private readonly operations = new Map<string, NativeOperationRecord>();
@@ -947,13 +948,29 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return !state?.started ? "unknown" : state.active || state.pending > 0 ? state.aborted ? "abort-requested" : "running" : "executor-settled";
   }
 
+  /** Waits for local executors only; it does not establish receiver quiescence. */
+  public nativeExecutionSettlement(reservationId: string): Promise<void> | undefined {
+    const pending = this.reservationExecutions.get(reservationId);
+    return pending?.size ? Promise.allSettled([...pending]).then(() => {}) : undefined;
+  }
+
   private trackNativeExecution<T>(execution: Promise<T>): Promise<T> {
     this.pendingNativeExecutions.add(execution);
     const id = this.dispatchContext.getStore()?.reservationId;
     const state = id ? this.executionStates.get(id) : undefined;
+    if (id) {
+      const pending = this.reservationExecutions.get(id) ?? new Set<Promise<unknown>>();
+      pending.add(execution);
+      this.reservationExecutions.set(id, pending);
+    }
     if (state) { state.pending += 1; state.started = true; }
     const settled = () => {
       this.pendingNativeExecutions.delete(execution);
+      if (id) {
+        const pending = this.reservationExecutions.get(id);
+        pending?.delete(execution);
+        if (pending?.size === 0) this.reservationExecutions.delete(id);
+      }
       if (state) state.pending -= 1;
     };
     void execution.then(

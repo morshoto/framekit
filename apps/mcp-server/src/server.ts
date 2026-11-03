@@ -986,7 +986,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     options = {
       ...options,
       ...(options.nativeEditor
-        ? { nativeEditor: withBuildAlignmentGuard(options.nativeEditor, assertAlignment, ["capabilities", "nativeExecutionStatus"]) }
+        ? { nativeEditor: withBuildAlignmentGuard(options.nativeEditor, assertAlignment, ["capabilities", "nativeExecutionStatus", "nativeExecutionSettlement"]) }
         : {}),
       ...(options.disposableNative
         ? { disposableNative: withBuildAlignmentGuard(options.disposableNative, assertAlignment) }
@@ -3221,9 +3221,13 @@ function withRecoveryCheckpointGuard<T extends object>(
       if (allowed.has(property)) return value.bind(target);
       return async (...args: unknown[]) => {
         if (reserved.has(property)) {
-          const reservation = await recovery.beginNative(`native.${reservationKind === "disposable" ? "disposable." : ""}${String(property).toLowerCase()}`);
+          const settlement = Reflect.get(target, "nativeExecutionSettlement", target) as ((id: string) => Promise<void> | undefined) | undefined;
+          const trackedSender = reservationKind === "native" && typeof settlement === "function";
+          const reservation = await recovery.beginNative(`native.${reservationKind === "disposable" ? "disposable." : ""}${String(property).toLowerCase()}`, undefined, trackedSender ? { trackExecution: true } : undefined);
+          if (trackedSender && !reservation.finishExecution) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: shared execution tracking unavailable");
           const track = Reflect.get(target, "trackNativeDispatch", target) as unknown;
           let dispatched = typeof track !== "function";
+          let release = false;
           try {
             const invoke = async () => Reflect.apply(value, target, args) as Promise<unknown>;
             const result: unknown = typeof track === "function"
@@ -3275,12 +3279,20 @@ function withRecoveryCheckpointGuard<T extends object>(
                   || (evidence?.status === "ROLLED_BACK" && restored)
               : evidence?.verification?.verified === true && (property !== "undo" || evidence.undone === true);
             if (verified || (!dispatched && contextMethods.has(property) && prepared?.available === false)) {
-              await reservation.release();
+              release = true;
             }
             return result;
           } catch (error) {
-            if (!dispatched) await reservation.release();
+            if (!dispatched) release = true;
             throw error;
+          } finally {
+            const pending = trackedSender ? settlement.call(target, reservation.reservationId) : undefined;
+            if (pending) {
+              void pending.then(() => reservation.finishExecution!()).catch(() => {});
+            } else {
+              if (reservation.finishExecution) await reservation.finishExecution();
+              if (release) await reservation.release();
+            }
           }
         }
         await recovery.assertClear();

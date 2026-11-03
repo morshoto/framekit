@@ -843,7 +843,7 @@ test("a direct edit rejected before native dispatch releases its reservation", a
   const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
   let reservations = 0;
   const beginNative = guard.beginNative.bind(guard);
-  guard.beginNative = async (operation) => { reservations += 1; return beginNative(operation); };
+  guard.beginNative = async (...args) => { reservations += 1; return beginNative(...args); };
   const nativeEditor = new FinalCutNativeAutomationAdapter({ enabled: false });
   const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, nativeEditor });
   try {
