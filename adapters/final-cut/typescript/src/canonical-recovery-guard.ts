@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readFile, unlink } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, rmdir, unlink } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 import type { CanonicalRecoveryCheckpoint, CanonicalRecoveryGuard } from "./canonical.js";
 
@@ -67,10 +67,14 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
   public constructor(private readonly path: string) {}
 
   public async assertClear(): Promise<void> {
+    await this.assertNoTransaction();
     try {
       await lstat(this.path);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        await this.assertNoTransaction();
+        return;
+      }
       throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot inspect recovery checkpoint", { cause: error });
     }
     throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: unresolved canonical edit checkpoint exists");
@@ -112,6 +116,7 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
     if (!/^[a-z][a-z0-9.-]{0,127}$/.test(operation)) throw new Error("INVALID_OPERATION: invalid native reservation operation");
     if (recoveryContext && !validRecoveryContext(recoveryContext, operation)) throw new Error("INVALID_OPERATION: invalid native recovery context");
     await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
+    return this.withTransaction(async () => {
     const owner = randomUUID();
     const version = recoveryContext ? 3 : 2;
     const contents = JSON.stringify({ version, kind: "native-operation", owner, operation, ...(recoveryContext ? { recoveryContext } : {}) }) + "\n";
@@ -131,6 +136,7 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
       await this.completeOwned(owner, version);
       released = true;
     } };
+    });
   }
 
   public async inspectVersioned(): Promise<{ checkpointId: string; checkpoint: CanonicalRecoveryCheckpoint } | undefined> {
@@ -171,6 +177,7 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
 
   public async begin(checkpoint: CanonicalRecoveryCheckpoint): Promise<void> {
     await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
+    await this.withTransaction(async () => {
     let handle;
     try {
       handle = await open(this.path, "wx", 0o600);
@@ -183,6 +190,7 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
     } finally {
       await handle?.close();
     }
+    });
   }
 
   public async complete(): Promise<void> {
@@ -192,6 +200,7 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
   }
 
   private async completeOwned(owner: string, version: number): Promise<void> {
+    await this.withTransaction(async () => {
     try {
       const info = await lstat(this.path);
       if (!info.isFile() || info.isSymbolicLink()) throw new Error("invalid checkpoint");
@@ -200,6 +209,36 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
       await unlink(this.path);
     } catch (error) {
       throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot safely complete recovery checkpoint", { cause: error });
+    }
+    });
+  }
+
+  private async assertNoTransaction(): Promise<void> {
+    try {
+      await lstat(`${this.path}.lock`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot inspect recovery transaction", { cause: error });
+    }
+    throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: recovery transaction is unresolved");
+  }
+
+  /** A crashed transaction deliberately leaves the lock in place for manual investigation. */
+  private async withTransaction<T>(operation: () => Promise<T>): Promise<T> {
+    const lock = `${this.path}.lock`;
+    try {
+      await mkdir(lock, { mode: 0o700 });
+    } catch (error) {
+      throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: recovery transaction is unavailable", { cause: error });
+    }
+    try {
+      return await operation();
+    } finally {
+      try {
+        await rmdir(lock);
+      } catch (error) {
+        throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: recovery transaction could not be closed", { cause: error });
+      }
     }
   }
 }
