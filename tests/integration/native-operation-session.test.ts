@@ -741,7 +741,7 @@ test("recovery evidence binds terminal receiver and canonical outcome for both r
   for (const kind of ["publish", "materialization"] as const) {
     const binding: RecoveryBinding = {
       kind, reservationId: "a".repeat(64), dispatchId: "dispatch-1", jobId: "job-1", executorIdentity: "receiver-1",
-      target: kind === "publish" ? { libraryPath: "/tmp/target.fcpbundle" } : { libraryUid: "library", eventUid: "event", projectUid: "project", sequenceUid: "sequence" },
+      target: kind === "publish" ? { libraryPath: "/tmp/target.fcpbundle", projectUid: "project-1", sequenceUid: "sequence-1" } : { libraryUid: "library", eventUid: "event", projectUid: "project", sequenceUid: "sequence" },
       expectedDigest: "b".repeat(64), outcome: "completed",
     };
     const receipt: ReceiverObservation = { reservationId: binding.reservationId, dispatchId: binding.dispatchId, jobId: binding.jobId,
@@ -773,7 +773,7 @@ test("recovery evidence binds terminal receiver and canonical outcome for both r
 
 test("recovery requires proven restoration and propagates unavailable receiver", async () => {
   const binding: RecoveryBinding = { kind: "publish", reservationId: "a".repeat(64), dispatchId: "dispatch-1", jobId: "job-1",
-    executorIdentity: "receiver-1", target: { libraryPath: "/tmp/target.fcpbundle" }, expectedDigest: "b".repeat(64), outcome: "restored" };
+    executorIdentity: "receiver-1", target: { libraryPath: "/tmp/target.fcpbundle", projectUid: "project-1", sequenceUid: "sequence-1" }, expectedDigest: "b".repeat(64), outcome: "restored" };
   const receipt: ReceiverObservation = { reservationId: binding.reservationId, dispatchId: binding.dispatchId, jobId: binding.jobId,
     executorIdentity: binding.executorIdentity, state: "terminal", outcome: "failed", receiptId: "receipt-1" };
   const observation: CanonicalRecoveryObservation = { target: binding.target, digest: binding.expectedDigest,
@@ -787,7 +787,7 @@ test("recovery requires proven restoration and propagates unavailable receiver",
 
 test("recovery evidence is fixed before an asynchronous readback", async () => {
   const binding: RecoveryBinding = { kind: "publish", reservationId: "a".repeat(64), dispatchId: "dispatch-1", jobId: "job-1",
-    executorIdentity: "receiver-1", target: { libraryPath: "/tmp/target.fcpbundle" }, expectedDigest: "b".repeat(64), outcome: "completed" };
+    executorIdentity: "receiver-1", target: { libraryPath: "/tmp/target.fcpbundle", projectUid: "project-1", sequenceUid: "sequence-1" }, expectedDigest: "b".repeat(64), outcome: "completed" };
   const receipt: ReceiverObservation = { reservationId: binding.reservationId, dispatchId: binding.dispatchId, jobId: binding.jobId,
     executorIdentity: binding.executorIdentity, state: "terminal", outcome: "completed", receiptId: "receipt-original" };
   const result = await verifyNativeRecovery(binding, {
