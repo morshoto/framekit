@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -16,7 +17,7 @@ import {
   type NativeOperationReadinessResult,
 } from "@framekit/final-cut";
 import type { ContextRevision } from "@framekit/runtime";
-import { verifyNativeRecovery, type RecoveryBinding, type ReceiverObservation, type CanonicalRecoveryObservation } from "../../apps/mcp-server/src/native-recovery-verification.js";
+import { recoveryBindingFromReservation, verifyNativeRecovery, type RecoveryBinding, type ReceiverObservation, type CanonicalRecoveryObservation } from "../../apps/mcp-server/src/native-recovery-verification.js";
 
 const baseRevision: ContextRevision = {
   id: "revision-1",
@@ -836,4 +837,35 @@ test("recovery evidence can be queried after a mock receiver process exits", asy
     });
     assert.equal(result.receiptId, "mock-receipt");
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("recovery binding is reconstructed from the same durable reservation", async () => {
+  for (const kind of ["publish", "materialization"] as const) {
+    const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-binding-"));
+    const path = join(directory, "pending.json");
+    const jobId = kind === "publish" ? "publish-job-123" : "materialization-123";
+    const operation = `native.${kind === "publish" ? "publish" : "materialize"}.${createHash("sha256").update(jobId).digest("hex")}`;
+    const target = kind === "publish" ? { libraryPath: "/tmp/target.fcpbundle", projectUid: "project-1", sequenceUid: "sequence-1" }
+      : { libraryUid: "library", eventUid: "event", projectUid: "project-1", sequenceUid: "sequence-1" };
+    const context = { kind, jobId, dispatchId: "00000000-0000-4000-8000-000000000001", executorIdentity: "mock-receiver-1",
+      dispatchState: "intent", nativeQuiescence: "unproven", artifactDigest: "a".repeat(64), desiredDigest: "b".repeat(64),
+      requestedTarget: kind === "publish" ? { libraryPath: "/tmp/target.fcpbundle" } : target,
+      canonicalTarget: target, expectedCanonicalDigest: "b".repeat(64), expectedRestoreDigest: "c".repeat(64) };
+    try {
+      const owner = await new FileCanonicalRecoveryGuard(path).beginNative(operation, context as never);
+      const reservation = await new FileCanonicalRecoveryGuard(path).inspectNativeReservation();
+      assert.ok(reservation);
+      assert.deepEqual(recoveryBindingFromReservation(reservation, owner.reservationId, "completed"), {
+        kind, reservationId: owner.reservationId, jobId, dispatchId: context.dispatchId, executorIdentity: context.executorIdentity,
+        target, expectedDigest: context.expectedCanonicalDigest, outcome: "completed",
+      });
+      assert.equal(recoveryBindingFromReservation(reservation, owner.reservationId, "restored").expectedDigest, context.expectedRestoreDigest);
+      assert.throws(() => recoveryBindingFromReservation(reservation, "d".repeat(64), "completed"), /RECOVERY_EVIDENCE_INVALID/);
+      await owner.release();
+      const legacy = await new FileCanonicalRecoveryGuard(path).beginNative("native.searchmedia");
+      const old = await new FileCanonicalRecoveryGuard(path).inspectNativeReservation();
+      assert.throws(() => recoveryBindingFromReservation(old!, legacy.reservationId, "completed"), /RECOVERY_EVIDENCE_INVALID/);
+      await legacy.release();
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  }
 });
