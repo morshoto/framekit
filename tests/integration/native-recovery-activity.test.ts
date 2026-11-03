@@ -46,3 +46,23 @@ test("an orphaned execution marker blocks canonical and native reservations", as
     await assert.rejects(guard.begin({ projectId: "project", sequenceId: "sequence", baseRevision: "revision", beforeDigest: "a".repeat(64), operation: "rename-clip" }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
+
+test("sender status remains inspectable after restart without asserting native quiescence", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-sender-inspection-"));
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  const restarted = new FileCanonicalRecoveryGuard(path);
+  const inspect = (id: string) => (restarted as any).inspectNativeSender(id);
+  try {
+    const legacy = await guard.beginNative("native.searchmedia");
+    assert.deepEqual(await inspect(legacy.reservationId), { status: "untracked", nativeQuiescence: "unproven" });
+    await legacy.release();
+    const tracked = await guard.beginNative("native.searchmedia", undefined, { trackExecution: true });
+    assert.deepEqual(await inspect(tracked.reservationId), { status: "active-or-interrupted", nativeQuiescence: "unproven" });
+    await assert.rejects(inspect("c".repeat(64)), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await tracked.finishExecution!();
+    assert.deepEqual(await inspect(tracked.reservationId), { status: "sender-settled", nativeQuiescence: "unproven" });
+    await rm(join(`${path}.sender-settled`, tracked.reservationId));
+    assert.deepEqual(await inspect(tracked.reservationId), { status: "unknown", nativeQuiescence: "unproven" });
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
