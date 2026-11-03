@@ -1010,3 +1010,34 @@ test("a separate sender process excludes recovery until its execution settles", 
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("sender crash leaves an uncertain reservation blocked after restart", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-native-sender-crash-"));
+  const path = join(directory, "pending.json");
+  const jobId = "publish-job-crashed";
+  const operation = `native.publish.${createHash("sha256").update(jobId).digest("hex")}`;
+  const context = { kind: "publish", jobId, dispatchId: "00000000-0000-4000-8000-000000000001", executorIdentity: "mock-receiver",
+    dispatchState: "intent", nativeQuiescence: "unproven", artifactDigest: "a".repeat(64),
+    requestedTarget: { libraryPath: "/tmp/target.fcpbundle" },
+    canonicalTarget: { libraryPath: "/tmp/target.fcpbundle", projectUid: "project", sequenceUid: "sequence" }, expectedCanonicalDigest: "b".repeat(64) };
+  const script = `
+    import { FileCanonicalRecoveryGuard } from "@framekit/final-cut";
+    const owner = await new FileCanonicalRecoveryGuard(process.argv[1]).beginNative(process.argv[2], JSON.parse(process.argv[3]), {trackExecution:true});
+    process.stdout.write(owner.reservationId + "\\n", () => process.kill(process.pid, "SIGKILL"));
+  `;
+  try {
+    const child = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script, path, operation, JSON.stringify(context)], { encoding: "utf8", timeout: 10_000 });
+    assert.equal(child.signal, "SIGKILL", child.stderr);
+    const reservationId = child.stdout.trim();
+    assert.match(reservationId, /^[a-f0-9]{64}$/);
+    const restarted = new FileCanonicalRecoveryGuard(path);
+    let verified = false;
+    await assert.rejects(restarted.completeVerifiedNative(reservationId, "completed", async () => {
+      verified = true;
+      return { receiptId: "mock-receipt", outcome: "completed" };
+    }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    assert.equal(verified, false);
+    assert.equal((await restarted.inspectNativeReservation())?.reservationId, reservationId);
+    await assert.rejects(restarted.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
