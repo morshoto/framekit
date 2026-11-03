@@ -980,7 +980,7 @@ export interface McpServerOptions {
 
 export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
   runtime.registerBuiltinSkills();
-  const publishRecovery = { completed: (_reservationId: string): void => {} };
+  const publishRecovery = { active: 0, recovering: false, completed: (_reservationId: string): void => {} };
   if (options.requireBuildAlignment) {
     const assertAlignment = () => assertRequiredBuildAlignment(runtime, options);
     options = {
@@ -1227,9 +1227,13 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     if (!options.nativeRecoveryEvidence || !options.canonicalRecovery?.completeVerifiedNative) {
       throw new Error("CAPABILITY_UNAVAILABLE: authoritative native recovery evidence is not configured");
     }
-    const result = await recoverVerifiedNative({ completeVerifiedNative: options.canonicalRecovery.completeVerifiedNative.bind(options.canonicalRecovery) }, expectedReservationId, outcome, options.nativeRecoveryEvidence);
-    publishRecovery.completed(expectedReservationId);
-    return result;
+    if (publishRecovery.active || publishRecovery.recovering) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: local publish or recovery is active");
+    publishRecovery.recovering = true;
+    try {
+      const result = await recoverVerifiedNative({ completeVerifiedNative: options.canonicalRecovery.completeVerifiedNative.bind(options.canonicalRecovery) }, expectedReservationId, outcome, options.nativeRecoveryEvidence);
+      publishRecovery.completed(expectedReservationId);
+      return result;
+    } finally { publishRecovery.recovering = false; }
   }));
 
   server.registerTool("editor.native.recovery.inspect", {
@@ -3100,7 +3104,7 @@ async function assertRequiredBuildAlignment(runtime: AgentVideoRuntime, options:
 function withPublishRecoveryGuard<T extends object>(
   provider: T,
   recovery: Pick<FileCanonicalRecoveryGuard, "assertClear" | "beginNative" | "inspectNativeReservation"> & Partial<Pick<FileCanonicalRecoveryGuard, "inspectCompletedNative">>,
-  notification: { completed(reservationId: string): void },
+  notification: { active: number; recovering: boolean; completed(reservationId: string): void },
 ): T {
   const allowed = new Set<PropertyKey>(["isAvailable", "inspectReadiness", "executionMode", "getPublishJob", "loadPublishJob", "preparePublish"]);
   let current: { jobId?: string; dispatchId?: string; reservation: Awaited<ReturnType<FileCanonicalRecoveryGuard["beginNative"]>>; active: boolean; dispatched: boolean; recovered: boolean } | undefined;
@@ -3119,6 +3123,9 @@ function withPublishRecoveryGuard<T extends object>(
           await recovery.assertClear();
           return Reflect.apply(value, target, args);
         }
+        if (notification.recovering) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: local recovery is active");
+        notification.active++;
+        try {
         const jobId = property === "executePublishJob" && typeof args[0] === "string" ? args[0] : undefined;
         let entry = current;
         if (entry && !entry.active && recovery.inspectCompletedNative) {
@@ -3183,6 +3190,7 @@ function withPublishRecoveryGuard<T extends object>(
             if (current === entry) current = undefined;
           }
         }
+        } finally { notification.active--; }
       };
     },
   });
