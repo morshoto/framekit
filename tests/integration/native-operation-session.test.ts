@@ -913,7 +913,17 @@ test("verified mock recovery releases only its reservation and is idempotent", a
         complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true }) };
       await assert.rejects(recoverVerifiedNative(guard, owner.reservationId, "completed", { ...source, observeReceiver: async () => ({ ...receipt, state: "running" as const }) }), /RECOVERY_EVIDENCE_INVALID/);
       await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
-      assert.deepEqual(await recoverVerifiedNative(guard, owner.reservationId, "completed", source), { outcome: "completed", alreadyReleased: false });
+      let enter!: () => void;
+      let finish!: () => void;
+      const started = new Promise<void>((resolve) => { enter = resolve; });
+      const held = new Promise<void>((resolve) => { finish = resolve; });
+      const recovery = recoverVerifiedNative(guard, owner.reservationId, "completed", { ...source,
+        readCanonical: async () => { enter(); await held; return source.readCanonical(); } });
+      await started;
+      try {
+        await assert.rejects(new FileCanonicalRecoveryGuard(path).beginNative("native.competing"), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+      } finally { finish(); }
+      assert.deepEqual(await recovery, { outcome: "completed", alreadyReleased: false });
       await guard.assertClear();
       const replacement = await new FileCanonicalRecoveryGuard(path).beginNative("native.other");
       assert.deepEqual(await recoverVerifiedNative(new FileCanonicalRecoveryGuard(path), owner.reservationId, "completed", source), { outcome: "completed", alreadyReleased: true });
