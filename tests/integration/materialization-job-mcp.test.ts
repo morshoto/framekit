@@ -983,12 +983,18 @@ test("verified materialization recovery permits fresh target-bound resync withou
   };
   let publishes = 0;
   let reads = 0;
+  let providerCompletes = true;
+  let wrongReadback = false;
   let removeProofDuringRead = false;
   let recoveryProofPath = "";
   let receiverOutcome: "completed" | "failed" = "completed";
   let desired: TimelineIr | undefined;
   const publisher: SessionMaterializationPublisher = {
-    publish: async (request) => { publishes++; desired = structuredClone(request.desired); return { state: "completed", canonicalReadback: request.desired, canonicalTarget: canonicalTarget(request), headedNativeVerified: false }; },
+    publish: async (request) => {
+      publishes++; desired = structuredClone(request.desired);
+      return providerCompletes ? { state: "completed", canonicalReadback: request.desired, canonicalTarget: canonicalTarget(request), headedNativeVerified: false }
+        : { state: "blocked", code: "SENDER_TIMEOUT", message: "sender returned before readback", retryable: false };
+    },
     readCanonicalTarget: async ({ target: bound }) => {
       reads++;
       if (removeProofDuringRead) {
@@ -999,6 +1005,7 @@ test("verified materialization recovery permits fresh target-bound resync withou
       const canonicalReadback = structuredClone(desired!);
       canonicalReadback.project.id = bound.projectUid;
       canonicalReadback.sequence.id = bound.sequenceUid;
+      if (wrongReadback) canonicalReadback.project.name = "Unexpected content";
       return { canonicalReadback, canonicalTarget: bound };
     },
   };
@@ -1071,5 +1078,21 @@ test("verified materialization recovery permits fresh target-bound resync withou
     assert.equal(notCompleted.isError, true);
     assert.equal(reads, 2);
     assert.equal(publishes, 2);
+    providerCompletes = false;
+    receiverOutcome = "completed";
+    await client.callTool({ name: "session.create", arguments: { sessionId: "source-timeout", provider: { id: "final-cut" }, base: timeline() } });
+    const timedOut = payload(await client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "source-timeout", target, confirm: true } }));
+    assert.equal(timedOut.state, "blocked");
+    assert.equal(timedOut.evidence.canonicalReadback, false);
+    const lateRecovery = await client.callTool({ name: "editor.native.recovery.execute", arguments: { expectedReservationId: timedOut.recoveryReservation.reservationId, outcome: "completed", confirm: true } });
+    assert.equal(lateRecovery.isError ?? false, false);
+    wrongReadback = true;
+    const wrong = await client.callTool({ name: "session.materialize.resync", arguments: { jobId: timedOut.jobId, sessionId: "after-timeout" } });
+    assert.equal(wrong.isError, true);
+    wrongReadback = false;
+    const lateResync = await client.callTool({ name: "session.materialize.resync", arguments: { jobId: timedOut.jobId, sessionId: "after-timeout" } });
+    assert.equal(lateResync.isError ?? false, false, JSON.stringify(lateResync));
+    assert.equal(payload(lateResync).state, "resynced");
+    assert.equal(publishes, 3);
   } finally { await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
 });
