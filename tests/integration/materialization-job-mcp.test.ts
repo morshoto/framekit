@@ -1010,6 +1010,7 @@ test("verified materialization recovery permits fresh target-bound resync withou
     },
   };
   const source: NativeRecoveryEvidenceSource = {
+    materializationReceiverIdentity: "mock-receiver",
     observeReceiver: async (binding) => ({ reservationId: binding.reservationId, dispatchId: binding.dispatchId, jobId: binding.jobId,
       executorIdentity: binding.executorIdentity, state: "terminal", outcome: receiverOutcome, receiptId: "mock-receipt" }),
     readCanonical: async (binding) => ({ target: binding.target, digest: binding.expectedDigest, complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true }),
@@ -1107,12 +1108,21 @@ test("materialization binds a trusted receiver without a replacement guard", asy
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-receiver-binding-"));
   const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
   let sent: { jobId: string; dispatchId?: string; reservationId?: string } | undefined;
-  const publisher = { recoveryExecutorIdentity: "mock-authenticated-receiver", publish: async (request: { jobId: string; dispatchId?: string; reservationId?: string }) => {
+  let changeBeforeInvoke = false;
+  let notifyDispatch: (() => void) | undefined;
+  const publisher = { recoveryExecutorIdentity: "mock-authenticated-receiver",
+    trackNativeDispatch: async <T>(invoke: () => Promise<T>, onDispatch: () => void): Promise<T> => {
+      notifyDispatch = onDispatch;
+      if (changeBeforeInvoke) source.materializationReceiverIdentity = "other-receiver";
+      return invoke();
+    },
+    publish: async (request: { jobId: string; dispatchId?: string; reservationId?: string }) => {
+    notifyDispatch?.();
     sent = request;
     return { state: "blocked", code: "TIMEOUT", message: "response unavailable", retryable: false };
   } };
   const source = {
-    executorIdentity: "mock-authenticated-receiver", supportsMaterialization: true,
+    materializationReceiverIdentity: "mock-authenticated-receiver",
     observeReceiver: async (binding: { reservationId: string; dispatchId: string; jobId: string; executorIdentity: string }) => {
       assert.equal(binding.reservationId, sent?.reservationId);
       assert.equal(binding.dispatchId, sent?.dispatchId);
@@ -1132,11 +1142,45 @@ test("materialization binds a trusted receiver without a replacement guard", asy
     const job = payload(await client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "receiver-source", target, confirm: true } }));
     assert.equal(job.state, "blocked");
     const reservation = await guard.inspectNativeReservation();
-    assert.equal(reservation?.recoveryContext?.executorIdentity, source.executorIdentity);
+    assert.equal(reservation?.recoveryContext?.executorIdentity, source.materializationReceiverIdentity);
     assert.equal(sent?.reservationId, job.recoveryReservation.reservationId);
     assert.equal(sent?.dispatchId, job.recoveryReservation.dispatchId);
+    source.materializationReceiverIdentity = "other-receiver";
+    const changedSource = await client.callTool({ name: "editor.native.recovery.execute", arguments: { expectedReservationId: job.recoveryReservation.reservationId, outcome: "completed", confirm: true } });
+    assert.equal(changedSource.isError, true);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    source.materializationReceiverIdentity = "mock-authenticated-receiver";
+    const readCanonical = source.readCanonical;
+    source.readCanonical = async (binding) => {
+      const result = await readCanonical(binding);
+      source.materializationReceiverIdentity = "other-receiver";
+      return result;
+    };
+    const changedDuringRead = await client.callTool({ name: "editor.native.recovery.execute", arguments: { expectedReservationId: job.recoveryReservation.reservationId, outcome: "completed", confirm: true } });
+    assert.equal(changedDuringRead.isError, true);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    source.materializationReceiverIdentity = "mock-authenticated-receiver";
+    source.readCanonical = readCanonical;
     const recovered = await client.callTool({ name: "editor.native.recovery.execute", arguments: { expectedReservationId: job.recoveryReservation.reservationId, outcome: "completed", confirm: true } });
     assert.equal(recovered.isError ?? false, false, JSON.stringify(recovered));
     await guard.assertClear();
+    sent = undefined;
+    changeBeforeInvoke = true;
+    await client.callTool({ name: "session.create", arguments: { sessionId: "receiver-changed-before-dispatch", provider: { id: "final-cut" }, base: timeline() } });
+    const beforeDispatch = payload(await client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "receiver-changed-before-dispatch", target, confirm: true } }));
+    assert.notEqual(beforeDispatch.state, "completed");
+    assert.equal(sent, undefined);
+    await guard.assertClear();
+    changeBeforeInvoke = false;
+    source.materializationReceiverIdentity = "other-receiver";
+    sent = undefined;
+    await client.callTool({ name: "session.create", arguments: { sessionId: "receiver-mismatch", provider: { id: "final-cut" }, base: timeline() } });
+    const mismatched = payload(await client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "receiver-mismatch", target, confirm: true } }));
+    const unbound = await guard.inspectNativeReservation();
+    assert.equal(unbound?.recoveryContext?.executorIdentity, null);
+    assert.equal((sent as { reservationId?: string } | undefined)?.reservationId, undefined);
+    const refused = await client.callTool({ name: "editor.native.recovery.execute", arguments: { expectedReservationId: mismatched.recoveryReservation.reservationId, outcome: "completed", confirm: true } });
+    assert.equal(refused.isError, true);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   } finally { await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
 });

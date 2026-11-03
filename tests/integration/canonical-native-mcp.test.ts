@@ -1426,6 +1426,7 @@ test("MCP recovery requires confirmation and trusted evidence for both routes", 
     let reads = 0;
     let wrongTarget = false;
     const source: NativeRecoveryEvidenceSource = {
+      materializationReceiverIdentity: "mock-receiver-1",
       observeReceiver: async (binding) => ({ reservationId: binding.reservationId, jobId: binding.jobId, dispatchId: binding.dispatchId,
         executorIdentity: binding.executorIdentity, state: "terminal", outcome: "completed", receiptId: "mock-receipt" }),
       readCanonical: async () => { reads++; return { target: wrongTarget ? { ...target, projectUid: "wrong" } : target, digest: context.expectedCanonicalDigest, complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true }; },
