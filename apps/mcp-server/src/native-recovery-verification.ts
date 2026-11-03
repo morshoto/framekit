@@ -37,6 +37,13 @@ export interface CanonicalRecoveryObservation {
 export interface NativeRecoveryEvidenceSource {
   /** Declared only for a trusted materialization receiver that enforces operation-specific terminal receipts. */
   readonly materializationReceiverIdentity?: string;
+  /** Declared only by a trusted receiver with operation-specific terminal receipts. */
+  readonly publishReceiverIdentity?: string;
+  /** Read-only: derive the expected canonical digest and target from the immutable artifact; never dispatch. */
+  preparePublishRecovery?(input: { jobId: string; dispatchId: string; artifactPath: string; artifactDigest: string; targetLibraryPath: string }): Promise<{
+    canonicalTarget: { libraryPath: string; projectUid: string; sequenceUid: string };
+    expectedCanonicalDigest: string;
+  }>;
   observeReceiver(binding: Readonly<RecoveryBinding>): Promise<ReceiverObservation>;
   readCanonical(binding: Readonly<RecoveryBinding>): Promise<CanonicalRecoveryObservation>;
 }
@@ -80,8 +87,10 @@ export async function recoverVerifiedNative(
   return guard.completeVerifiedNative(expectedReservationId, outcome, async (reservation) => {
     const binding = bindingFromRecord(reservation, expectedReservationId, outcome);
     if (binding.kind === "materialization" && source.materializationReceiverIdentity !== binding.executorIdentity) invalid();
+    if (binding.kind === "publish" && source.publishReceiverIdentity !== binding.executorIdentity) invalid();
     const verified = await verifyNativeRecovery(binding, source);
     if (binding.kind === "materialization" && source.materializationReceiverIdentity !== binding.executorIdentity) invalid();
+    if (binding.kind === "publish" && source.publishReceiverIdentity !== binding.executorIdentity) invalid();
     return verified;
   });
 }

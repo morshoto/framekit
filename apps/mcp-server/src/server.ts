@@ -37,6 +37,7 @@ import {
   type FinalCutProjectPublishReadiness,
   type FinalCutProjectPublisher,
   type FileCanonicalRecoveryGuard,
+  type NativeRecoveryContext,
   type FinalCutSqliteInspectionProvider,
   type FinalCutVideoExporter,
   type NativeFinalCutEditor,
@@ -1030,7 +1031,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
         ? { nativeOperationSession: withRecoveryCheckpointGuard(options.nativeOperationSession, recovery, ["status", "cancel"]) }
         : {}),
       ...(options.projectPublisher
-        ? { projectPublisher: withPublishRecoveryGuard(options.projectPublisher, recovery, publishRecovery) }
+        ? { projectPublisher: withPublishRecoveryGuard(options.projectPublisher, recovery, publishRecovery, options.nativeRecoveryEvidence) }
         : {}),
     };
   }
@@ -3110,9 +3111,10 @@ function withPublishRecoveryGuard<T extends object>(
   provider: T,
   recovery: Pick<FileCanonicalRecoveryGuard, "assertClear" | "beginNative" | "inspectNativeReservation"> & Partial<Pick<FileCanonicalRecoveryGuard, "inspectCompletedNative" | "beginNativeExecution">>,
   notification: { active: number; recovering: boolean; completed(reservationId: string): void },
+  evidence?: NativeRecoveryEvidenceSource,
 ): T {
   const allowed = new Set<PropertyKey>(["isAvailable", "inspectReadiness", "executionMode", "getPublishJob", "loadPublishJob", "preparePublish"]);
-  let current: { jobId?: string; dispatchId?: string; reservation: Awaited<ReturnType<FileCanonicalRecoveryGuard["beginNative"]>>; active: boolean; dispatched: boolean; recovered: boolean } | undefined;
+  let current: { jobId?: string; dispatchId?: string; boundReceiverIdentity?: string; reservation: Awaited<ReturnType<FileCanonicalRecoveryGuard["beginNative"]>>; active: boolean; dispatched: boolean; recovered: boolean } | undefined;
   notification.completed = (reservationId) => {
     if (!current || current.reservation.reservationId !== reservationId) return;
     current.recovered = true;
@@ -3165,7 +3167,7 @@ function withPublishRecoveryGuard<T extends object>(
             throw error;
           }
         } else {
-          const getJob = Reflect.get(target, "getPublishJob", target) as ((id: string) => { state?: string; targetLibraryPath?: string; artifactDigest?: string }) | undefined;
+          const getJob = Reflect.get(target, "getPublishJob", target) as ((id: string) => { state?: string; targetLibraryPath?: string; artifactDigest?: string; sourceTarget?: { artifactPath?: string } }) | undefined;
           const job = jobId && getJob ? getJob.call(target, jobId) : undefined;
           const pending = job?.state === "verification-pending";
           const operation = jobId
@@ -3175,18 +3177,39 @@ function withPublishRecoveryGuard<T extends object>(
             ? { kind: "publish" as const, jobId, dispatchId: randomUUID(), requestedTarget: { libraryPath: job.targetLibraryPath },
                 artifactDigest: job.artifactDigest, executorIdentity: null, nativeQuiescence: "unproven" as const }
             : undefined;
-          const reservation = await recovery.beginNative(operation, context, { trackExecution: true });
+          const receiverIdentity: unknown = Reflect.get(target, "recoveryExecutorIdentity", target);
+          const receiverBound = Boolean(context && job?.sourceTarget?.artifactPath && typeof receiverIdentity === "string" && receiverIdentity.length > 0
+            && receiverIdentity === evidence?.publishReceiverIdentity && evidence.preparePublishRecovery);
+          let boundContext: NativeRecoveryContext | undefined = context;
+          if (receiverBound && context && job?.sourceTarget?.artifactPath && typeof receiverIdentity === "string" && evidence?.preparePublishRecovery) {
+            if (typeof Reflect.get(target, "trackNativeDispatch", target) !== "function") throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: receiver correlation is unavailable");
+            await recovery.assertClear();
+            const plan = await evidence.preparePublishRecovery({ jobId: context.jobId, dispatchId: context.dispatchId,
+              artifactPath: job.sourceTarget.artifactPath, artifactDigest: context.artifactDigest, targetLibraryPath: context.requestedTarget.libraryPath });
+            if (evidence.publishReceiverIdentity !== receiverIdentity || Reflect.get(target, "recoveryExecutorIdentity", target) !== receiverIdentity) {
+              throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: receiver identity changed before reservation");
+            }
+            boundContext = { ...context, executorIdentity: receiverIdentity, dispatchState: "intent", canonicalTarget: plan.canonicalTarget,
+              expectedCanonicalDigest: plan.expectedCanonicalDigest };
+          }
+          const reservation = await recovery.beginNative(operation, boundContext, { trackExecution: true });
           if (!reservation.finishExecution) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: shared execution tracking unavailable");
           finishExecution = reservation.finishExecution;
           const track = Reflect.get(target, "trackNativeDispatch", target);
-          entry = { jobId, dispatchId: context?.dispatchId, reservation, active: true, dispatched: pending || typeof track !== "function", recovered: false };
+          entry = { jobId, dispatchId: context?.dispatchId, ...(receiverBound && typeof receiverIdentity === "string" ? { boundReceiverIdentity: receiverIdentity } : {}), reservation, active: true, dispatched: pending || typeof track !== "function", recovered: false };
           current = entry;
         }
         const track = Reflect.get(target, "trackNativeDispatch", target) as unknown;
         try {
-          const invoke = async () => Reflect.apply(value, target, args) as Promise<unknown>;
+          const invoke = async () => {
+            if (entry!.boundReceiverIdentity && (evidence?.publishReceiverIdentity !== entry!.boundReceiverIdentity
+              || Reflect.get(target, "recoveryExecutorIdentity", target) !== entry!.boundReceiverIdentity)) {
+              throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: receiver identity changed before dispatch");
+            }
+            return Reflect.apply(value, target, args) as Promise<unknown>;
+          };
           const result: unknown = typeof track === "function"
-            ? await Reflect.apply(track, target, [invoke, () => { entry!.dispatched = true; }, entry.reservation.reservationId])
+            ? await Reflect.apply(track, target, [invoke, () => { entry!.dispatched = true; }, entry.reservation.reservationId, entry.dispatchId])
             : await invoke();
           if (entry.dispatched && result && typeof result === "object" && !Array.isArray(result)) {
             return { ...result, recoveryReservation: { status: "recovery-required", reservationId: entry.reservation.reservationId,
