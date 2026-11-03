@@ -934,6 +934,10 @@ test("verified mock recovery releases only its reservation and is idempotent", a
       } finally { finish(); }
       assert.deepEqual(await recovery, { outcome: "completed", alreadyReleased: false });
       await guard.assertClear();
+      const completion = await (guard as unknown as { inspectCompletedNativeEvidence(id: string): Promise<{ outcome: string; recoveryContext: { jobId: string; dispatchId: string } } | undefined> }).inspectCompletedNativeEvidence(owner.reservationId);
+      assert.equal(completion?.outcome, "completed");
+      assert.equal(completion?.recoveryContext.jobId, jobId);
+      assert.equal(completion?.recoveryContext.dispatchId, context.dispatchId);
       const receiptDirectory = `${path}.completed`;
       const movedReceipts = `${receiptDirectory}.moved`;
       await rename(receiptDirectory, movedReceipts);
