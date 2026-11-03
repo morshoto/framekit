@@ -122,6 +122,13 @@ therefore leaves subsequent guarded operations blocked. Configured session
 materialization reserves the checkpoint at the provider boundary; if acquisition
 fails, it records that the provider was not called. Before invoking the provider,
 the job persists a `dispatch-intent` phase; this is not proof the call occurred.
+A materialization publisher and trusted recovery evidence source may declare the
+same receiver identity only when they implement operation-specific terminal
+receipts. In that case the request carries the reservation and dispatch IDs and
+the planned target and digest are persisted before dispatch. Missing or
+mismatched declarations retain the legacy fail-closed reservation. The shipped
+Final Cut provider does not declare this capability, and an identity declaration
+alone does not prove receiver completion.
 A provider that proves it
 did not dispatch can release the reservation and retain a safe retry. After a
 dispatch or an unknown outcome, the reservation remains and automatic retry is
