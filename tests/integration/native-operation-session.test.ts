@@ -916,6 +916,10 @@ test("verified mock recovery releases only its reservation and is idempotent", a
         complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true }) };
       await assert.rejects(recoverVerifiedNative(guard, owner.reservationId, "completed", { ...source, observeReceiver: async () => ({ ...receipt, state: "running" as const }) }), /RECOVERY_EVIDENCE_INVALID/);
       await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+      let receiverReads = 0;
+      await assert.rejects(recoverVerifiedNative(guard, owner.reservationId, "completed", { ...source,
+        observeReceiver: async () => ++receiverReads === 1 ? receipt : { ...receipt, state: "running" as const } }), /RECOVERY_EVIDENCE_INVALID/);
+      assert.equal((await guard.inspectNativeReservation())?.reservationId, owner.reservationId);
       let enter!: () => void;
       let finish!: () => void;
       const started = new Promise<void>((resolve) => { enter = resolve; });

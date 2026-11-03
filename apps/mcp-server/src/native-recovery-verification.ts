@@ -107,10 +107,15 @@ export async function verifyNativeRecovery(binding: RecoveryBinding, source: Nat
     || (receipt.outcome !== "completed" && receipt.outcome !== "failed")
     || (expected.outcome === "completed" && receipt.outcome !== "completed")
     || typeof receipt.receiptId !== "string" || !receipt.receiptId.trim() || receipt.receiptId.length > 1024) invalid();
-  const receiptId = receipt.receiptId;
+  const firstReceipt = structuredClone(receipt);
   const observed = await source.readCanonical(structuredClone(expected));
   if (!observed || !targetMatches(expected.kind, expected.target, observed.target)
     || observed.digest !== expected.expectedDigest || observed.complete !== true
     || observed.sourceIntegrity !== true || observed.unrelatedProjectsUnchanged !== true) invalid();
-  return { receiptId, outcome: expected.outcome };
+  const finalReceipt = await source.observeReceiver(structuredClone(expected));
+  if (!finalReceipt || finalReceipt.state !== "terminal" || finalReceipt.reservationId !== firstReceipt.reservationId
+    || finalReceipt.dispatchId !== firstReceipt.dispatchId || finalReceipt.jobId !== firstReceipt.jobId
+    || finalReceipt.executorIdentity !== firstReceipt.executorIdentity || finalReceipt.outcome !== firstReceipt.outcome
+    || finalReceipt.receiptId !== firstReceipt.receiptId) invalid();
+  return { receiptId: firstReceipt.receiptId, outcome: expected.outcome };
 }
