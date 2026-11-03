@@ -377,8 +377,9 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
           const proof = JSON.parse((await this.readRecoveryFile(proofPath)).toString("utf8")) as { reservationId?: unknown; outcome?: unknown; receiptId?: unknown };
           if (createHash("sha256").update(record).digest("hex") !== reservationId || proof.reservationId !== reservationId
             || stored.version !== 4 || stored.kind !== "native-operation" || stored.senderTracked !== true
+            || typeof stored.owner !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(stored.owner)
             || typeof stored.operation !== "string" || !validRecoverableContext(stored.recoveryContext, stored.operation)
-            || proof.outcome !== outcome || typeof proof.receiptId !== "string" || !proof.receiptId.trim()) throw new Error("invalid completed recovery record");
+            || proof.outcome !== outcome || typeof proof.receiptId !== "string" || !proof.receiptId.trim() || proof.receiptId.length > 1024) throw new Error("invalid completed recovery record");
           await this.assertSenderSettlement(reservationId);
           return { outcome, alreadyReleased: true };
         } catch (error) {
