@@ -845,7 +845,7 @@ test("recovery binding is reconstructed from the same durable reservation", asyn
     const path = join(directory, "pending.json");
     const jobId = kind === "publish" ? "publish-job-123" : "materialization-123";
     const operation = `native.${kind === "publish" ? "publish" : "materialize"}.${createHash("sha256").update(jobId).digest("hex")}`;
-    const target = kind === "publish" ? { libraryPath: "/tmp/target.fcpbundle", projectUid: "project-1", sequenceUid: "sequence-1" }
+    const target: Record<string, string> = kind === "publish" ? { libraryPath: "/tmp/target.fcpbundle", projectUid: "project-1", sequenceUid: "sequence-1" }
       : { libraryUid: "library", eventUid: "event", projectUid: "project-1", sequenceUid: "sequence-1" };
     const context = { kind, jobId, dispatchId: "00000000-0000-4000-8000-000000000001", executorIdentity: "mock-receiver-1",
       dispatchState: "intent", nativeQuiescence: "unproven", artifactDigest: "a".repeat(64), desiredDigest: "b".repeat(64),
