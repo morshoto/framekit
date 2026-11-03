@@ -2378,6 +2378,20 @@ test("native reservations share the canonical checkpoint and survive lost owners
   }
 });
 
+test("duplicate owner release is idempotent and does not clear a replacement", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-native-idempotent-release-"));
+  const path = join(directory, "pending.json");
+  try {
+    const first = await new FileCanonicalRecoveryGuard(path).beginNative("native.test");
+    await Promise.all([first.release(), first.release()]);
+    const replacementGuard = new FileCanonicalRecoveryGuard(path);
+    const replacement = await replacementGuard.beginNative("native.test");
+    await first.release();
+    assert.equal((await replacementGuard.inspectNativeReservation())?.reservationId, replacement.reservationId);
+    await replacement.release();
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("a concurrent recovery transaction fails closed for readers and writers", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-transaction-"));
   const path = join(directory, "pending.json");
