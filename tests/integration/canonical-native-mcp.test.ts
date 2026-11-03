@@ -1466,9 +1466,9 @@ test("recovery refuses an active local publisher", async () => {
   const recovery = {
     assertClear: guard.assertClear.bind(guard), inspectVersioned: guard.inspectVersioned.bind(guard),
     inspectNativeReservation: guard.inspectNativeReservation.bind(guard), completeVerifiedNative: guard.completeVerifiedNative.bind(guard),
-    beginNative: async (operation: string, context: Record<string, unknown>) => guard.beginNative(operation, {
+    beginNative: async (operation: string, context: Record<string, unknown>, options?: { trackExecution?: boolean }) => guard.beginNative(operation, {
       ...context, executorIdentity: "mock-receiver-1", dispatchState: "intent", canonicalTarget: target, expectedCanonicalDigest: "b".repeat(64),
-    } as never),
+    } as never, options),
   };
   let publishes = 0;
   let started!: () => void; let finish!: () => void;
@@ -1477,6 +1477,7 @@ test("recovery refuses an active local publisher", async () => {
   let readStarted!: () => void; let finishRead!: () => void;
   const reading = new Promise<void>((resolve) => { readStarted = resolve; });
   const heldRead = new Promise<void>((resolve) => { finishRead = resolve; });
+  let holdCanonical = false;
   const projectPublisher = {
     isAvailable: () => false,
     getPublishJob: (jobId: string) => ({ jobId, state: "awaiting-confirmation", targetLibraryPath: target.libraryPath, artifactDigest: "a".repeat(64) }),
@@ -1485,19 +1486,23 @@ test("recovery refuses an active local publisher", async () => {
   const source: NativeRecoveryEvidenceSource = {
     observeReceiver: async (binding) => ({ reservationId: binding.reservationId, dispatchId: binding.dispatchId, jobId: binding.jobId,
       executorIdentity: binding.executorIdentity, state: "terminal", outcome: "completed", receiptId: "mock-receipt" }),
-    readCanonical: async () => { readStarted(); await heldRead; return { target, digest: "b".repeat(64), complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true }; },
+    readCanonical: async () => { if (holdCanonical) { readStarted(); await heldRead; } return { target, digest: "b".repeat(64), complete: true, sourceIntegrity: true, unrelatedProjectsUnchanged: true }; },
   };
   const { client, server } = await connect(createRuntime([]), { canonicalRecovery: recovery, projectPublisher, nativeRecoveryEvidence: source } as never);
+  const other = await connect(createRuntime([]), { canonicalRecovery: recovery, nativeRecoveryEvidence: source } as never);
   try {
     const pending = client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "publish-job-1", confirm: true } });
     await publishing;
     const active = await guard.inspectNativeReservation();
     const premature = await client.callTool({ name: "editor.native.recovery.execute", arguments: { expectedReservationId: active!.reservationId, outcome: "completed", confirm: true } });
+    const remotePremature = await other.client.callTool({ name: "editor.native.recovery.execute", arguments: { expectedReservationId: active!.reservationId, outcome: "completed", confirm: true } });
     finish();
     const first = await pending;
     assert.equal(premature.isError, true, "recovery must not release while publisher remains active");
+    assert.equal(remotePremature.isError, true, "another server must not release an active publisher's reservation");
     assert.equal(first.isError ?? false, false, textFrom(first));
     const reservationId = JSON.parse(textFrom(first)).recoveryReservation.reservationId;
+    holdCanonical = true;
     const recoveryPending = client.callTool({ name: "editor.native.recovery.execute", arguments: { expectedReservationId: reservationId, outcome: "completed", confirm: true } });
     await reading;
     const overlap = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "publish-job-2", confirm: true } });
@@ -1509,5 +1514,5 @@ test("recovery refuses an active local publisher", async () => {
     const second = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "publish-job-2", confirm: true } });
     assert.equal(second.isError ?? false, false, textFrom(second));
     assert.equal(publishes, 2);
-  } finally { finish(); finishRead(); await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
+  } finally { finish(); finishRead(); await client.close(); await server.close(); await other.client.close(); await other.server.close(); await rm(directory, { recursive: true, force: true }); }
 });
