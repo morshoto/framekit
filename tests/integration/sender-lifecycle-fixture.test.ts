@@ -307,3 +307,10 @@ test("unexpected settlement marker fields are unknown", async () => fixture(asyn
   await writeFile(path, JSON.stringify(marker));
   assert.equal((await inspectSenderFixture(directory, binding)).status, "unknown");
 }));
+
+test("intent owner must match binding owner before any side effects", async () => fixture(async directory => {
+  const otherOwner = "00000000-0000-4000-8000-000000000003";
+  await assert.rejects(startSenderFixture(directory, { ...binding, owner: otherOwner }, { command: process.execPath, args: ["-e", "process.exit(0)"] }).then(async running => { await running.closed; return running; }), /INVALID_BINDING/);
+  assert.equal((await inspectSenderFixture(directory, { ...binding, owner: otherOwner })).status, "unknown");
+  assert.deepEqual(await readdir(directory), []);
+}));
