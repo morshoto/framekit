@@ -5,4 +5,4 @@
 .locale, .github { font-size: .875rem; color: var(--text-muted); }
 .menu { display: none; }
 @media (max-width: 1199px) { .inner { height: 60px; } }
-@media (max-width: 767px) { .inner { height: 56px; padding: 0 16px; gap: 4px; } .menu { display: inline-flex; } .actions { gap: 2px; } .github, .locale { display: none; } }
+@media (max-width: 767px) { .inner { height: 56px; padding: 0 16px; gap: 4px; } .menu { display: inline-flex; } .actions { gap: 2px; } .github, .locale, .brand span { display: none; } }

@@ -1,5 +1,5 @@
-import { DocsLayout } from '../components/DocsLayout';
-import { mockHeadings, mockNavigation } from '../lib/navigation';
+import { DocsLayout } from '../../components/DocsLayout';
+import { mockHeadings, mockNavigation } from '../../lib/navigation';
 import styles from './page.module.scss';
 
 export default function Home() {
