@@ -8,3 +8,4 @@
 .mobileToc { display: none; }
 @media (max-width: 1199px) { .layout { grid-template-columns: 224px minmax(0, 1fr); } .sidebar { top: 60px; height: calc(100vh - 60px); } .toc { display: none; } .mobileToc { display: block; } }
 @media (max-width: 767px) { .layout { display: block; } .sidebar { display: none; } .main { padding: 16px 16px 48px; } }
+.article { img { display: block; max-width: 100%; height: auto; } blockquote { margin: 24px 0; padding: 4px 16px; border-left: 3px solid var(--accent); background: var(--surface-muted); } :not(pre) > code { overflow-wrap: anywhere; } }

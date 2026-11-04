@@ -1,0 +1,4 @@
+.block { min-width: 0; max-width: 100%; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-muted); overflow: hidden; }
+.bar { display: flex; justify-content: space-between; align-items: center; padding: 0 12px; color: var(--text-muted); font-size: .8125rem; button { min-height: 44px; border: 0; background: transparent; color: var(--accent); font: inherit; cursor: pointer; } }
+.block pre { margin: 0; border: 0; border-radius: 0; overflow-x: auto; font-size: .875rem; }
+.status { display: block; color: var(--text-muted); font-size: .75rem; }

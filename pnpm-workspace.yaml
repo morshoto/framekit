@@ -18,3 +18,4 @@ minimumReleaseAgeExclude:
   - '@next/swc-win32-arm64-msvc@16.4.5'
   - '@next/swc-win32-x64-msvc@16.4.5'
   - next@16.4.5
+  - '@next/mdx@16.4.5'
