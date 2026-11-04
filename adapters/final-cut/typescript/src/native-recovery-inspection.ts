@@ -90,7 +90,7 @@ export interface NativeRecoveryInspection {
   nativeQuiescence: "unproven";
   recoveryEligibility: "unavailable";
   sender: { status: "untracked" | "active-or-interrupted" | "sender-settled" | "unknown" };
-  reservation?: { version: 2 | 3 | 4; reservationId: string; operation: string; jobId?: string; dispatchId?: string };
+  reservation?: { version: 2 | 3 | 4; reservationId: string; operation: string; jobId?: string; dispatchId?: string; jobCorrelation?: "unverified" };
 }
 
 const unknown = (): NativeRecoveryInspection => ({ status: "unknown", nativeQuiescence: "unproven", recoveryEligibility: "unavailable", sender: { status: "unknown" } });
@@ -169,6 +169,6 @@ export async function inspectNativeRecoveryReadOnly(path: string): Promise<Nativ
     const context = record.version === 3 || record.version === 4 ? record.recoveryContext as NativeRecoveryContext : undefined;
     return { status: "recovery-required", nativeQuiescence: "unproven", recoveryEligibility: "unavailable", sender: { status: sender },
       reservation: { version: record.version as 2 | 3 | 4, reservationId, operation: record.operation,
-        ...(context ? { jobId: context.jobId, dispatchId: context.dispatchId } : {}) } };
+        ...(context ? { jobId: context.jobId, dispatchId: context.dispatchId, jobCorrelation: "unverified" as const } : {}) } };
   } catch { return unknown(); }
 }
