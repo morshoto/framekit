@@ -45,6 +45,14 @@ try {
   const trigger = page.getByRole('button', { name: 'Open navigation' });
   await trigger.click(); await page.getByRole('dialog').getByRole('link', { name: 'First steps' }).click();
   assert.equal(await page.getByRole('dialog').count(), 0);
+  assert.equal(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches), true);
   await page.close();
+  const touch = await browser.newPage({ viewport: { width: 375, height: 800 }, isMobile: true, hasTouch: true });
+  await touch.goto(`http://127.0.0.1:${server.address().port}/`, { waitUntil: 'networkidle' });
+  await touch.getByRole('button', { name: 'Open navigation' }).tap();
+  await touch.getByRole('dialog', { name: 'Documentation navigation' }).waitFor();
+  await touch.getByRole('button', { name: 'Close navigation' }).tap();
+  assert.equal(await touch.getByRole('dialog').count(), 0);
+  await touch.close();
   console.log('Responsive shell checks passed');
 } finally { await browser?.close(); await new Promise(resolve => server.close(resolve)); }
