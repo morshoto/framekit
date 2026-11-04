@@ -29,3 +29,9 @@ The files in `content/docs/en` and `content/docs/ja` are synthetic test content.
 ## Static search
 
 The docs build indexes the static export with Pagefind after Next completes and reports the index size. Pagefind reads `html lang` and creates separate English and Japanese indexes; only article bodies are indexed. Search assets are loaded lazily from the configured base path, and unavailable assets leave navigation usable. `pnpm --filter @framekit/docs test:search` exercises the built export; run it once with `DOCS_BASE_PATH` unset and once after a `/framekit` build with that variable set.
+
+## GitHub Pages
+
+`.github/workflows/docs-pages.yml` builds and verifies the project-path export on pushes to `main` and publishes `out/` using GitHub Pages. Pull requests run the export checks in CI but do not deploy. The repository site is enabled in **Settings → Pages → Build and deployment → GitHub Actions**. The workflow's environment reports the deployed URL; check it after the deploy succeeds. For a future root-domain host, build with `DOCS_BASE_PATH` unset and publish the resulting `out/` directory.
+
+`test:export` checks generated local asset and route references; external URLs are not fetched by that check. Nested routes and production refresh must also be checked after they exist and are deployed.
