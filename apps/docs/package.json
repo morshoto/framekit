@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "pnpm run check:content && next build && pagefind --site out && node scripts/report-search-size.mjs",
     "typecheck": "tsc --noEmit",
-    "test:export": "node --test test/export.test.mjs test/locale-export.test.mjs test/pages-smoke.test.mjs",
+    "test:export": "node scripts/check-export-links.mjs && node --test test/*.test.mjs",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "test": "vitest run",

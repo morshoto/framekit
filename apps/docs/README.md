@@ -61,3 +61,9 @@ DOCS_DEPLOY_RUN_ID=123 DOCS_EXPECTED_SHA=<full-commit-sha> pnpm --filter @framek
 ```
 
 The command requires `gh` authentication and a Playwright Chromium installation. It checks the workflow run and latest Pages deployment metadata before visiting localized articles and searching the published site. It reports BLOCKED if the deployment cannot be tied to the supplied run and SHA.
+
+## GitHub Pages
+
+`.github/workflows/docs-pages.yml` builds and verifies the project-path export on pushes to `main` and publishes `out/` using GitHub Pages. Pull requests run the export checks in CI but do not deploy. The repository site is enabled in **Settings → Pages → Build and deployment → GitHub Actions**. The workflow's environment reports the deployed URL; check it after the deploy succeeds. For a future root-domain host, build with `DOCS_BASE_PATH` unset and publish the resulting `out/` directory.
+
+`test:export` checks generated local asset and route references; external URLs are not fetched by that check. Nested routes and production refresh must also be checked after they exist and are deployed.
