@@ -141,7 +141,7 @@ test("a legacy writer can coexist without any claim of exclusion", async () => f
   } finally { if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL"); await running.closed; }
 }));
 
-test("a reused PID in untrusted markers cannot establish settlement", async () => fixture(async directory => {
+test("a reused PID in untrusted markers makes evidence unknown", async () => fixture(async directory => {
   const running = await startSenderFixture(directory, binding, { command: process.execPath, args: ["-e", delayedChild] });
   try {
     await once(running.child.stdout!, "data");
@@ -149,7 +149,7 @@ test("a reused PID in untrusted markers cannot establish settlement", async () =
     const data = JSON.parse(await readFile(marker, "utf8"));
     data.pid = process.pid;
     await writeFile(marker, JSON.stringify(data));
-    assert.equal((await inspectSenderFixture(directory, binding)).status, "active-or-interrupted");
+    assert.equal((await inspectSenderFixture(directory, binding)).status, "unknown");
   } finally { if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL"); await running.closed; }
 }));
 
@@ -295,4 +295,15 @@ test("changed marker owner cannot create trusted lifecycle evidence", async () =
     assert.equal((await inspectSenderFixture(directory, binding)).status, "unknown");
     assert.equal(running.localStatus(), "unknown");
   } finally { if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL"); await running.closed; }
+}));
+
+
+test("unexpected settlement marker fields are unknown", async () => fixture(async directory => {
+  const running = await startSenderFixture(directory, binding, { command: process.execPath, args: ["-e", "process.exit(0)"] });
+  await running.closed;
+  const path = join(directory, `${id}.sender-settled`);
+  const marker = JSON.parse(await readFile(path, "utf8"));
+  marker.pid = process.pid;
+  await writeFile(path, JSON.stringify(marker));
+  assert.equal((await inspectSenderFixture(directory, binding)).status, "unknown");
 }));
