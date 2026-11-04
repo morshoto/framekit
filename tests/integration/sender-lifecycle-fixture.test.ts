@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
@@ -10,10 +11,14 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { inspectSenderFixture, startSenderFixture } from "@framekit/testkit";
 
-const id = "a".repeat(64);
 const owner = "00000000-0000-4000-8000-000000000001";
 const executionId = "00000000-0000-4000-8000-000000000002";
-const binding = { reservationId: id, reservationVersion: 3 as const, route: "publish" as const, owner, executionId };
+function fixtureBinding(route: "publish" | "materialization") {
+  const reservationBytes = JSON.stringify({ version: 3, kind: "native-operation", owner, operation: `fixture.${route}`, senderTracked: true }) + "\n";
+  return { reservationId: createHash("sha256").update(reservationBytes).digest("hex"), reservationBytes, reservationVersion: 3 as const, route, owner, executionId };
+}
+const binding = fixtureBinding("publish");
+const id = binding.reservationId;
 
 async function fixture(run: (directory: string) => Promise<void>) {
   const directory = await mkdtemp(join(tmpdir(), "framekit-sender-fixture-"));
@@ -28,7 +33,7 @@ const delayedChild = "process.on('SIGTERM', () => setTimeout(() => process.exit(
 
 test("both route fixtures record direct child settlement without native proof", async () => fixture(async directory => {
   for (const route of ["publish", "materialization"] as const) {
-    const input = { ...binding, route, reservationId: route === "publish" ? id : "b".repeat(64) };
+    const input = fixtureBinding(route);
     const running = await startSenderFixture(directory, input, { command: process.execPath, args: ["-e", "process.exit(0)"] });
     await running.closed;
     const observed = await inspectSenderFixture(directory, input);
@@ -254,8 +259,15 @@ test("missing or mismatched settlement cannot report settled", async () => fixtu
 
 test("v2 reservation bytes cannot be relabelled as tracked v3", async () => fixture(async directory => {
   const legacy = JSON.stringify({ version: 2, kind: "native-operation", owner, operation: "native.searchmedia" }) + "\n";
-  const { createHash } = await import("node:crypto");
   const legacyId = createHash("sha256").update(legacy).digest("hex");
   await assert.rejects(startSenderFixture(directory, { ...binding, reservationId: legacyId, reservationBytes: legacy }, { command: process.execPath, args: ["-e", "process.exit(0)"] }).then(async running => { await running.closed; return running; }));
+  assert.deepEqual(await readdir(directory), []);
+}));
+
+test("fixture identity cannot claim a different route or native reservation", async () => fixture(async directory => {
+  await assert.rejects(startSenderFixture(directory, { ...binding, route: "materialization" }, { command: process.execPath, args: ["-e", "process.exit(0)"] }).then(async running => { await running.closed; return running; }));
+  const nativeBytes = JSON.stringify({ version: 3, kind: "native-operation", owner, operation: "native.searchmedia", senderTracked: true }) + "\n";
+  const nativeId = createHash("sha256").update(nativeBytes).digest("hex");
+  await assert.rejects(startSenderFixture(directory, { ...binding, reservationBytes: nativeBytes, reservationId: nativeId }, { command: process.execPath, args: ["-e", "process.exit(0)"] }).then(async running => { await running.closed; return running; }));
   assert.deepEqual(await readdir(directory), []);
 }));
