@@ -24,3 +24,15 @@ test('validates literal MDX JSX links and rejects dynamic destinations', async (
     assert.ok(errors.some(error => error.includes('srcSet cannot be checked')));
   } finally { await rm(dir, { recursive:true, force:true }); }
 });
+test('rejects unregistered files and mailto image sources while allowing mail links', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'framekit-content-manifest-'));
+  try {
+    const content = join(dir, 'content'); const pub = join(dir, 'public');
+    await mkdir(join(content, 'en'), { recursive: true }); await mkdir(join(content, 'ja'), { recursive: true }); await mkdir(pub);
+    await writeFile(join(content, 'en', 'one.mdx'), '[mail](mailto:team@example.com)\n\n![mail](mailto:team@example.com)');
+    const errors = await checkContentLinks(content, pub, ['other']);
+    assert.ok(errors.some(error => error.includes('unregistered')));
+    assert.ok(errors.some(error => error.includes('unsupported URL mailto:')));
+    assert.equal(errors.length, 2);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
