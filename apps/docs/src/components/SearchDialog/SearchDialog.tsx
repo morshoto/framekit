@@ -31,7 +31,7 @@ export function SearchDialog({ open, locale, onClose, search = searchDocs, initi
   }, [open]);
   useEffect(() => {
     if (!open || !query.trim()) { setResults([]); setState('idle'); setSelected(0); return; }
-    let active = true; setState('loading');
+    let active = true; setResults([]); setSelected(0); setState('loading');
     const timer = setTimeout(() => { search(query.trim(), locale).then(items => { if (active) { setResults(items); setSelected(0); setState('ready'); } }).catch(() => { if (active) { setResults([]); setState('error'); } }); }, 150);
     return () => { active = false; clearTimeout(timer); };
   }, [open, query, locale, search]);
