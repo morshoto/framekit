@@ -1,0 +1,12 @@
+.page { min-height: 100vh; display: flex; flex-direction: column; }
+.header, .main, .footer { width: min(100% - 40px, 1120px); margin-inline: auto; }
+.header { min-height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 24px; border-bottom: 1px solid var(--border);
+  nav { display: flex; gap: 24px; }
+  a { color: var(--text); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+}
+.wordmark { font-weight: 750; letter-spacing: -.03em; }
+.main { flex: 1; padding-block: 80px; h1 { font-size: clamp(2rem, 5vw, 3rem); line-height: 1.15; letter-spacing: -.035em; margin: 0; } p { color: var(--text-muted); } }
+.eyebrow { font-size: .75rem; font-weight: 700; letter-spacing: .1em; }
+.link { display: inline-block; margin-top: 16px; font-weight: 650; }
+.footer { padding-block: 24px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: .875rem; }
