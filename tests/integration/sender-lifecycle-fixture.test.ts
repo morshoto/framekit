@@ -221,3 +221,11 @@ test("a failed spawn never reports a sender active or settled", async () => fixt
   assert.equal(running.localStatus(), "unknown");
   assert.equal((await inspectSenderFixture(directory, binding)).status, "active-or-interrupted");
 }));
+
+test("abort of a failed spawn does not invent a termination request", async () => fixture(async directory => {
+  const running = await startSenderFixture(directory, binding, { command: join(directory, "missing-command"), args: [] });
+  await running.abort();
+  await running.closed;
+  assert.equal((await inspectSenderFixture(directory, binding)).status, "active-or-interrupted");
+  assert.equal(running.localStatus(), "unknown");
+}));
