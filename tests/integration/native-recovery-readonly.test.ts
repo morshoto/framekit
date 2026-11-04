@@ -175,3 +175,13 @@ test("live new lock holder cannot exclude a separate legacy writer", async () =>
     await closed;
   }
 }));
+
+test("an empty sender marker on a legacy reservation remains unknown", async () => fixture(async (path, directory) => {
+  const id = await put(path, v2());
+  await writeFile(`${path}.active`, "");
+  assert.equal((await unchanged(directory, () => inspectNativeRecoveryReadOnly(path))).sender.status, "unknown");
+  await rm(`${path}.active`);
+  await mkdir(`${path}.sender-settled`);
+  await writeFile(join(`${path}.sender-settled`, id), "");
+  assert.equal((await unchanged(directory, () => inspectNativeRecoveryReadOnly(path))).sender.status, "unknown");
+}));
