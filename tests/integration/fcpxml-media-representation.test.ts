@@ -29,6 +29,34 @@ test("original media representations preserve canonical content across export di
   }
 });
 
+test("same-named sources and nested overlapping occurrences retain distinct bindings", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-collision-fixture-"));
+  try {
+    const path = join(directory, "Info.fcpxml");
+    await writeFile(path, `<fcpxml version="1.11"><resources>
+      <asset id="a" name="same.mov" duration="12s" hasVideo="1"><media-rep kind="original-media" src="file:///fixtures/a/same.mov"/></asset>
+      <asset id="b" name="same.mov" duration="12s" hasVideo="1"><media-rep kind="original-media" src="file:///fixtures/b/same.mov"/></asset>
+      </resources><library><event><project uid="project" name="QA"><sequence uid="sequence" duration="12s"><spine>
+      <asset-clip ref="a" name="same.mov" offset="0s" start="0s" duration="4s">
+        <asset-clip ref="b" name="same.mov" lane="1" offset="0s" start="0s" duration="4s"/>
+      </asset-clip>
+      <asset-clip ref="a" name="same.mov" offset="4s" start="0s" duration="4s"/>
+      <asset-clip ref="a" name="same.mov" offset="8s" start="0s" duration="4s"/>
+      </spine></sequence></project></event></library></fcpxml>`);
+    const snapshot = await new FcpxmlDocumentAdapter(path).readProject();
+    assert.deepEqual(snapshot.media.map(({ mediaId, source }) => [mediaId, source]), [["a", "/fixtures/a/same.mov"], ["b", "/fixtures/b/same.mov"]]);
+    assert.deepEqual(snapshot.timeline.clips.map(({ mediaId, track, startTime, durationTime }) => ({ mediaId, track, startTime, durationTime })), [
+      { mediaId: "a", track: 0, startTime: { value: "0", timescale: "1" }, durationTime: { value: "4", timescale: "1" } },
+      { mediaId: "b", track: 1, startTime: { value: "0", timescale: "1" }, durationTime: { value: "4", timescale: "1" } },
+      { mediaId: "a", track: 0, startTime: { value: "4", timescale: "1" }, durationTime: { value: "4", timescale: "1" } },
+      { mediaId: "a", track: 0, startTime: { value: "8", timescale: "1" }, durationTime: { value: "4", timescale: "1" } },
+    ]);
+    assert.equal(new Set(snapshot.timeline.clips.map(({ id }) => id)).size, 4);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("missing original media paths are not invented from resource names or IDs", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-missing-source-"));
   try {
