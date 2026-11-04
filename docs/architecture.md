@@ -135,7 +135,17 @@ is no automatic checkpoint reset or supported recovery flow yet. The read-only
 native-operation reservation in the configured state directory without inventing
 a target, contacting Final Cut, or clearing it; a
 clear result is point-in-time and does not establish recovery or the state of
-other directories. `editor.native.recovery.preview` requires the inspected
+other directories. `editor.native.recovery.evidence.inspect` separately reads native
+v2, v3 and v4 reservation identity and any durable sender evidence without
+creating a transaction lock. It reports a point-in-time observation, unavailable
+recovery eligibility, and unproven native quiescence. Job and dispatch IDs are
+recorded reservation fields; no independent job or receiver correlation is
+verified. Missing, malformed,
+conflicting or concurrently changing evidence is unknown; an active marker
+may instead reflect an interrupted sender. No observation authorizes release,
+dispatch or recovery. Old writers do not participate in the newer lock protocol,
+so inspection cannot establish a globally consistent view or exclude a later
+write. `editor.native.recovery.preview` requires the inspected
 checkpoint ID, matching target IDs, and explicit headed-read confirmation; it
 compares a canonical snapshot with the recorded digests. Its point-in-time
 result does not prove that a native operation has stopped and never clears the
