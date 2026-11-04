@@ -15,7 +15,8 @@
     "check:content": "node --test test/content-links.test.mjs && node scripts/check-content-links.mjs",
     "test:locales": "node scripts/test-locales.mjs",
     "test:search": "node scripts/test-search.mjs",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:pages": "node scripts/smoke-pages.mjs"
   },
   "dependencies": {
     "@mdx-js/loader": "3.1.1",

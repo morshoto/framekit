@@ -53,3 +53,11 @@ The tests start ephemeral localhost servers over the actual export; the project 
 | Android Chrome | — | — | NOT TESTED | — |
 
 The emulated browser projects do not establish real-device coverage. Published-site smoke evidence, including the deployment workflow run and exact deployed commit, must be recorded when the Pages deployment is available.
+
+To smoke-test the latest published build, supply the successful Pages workflow run ID and its full commit SHA:
+
+```sh
+DOCS_DEPLOY_RUN_ID=123 DOCS_EXPECTED_SHA=<full-commit-sha> pnpm --filter @framekit/docs test:pages
+```
+
+The command requires `gh` authentication and a Playwright Chromium installation. It checks the workflow run and latest Pages deployment metadata before visiting localized articles and searching the published site. It reports BLOCKED if the deployment cannot be tied to the supplied run and SHA.
