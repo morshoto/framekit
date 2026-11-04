@@ -155,3 +155,18 @@ test('representative pages have no axe violations', async ({ page, site }) => {
   await page.goto(`${site}/en/docs/introduction/`, { waitUntil: 'networkidle' });
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });
+
+test('mobile controls meet minimum touch size and article assets load', async ({ page, site }) => {
+  await page.setViewportSize({ width: 375, height: 800 });
+  await page.goto(`${site}/en/docs/introduction/`, { waitUntil: 'networkidle' });
+  for (const name of ['Open navigation', 'Search docs']) {
+    const box = await page.getByRole('button', { name }).boundingBox();
+    expect(box, `${name} must be visible`).not.toBeNull();
+    expect(box.width, `${name} width`).toBeGreaterThanOrEqual(44);
+    expect(box.height, `${name} height`).toBeGreaterThanOrEqual(44);
+  }
+  const image = page.getByRole('img', { name: 'Synthetic diagram of two example blocks' });
+  await expect(image).toBeVisible();
+  expect(await image.evaluate(element => element.complete && element.naturalWidth > 0)).toBe(true);
+  await expect(page.getByRole('link', { name: 'GitHub' }).last()).toHaveAttribute('href', 'https://github.com/morshoto/framekit');
+});
