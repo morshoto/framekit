@@ -21,3 +21,9 @@ it('marks draft metadata as noindex while preserving available language routes',
   expect(metadata.robots).toEqual({ index: false, follow: true });
   expect(metadata.alternates).toEqual({ canonical: '/framekit/en/docs/installation/', languages: { en: '/framekit/en/docs/installation/', ja: '/framekit/ja/docs/installation/' } });
 });
+it('rejects conflicting conceptual keys across locales', () => {
+  const en = documents.find(doc => doc.locale === 'en' && doc.slug === 'installation')!;
+  const ja = documents.find(doc => doc.locale === 'ja' && doc.slug === 'installation')!;
+  expect(() => validateRegistry([en, { ...ja, section: 'guides' }])).toThrow(/inconsistent/i);
+  expect(() => validateRegistry([en, { ...ja, order: 8 }])).toThrow(/inconsistent/i);
+});
