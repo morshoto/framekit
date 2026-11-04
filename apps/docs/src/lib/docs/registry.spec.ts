@@ -32,3 +32,10 @@ it('rejects empty locale metadata rather than silently dropping it', async () =>
   expect(() => validatePages([{ slug: 'example', section: 'guides', order: 0, status: 'draft', titles: { en: '' } }])).toThrow(/title/i);
   expect(() => validatePages([{ slug: 'example', section: 'guides', order: 0, status: 'draft', titles: {} }])).toThrow(/locale/i);
 });
+it('rejects duplicate section positions even for disjoint locales', async () => {
+  const { validatePages } = await import('./source');
+  const en = { slug: 'first', section: 'guides' as const, order: 0, status: 'draft' as const, titles: { en: 'First' } };
+  const ja = { ...en, slug: 'second', titles: { ja: 'Second' } };
+  expect(() => validatePages([en, ja])).toThrow(/duplicate order/i);
+  expect(() => validatePages([en, { ...ja, order: 1 }])).not.toThrow();
+});

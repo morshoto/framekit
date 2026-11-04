@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { documents, getDocument, getNavigation, localeTarget } from './source';
+import { documents, getDocument, getNavigation, localeTarget, sections } from './source';
 
 describe('document manifest', () => {
   it('provides ordered, unique documents for both locales', () => {
@@ -7,7 +7,8 @@ describe('document manifest', () => {
       const docs = documents.filter(doc => doc.locale === locale);
       expect(docs).toHaveLength(16);
       expect(new Set(docs.map(doc => doc.slug)).size).toBe(docs.length);
-      expect(new Set(getNavigation(locale).map(item => item.href))).toEqual(new Set(docs.map(doc => `/${locale}/docs/${doc.slug}/`)));
+      const expected = sections.flatMap(section => docs.filter(doc => doc.section === section.key).sort((a, b) => a.order - b.order)).map(doc => `/${locale}/docs/${doc.slug}/`);
+      expect(getNavigation(locale).map(item => item.href)).toEqual(expected);
     }
   });
   it('preserves matching slugs and falls back explicitly when missing', () => {

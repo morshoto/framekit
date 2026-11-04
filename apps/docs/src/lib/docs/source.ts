@@ -40,9 +40,10 @@ export function validateRegistry(docs: DocumentMeta[]) {
   }
 }
 export function validatePages(entries: Page[]) {
-  const slugs = new Set<string>();
+  const slugs = new Set<string>(); const positions = new Set<string>();
   for (const page of entries) {
     if (slugs.has(page.slug)) throw new Error(`Duplicate page: ${page.slug}`); slugs.add(page.slug);
+    const position = `${page.section}/${page.order}`; if (positions.has(position)) throw new Error(`Duplicate order: ${position}`); positions.add(position);
     const titles = Object.entries(page.titles); if (!titles.length) throw new Error(`Missing locale: ${page.slug}`);
     for (const [locale, title] of titles) {
       if (!['en', 'ja'].includes(locale)) throw new Error(`Invalid locale: ${locale}`);

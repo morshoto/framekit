@@ -19,7 +19,7 @@ test('exports draft pages with section navigation and noindex', async () => {
   for (const locale of ['en', 'ja']) {
     const html = await readFile(new URL(`../out/${locale}/docs/installation/index.html`, import.meta.url), 'utf8');
     assert.match(html, /<meta name="robots" content="noindex, follow"/);
-    assert.match(html, /data-pagefind-ignore/);
+    assert.match(html, /<article[^>]*data-pagefind-ignore/);
     assert.ok(html.includes(locale === 'en' ? 'Placeholder:' : 'このページは準備中です。'));
     assert.ok(html.includes(`${prefix}/${locale}/docs/quick-start/`));
   }
