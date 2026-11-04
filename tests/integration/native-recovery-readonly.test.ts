@@ -1,0 +1,129 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { spawn } from "node:child_process";
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import test from "node:test";
+import { inspectNativeRecoveryReadOnly } from "../../adapters/final-cut/typescript/src/native-recovery-inspection.js";
+
+const owner = "00000000-0000-4000-8000-000000000001";
+const jobId = "publish-job-123";
+const dispatchId = "00000000-0000-4000-8000-000000000002";
+const digest = (s: string | Buffer) => createHash("sha256").update(s).digest("hex");
+const operation = `native.publish.${digest(jobId)}`;
+const v2 = () => ({ version: 2, kind: "native-operation", owner, operation: "native.searchmedia" });
+const v3 = () => ({ version: 3, kind: "native-operation", owner, operation, senderTracked: true, recoveryContext: {
+  kind: "publish", jobId, dispatchId, requestedTarget: { libraryPath: "/tmp/target.fcpbundle" }, artifactDigest: "a".repeat(64), executorIdentity: null, nativeQuiescence: "unproven" } });
+const v4 = () => ({ ...v3(), version: 4, recoveryContext: { ...v3().recoveryContext, executorIdentity: "receiver-1", dispatchState: "intent", canonicalTarget: { libraryPath: "/tmp/target.fcpbundle", projectUid: "project", sequenceUid: "sequence" }, expectedCanonicalDigest: "b".repeat(64) } });
+
+async function snapshot(directory: string): Promise<Record<string, string>> {
+  const found: Record<string, string> = {};
+  async function walk(path: string, prefix: string) {
+    for (const entry of await readdir(path, { withFileTypes: true })) {
+      const name = `${prefix}${entry.name}`;
+      if (entry.isDirectory()) { found[`${name}/`] = "directory"; await walk(join(path, entry.name), `${name}/`); }
+      else found[name] = digest(await readFile(join(path, entry.name)));
+    }
+  }
+  await walk(directory, "");
+  return found;
+}
+
+async function fixture(run: (path: string, directory: string) => Promise<void>) {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-readonly-inspect-"));
+  try { await run(join(directory, "pending.json"), directory); }
+  finally { await rm(directory, { recursive: true, force: true }); }
+}
+
+async function put(path: string, data: unknown) {
+  const contents = JSON.stringify(data) + "\n";
+  await writeFile(path, contents);
+  return digest(contents);
+}
+
+async function unchanged<T>(directory: string, action: () => Promise<T>): Promise<T> {
+  const before = await snapshot(directory);
+  const result = await action();
+  assert.deepEqual(await snapshot(directory), before);
+  return result;
+}
+
+test("absence is a point-in-time observation with no recovery eligibility", async () => fixture(async (path, directory) => {
+  const result = await unchanged(directory, () => inspectNativeRecoveryReadOnly(path));
+  assert.equal(result.status, "clear");
+  assert.equal(result.recoveryEligibility, "unavailable");
+  assert.equal(result.nativeQuiescence, "unproven");
+}));
+
+test("legacy v2 reservation is identified without invented job or sender state", async () => fixture(async (path, directory) => {
+  const id = await put(path, v2());
+  const result = await unchanged(directory, () => inspectNativeRecoveryReadOnly(path));
+  assert.deepEqual(result.reservation, { version: 2, reservationId: id, operation: "native.searchmedia" });
+  assert.equal(result.status, "recovery-required");
+  assert.equal(result.sender.status, "untracked");
+  assert.equal(result.recoveryEligibility, "unavailable");
+}));
+
+test("v3 and v4 retain their version and validated operation and job identity", async () => fixture(async (path, directory) => {
+  for (const record of [v3(), v4()]) {
+    const id = await put(path, record);
+    const result = await unchanged(directory, () => inspectNativeRecoveryReadOnly(path));
+    assert.deepEqual(result.reservation, { version: record.version, reservationId: id, operation, jobId, dispatchId });
+    assert.equal(result.status, "recovery-required");
+    assert.equal(result.sender.status, "unknown");
+    assert.equal(result.recoveryEligibility, "unavailable");
+  }
+}));
+
+test("corrupt, incomplete and mismatched evidence remains unknown", async () => fixture(async (path, directory) => {
+  for (const record of ["{", JSON.stringify({ ...v3(), recoveryContext: {} }), JSON.stringify({ ...v3(), operation: "native.publish.wrong" }), JSON.stringify({ ...v4(), recoveryContext: { ...v4().recoveryContext, canonicalTarget: {} } })]) {
+    await writeFile(path, record);
+    const result = await unchanged(directory, () => inspectNativeRecoveryReadOnly(path));
+    assert.equal(result.status, "unknown");
+    assert.equal(result.recoveryEligibility, "unavailable");
+    assert.equal(result.nativeQuiescence, "unproven");
+  }
+}));
+
+test("sender activity and settlement are evidence only and mismatches stay unknown", async () => fixture(async (path, directory) => {
+  const id = await put(path, v3());
+  const marker = JSON.stringify({ reservationId: id, owner }) + "\n";
+  await writeFile(`${path}.active`, marker);
+  assert.equal((await unchanged(directory, () => inspectNativeRecoveryReadOnly(path))).sender.status, "active-or-interrupted");
+  await rm(`${path}.active`);
+  await mkdir(`${path}.sender-settled`);
+  await writeFile(join(`${path}.sender-settled`, id), marker);
+  const settled = await unchanged(directory, () => inspectNativeRecoveryReadOnly(path));
+  assert.equal(settled.sender.status, "sender-settled");
+  assert.equal(settled.nativeQuiescence, "unproven");
+  assert.equal(settled.recoveryEligibility, "unavailable");
+  await writeFile(join(`${path}.sender-settled`, id), JSON.stringify({ reservationId: "f".repeat(64), owner }));
+  assert.equal((await unchanged(directory, () => inspectNativeRecoveryReadOnly(path))).sender.status, "unknown");
+}));
+
+test("a crashed lock and a legacy writer coexist without inspection modifying either", async () => fixture(async (path, directory) => {
+  await mkdir(`${path}.lock`);
+  const legacy = JSON.stringify(v2()) + "\n";
+  await writeFile(path, legacy, { flag: "wx" });
+  const result = await unchanged(directory, () => inspectNativeRecoveryReadOnly(path));
+  assert.equal(result.status, "unknown");
+  assert.equal(result.recoveryEligibility, "unavailable");
+}));
+
+test("concurrent processes inspect the same reservation without state changes", async () => fixture(async (path, directory) => {
+  const id = await put(path, v2());
+  const module = pathToFileURL(resolve("adapters/final-cut/typescript/src/native-recovery-inspection.ts")).href;
+  const script = `import {inspectNativeRecoveryReadOnly} from ${JSON.stringify(module)}; console.log(JSON.stringify(await inspectNativeRecoveryReadOnly(process.argv[1])));`;
+  const inspect = () => new Promise<any>((resolveResult, reject) => {
+    const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script, path]);
+    let stdout = "", stderr = "";
+    child.stdout.on("data", chunk => { stdout += chunk; });
+    child.stderr.on("data", chunk => { stderr += chunk; });
+    child.on("error", reject);
+    child.on("close", code => { if (code !== 0) reject(new Error(stderr)); else resolveResult(JSON.parse(stdout)); });
+  });
+  const results = await unchanged(directory, () => Promise.all([inspect(), inspect(), inspect()]));
+  assert.ok(results.every(result => result.reservation?.reservationId === id && result.status === "recovery-required"));
+}));
