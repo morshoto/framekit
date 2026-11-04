@@ -161,7 +161,7 @@ export async function inspectNativeRecoveryReadOnly(path: string): Promise<Nativ
     if (record.senderTracked !== undefined && typeof record.senderTracked !== "boolean") return unknown();
     const reservationId = createHash("sha256").update(contents).digest("hex");
     const settled = await readSettlement(path, reservationId);
-    const sender = record.senderTracked !== true ? (active || settled ? "unknown" : "untracked")
+    const sender = record.senderTracked !== true ? (active !== undefined || settled !== undefined ? "unknown" : "untracked")
       : active !== undefined ? (settled === undefined && markerMatches(active, reservationId) ? "active-or-interrupted" : "unknown")
         : settled !== undefined && markerMatches(settled, reservationId) ? "sender-settled" : "unknown";
     if (await exists(`${path}.lock`) || await readStable(path) !== contents || await readStable(`${path}.active`) !== active
