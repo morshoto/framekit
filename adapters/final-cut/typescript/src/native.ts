@@ -758,6 +758,8 @@ export interface NativeFinalCutEditor {
   locateOccurrence(mediaHandle: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutOccurrenceSearchResult>;
   locateOccurrenceForCanonicalTarget?(mediaHandle: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutOccurrenceSearchResult>;
   selectOccurrence(occurrenceHandle: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;
+  /** Observe Inspector source and range independently, binding them to the currently selected identity; fail closed on drift. */
+  inspectSelectedOccurrenceSource?(options?: NativeFinalCutRequestOptions): Promise<{ identity: string; source: string; sourceStartTime: RationalTime; durationTime: RationalTime } | undefined>;
   selectCanonicalOccurrence(name: string, occurrenceIndex: number, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;
   targetMedia(query: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutTargetResult>;
   previewBlade(occurrenceHandle: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutBladePreview>;

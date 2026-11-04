@@ -701,7 +701,7 @@ end tell`;
 
 export function createFinalCutNativeTargetResolver(
   native: Pick<NativeFinalCutEditor, "searchMedia" | "locateOccurrence">
-    & Partial<Pick<NativeFinalCutEditor, "capabilities" | "selectOccurrence" | "locateOccurrenceForCanonicalTarget" | "searchMediaForCanonicalTarget" | "trackNativeDispatch">>,
+    & Partial<Pick<NativeFinalCutEditor, "capabilities" | "selectOccurrence" | "locateOccurrenceForCanonicalTarget" | "searchMediaForCanonicalTarget" | "trackNativeDispatch" | "inspectSelectedOccurrenceSource">>,
 ): CanonicalNativeTargetResolver {
   const resolve: CanonicalNativeTargetResolver = async (clip, snapshot) => {
     if (!clip.startTime || !clip.durationTime) {
@@ -780,10 +780,22 @@ export function createFinalCutNativeTargetResolver(
       throw new Error(`TARGET_MISMATCH: native occurrence coordinates changed for ${clip.id}`);
     }
     const expectedSelectedIdentity = occurrence.nativeIdentity ?? occurrence.identity;
+    const needsInspector = native.capabilities?.().timelineOccurrenceSourceBinding === true || Boolean(native.inspectSelectedOccurrenceSource);
+    if (needsInspector && (!native.inspectSelectedOccurrenceSource || !clip.sourceStartTime)) {
+      throw new Error(`TARGET_MISMATCH: selected Inspector verification is unavailable for ${clip.id}`);
+    }
     if (!native.selectOccurrence) throw new Error(`TARGET_MISMATCH: native occurrence selection is unavailable for ${clip.id}`);
     const selected = await native.selectOccurrence(occurrence.handle);
     if (selected?.target?.identity !== expectedSelectedIdentity) {
       throw new Error(`TARGET_MISMATCH: selected native occurrence identity changed for ${clip.id}`);
+    }
+    if (needsInspector) {
+      const observed = await native.inspectSelectedOccurrenceSource!();
+      if (!observed || observed.identity !== expectedSelectedIdentity || exactLocalSourcePath(observed.source) !== expectedSource
+        || !clip.sourceStartTime || !sameRational(observed.sourceStartTime, clip.sourceStartTime)
+        || !sameRational(observed.durationTime, clip.durationTime)) {
+        throw new Error(`TARGET_MISMATCH: selected Inspector source or range changed for ${clip.id}`);
+      }
     }
   };
   // Only an explicit source-observation capability with nonselecting discovery can enable source-bound edits.
@@ -792,6 +804,7 @@ export function createFinalCutNativeTargetResolver(
       try {
         return Boolean(native.locateOccurrenceForCanonicalTarget
           && native.selectOccurrence
+          && native.inspectSelectedOccurrenceSource
           && native.capabilities?.().timelineOccurrenceSourceBinding === true);
       } catch {
         return false;

@@ -89,7 +89,10 @@ identity. It does not treat the requested Browser identity as an observation.
 Native media targeting and canonical source-bound rename, trim, ripple-delete,
 and gain remain unavailable until that binding can be proven. Source-bound
 operations require an explicit source-observation capability and nonselecting
-discovery. The observed Browser source must also match the canonical snapshot's
+discovery. They also require an independent selected Inspector observation
+bound to the selected identity, with source path and source range matching the
+canonical snapshot. The bundled adapter does not yet supply that observation.
+The observed Browser source must also match the canonical snapshot's
 absolute local path or file URL; a matching basename alone is insufficient.
 Equal-named Browser items are distinguishable only when every candidate has an
 observed source and exactly one matches the canonical path.
