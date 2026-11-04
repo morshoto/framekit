@@ -153,3 +153,25 @@ test("special files cannot block inspection or change state", async () => fixtur
   assert.equal(JSON.parse(child.stdout).status, "unknown");
   assert.deepEqual(await readdir(directory), before);
 }));
+
+test("live new lock holder cannot exclude a separate legacy writer", async () => fixture(async (path, directory) => {
+  const script = "require('fs').mkdirSync(process.argv[1]); console.log('locked'); process.stdin.resume();";
+  const holder = spawn(process.execPath, ["-e", script, `${path}.lock`]);
+  const closed = new Promise<void>(resolveExit => holder.once("close", () => resolveExit()));
+  try {
+    await new Promise<void>((resolveReady, reject) => {
+      const timer = setTimeout(() => reject(new Error("lock holder did not start")), 5000);
+      holder.once("error", error => { clearTimeout(timer); reject(error); });
+      holder.stdout.once("data", () => { clearTimeout(timer); resolveReady(); });
+      holder.once("exit", () => { clearTimeout(timer); reject(new Error("lock holder exited early")); });
+    });
+    const legacy = JSON.stringify(v2()) + "\n";
+    const writer = spawnSync(process.execPath, ["-e", "require('fs').writeFileSync(process.argv[1], process.argv[2], {flag:'wx'});", path, legacy], { timeout: 5000 });
+    assert.equal(writer.status, 0);
+    assert.equal((await unchanged(directory, () => inspectNativeRecoveryReadOnly(path))).status, "unknown");
+    assert.equal(await readFile(path, "utf8"), legacy);
+  } finally {
+    holder.kill("SIGKILL");
+    await closed;
+  }
+}));
