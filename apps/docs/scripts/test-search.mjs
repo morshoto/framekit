@@ -36,8 +36,10 @@ try {
     }
     assert.deepEqual(errors,[]); await context.close();
   }
-  const offline=await browser.newContext(); const page=await offline.newPage(); await page.route('**/pagefind/**',route=>route.abort());
-  await page.goto(`${origin}${base}/en/docs/introduction/`,{waitUntil:'networkidle'}); await page.getByRole('button',{name:'Search docs'}).click(); await page.getByRole('combobox').fill('lantern'); await page.getByRole('link',{name:'Browse docs'}).waitFor(); const offlineAxe = await new AxeBuilder({ page }).include('[role=dialog]').analyze(); assert.deepEqual(offlineAxe.violations.map(item => item.id), []); await offline.close();
+  for (const colorScheme of ['light', 'dark']) {
+    const offline=await browser.newContext({colorScheme}); const page=await offline.newPage(); await page.route('**/pagefind/**',route=>route.abort());
+    await page.goto(`${origin}${base}/en/docs/introduction/`,{waitUntil:'networkidle'}); await page.getByRole('button',{name:'Search docs'}).click(); await page.getByRole('combobox').fill('lantern'); await page.getByRole('link',{name:'Browse docs'}).waitFor(); const offlineAxe = await new AxeBuilder({ page }).include('[role=dialog]').analyze(); assert.deepEqual(offlineAxe.violations.map(item => item.id), []); await offline.close();
+  }
   const noJs=await browser.newPage({javaScriptEnabled:false}); await noJs.goto(`${origin}${base}/en/docs/introduction/`); assert.ok(await noJs.getByRole('heading',{name:'Overview'}).count()); await noJs.close();
   console.log(`Search browser checks passed at ${base||'(root)'}`);
 } finally { await browser?.close(); await new Promise(resolve=>server.close(resolve)); }
