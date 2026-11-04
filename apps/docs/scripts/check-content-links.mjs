@@ -16,7 +16,7 @@ export async function checkContentLinks(contentRoot, publicRoot, registeredSlugs
     for (const name of (await readdir(dir)).filter(name => name.endsWith('.mdx'))) {
       const slug = name.slice(0, -4);
       const route = `/${locale}/docs/${slug}/`;
-      if (registeredSlugs && !registeredSlugs.includes(slug)) errors.push(`${route}: unregistered content file`);
+      if (registeredSlugs && !registeredSlugs.some(entry => typeof entry === 'string' ? entry === slug : entry.locale === locale && entry.slug === slug)) errors.push(`${route}: unregistered content file`);
       const tree = unified().use(remarkParse).use(remarkMdx).use(remarkGfm).parse(await readFile(join(dir, name), 'utf8'));
       const slugger = new GithubSlugger(); const anchors = new Set(); const links = []; const definitions = new Map();
       walk(tree, node => { if (node.type === 'definition') definitions.set(node.identifier.toLowerCase(), node.url); });
@@ -42,6 +42,9 @@ export async function checkContentLinks(contentRoot, publicRoot, registeredSlugs
       pages.set(route, { anchors, links });
     }
   }
+  if (registeredSlugs) for (const entry of registeredSlugs) {
+    if (typeof entry !== 'string' && !pages.has(`/${entry.locale}/docs/${entry.slug}/`)) errors.push(`/${entry.locale}/docs/${entry.slug}/: missing content file`);
+  }
   const root = resolve(publicRoot);
   for (const [route, page] of pages) for (const { url, image } of page.links) {
     let target; try { target = new URL(url, `https://framekit.invalid${route}`); } catch { errors.push(`${route}: invalid URL ${url}`); continue; }
@@ -61,7 +64,7 @@ export async function checkContentLinks(contentRoot, publicRoot, registeredSlugs
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const root = fileURLToPath(new URL('../', import.meta.url));
-  const slugs = JSON.parse(await readFile(join(root, 'src/lib/docs/slugs.json'), 'utf8'));
-  const errors = await checkContentLinks(join(root, 'content/docs'), join(root, 'public'), slugs);
+  const { documents } = await import('../src/lib/docs/source.ts');
+  const errors = await checkContentLinks(join(root, 'content/docs'), join(root, 'public'), documents);
   if (errors.length) { console.error(errors.join('\n')); process.exitCode = 1; } else console.log('Mock content links and anchors resolve.');
 }
