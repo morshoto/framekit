@@ -117,6 +117,41 @@ jobs:
           path: apps/docs/out
           retention-days: 7
 
+  docs-e2e:
+    name: Docs E2E (${{ matrix.profile }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: root
+            base_path: ''
+          - profile: project
+            base_path: /framekit
+    env:
+      DOCS_BASE_PATH: ${{ matrix.base_path }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @framekit/docs exec playwright install --with-deps chromium firefox webkit
+      - run: pnpm --filter @framekit/docs build
+      - run: pnpm --filter @framekit/docs test:e2e
+      - name: Upload Playwright report and failure artifacts
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: docs-e2e-${{ matrix.profile }}
+          path: |
+            apps/docs/artifacts/e2e-report
+            apps/docs/artifacts/e2e-results
+          if-no-files-found: ignore
+          retention-days: 7
+
   nix-fixture:
     name: Linux Nix fixture bootstrap
     runs-on: ubuntu-latest

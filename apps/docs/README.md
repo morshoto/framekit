@@ -29,3 +29,27 @@ The files in `content/docs/en` and `content/docs/ja` are synthetic test content.
 ## Static search
 
 The docs build indexes the static export with Pagefind after Next completes and reports the index size. Pagefind reads `html lang` and creates separate English and Japanese indexes; only article bodies are indexed. Search assets are loaded lazily from the configured base path, and unavailable assets leave navigation usable. `pnpm --filter @framekit/docs test:search` exercises the built export; run it once with `DOCS_BASE_PATH` unset and once after a `/framekit` build with that variable set.
+
+## Static-site browser checks
+
+Install the Playwright browsers, then test each build with the same base path used to build it:
+
+```sh
+pnpm --filter @framekit/docs exec playwright install chromium firefox webkit
+pnpm --filter @framekit/docs build
+pnpm --filter @framekit/docs test:e2e
+DOCS_BASE_PATH=/framekit pnpm --filter @framekit/docs build
+DOCS_BASE_PATH=/framekit pnpm --filter @framekit/docs test:e2e
+```
+
+The tests start ephemeral localhost servers over the actual export; the project profile mounts it under `/framekit/`. The five projects cover desktop Chromium, Firefox and WebKit and emulated iPhone WebKit and Android Chromium. Playwright pins browser revisions; inspect the test report for the current run. Failure screenshots, traces, and videos and visual review screenshots are retained in CI for seven days. External GitHub links are checked as links without navigating to external services.
+
+### Real-device record
+
+| Device | Browser version | Date | Result | Screenshot |
+| --- | --- | --- | --- | --- |
+| macOS Safari | — | — | NOT TESTED | — |
+| iPhone Safari | — | — | NOT TESTED | — |
+| Android Chrome | — | — | NOT TESTED | — |
+
+The emulated browser projects do not establish real-device coverage. Published-site smoke evidence, including the deployment workflow run and exact deployed commit, must be recorded when the Pages deployment is available.
