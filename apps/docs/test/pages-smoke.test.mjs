@@ -19,5 +19,6 @@ test('rejects failed or mismatched runs and deployments', () => {
   assert.throws(() => validate({ deployment: { ...deployment, sha: 'b'.repeat(40) } }), /BLOCKED/);
   assert.throws(() => validate({ status: { ...status, state: 'pending' } }), /BLOCKED/);
   assert.throws(() => validate({ status: { ...status, log_url: `${run.url}4` } }), /BLOCKED/);
+  assert.throws(() => validate({ status: { ...status, log_url: `${run.url}4/job/1` } }), /BLOCKED/);
   assert.throws(() => validate({ status: { ...status, environment_url: 'http://example.com/' } }), /BLOCKED/);
 });
