@@ -33,6 +33,7 @@
     "unified": "11.0.5"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
     "@storybook/addon-themes": "10.6.5",
     "@storybook/nextjs-vite": "10.6.5",
     "@testing-library/dom": "10.4.2",

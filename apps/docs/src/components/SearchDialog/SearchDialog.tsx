@@ -38,7 +38,7 @@ export function SearchDialog({ open, locale, onClose, search = searchDocs, initi
   function navigate(event: KeyboardEvent<HTMLInputElement>) {
     if (!results.length) return;
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); setSelected(current => (current + (event.key === 'ArrowDown' ? 1 : -1) + results.length) % results.length); }
-    else if (event.key === 'Enter') { event.preventDefault(); document.querySelector<HTMLAnchorElement>(`#search-result-${selected} a`)?.click(); }
+    else if (event.key === 'Enter') { event.preventDefault(); document.querySelector<HTMLAnchorElement>(`#search-result-${selected}`)?.click(); }
   }
   if (!open) return null;
   const status = state === 'loading' ? 'Searching…' : state === 'ready' ? `${results.length} results` : state === 'error' ? 'Search unavailable' : 'Type to search documentation';
