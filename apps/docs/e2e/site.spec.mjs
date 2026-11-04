@@ -64,6 +64,9 @@ test('static content works with JavaScript disabled and missing routes return 40
   const page = await context.newPage();
   await page.goto(`${site}/en/docs/introduction/`);
   await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
+  await page.getByRole('main').getByRole('link', { name: 'getting started', exact: true }).click();
+  await expect(page).toHaveURL(/\/en\/docs\/getting-started\/$/);
+  await expect(page.getByRole('heading', { name: 'Getting started', level: 1 })).toBeVisible();
   const response = await page.goto(`${site}/en/docs/not-real/`);
   expect(response.status()).toBe(404);
   await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();
@@ -169,4 +172,23 @@ test('mobile controls meet minimum touch size and article assets load', async ({
   await expect(image).toBeVisible();
   expect(await image.evaluate(element => element.complete && element.naturalWidth > 0)).toBe(true);
   await expect(page.getByRole('link', { name: 'GitHub' }).last()).toHaveAttribute('href', 'https://github.com/morshoto/framekit');
+});
+
+
+test('keyboard search traps focus and returns it to the trigger', async ({ page, site }) => {
+  await page.goto(`${site}/en/docs/introduction/`);
+  const trigger = page.getByRole('button', { name: 'Search docs' });
+  await trigger.focus();
+  await page.keyboard.press('ControlOrMeta+k');
+  const dialog = page.getByRole('dialog', { name: 'Search documentation' });
+  const input = dialog.getByRole('combobox');
+  const close = dialog.getByRole('button', { name: 'Close search' });
+  await expect(input).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(close).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(input).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(trigger).toBeFocused();
 });
