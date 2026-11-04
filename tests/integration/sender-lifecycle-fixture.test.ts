@@ -338,3 +338,21 @@ test("marker recheck distinguishes absence from JSON null and changed bytes", as
     } finally { if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL"); await running.closed; }
   });
 });
+
+test("invalid timer delays are rejected before marker or child creation", async () => {
+  for (const key of ["killAfterMs", "timeoutMs"] as const) {
+    for (const value of [NaN, Infinity, -Infinity, -1, 0, 2147483648, null] as const) await fixture(async directory => {
+      const options = { command: process.execPath, args: ["-e", "process.exit(0)"], [key]: value };
+      await assert.rejects(startSenderFixture(directory, binding, options as never).then(async running => { await running.closed; return running; }), /INVALID_OPTIONS/);
+      assert.deepEqual(await readdir(directory), [], `${key}=${value}`);
+    });
+  }
+});
+
+test("valid timer boundary values permit starting a sender", async () => {
+  for (const killAfterMs of [1, 2147483647]) await fixture(async directory => {
+    const running = await startSenderFixture(directory, binding, { command: process.execPath, args: ["-e", "process.exit(0)"], killAfterMs });
+    await running.closed;
+    assert.equal((await inspectSenderFixture(directory, binding)).status, "sender-settled");
+  });
+});
