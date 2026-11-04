@@ -14,3 +14,13 @@ test('exports every localized article with matching language and asset paths', a
   for (const locale of ['en','ja']) assert.ok((await stat(new URL(`../out/${locale}/index.html`, import.meta.url))).isFile());
   assert.ok((await stat(new URL('../out/404.html', import.meta.url))).isFile());
 });
+test('exports draft pages with section navigation and noindex', async () => {
+  const prefix = process.env.DOCS_BASE_PATH || '';
+  for (const locale of ['en', 'ja']) {
+    const html = await readFile(new URL(`../out/${locale}/docs/installation/index.html`, import.meta.url), 'utf8');
+    assert.match(html, /<meta name="robots" content="noindex, follow"/);
+    assert.match(html, /data-pagefind-ignore/);
+    assert.ok(html.includes(locale === 'en' ? 'Placeholder:' : 'このページは準備中です。'));
+    assert.ok(html.includes(`${prefix}/${locale}/docs/quick-start/`));
+  }
+});
