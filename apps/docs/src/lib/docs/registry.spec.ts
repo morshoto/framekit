@@ -27,3 +27,8 @@ it('rejects conflicting conceptual keys across locales', () => {
   expect(() => validateRegistry([en, { ...ja, section: 'guides' }])).toThrow(/inconsistent/i);
   expect(() => validateRegistry([en, { ...ja, order: 8 }])).toThrow(/inconsistent/i);
 });
+it('rejects empty locale metadata rather than silently dropping it', async () => {
+  const { validatePages } = await import('./source');
+  expect(() => validatePages([{ slug: 'example', section: 'guides', order: 0, status: 'draft', titles: { en: '' } }])).toThrow(/title/i);
+  expect(() => validatePages([{ slug: 'example', section: 'guides', order: 0, status: 'draft', titles: {} }])).toThrow(/locale/i);
+});
