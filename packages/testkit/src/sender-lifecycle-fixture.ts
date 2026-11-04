@@ -102,6 +102,11 @@ export async function startSenderFixture(directory: string, input: SenderFixture
 }): Promise<{ child: ChildProcessWithoutNullStreams; abort(): Promise<void>; closed: Promise<void>; localStatus(): "active" | "abort-requested" | "sender-settled" | "unknown" }> {
   const b = structuredClone(input);
   if (!valid(b)) throw new Error("SENDER_FIXTURE_INVALID_BINDING");
+  const killAfterMs = options.killAfterMs === undefined ? 1000 : options.killAfterMs;
+  const validDelay = (value: number) => Number.isFinite(value) && value >= 1 && value <= 2147483647;
+  if (!validDelay(killAfterMs) || (options.timeoutMs !== undefined && !validDelay(options.timeoutMs))) {
+    throw new Error("SENDER_FIXTURE_INVALID_OPTIONS: timer delay must be between 1 and 2147483647 milliseconds");
+  }
   await writeMarker(directory, b, "start");
   const child = spawn(options.command, options.args, { stdio: ["pipe", "pipe", "pipe"] });
   let closed = false;
@@ -122,7 +127,7 @@ export async function startSenderFixture(directory: string, input: SenderFixture
       } finally {
         if (!closed && !exited) {
           child.kill("SIGTERM");
-          forceKill = setTimeout(() => { if (!closed && !exited) child.kill("SIGKILL"); }, options.killAfterMs ?? 1000);
+          forceKill = setTimeout(() => { if (!closed && !exited) child.kill("SIGKILL"); }, killAfterMs);
         }
       }
     })();
