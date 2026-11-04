@@ -199,3 +199,17 @@ test("inspection fails closed when sender evidence changes during observation", 
     assert.equal(observed.recoveryEligibility, "unavailable");
   } finally { if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL"); await running.closed; }
 }));
+
+test("local sender activity is distinct from restart-ambiguous evidence", async () => fixture(async directory => {
+  const running = await startSenderFixture(directory, binding, { command: process.execPath, args: ["-e", delayedChild], killAfterMs: 3000 });
+  try {
+    await once(running.child.stdout!, "data");
+    assert.equal(running.localStatus(), "active");
+    assert.equal((await inspectSenderFixture(directory, binding)).status, "active-or-interrupted");
+    await running.abort();
+    assert.equal(running.localStatus(), "abort-requested");
+    await running.closed;
+    assert.equal(running.localStatus(), "sender-settled");
+    assert.equal((await inspectSenderFixture(directory, binding)).nativeQuiescence, "unproven");
+  } finally { if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL"); await running.closed; }
+}));
