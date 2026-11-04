@@ -45,19 +45,21 @@ function pathFor(directory: string, b: SenderFixtureBinding, kind: string): stri
 function record(b: SenderFixtureBinding, phase: "start" | "abort" | "settled") {
   return { schemaVersion: 1, reservationId: b.reservationId, reservationVersion: b.reservationVersion, route: b.route, owner: b.owner, executionId: b.executionId, phase };
 }
-async function readRecord(path: string): Promise<unknown | undefined> {
+async function readRecord(path: string): Promise<{ raw: string; value: unknown } | undefined> {
   let handle;
   try {
     handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     const stat = await handle.stat();
     if (!stat.isFile() || stat.size > 4096) throw new Error("invalid fixture marker");
-    return JSON.parse(await handle.readFile("utf8"));
+    const raw = await handle.readFile("utf8");
+    return { raw, value: JSON.parse(raw) };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
     throw error;
   } finally { await handle?.close(); }
 }
-function matches(value: unknown, b: SenderFixtureBinding, phase: "start" | "abort" | "settled"): boolean {
+function matches(snapshot: { raw: string; value: unknown } | undefined, b: SenderFixtureBinding, phase: "start" | "abort" | "settled"): boolean {
+  const value = snapshot?.value;
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const obj = value as Record<string, unknown>;
   const keys = ["schemaVersion", "reservationId", "reservationVersion", "route", "owner", "executionId", "phase"];
