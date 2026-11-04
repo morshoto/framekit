@@ -1,0 +1,8 @@
+.header { position: sticky; top: 0; z-index: 10; background: var(--surface); border-bottom: 1px solid var(--border); }
+.inner { max-width: 1440px; margin: auto; padding: 0 24px; height: 64px; display: flex; align-items: center; gap: 16px; }
+.brand { color: var(--text); text-decoration: none; font-weight: 750; white-space: nowrap; span { color: var(--text-muted); font-weight: 500; } }
+.actions { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.locale, .github { font-size: .875rem; color: var(--text-muted); }
+.menu { display: none; }
+@media (max-width: 1199px) { .inner { height: 60px; } }
+@media (max-width: 767px) { .inner { height: 56px; padding: 0 16px; gap: 4px; } .menu { display: inline-flex; } .actions { gap: 2px; } .github, .locale, .brand span { display: none; } }

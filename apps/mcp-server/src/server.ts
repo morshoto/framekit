@@ -962,7 +962,7 @@ export interface McpServerOptions {
   disposableNative?: Pick<DisposableNativeEditWorkflow, "preview" | "execute" | "undo">;
   nativeOperationSession?: Pick<NativeOperationSession, "submit" | "status" | "retry" | "cancel">;
   projectPublisher?: FinalCutProjectPublisher;
-  canonicalRecovery?: Pick<FileCanonicalRecoveryGuard, "inspectVersioned" | "inspectNativeReservation" | "assertClear" | "beginNative">;
+  canonicalRecovery?: Pick<FileCanonicalRecoveryGuard, "inspectVersioned" | "inspectNativeReservation" | "assertClear" | "beginNative"> & Partial<Pick<FileCanonicalRecoveryGuard, "inspectNativeRecoveryEvidence">>;
   videoExporter?: FinalCutVideoExporter;
   backgroundRenderer?: BackgroundRenderExportProvider;
   buildFingerprint?: FramekitBuildFingerprint;
@@ -1210,6 +1210,14 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ publishJobId }) => jsonResult(
     await inspectNativeHandoffReadiness(runtime, options, publishJobId),
   ));
+
+  server.registerTool("editor.native.recovery.evidence.inspect", {
+    description: "Read point-in-time native reservation and sender evidence without changing state or proving receiver quiescence. Recovery eligibility is unavailable.",
+    inputSchema: {},
+  }, async () => sessionResult(async () => {
+    if (!options.canonicalRecovery?.inspectNativeRecoveryEvidence) throw new Error("CAPABILITY_UNAVAILABLE: native recovery evidence inspection is not configured");
+    return options.canonicalRecovery.inspectNativeRecoveryEvidence();
+  }));
 
   server.registerTool("editor.native.recovery.inspect", {
     description: "Inspect recovery checkpoint evidence in the configured state directory without contacting Final Cut or clearing the checkpoint.",

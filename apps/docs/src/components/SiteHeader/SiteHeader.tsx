@@ -1,0 +1,9 @@
+import Link from 'next/link';
+import { IconButton } from '../IconButton';
+import { SearchTrigger } from '../SearchTrigger';
+import { ThemeToggle } from '../ThemeToggle';
+import { LanguageSwitcher } from '../LanguageSwitcher';
+import type { Locale } from '../../lib/i18n/locales';
+import styles from './SiteHeader.module.scss';
+export interface SiteHeaderProps { onMenu: () => void; onSearch?: () => void; locale?: Locale; slug?: string }
+export function SiteHeader({ onMenu, onSearch, locale, slug }: SiteHeaderProps) { return <header className={styles.header}><div className={styles.inner}><span className={styles.menu}><IconButton label="Open navigation" onClick={event => { event.currentTarget.focus(); onMenu(); }}>☰</IconButton></span><Link href="/" className={styles.brand}>Framekit <span>Docs</span></Link><div className={styles.actions}><SearchTrigger disabled={!onSearch} onClick={onSearch} />{locale ? <LanguageSwitcher locale={locale} slug={slug} /> : <span className={styles.locale} aria-label="Language: English">EN</span>}<ThemeToggle /><a className={styles.github} href="https://github.com/morshoto/framekit">GitHub</a></div></div></header>; }

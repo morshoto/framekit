@@ -6,3 +6,9 @@ coverage/
 .DS_Store
 
 PLAN.md
+
+# Next.js docs output
+apps/docs/.next/
+apps/docs/out/
+apps/docs/*.tsbuildinfo
+apps/docs/storybook-static/

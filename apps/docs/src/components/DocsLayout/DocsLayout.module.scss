@@ -1,0 +1,11 @@
+.layout { max-width: 1440px; margin: 0 auto; display: grid; grid-template-columns: 256px minmax(0, 1fr) 216px; min-height: calc(100vh - 64px); }
+.sidebar, .toc { position: sticky; top: 64px; height: calc(100vh - 64px); overflow-y: auto; }
+.sidebar { border-right: 1px solid var(--border); }
+.toc { padding: 24px 16px; }
+.main { min-width: 0; padding: 24px 40px 64px; }
+.article { max-width: 760px; line-height: 1.7; overflow-wrap: anywhere; h1 { font-size: clamp(1.875rem, 3vw, 2.25rem); line-height: 1.2; letter-spacing: -.03em; } h2 { scroll-margin-top: 80px; margin-top: 48px; font-size: 1.5rem; line-height: 1.3; } pre { overflow-x: auto; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-muted); } table { border-collapse: collapse; min-width: 100%; } th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); } }
+.description { color: var(--text-muted); }
+.mobileToc { display: none; }
+@media (max-width: 1199px) { .layout { grid-template-columns: 224px minmax(0, 1fr); } .sidebar { top: 60px; height: calc(100vh - 60px); } .toc { display: none; } .mobileToc { display: block; } }
+@media (max-width: 767px) { .layout { display: block; } .sidebar { display: none; } .main { padding: 16px 16px 48px; } }
+.article { img { display: block; max-width: 100%; height: auto; } blockquote { margin: 24px 0; padding: 4px 16px; border-left: 3px solid var(--accent); background: var(--surface-muted); } :not(pre) > code { overflow-wrap: anywhere; } }

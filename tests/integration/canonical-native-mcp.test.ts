@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -1250,6 +1250,32 @@ test("native preparation unavailable before dispatch releases its reservation", 
     const result = await client.callTool({ name: "editor.native.focus", arguments: {} });
     assert.equal(result.isError ?? false, false);
     await guard.assertClear();
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("MCP native recovery evidence exposes only read-only unproven sender observations", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-mcp-readonly-evidence-"));
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  const calls: string[] = [];
+  const { client, server } = await connect(createRuntime(calls, async () => { throw new Error("unexpected canonical read"); }), { canonicalRecovery: guard });
+  try {
+    const record = JSON.stringify({ version: 2, kind: "native-operation", owner: "00000000-0000-4000-8000-000000000001", operation: "native.searchmedia" }) + "\n";
+    await writeFile(path, record);
+    const response = await client.callTool({ name: "editor.native.recovery.evidence.inspect", arguments: {} });
+    const value = JSON.parse(textFrom(response));
+    assert.equal(value.status, "recovery-required");
+    assert.equal(value.reservation.version, 2);
+    assert.equal(value.reservation.operation, "native.searchmedia");
+    assert.equal(value.sender.status, "untracked");
+    assert.equal(value.recoveryEligibility, "unavailable");
+    assert.equal(value.nativeQuiescence, "unproven");
+    assert.equal(await readFile(path, "utf8"), record);
+    assert.deepEqual(calls, []);
   } finally {
     await client.close();
     await server.close();
