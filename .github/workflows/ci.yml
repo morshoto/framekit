@@ -44,6 +44,38 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           validation-level: fast
 
+  docs-foundation:
+    name: Docs static export
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @framekit/docs typecheck
+      - name: Test root export
+        run: |
+          pnpm --filter @framekit/docs build
+          pnpm --filter @framekit/docs test:export
+      - name: Test project-path export
+        env:
+          DOCS_BASE_PATH: /framekit
+        run: |
+          pnpm --filter @framekit/docs build
+          pnpm --filter @framekit/docs test:export
+      - name: Upload project-path export
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: docs-static-export
+          path: apps/docs/out
+          retention-days: 7
+
   nix-fixture:
     name: Linux Nix fixture bootstrap
     runs-on: ubuntu-latest

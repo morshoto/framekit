@@ -11,4 +11,6 @@ test('static export contains the landing page, accessible links and 404', async 
   assert.match(await readFile(new URL('../out/404.html', import.meta.url), 'utf8'), /Page not found/);
   const prefix = process.env.DOCS_BASE_PATH || '';
   assert.ok(html.includes(`${prefix}/_next/`), 'assets use the configured base path');
+  assert.ok(html.includes(`href="${prefix}/icon.svg?`), 'icon uses the configured base path');
+  assert.match(await readFile(new URL('../out/icon.svg', import.meta.url), 'utf8'), /<svg/);
 });
