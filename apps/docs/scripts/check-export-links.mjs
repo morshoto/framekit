@@ -7,13 +7,34 @@ async function files(dir) {
   return (await Promise.all(entries.map(entry => entry.isDirectory() ? files(join(dir, entry.name)) : [join(dir, entry.name)]))).flat();
 }
 
+function srcsetUrls(input) {
+  const urls = []; let index = 0;
+  while (index < input.length) {
+    while (index < input.length && /[\s,]/.test(input[index])) index++;
+    const start = index;
+    while (index < input.length && !/\s/.test(input[index])) index++;
+    let url = input.slice(start, index);
+    const trailingComma = url.endsWith(',');
+    url = url.replace(/,+$/, '');
+    if (url) urls.push(url);
+    if (!trailingComma) { while (index < input.length && input[index] !== ',') index++; }
+  }
+  return urls;
+}
+
 export async function checkExportLinks(root, basePath = '') {
   root = resolve(root);
   const errors = [];
   for (const file of (await files(root)).filter(path => path.endsWith('.html'))) {
     const html = await readFile(file, 'utf8');
-    for (const match of html.matchAll(/\b(?:href|src)="([^"]+)"/g)) {
-      const value = match[1].replaceAll('&amp;', '&');
+    const values = [];
+    for (const match of html.matchAll(/\b(href|src|srcset)="([^"]+)"/g)) {
+      const attribute = match[2].replaceAll('&amp;', '&');
+      if (match[1] === 'srcset') {
+        values.push(...srcsetUrls(attribute));
+      } else values.push(attribute);
+    }
+    for (const value of values) {
       if (/^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(value)) continue;
       let pathname;
       try { pathname = decodeURIComponent(new URL(value, 'https://example.invalid/').pathname); }
@@ -34,7 +55,7 @@ export async function checkExportLinks(root, basePath = '') {
   return errors;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const root = fileURLToPath(new URL('../out/', import.meta.url));
   const errors = await checkExportLinks(root, process.env.DOCS_BASE_PATH || '');
   if (errors.length) { console.error(errors.join('\n')); process.exitCode = 1; }
