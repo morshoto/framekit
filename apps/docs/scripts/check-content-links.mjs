@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import remarkGfm from 'remark-gfm';
+import remarkMdx from 'remark-mdx';
 import { toString } from 'mdast-util-to-string';
 import GithubSlugger from 'github-slugger';
 
@@ -14,13 +15,22 @@ export async function checkContentLinks(contentRoot, publicRoot) {
     const dir = join(contentRoot, locale);
     for (const name of (await readdir(dir)).filter(name => name.endsWith('.mdx'))) {
       const route = `/${locale}/docs/${name.slice(0, -4)}/`;
-      const tree = unified().use(remarkParse).use(remarkGfm).parse(await readFile(join(dir, name), 'utf8'));
+      const tree = unified().use(remarkParse).use(remarkMdx).use(remarkGfm).parse(await readFile(join(dir, name), 'utf8'));
       const slugger = new GithubSlugger(); const anchors = new Set(); const links = []; const definitions = new Map();
       walk(tree, node => { if (node.type === 'definition') definitions.set(node.identifier.toLowerCase(), node.url); });
       walk(tree, node => {
         if (node.type === 'heading') anchors.add(slugger.slug(toString(node)));
-        if (node.type === 'image' && !node.alt?.trim()) errors.push(`${route}: image requires alt text`);
+        if ((node.type === 'image' || node.type === 'imageReference') && !node.alt?.trim()) errors.push(`${route}: image requires alt text`);
         if (node.type === 'link' || node.type === 'image') links.push({ url: node.url, image: node.type === 'image' });
+        if ((node.type === 'mdxJsxFlowElement' || node.type === 'mdxJsxTextElement') && ['a', 'Link', 'img', 'Image'].includes(node.name)) {
+          const image = node.name === 'img' || node.name === 'Image';
+          const attr = node.attributes.find(attribute => attribute.type === 'mdxJsxAttribute' && attribute.name === (image ? 'src' : 'href'));
+          const alt = node.attributes.find(attribute => attribute.type === 'mdxJsxAttribute' && attribute.name === 'alt');
+          if (image && node.attributes.some(attribute => attribute.type === 'mdxJsxAttribute' && (attribute.name === 'srcSet' || attribute.name === 'srcset'))) errors.push(`${route}: JSX srcSet cannot be checked; use a single local image`);
+          if (node.attributes.some(attribute => attribute.type !== 'mdxJsxAttribute') || !attr || typeof attr.value !== 'string') errors.push(`${route}: dynamic or missing ${image ? 'src' : 'href'} cannot be checked`);
+          else links.push({ url: attr.value, image });
+          if (image && (!alt || typeof alt.value !== 'string' || !alt.value.trim())) errors.push(`${route}: image requires alt text`);
+        }
         if (node.type === 'linkReference' || node.type === 'imageReference') {
           const url = definitions.get(node.identifier.toLowerCase());
           if (url) links.push({ url, image: node.type === 'imageReference' });
