@@ -356,3 +356,24 @@ test("valid timer boundary values permit starting a sender", async () => {
     assert.equal((await inspectSenderFixture(directory, binding)).status, "sender-settled");
   });
 });
+
+test("direct child completion is bounded when a descendant retains stdio", async () => fixture(async directory => {
+  const ready = join(directory, "descendant-ready");
+  const release = join(directory, "descendant-release");
+  const done = join(directory, "descendant-done");
+  const descendant = `const fs=require('fs'); fs.writeFileSync(process.argv[1],'ready'); const t=setInterval(()=>{if(fs.existsSync(process.argv[2])){fs.writeFileSync(process.argv[3],'done'); clearInterval(t);}},20);`;
+  const parent = `const c=require('child_process').spawn(process.execPath,['-e',${JSON.stringify(descendant)},...process.argv.slice(1)],{stdio:['ignore',1,2]}); c.unref(); process.exit(0);`;
+  const running = await startSenderFixture(directory, binding, { command: process.execPath, args: ["-e", parent, ready, release, done] });
+  try {
+    if (running.child.exitCode === null && running.child.signalCode === null) await once(running.child, "exit");
+    await waitFor(async () => { try { await readFile(ready); return true; } catch { return false; } });
+    const completed = await Promise.race([running.closed.then(() => true), new Promise<false>(resolveResult => setTimeout(() => resolveResult(false), 1800))]);
+    assert.equal(completed, true, "inherited pipes must not keep direct-child completion pending indefinitely");
+    await assert.rejects(readFile(done), { code: "ENOENT" });
+    assert.equal((await inspectSenderFixture(directory, binding)).nativeQuiescence, "unproven");
+  } finally {
+    await writeFile(release, "release");
+    await waitFor(async () => { try { await readFile(done); return true; } catch { return false; } });
+    await running.closed;
+  }
+}));
