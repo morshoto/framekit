@@ -70,7 +70,7 @@ test("v3 and v4 retain their version and validated operation and job identity", 
   for (const record of [v3(), v4()]) {
     const id = await put(path, record);
     const result = await unchanged(directory, () => inspectNativeRecoveryReadOnly(path));
-    assert.deepEqual(result.reservation, { version: record.version, reservationId: id, operation, jobId, dispatchId });
+    assert.deepEqual(result.reservation, { version: record.version, reservationId: id, operation, jobId, dispatchId, jobCorrelation: "unverified" });
     assert.equal(result.status, "recovery-required");
     assert.equal(result.sender.status, "unknown");
     assert.equal(result.recoveryEligibility, "unavailable");
@@ -137,7 +137,7 @@ test("materialization evidence binds a job to its operation without treating int
   const context = { kind: "materialization", jobId: materializationJob, dispatchId, requestedTarget: target, artifactDigest: "a".repeat(64), desiredDigest: "b".repeat(64), executorIdentity: null, nativeQuiescence: "unproven" };
   const id = await put(path, { version: 3, kind: "native-operation", owner, operation: materializationOperation, recoveryContext: context });
   const result = await unchanged(directory, () => inspectNativeRecoveryReadOnly(path));
-  assert.deepEqual(result.reservation, { version: 3, reservationId: id, operation: materializationOperation, jobId: materializationJob, dispatchId });
+  assert.deepEqual(result.reservation, { version: 3, reservationId: id, operation: materializationOperation, jobId: materializationJob, dispatchId, jobCorrelation: "unverified" });
   assert.equal(result.nativeQuiescence, "unproven");
   assert.equal(result.recoveryEligibility, "unavailable");
 }));
