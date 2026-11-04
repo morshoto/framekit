@@ -213,3 +213,11 @@ test("local sender activity is distinct from restart-ambiguous evidence", async 
     assert.equal((await inspectSenderFixture(directory, binding)).nativeQuiescence, "unproven");
   } finally { if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL"); await running.closed; }
 }));
+
+test("a failed spawn never reports a sender active or settled", async () => fixture(async directory => {
+  const running = await startSenderFixture(directory, binding, { command: join(directory, "missing-command"), args: [] });
+  assert.equal(running.localStatus(), "unknown");
+  await running.closed;
+  assert.equal(running.localStatus(), "unknown");
+  assert.equal((await inspectSenderFixture(directory, binding)).status, "active-or-interrupted");
+}));
