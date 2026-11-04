@@ -14,3 +14,10 @@ describe('documentation registry', () => {
     expect(() => validateRegistry([{ ...sample, order: -1 }])).toThrow(/order/i);
   });
 });
+it('marks draft metadata as noindex while preserving available language routes', async () => {
+  const { documentMetadata } = await import('./metadata');
+  const draft = documents.find(doc => doc.locale === 'en' && doc.slug === 'installation')!;
+  const metadata = documentMetadata(draft, 'https://example.com', '/framekit');
+  expect(metadata.robots).toEqual({ index: false, follow: true });
+  expect(metadata.alternates).toEqual({ canonical: '/framekit/en/docs/installation/', languages: { en: '/framekit/en/docs/installation/', ja: '/framekit/ja/docs/installation/' } });
+});
