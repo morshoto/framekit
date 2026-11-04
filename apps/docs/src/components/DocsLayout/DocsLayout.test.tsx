@@ -1,0 +1,5 @@
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { expect, it } from 'vitest';
+import { DocsLayout } from './index';
+it('opens and closes the navigation drawer', async () => { document.documentElement.dataset.theme = 'light'; const user = userEvent.setup(); render(<DocsLayout title="Overview" groups={[]} headings={[]}>Content</DocsLayout>); const trigger = screen.getByRole('button',{name:'Open navigation'}); await user.click(trigger); expect(screen.getByRole('dialog',{name:'Documentation navigation'})).toBeInTheDocument(); await user.keyboard('{Escape}'); expect(screen.queryByRole('dialog')).not.toBeInTheDocument(); expect(trigger).toHaveFocus(); delete document.documentElement.dataset.theme; });

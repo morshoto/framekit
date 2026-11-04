@@ -10,3 +10,5 @@
 .eyebrow { font-size: .75rem; font-weight: 700; letter-spacing: .1em; }
 .link { display: inline-block; margin-top: 16px; font-weight: 650; }
 .footer { padding-block: 24px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: .875rem; }
+
+.tableWrap { overflow-x: auto; max-width: 100%; }

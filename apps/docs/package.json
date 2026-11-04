@@ -10,7 +10,8 @@
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "test": "vitest run",
-    "test:stories": "node scripts/test-stories.mjs"
+    "test:stories": "node scripts/test-stories.mjs",
+    "test:shell": "node scripts/test-shell.mjs"
   },
   "dependencies": {
     "next": "16.4.5",
