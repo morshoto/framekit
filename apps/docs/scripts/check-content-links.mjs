@@ -9,12 +9,14 @@ import { toString } from 'mdast-util-to-string';
 import GithubSlugger from 'github-slugger';
 
 function walk(node, visit) { visit(node); for (const child of node.children || []) walk(child, visit); }
-export async function checkContentLinks(contentRoot, publicRoot) {
+export async function checkContentLinks(contentRoot, publicRoot, registeredSlugs) {
   const pages = new Map(); const errors = [];
   for (const locale of ['en', 'ja']) {
     const dir = join(contentRoot, locale);
     for (const name of (await readdir(dir)).filter(name => name.endsWith('.mdx'))) {
-      const route = `/${locale}/docs/${name.slice(0, -4)}/`;
+      const slug = name.slice(0, -4);
+      const route = `/${locale}/docs/${slug}/`;
+      if (registeredSlugs && !registeredSlugs.includes(slug)) errors.push(`${route}: unregistered content file`);
       const tree = unified().use(remarkParse).use(remarkMdx).use(remarkGfm).parse(await readFile(join(dir, name), 'utf8'));
       const slugger = new GithubSlugger(); const anchors = new Set(); const links = []; const definitions = new Map();
       walk(tree, node => { if (node.type === 'definition') definitions.set(node.identifier.toLowerCase(), node.url); });
@@ -43,7 +45,7 @@ export async function checkContentLinks(contentRoot, publicRoot) {
   const root = resolve(publicRoot);
   for (const [route, page] of pages) for (const { url, image } of page.links) {
     let target; try { target = new URL(url, `https://framekit.invalid${route}`); } catch { errors.push(`${route}: invalid URL ${url}`); continue; }
-    if (target.origin !== 'https://framekit.invalid') { if (!['https:', 'http:', 'mailto:'].includes(target.protocol)) errors.push(`${route}: unsupported URL ${url}`); continue; }
+    if (target.origin !== 'https://framekit.invalid') { if (!(image ? ['https:', 'http:'] : ['https:', 'http:', 'mailto:']).includes(target.protocol)) errors.push(`${route}: unsupported URL ${url}`); continue; }
     let pathname, fragment; try { pathname = decodeURIComponent(target.pathname); fragment = decodeURIComponent(target.hash.slice(1)); } catch { errors.push(`${route}: invalid encoding ${url}`); continue; }
     if (image || pathname.startsWith('/images/')) {
       const file = resolve(root, `.${pathname}`);
@@ -59,6 +61,7 @@ export async function checkContentLinks(contentRoot, publicRoot) {
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const root = fileURLToPath(new URL('../', import.meta.url));
-  const errors = await checkContentLinks(join(root, 'content/docs'), join(root, 'public'));
+  const slugs = JSON.parse(await readFile(join(root, 'src/lib/docs/slugs.json'), 'utf8'));
+  const errors = await checkContentLinks(join(root, 'content/docs'), join(root, 'public'), slugs);
   if (errors.length) { console.error(errors.join('\n')); process.exitCode = 1; } else console.log('Mock content links and anchors resolve.');
 }

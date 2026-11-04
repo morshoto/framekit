@@ -18,7 +18,8 @@ export function generateStaticParams() { return documents.map(doc => ({ lang: do
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
   const { lang, slug } = await params; const doc = getDocument(lang, slug); if (!doc) return {};
   const origin = process.env.DOCS_SITE_ORIGIN || 'https://morshoto.github.io'; const base = process.env.DOCS_BASE_PATH || '';
-  return { title: `${doc.title} | Framekit Docs`, description: doc.description, metadataBase: new URL(origin), alternates: { canonical: `${base}/${lang}/docs/${slug}/`, languages: { en: `${base}/en/docs/${slug}/`, ja: `${base}/ja/docs/${slug}/` } } };
+  const languages = Object.fromEntries(['en', 'ja'].filter(locale => getDocument(locale, slug)).map(locale => [locale, `${base}/${locale}/docs/${slug}/`]));
+  return { title: `${doc.title} | Framekit Docs`, description: doc.description, metadataBase: new URL(origin), alternates: { canonical: `${base}/${lang}/docs/${slug}/`, languages } };
 }
 export default async function DocumentPage({ params }: { params: Params }) {
   const { lang, slug } = await params; if (!isLocale(lang)) notFound(); const doc = getDocument(lang, slug); if (!doc) notFound();
