@@ -59,6 +59,18 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @framekit/docs typecheck
+      - run: pnpm --filter @framekit/docs test
+      - run: pnpm --filter @framekit/docs build-storybook
+      - run: pnpm --filter @framekit/docs exec playwright install --with-deps chromium
+      - run: pnpm --filter @framekit/docs test:stories
+      - name: Upload Storybook screenshots
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: docs-storybook-screenshots
+          path: apps/docs/artifacts/storybook
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Test root export
         run: |
           pnpm --filter @framekit/docs build

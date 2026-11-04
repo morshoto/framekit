@@ -11,3 +11,4 @@ PLAN.md
 apps/docs/.next/
 apps/docs/out/
 apps/docs/*.tsbuildinfo
+apps/docs/storybook-static/

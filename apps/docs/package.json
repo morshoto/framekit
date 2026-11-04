@@ -6,7 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "typecheck": "tsc --noEmit",
-    "test:export": "node --test test/export.test.mjs"
+    "test:export": "node --test test/export.test.mjs",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build",
+    "test": "vitest run",
+    "test:stories": "node scripts/test-stories.mjs"
   },
   "dependencies": {
     "next": "16.4.5",
@@ -15,9 +19,20 @@
     "sass": "1.107.1"
   },
   "devDependencies": {
+    "@storybook/addon-themes": "10.6.5",
+    "@storybook/nextjs-vite": "10.6.5",
+    "@testing-library/dom": "10.4.2",
+    "@testing-library/jest-dom": "7.0.1",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.8",
     "@types/node": "24.19.2",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
-    "typescript": "7.0.2"
+    "jsdom": "26.1.0",
+    "playwright": "1.64.1",
+    "storybook": "10.6.5",
+    "typescript": "5.9.3",
+    "vite": "7.3.7",
+    "vitest": "4.1.12"
   }
 }

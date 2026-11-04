@@ -1,0 +1,4 @@
+.button { display: inline-grid; place-items: center; min-width: 44px; min-height: 44px; padding: 8px; color: var(--text); background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm); font: inherit; cursor: pointer; }
+.outlined { border-color: var(--border); }
+.button:not(:disabled):hover { background: var(--surface-muted); }
+.button:disabled { cursor: not-allowed; opacity: .6; }
