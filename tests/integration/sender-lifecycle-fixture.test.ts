@@ -61,9 +61,24 @@ test("abort remains requested while the direct child delays exit", async () => f
 test("timeout records abort while a child is still running", async () => fixture(async directory => {
   const running = await startSenderFixture(directory, binding, { command: process.execPath, args: ["-e", delayedChild], timeoutMs: 350, killAfterMs: 3000 });
   try {
-    await once(running.child.stdout!, "data");
+    await Promise.race([
+      once(running.child.stdout!, "data"),
+      running.closed.then(() => { throw new Error("child closed before ready"); }),
+    ]);
     await waitFor(async () => (await inspectSenderFixture(directory, binding)).status === "abort-requested");
     assert.equal(running.child.exitCode, null);
+    await running.closed;
+    assert.equal((await inspectSenderFixture(directory, binding)).status, "sender-settled");
+  } finally { if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL"); await running.closed; }
+}));
+
+test("abort settles a child blocked by unread output", async () => fixture(async directory => {
+  const attemptedOutput = join(directory, "attempted-output-bytes");
+  const script = `const fs=require('fs'); let chunks=0; const writer=setInterval(()=>{process.stdout.write(Buffer.alloc(65536)); chunks++; if(chunks===128){fs.writeFileSync(process.argv[1],String(chunks*65536)); clearInterval(writer); setInterval(()=>{},1000);}},1);`;
+  const running = await startSenderFixture(directory, binding, { command: process.execPath, args: ["-e", script, attemptedOutput], killAfterMs: 3000 });
+  try {
+    await waitFor(async () => { try { return Number(await readFile(attemptedOutput, "utf8")) >= 8 * 1024 * 1024; } catch { return false; } });
+    await running.abort();
     await running.closed;
     assert.equal((await inspectSenderFixture(directory, binding)).status, "sender-settled");
   } finally { if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL"); await running.closed; }

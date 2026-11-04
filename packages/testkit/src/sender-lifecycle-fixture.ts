@@ -96,6 +96,8 @@ export async function inspectSenderFixture(directory: string, b: SenderFixtureBi
  * Start a disposable fixture child only after an exclusive, durable marker.
  * It deliberately has no production callers and never changes a reservation.
  * PID is not persisted or used as evidence; markers are not authenticated.
+ * Callers must consume child.stdout and child.stderr, or bound the process with
+ * timeoutMs or abort(); unread output can fill the pipes and block the child.
  * After direct-child exit, inherited local pipes are bounded and may be closed;
  * this neither proves descendant termination nor native receiver quiescence.
  * Descendant writes to a closed pipe may observe EPIPE or SIGPIPE.
