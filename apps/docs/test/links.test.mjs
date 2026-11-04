@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { execFileSync } from 'node:child_process';
-import { pathToFileURL } from 'node:url';
 import { checkExportLinks } from '../scripts/check-export-links.mjs';
 
 test('validates local asset and route links under a deployment prefix', async () => {
@@ -26,6 +25,12 @@ test('validates local asset and route links under a deployment prefix', async ()
 });
 
 test('can be imported without a script argument', () => {
-  const moduleUrl = pathToFileURL(join(process.cwd(), 'scripts/check-export-links.mjs')).href;
+  const moduleUrl = new URL('../scripts/check-export-links.mjs', import.meta.url).href;
   execFileSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(moduleUrl)})`]);
+});
+
+test('reports a missing export with the build command', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'framekit-no-export-'));
+  try { assert.match((await checkExportLinks(join(dir, 'out')))[0], /run.*build/i); }
+  finally { await rm(dir, { recursive: true, force: true }); }
 });

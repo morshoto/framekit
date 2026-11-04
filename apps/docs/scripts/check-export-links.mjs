@@ -25,6 +25,7 @@ function srcsetUrls(input) {
 export async function checkExportLinks(root, basePath = '') {
   root = resolve(root);
   const errors = [];
+  try { if (!(await stat(root)).isDirectory()) throw new Error(); } catch { return [`Export not found at ${root}; run pnpm --filter @framekit/docs build first.`]; }
   for (const file of (await files(root)).filter(path => path.endsWith('.html'))) {
     const html = await readFile(file, 'utf8');
     const values = [];
