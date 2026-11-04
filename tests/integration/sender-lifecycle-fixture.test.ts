@@ -251,3 +251,11 @@ test("missing or mismatched settlement cannot report settled", async () => fixtu
   await writeFile(marker, JSON.stringify({ schemaVersion: 1, ...binding, owner: "00000000-0000-4000-8000-000000000003", phase: "settled" }));
   assert.equal((await inspectSenderFixture(directory, binding)).status, "unknown");
 }));
+
+test("v2 reservation bytes cannot be relabelled as tracked v3", async () => fixture(async directory => {
+  const legacy = JSON.stringify({ version: 2, kind: "native-operation", owner, operation: "native.searchmedia" }) + "\n";
+  const { createHash } = await import("node:crypto");
+  const legacyId = createHash("sha256").update(legacy).digest("hex");
+  await assert.rejects(startSenderFixture(directory, { ...binding, reservationId: legacyId, reservationBytes: legacy }, { command: process.execPath, args: ["-e", "process.exit(0)"] }).then(async running => { await running.closed; return running; }));
+  assert.deepEqual(await readdir(directory), []);
+}));
