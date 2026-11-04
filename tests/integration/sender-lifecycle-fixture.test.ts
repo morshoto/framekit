@@ -272,3 +272,27 @@ test("fixture identity cannot claim a different route or native reservation", as
   await assert.rejects(startSenderFixture(directory, { ...binding, reservationBytes: nativeBytes, reservationId: nativeId }, { command: process.execPath, args: ["-e", "process.exit(0)"] }).then(async running => { await running.closed; return running; }));
   assert.deepEqual(await readdir(directory), []);
 }));
+
+test("fixture supports a distinct synthetic v4 intent without migrating it", async () => fixture(async directory => {
+  const reservationBytes = JSON.stringify({ version: 4, kind: "native-operation", owner, operation: "fixture.materialization", senderTracked: true }) + "\n";
+  const input = { ...binding, reservationVersion: 4 as const, route: "materialization" as const, reservationBytes, reservationId: createHash("sha256").update(reservationBytes).digest("hex") };
+  const running = await startSenderFixture(directory, input, { command: process.execPath, args: ["-e", "process.exit(0)"] });
+  await running.closed;
+  assert.equal((await inspectSenderFixture(directory, input)).status, "sender-settled");
+  assert.equal((await inspectSenderFixture(directory, { ...input, reservationVersion: 3 })).status, "unknown");
+}));
+
+test("changed marker owner cannot create trusted lifecycle evidence", async () => fixture(async directory => {
+  const running = await startSenderFixture(directory, binding, { command: process.execPath, args: ["-e", delayedChild], killAfterMs: 200 });
+  try {
+    await once(running.child.stdout!, "data");
+    const start = join(directory, `${id}.sender-start`);
+    const value = JSON.parse(await readFile(start, "utf8"));
+    value.owner = "00000000-0000-4000-8000-000000000003";
+    await writeFile(start, JSON.stringify(value));
+    await assert.rejects(running.abort(), /OWNER_MISMATCH/);
+    await running.closed;
+    assert.equal((await inspectSenderFixture(directory, binding)).status, "unknown");
+    assert.equal(running.localStatus(), "unknown");
+  } finally { if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL"); await running.closed; }
+}));

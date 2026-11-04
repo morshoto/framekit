@@ -4,12 +4,15 @@
  * Callers must supply a disposable, isolated directory and synthetic identity.
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import { join } from "node:path";
 
 export interface SenderFixtureBinding {
   reservationId: string;
+  /** Synthetic immutable intent bytes; never treated as authenticated production state. */
+  reservationBytes: string;
   reservationVersion: 3 | 4;
   route: "publish" | "materialization";
   owner: string;
@@ -17,21 +20,29 @@ export interface SenderFixtureBinding {
 }
 export interface SenderFixtureObservation {
   status: "active-or-interrupted" | "abort-requested" | "sender-settled" | "unknown";
+  evidenceTrust: "unverified-fixture-marker";
   nativeQuiescence: "unproven";
   recoveryEligibility: "unavailable";
 }
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const hash = /^[a-f0-9]{64}$/;
-const unknown = (): SenderFixtureObservation => ({ status: "unknown", nativeQuiescence: "unproven", recoveryEligibility: "unavailable" });
+const unknown = (): SenderFixtureObservation => ({ status: "unknown", evidenceTrust: "unverified-fixture-marker", nativeQuiescence: "unproven", recoveryEligibility: "unavailable" });
 function valid(b: SenderFixtureBinding): boolean {
-  return !!b && hash.test(b.reservationId) && (b.reservationVersion === 3 || b.reservationVersion === 4)
-    && (b.route === "publish" || b.route === "materialization") && uuid.test(b.owner) && uuid.test(b.executionId);
+  try {
+    if (!b || typeof b.reservationBytes !== "string" || Buffer.byteLength(b.reservationBytes) > 16384
+      || !hash.test(b.reservationId) || createHash("sha256").update(b.reservationBytes).digest("hex") !== b.reservationId
+      || (b.reservationVersion !== 3 && b.reservationVersion !== 4)
+      || (b.route !== "publish" && b.route !== "materialization") || !uuid.test(b.owner) || !uuid.test(b.executionId)) return false;
+    const intent = JSON.parse(b.reservationBytes) as Record<string, unknown>;
+    return !!intent && intent.version === b.reservationVersion && intent.kind === "native-operation" && intent.senderTracked === true
+      && typeof intent.owner === "string" && uuid.test(intent.owner) && intent.operation === `fixture.${b.route}`;
+  } catch { return false; }
 }
 function pathFor(directory: string, b: SenderFixtureBinding, kind: string): string {
   return join(directory, `${b.reservationId}.sender-${kind}`);
 }
 function record(b: SenderFixtureBinding, phase: "start" | "abort" | "settled") {
-  return { schemaVersion: 1, ...b, phase };
+  return { schemaVersion: 1, reservationId: b.reservationId, reservationVersion: b.reservationVersion, route: b.route, owner: b.owner, executionId: b.executionId, phase };
 }
 async function readRecord(path: string): Promise<unknown | undefined> {
   let handle;
@@ -72,7 +83,7 @@ export async function inspectSenderFixture(directory: string, b: SenderFixtureBi
     const again = await Promise.all(["start", "abort", "settled"].map(phase => readRecord(pathFor(directory, b, phase))));
     if (JSON.stringify([start, abort, settled]) !== JSON.stringify(again)) return unknown();
     return { status: settled !== undefined ? "sender-settled" : abort !== undefined ? "abort-requested" : "active-or-interrupted",
-      nativeQuiescence: "unproven", recoveryEligibility: "unavailable" };
+      evidenceTrust: "unverified-fixture-marker", nativeQuiescence: "unproven", recoveryEligibility: "unavailable" };
   } catch { return unknown(); }
 }
 
