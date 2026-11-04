@@ -377,3 +377,26 @@ test("direct child completion is bounded when a descendant retains stdio", async
     await running.closed;
   }
 }));
+
+test("synthetic markers cannot become production inspection evidence", async () => fixture(async directory => {
+  const { inspectNativeRecoveryReadOnly } = await import("../../adapters/final-cut/typescript/src/native-recovery-inspection.js");
+  const path = join(directory, "pending.json");
+  await writeFile(path, binding.reservationBytes);
+  const running = await startSenderFixture(directory, binding, { command: process.execPath, args: ["-e", "process.exit(0)"] });
+  await running.closed;
+  const names = (await readdir(directory)).sort();
+  const contents = await Promise.all(names.map(name => readFile(join(directory, name), "utf8")));
+  const synthetic = await inspectNativeRecoveryReadOnly(path);
+  assert.equal(synthetic.status, "unknown");
+  assert.equal(synthetic.nativeQuiescence, "unproven");
+  assert.equal(synthetic.recoveryEligibility, "unavailable");
+  assert.deepEqual(await Promise.all(names.map(name => readFile(join(directory, name), "utf8"))), contents);
+  assert.deepEqual((await readdir(directory)).sort(), names);
+  const legacy = JSON.stringify({ version: 2, kind: "native-operation", owner, operation: "native.searchmedia" }) + "\n";
+  await writeFile(path, legacy);
+  const observed = await inspectNativeRecoveryReadOnly(path);
+  assert.equal(observed.status, "recovery-required");
+  assert.equal(observed.sender.status, "untracked");
+  assert.equal(observed.recoveryEligibility, "unavailable");
+  assert.equal(await readFile(path, "utf8"), legacy);
+}));
