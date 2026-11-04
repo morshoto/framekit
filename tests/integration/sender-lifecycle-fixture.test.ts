@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { spawn, spawnSync } from "node:child_process";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
-import { inspectSenderFixture, startSenderFixture } from "../../packages/testkit/src/sender-lifecycle-fixture.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { inspectSenderFixture, startSenderFixture } from "@framekit/testkit";
 
 const id = "a".repeat(64);
 const owner = "00000000-0000-4000-8000-000000000001";
@@ -45,7 +49,7 @@ test("abort remains requested while the direct child delays exit", async () => f
     assert.equal(closed, false);
     await running.closed;
     assert.equal((await inspectSenderFixture(directory, binding)).status, "sender-settled");
-  } finally { running.child.kill("SIGKILL"); await running.closed; }
+  } finally { if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL"); await running.closed; }
 }));
 
 test("timeout records abort while a child is still running", async () => fixture(async directory => {
@@ -56,7 +60,7 @@ test("timeout records abort while a child is still running", async () => fixture
     assert.equal(running.child.exitCode, null);
     await running.closed;
     assert.equal((await inspectSenderFixture(directory, binding)).status, "sender-settled");
-  } finally { running.child.kill("SIGKILL"); await running.closed; }
+  } finally { if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL"); await running.closed; }
 }));
 
 test("wrong identities and missing or corrupted records remain unknown", async () => fixture(async directory => {
@@ -68,12 +72,15 @@ test("wrong identities and missing or corrupted records remain unknown", async (
     assert.equal((await inspectSenderFixture(directory, { ...binding, reservationId: "f".repeat(64) })).status, "unknown");
     await writeFile(join(directory, `${id}.sender-abort`), "broken");
     assert.equal((await inspectSenderFixture(directory, binding)).status, "unknown");
-  } finally { running.child.kill("SIGKILL"); await running.closed; }
+  } finally { if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL"); await running.closed; }
 }));
 
 test("legacy v2 is never retroactively tracked", async () => fixture(async directory => {
+  const legacy = JSON.stringify({ version: 2, kind: "native-operation", operation: "native.searchmedia" });
+  await writeFile(join(directory, "pending.json"), legacy);
   await assert.rejects(startSenderFixture(directory, { ...binding, reservationVersion: 2 as never }, { command: process.execPath, args: ["-e", "process.exit(0)"] }));
-  assert.deepEqual(await readdir(directory), []);
+  assert.deepEqual(await readdir(directory), ["pending.json"]);
+  assert.equal(await readFile(join(directory, "pending.json"), "utf8"), legacy);
 }));
 
 test("an exited child is never signalled using a potentially reused PID", async () => fixture(async directory => {
@@ -85,4 +92,110 @@ test("an exited child is never signalled using a potentially reused PID", async 
   await running.abort();
   assert.equal(signals, 0);
   await running.closed;
+}));
+
+
+test("a crashed runner leaves a retained, ambiguous sender across restart", async () => fixture(async directory => {
+  const module = pathToFileURL(resolve("packages/testkit/src/sender-lifecycle-fixture.ts")).href;
+  const script = `import {startSenderFixture} from ${JSON.stringify(module)};
+    const job = await startSenderFixture(process.argv[1], ${JSON.stringify(binding)}, {command:process.execPath,args:['-e',"process.stdin.resume(); process.stdin.on('end',()=>process.exit(0)); console.log('ready')"]});
+    job.child.stdout.once('data',()=>console.log('ready')); await new Promise(()=>{});`;
+  const runner = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script, directory], { stdio: ["ignore", "pipe", "pipe"] });
+  const closed = once(runner, "close");
+  try {
+    await Promise.race([once(runner.stdout, "data"), new Promise((_, reject) => { const timer = setTimeout(() => reject(new Error("runner did not start")), 5000); timer.unref(); })]);
+    runner.kill("SIGKILL");
+    await closed;
+    assert.equal((await inspectSenderFixture(directory, binding)).status, "active-or-interrupted");
+    await assert.rejects(startSenderFixture(directory, binding, { command: process.execPath, args: ["-e", "process.exit(0)"] }));
+    assert.equal((await inspectSenderFixture(directory, binding)).status, "active-or-interrupted");
+  } finally { if (runner.exitCode === null && runner.signalCode === null) runner.kill("SIGKILL"); }
+}));
+
+test("a separate process cannot claim an existing reservation identity", async () => fixture(async directory => {
+  const running = await startSenderFixture(directory, binding, { command: process.execPath, args: ["-e", delayedChild] });
+  try {
+    await once(running.child.stdout!, "data");
+    const module = pathToFileURL(resolve("packages/testkit/src/sender-lifecycle-fixture.ts")).href;
+    const script = `import {startSenderFixture} from ${JSON.stringify(module)}; try { await startSenderFixture(process.argv[1], ${JSON.stringify(binding)}, {command:process.execPath,args:['-e','process.exit(0)']}); process.exit(1); } catch { process.exit(0); }`;
+    const other = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script, directory], { timeout: 5000, encoding: "utf8" });
+    assert.equal(other.status, 0, other.stderr);
+    assert.equal((await inspectSenderFixture(directory, binding)).status, "active-or-interrupted");
+  } finally { if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL"); await running.closed; }
+}));
+
+test("a legacy writer can coexist without any claim of exclusion", async () => fixture(async directory => {
+  const running = await startSenderFixture(directory, binding, { command: process.execPath, args: ["-e", delayedChild] });
+  try {
+    await once(running.child.stdout!, "data");
+    const legacy = spawnSync(process.execPath, ["-e", "require('fs').writeFileSync(process.argv[1], 'legacy', {flag:'wx'})", join(directory, "pending.json")], { timeout: 5000 });
+    assert.equal(legacy.status, 0);
+    assert.equal(await readFile(join(directory, "pending.json"), "utf8"), "legacy");
+    assert.equal((await inspectSenderFixture(directory, binding)).status, "active-or-interrupted");
+  } finally { if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL"); await running.closed; }
+}));
+
+test("a reused PID in untrusted markers cannot establish settlement", async () => fixture(async directory => {
+  const running = await startSenderFixture(directory, binding, { command: process.execPath, args: ["-e", delayedChild] });
+  try {
+    await once(running.child.stdout!, "data");
+    const marker = join(directory, `${id}.sender-start`);
+    const data = JSON.parse(await readFile(marker, "utf8"));
+    data.pid = process.pid;
+    await writeFile(marker, JSON.stringify(data));
+    assert.equal((await inspectSenderFixture(directory, binding)).status, "active-or-interrupted");
+  } finally { if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL"); await running.closed; }
+}));
+
+
+test("two MCP processes observe legacy coexistence without mutating reservation state", async () => fixture(async directory => {
+  const path = join(directory, "pending.json");
+  const legacy = JSON.stringify({ version: 2, kind: "native-operation", owner, operation: "native.searchmedia" }) + "\n";
+  await writeFile(path, legacy);
+  await mkdir(`${path}.lock`);
+  const running = await startSenderFixture(directory, binding, { command: process.execPath, args: ["-e", delayedChild] });
+  const url = (file: string) => pathToFileURL(resolve(file)).href;
+  const script = `import {AgentVideoRuntime} from ${JSON.stringify(url("packages/runtime/src/index.ts"))};
+    import {InMemoryEditorAdapter} from ${JSON.stringify(url("packages/testkit/src/in-memory-editor.ts"))};
+    import {FileCanonicalRecoveryGuard} from ${JSON.stringify(url("adapters/final-cut/typescript/src/canonical-recovery-guard.ts"))};
+    import {createMcpServer} from ${JSON.stringify(url("apps/mcp-server/src/server.ts"))};
+    import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js';
+    const fixture = {projectId:'p',projectName:'p',timelineId:'s',timelineName:'s',clips:[]};
+    const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter(fixture));
+    await createMcpServer(runtime,{canonicalRecovery:new FileCanonicalRecoveryGuard(process.env.TEST_RESERVATION_PATH)}).connect(new StdioServerTransport());`;
+  const clients = [new Client({ name: "sender-observer-a", version: "1" }), new Client({ name: "sender-observer-b", version: "1" })];
+  const transports = clients.map(() => new StdioClientTransport({ command: process.execPath, args: ["--import", "tsx", "--input-type=module", "-e", script], env: { ...process.env, TEST_RESERVATION_PATH: path }, stderr: "pipe" }));
+  try {
+    await once(running.child.stdout!, "data");
+    const before = await readFile(path, "utf8");
+    const beforeEntries = (await readdir(directory)).sort();
+    await Promise.all(clients.map((client, i) => client.connect(transports[i]!)));
+    assert.notEqual(transports[0]!.pid, transports[1]!.pid);
+    const results = await Promise.all(clients.map(client => client.callTool({ name: "editor.native.recovery.evidence.inspect", arguments: {} })));
+    for (const result of results) {
+      const item = (result.content as Array<{ text: string }>)[0]!;
+      const value = JSON.parse(item.text);
+      assert.equal(value.status, "unknown");
+      assert.equal(value.nativeQuiescence, "unproven");
+      assert.equal(value.recoveryEligibility, "unavailable");
+    }
+    assert.equal(await readFile(path, "utf8"), before);
+    assert.deepEqual((await readdir(directory)).sort(), beforeEntries);
+  } finally {
+    await Promise.all(clients.map(client => client.close()));
+    if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL");
+    await running.closed;
+  }
+}));
+
+test("inspection fails closed when sender evidence changes during observation", async () => fixture(async directory => {
+  const running = await startSenderFixture(directory, binding, { command: process.execPath, args: ["-e", delayedChild] });
+  try {
+    await once(running.child.stdout!, "data");
+    const observed = await inspectSenderFixture(directory, binding, { beforeRecheck: async () => {
+      await writeFile(join(directory, `${id}.sender-settled`), "corrupt");
+    } });
+    assert.equal(observed.status, "unknown");
+    assert.equal(observed.recoveryEligibility, "unavailable");
+  } finally { if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL"); await running.closed; }
 }));
