@@ -9,7 +9,8 @@ export const sections = [
 ] as const;
 type Section = typeof sections[number]['key'];
 export interface DocumentMeta { locale: Locale; slug: string; title: string; description: string; section: Section; order: number; status: 'draft' | 'ready' }
-const pages: { slug: string; section: Section; order: number; status: 'draft' | 'ready'; titles: Partial<Record<Locale, string>> }[] = [
+type Page = { slug: string; section: Section; order: number; status: 'draft' | 'ready'; titles: Partial<Record<Locale, string>> };
+const pages: Page[] = [
   { slug: 'introduction', section: 'getting-started', order: 0, status: 'ready', titles: { en: 'Introduction', ja: 'はじめに' } },
   { slug: 'installation', section: 'getting-started', order: 1, status: 'draft', titles: { en: 'Installation', ja: 'インストール' } },
   { slug: 'quick-start', section: 'getting-started', order: 2, status: 'draft', titles: { en: 'Quick Start', ja: 'クイックスタート' } },
@@ -38,6 +39,18 @@ export function validateRegistry(docs: DocumentMeta[]) {
     const position = `${doc.locale}/${doc.section}/${doc.order}`; if (positions.has(position)) throw new Error(`Duplicate order: ${position}`); positions.add(position);
   }
 }
+export function validatePages(entries: Page[]) {
+  const slugs = new Set<string>();
+  for (const page of entries) {
+    if (slugs.has(page.slug)) throw new Error(`Duplicate page: ${page.slug}`); slugs.add(page.slug);
+    const titles = Object.entries(page.titles); if (!titles.length) throw new Error(`Missing locale: ${page.slug}`);
+    for (const [locale, title] of titles) {
+      if (!['en', 'ja'].includes(locale)) throw new Error(`Invalid locale: ${locale}`);
+      if (typeof title !== 'string' || !title.trim()) throw new Error(`Invalid title: ${page.slug}`);
+    }
+  }
+}
+validatePages(pages);
 export const documents: DocumentMeta[] = pages.flatMap(page => (['en', 'ja'] as const).flatMap(locale => page.titles[locale] ? [{ locale, slug: page.slug, title: page.titles[locale]!, description: locale === 'en' ? 'Synthetic documentation example.' : 'サンプルのドキュメントです。', section: page.section, order: page.order, status: page.status }] : []));
 validateRegistry(documents);
 export function getDocument(locale: string, slug: string) { return documents.find(doc => doc.locale === locale && doc.slug === slug); }
