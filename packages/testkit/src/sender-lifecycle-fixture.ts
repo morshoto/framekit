@@ -98,6 +98,7 @@ export async function inspectSenderFixture(directory: string, b: SenderFixtureBi
  * PID is not persisted or used as evidence; markers are not authenticated.
  * After direct-child exit, inherited local pipes are bounded and may be closed;
  * this neither proves descendant termination nor native receiver quiescence.
+ * Descendant writes to a closed pipe may observe EPIPE or SIGPIPE.
  */
 export async function startSenderFixture(directory: string, input: SenderFixtureBinding, options: {
   command: string; args: string[]; timeoutMs?: number; killAfterMs?: number;
