@@ -38,6 +38,7 @@ test("both route fixtures record direct child settlement without native proof", 
     await running.closed;
     const observed = await inspectSenderFixture(directory, input);
     assert.equal(observed.status, "sender-settled");
+    assert.equal(observed.evidenceTrust, "unverified-fixture-marker");
     assert.equal(observed.nativeQuiescence, "unproven");
     assert.equal(observed.recoveryEligibility, "unavailable");
   }
