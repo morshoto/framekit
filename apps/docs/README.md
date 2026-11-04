@@ -25,3 +25,7 @@ For each shared visual component, create a directory containing `Component.tsx`,
 ## Mock localized content
 
 The files in `content/docs/en` and `content/docs/ja` are synthetic test content. `pnpm --filter @framekit/docs check:content` checks local article links, anchors and images and runs as part of the build. Add a document to the locale manifest and static import map as well as its content file. `pnpm --filter @framekit/docs test:locales` exercises a built export using Chromium. Set `DOCS_SITE_ORIGIN` at build time when publishing under a different origin; combine it with `DOCS_BASE_PATH` for canonical and language-alternate URLs.
+
+## Static search
+
+The docs build indexes the static export with Pagefind after Next completes and reports the index size. Pagefind reads `html lang` and creates separate English and Japanese indexes; only article bodies are indexed. Search assets are loaded lazily from the configured base path, and unavailable assets leave navigation usable. `pnpm --filter @framekit/docs test:search` exercises the built export; run it once with `DOCS_BASE_PATH` unset and once after a `/framekit` build with that variable set.
