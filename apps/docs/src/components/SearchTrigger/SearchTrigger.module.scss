@@ -1,3 +1,6 @@
 .trigger { display: inline-flex; gap: 8px; align-items: center; min-height: 44px; min-width: 44px; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-muted); background: var(--surface); padding: 8px 12px; font: inherit; cursor: pointer; }
 .trigger:disabled { cursor: not-allowed; opacity: .7; }
 @media (max-width: 767px) { .label { display: none; } }
+
+.shortcut { margin-left: 12px; font-size: .75rem; }
+@media (max-width: 767px) { .shortcut { display: none; } }

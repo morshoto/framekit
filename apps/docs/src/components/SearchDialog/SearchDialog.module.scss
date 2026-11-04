@@ -1,0 +1,7 @@
+.overlay { position: fixed; inset: 0; z-index: 30; display: flex; justify-content: center; align-items: flex-start; padding: 10vh 16px 16px; background: rgb(0 0 0 / .5); }
+.dialog { width: min(640px, 100%); max-height: 80dvh; display: flex; flex-direction: column; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: 0 16px 48px rgb(0 0 0 / .24); overflow: hidden; }
+.heading { display: flex; align-items: center; justify-content: space-between; padding: 4px 12px 0 16px; button { min-width: 44px; min-height: 44px; border: 0; color: var(--text); background: transparent; font-size: 1.5rem; cursor: pointer; } }
+.results { overflow-y: auto; min-height: 80px; }
+.status { padding: 8px 16px; margin: 0; font-size: .8125rem; color: var(--text-muted); }
+.error { padding: 8px 16px; }
+@media (max-width: 767px) { .overlay { padding: max(8px, env(safe-area-inset-top)) 8px 8px; } .dialog { max-height: 85dvh; } }
