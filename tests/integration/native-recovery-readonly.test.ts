@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -104,9 +104,11 @@ test("sender activity and settlement are evidence only and mismatches stay unkno
 }));
 
 test("a crashed lock and a legacy writer coexist without inspection modifying either", async () => fixture(async (path, directory) => {
-  await mkdir(`${path}.lock`);
+  const crashed = spawnSync(process.execPath, ["-e", "require('fs').mkdirSync(process.argv[1]); process.kill(process.pid, 'SIGKILL');", `${path}.lock`], { timeout: 10000 });
+  assert.equal(crashed.signal, "SIGKILL");
   const legacy = JSON.stringify(v2()) + "\n";
-  await writeFile(path, legacy, { flag: "wx" });
+  const writer = spawnSync(process.execPath, ["-e", "require('fs').writeFileSync(process.argv[1], process.argv[2], {flag:'wx'});", path, legacy], { timeout: 10000 });
+  assert.equal(writer.status, 0);
   const result = await unchanged(directory, () => inspectNativeRecoveryReadOnly(path));
   assert.equal(result.status, "unknown");
   assert.equal(result.recoveryEligibility, "unavailable");
@@ -126,4 +128,28 @@ test("concurrent processes inspect the same reservation without state changes", 
   });
   const results = await unchanged(directory, () => Promise.all([inspect(), inspect(), inspect()]));
   assert.ok(results.every(result => result.reservation?.reservationId === id && result.status === "recovery-required"));
+}));
+
+test("materialization evidence binds a job to its operation without treating intent as completion", async () => fixture(async (path, directory) => {
+  const materializationJob = "materialization-123";
+  const materializationOperation = `native.materialize.${digest(materializationJob)}`;
+  const target = { libraryUid: "library", eventUid: "event", projectUid: "project", sequenceUid: "sequence" };
+  const context = { kind: "materialization", jobId: materializationJob, dispatchId, requestedTarget: target, artifactDigest: "a".repeat(64), desiredDigest: "b".repeat(64), executorIdentity: null, nativeQuiescence: "unproven" };
+  const id = await put(path, { version: 3, kind: "native-operation", owner, operation: materializationOperation, recoveryContext: context });
+  const result = await unchanged(directory, () => inspectNativeRecoveryReadOnly(path));
+  assert.deepEqual(result.reservation, { version: 3, reservationId: id, operation: materializationOperation, jobId: materializationJob, dispatchId });
+  assert.equal(result.nativeQuiescence, "unproven");
+  assert.equal(result.recoveryEligibility, "unavailable");
+}));
+
+test("special files cannot block inspection or change state", async () => fixture(async (path, directory) => {
+  const made = spawnSync("mkfifo", [path], { timeout: 5000 });
+  assert.equal(made.status, 0);
+  const before = await readdir(directory);
+  const module = pathToFileURL(resolve("adapters/final-cut/typescript/src/native-recovery-inspection.ts")).href;
+  const script = `import {inspectNativeRecoveryReadOnly} from ${JSON.stringify(module)}; console.log(JSON.stringify(await inspectNativeRecoveryReadOnly(process.argv[1])));`;
+  const child = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script, path], { encoding: "utf8", timeout: 1500 });
+  assert.equal(child.status, 0, child.error?.message ?? child.stderr);
+  assert.equal(JSON.parse(child.stdout).status, "unknown");
+  assert.deepEqual(await readdir(directory), before);
 }));
