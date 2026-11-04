@@ -229,3 +229,25 @@ test("abort of a failed spawn does not invent a termination request", async () =
   assert.equal((await inspectSenderFixture(directory, binding)).status, "active-or-interrupted");
   assert.equal(running.localStatus(), "unknown");
 }));
+
+test("an unresponsive direct child is killed only while the local handle is live", async () => fixture(async directory => {
+  const script = "process.on('SIGTERM',()=>{}); console.log('ready'); setInterval(()=>{},1000);";
+  const running = await startSenderFixture(directory, binding, { command: process.execPath, args: ["-e", script], killAfterMs: 150 });
+  try {
+    await once(running.child.stdout!, "data");
+    await running.abort();
+    await running.closed;
+    assert.equal(running.child.signalCode, "SIGKILL");
+    assert.equal((await inspectSenderFixture(directory, binding)).status, "sender-settled");
+  } finally { if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL"); await running.closed; }
+}));
+
+test("missing or mismatched settlement cannot report settled", async () => fixture(async directory => {
+  const running = await startSenderFixture(directory, binding, { command: process.execPath, args: ["-e", "process.exit(0)"] });
+  await running.closed;
+  const marker = join(directory, `${id}.sender-settled`);
+  await rm(marker);
+  assert.equal((await inspectSenderFixture(directory, binding)).status, "active-or-interrupted");
+  await writeFile(marker, JSON.stringify({ schemaVersion: 1, ...binding, owner: "00000000-0000-4000-8000-000000000003", phase: "settled" }));
+  assert.equal((await inspectSenderFixture(directory, binding)).status, "unknown");
+}));
