@@ -10,6 +10,7 @@ const validate = (overrides = {}) => validateDeployment({ runId: '123', expected
 
 test('returns a normalized project URL only for matching successful evidence', () => {
   assert.equal(validate().href, 'https://morshoto.github.io/framekit/');
+  assert.equal(validate({ status: { ...status, log_url: `${run.url}/job/1` } }).href, 'https://morshoto.github.io/framekit/');
   assert.equal(new URL('en/docs/introduction/', validate()).href, 'https://morshoto.github.io/framekit/en/docs/introduction/');
 });
 
