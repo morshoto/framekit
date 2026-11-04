@@ -30,6 +30,38 @@ The files in `content/docs/en` and `content/docs/ja` are synthetic test content.
 
 The docs build indexes the static export with Pagefind after Next completes and reports the index size. Pagefind reads `html lang` and creates separate English and Japanese indexes; only article bodies are indexed. Search assets are loaded lazily from the configured base path, and unavailable assets leave navigation usable. `pnpm --filter @framekit/docs test:search` exercises the built export; run it once with `DOCS_BASE_PATH` unset and once after a `/framekit` build with that variable set.
 
+## Static-site browser checks
+
+Install the Playwright browsers, then test each build with the same base path used to build it:
+
+```sh
+pnpm --filter @framekit/docs exec playwright install chromium firefox webkit
+pnpm --filter @framekit/docs build
+pnpm --filter @framekit/docs test:e2e
+DOCS_BASE_PATH=/framekit pnpm --filter @framekit/docs build
+DOCS_BASE_PATH=/framekit pnpm --filter @framekit/docs test:e2e
+```
+
+The tests start ephemeral localhost servers over the actual export; the project profile mounts it under `/framekit/`. The five projects cover desktop Chromium, Firefox and WebKit and emulated iPhone WebKit and Android Chromium. Playwright pins browser revisions; inspect the test report for the current run. Failure screenshots, traces, and videos and visual review screenshots are retained in CI for seven days. External GitHub links are checked as links without navigating to external services.
+
+### Real-device record
+
+| Device | Browser version | Date | Result | Screenshot |
+| --- | --- | --- | --- | --- |
+| macOS Safari | — | — | NOT TESTED | — |
+| iPhone Safari | — | — | NOT TESTED | — |
+| Android Chrome | — | — | NOT TESTED | — |
+
+The emulated browser projects do not establish real-device coverage. Published-site smoke evidence, including the deployment workflow run and exact deployed commit, must be recorded when the Pages deployment is available.
+
+To smoke-test the latest published build, supply the successful Pages workflow run ID and its full commit SHA:
+
+```sh
+DOCS_DEPLOY_RUN_ID=123 DOCS_EXPECTED_SHA=<full-commit-sha> pnpm --filter @framekit/docs test:pages
+```
+
+The command requires `gh` authentication and a Playwright Chromium installation. It checks the workflow run and latest Pages deployment metadata before visiting localized articles and searching the published site. It reports BLOCKED if the deployment cannot be tied to the supplied run and SHA.
+
 ## GitHub Pages
 
 `.github/workflows/docs-pages.yml` builds and verifies the project-path export on pushes to `main` and publishes `out/` using GitHub Pages. Pull requests run the export checks in CI but do not deploy. The repository site is enabled in **Settings → Pages → Build and deployment → GitHub Actions**. The workflow's environment reports the deployed URL; check it after the deploy succeeds. For a future root-domain host, build with `DOCS_BASE_PATH` unset and publish the resulting `out/` directory.
