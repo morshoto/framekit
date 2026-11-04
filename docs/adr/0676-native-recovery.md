@@ -5,7 +5,7 @@ Related: [#676](https://github.com/morshoto/framekit/issues/676), [#670](https:/
 
 ## Decision and scope
 
-Do not enable production reservation recovery or reclaim an interrupted transaction lock. The inspected Final Cut Pro 10.7.1 interfaces do not establish an operation-specific, durable terminal receipt with a no-delayed-execution guarantee; the verifier proposed in unmerged #673 accepts injected evidence but has no authenticated production source. The verifier is not present on this branch. This is a finding about the interfaces reviewed, not a proof that no other supported interface exists. A future receiver must own or enforce execution, maintain a durable operation journal, and provide the contract below. A separately trusted, target-bound canonical reader and a migration excluding every legacy writer and dispatch participant are also prerequisites. No native dispatch was performed for this decision.
+Do not enable production reservation recovery or reclaim an interrupted transaction lock. The inspected Final Cut Pro 10.7.1 interfaces do not establish an operation-specific, durable terminal receipt with a no-delayed-execution guarantee; the verifier proposed in unmerged #673 accepts injected evidence but has no authenticated production source. The verifier is not part of this decision change. This is a finding about the interfaces reviewed, not a proof that no other supported interface exists. A future receiver must own or enforce execution, maintain a durable operation journal, and provide the contract below. A separately trusted, target-bound canonical reader and a migration excluding every legacy writer and dispatch participant are also prerequisites. No native dispatch was performed for this decision.
 
 ## Receiver feasibility
 
