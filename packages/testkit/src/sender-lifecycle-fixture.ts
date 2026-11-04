@@ -59,7 +59,9 @@ async function readRecord(path: string): Promise<unknown | undefined> {
 function matches(value: unknown, b: SenderFixtureBinding, phase: "start" | "abort" | "settled"): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const obj = value as Record<string, unknown>;
-  return obj.schemaVersion === 1 && obj.phase === phase && obj.reservationId === b.reservationId
+  const keys = ["schemaVersion", "reservationId", "reservationVersion", "route", "owner", "executionId", "phase"];
+  return Object.keys(obj).length === keys.length && keys.every(key => Object.hasOwn(obj, key))
+    && obj.schemaVersion === 1 && obj.phase === phase && obj.reservationId === b.reservationId
     && obj.reservationVersion === b.reservationVersion && obj.route === b.route && obj.owner === b.owner && obj.executionId === b.executionId;
 }
 async function writeMarker(directory: string, b: SenderFixtureBinding, phase: "start" | "abort" | "settled") {
