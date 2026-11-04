@@ -28,6 +28,9 @@ try {
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${lang}/${slug} overflow at ${width}`);
       await page.reload({ waitUntil:'networkidle' });
     }
+    await page.goto(`${origin}${base}/`, { waitUntil:'networkidle' });
+    await page.getByRole('link', { name:'Read the English introduction' }).click();
+    await page.waitForURL(`**${base}/en/docs/introduction/`);
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
     await page.goto(`${origin}${base}/en/docs/getting-started/`, { waitUntil:'networkidle' });
     await page.getByRole('button', { name:'Copy code' }).first().click();
