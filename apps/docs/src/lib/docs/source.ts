@@ -28,11 +28,12 @@ const pages: { slug: string; section: Section; order: number; status: 'draft' | 
   { slug: 'examples', section: 'guides', order: 3, status: 'ready', titles: { en: 'Examples', ja: 'サンプル' } },
 ];
 export function validateRegistry(docs: DocumentMeta[]) {
-  const routes = new Set<string>(); const positions = new Set<string>();
+  const routes = new Set<string>(); const positions = new Set<string>(); const concepts = new Map<string, DocumentMeta>();
   for (const doc of docs) {
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(doc.slug)) throw new Error(`Invalid slug: ${doc.slug}`);
     if (!['en', 'ja'].includes(doc.locale) || !sections.some(section => section.key === doc.section) || !['draft', 'ready'].includes(doc.status) || !doc.title?.trim() || !doc.description?.trim()) throw new Error(`Invalid metadata: ${doc.slug}`);
     if (!Number.isSafeInteger(doc.order) || doc.order < 0) throw new Error(`Invalid order: ${doc.slug}`);
+    const concept = concepts.get(doc.slug); if (concept && (concept.section !== doc.section || concept.order !== doc.order)) throw new Error(`Inconsistent page: ${doc.slug}`); concepts.set(doc.slug, doc);
     const route = `${doc.locale}/${doc.slug}`; if (routes.has(route)) throw new Error(`Duplicate route: ${route}`); routes.add(route);
     const position = `${doc.locale}/${doc.section}/${doc.order}`; if (positions.has(position)) throw new Error(`Duplicate order: ${position}`); positions.add(position);
   }
