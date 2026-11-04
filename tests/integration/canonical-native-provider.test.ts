@@ -2059,9 +2059,10 @@ test("MCP editor inspection never probes a headed canonical snapshot", async () 
     assert.equal(unavailableContext.isError, true);
     assert.equal(JSON.parse(textFrom(unavailableContext)).code, "CAPABILITY_UNAVAILABLE");
     snapshotUnavailable = false;
+    const readsBeforeExplicitContext = snapshotReads;
     const explicitlyRequested = await runtime.inspectContext({ probeCanonicalSnapshot: true });
     assert.ok(explicitlyRequested.project);
-    assert.ok(snapshotReads > readsAfterExplicitRequest);
+    assert.equal(snapshotReads, readsBeforeExplicitContext + 1, "one context request must export only once");
     const readsAfterExplicitContext = snapshotReads;
     currentLive = { ...currentLive, revision: { id: "changed", sequence: 2, timestamp: new Date(2).toISOString() } };
     const staleStatus = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
@@ -2129,6 +2130,61 @@ test("canonical read refreshes a probed snapshot after the live revision changes
 
   assert.equal(refreshed.timeline.clips[0]?.name, "Changed");
   assert.equal(snapshotReads, 2);
+});
+
+test("canonical read does not reuse a probe from a different request when revision misses a change", async () => {
+  let reads = 0;
+  const provider = new FinalCutCanonicalNativeProvider({
+    live: { getIdentity: async () => identity, readLiveState: async () => liveState(), liveChangesSince: async () => [] },
+    native: { renameSelectedClip: async () => ({ operationId: "op", undoAvailable: true }), undo: async () => ({ undone: true }) },
+    readSnapshot: async () => snapshot(++reads === 1 ? "Original" : "Changed"),
+    resolveTarget: async () => {},
+    backgroundCatalog: { listProjects: async () => ({ projects: [{ id: "final-cut:project:project-1", name: "Canonical E2E", sequences: [{ id: "final-cut:sequence:sequence-1", name: "Canonical E2E" }] }], activeProjectId: "final-cut:project:project-1", activeSequenceId: "final-cut:sequence:sequence-1" }) },
+  });
+  assert.equal((await provider.getCapabilities({ probeCanonicalSnapshot: true })).editor.timelineSnapshotRead, true);
+  const refreshed = await provider.readProject();
+  assert.equal(reads, 2);
+  assert.equal(refreshed.timeline.clips[0]?.name, "Changed");
+});
+
+test("concurrent canonical read scopes do not share snapshots", async () => {
+  let reads = 0;
+  const provider = new FinalCutCanonicalNativeProvider({
+    live: { getIdentity: async () => identity, readLiveState: async () => liveState(), liveChangesSince: async () => [] },
+    native: { renameSelectedClip: async () => ({ operationId: "op", undoAvailable: true }), undo: async () => ({ undone: true }) },
+    readSnapshot: async () => snapshot(++reads === 1 ? "First" : "Second"),
+    resolveTarget: async () => {},
+  });
+  let ready!: () => void;
+  const bothReady = new Promise<void>((resolve) => { ready = resolve; });
+  let entered = 0;
+  const observe = () => provider.withCanonicalReadScope(async () => {
+    const first = await provider.readProject();
+    if (++entered === 2) ready();
+    await bothReady;
+    const second = await provider.readProject();
+    assert.equal(second.timeline.clips[0]?.name, first.timeline.clips[0]?.name);
+    return first.timeline.clips[0]?.name;
+  });
+  assert.deepEqual(new Set(await Promise.all([observe(), observe()])), new Set(["First", "Second"]));
+  assert.equal(reads, 2);
+});
+
+test("a scoped canonical read refuses a changed live revision without a second export", async () => {
+  let reads = 0;
+  let active = liveState();
+  const provider = new FinalCutCanonicalNativeProvider({
+    live: { getIdentity: async () => identity, readLiveState: async () => structuredClone(active), liveChangesSince: async () => [] },
+    native: { renameSelectedClip: async () => ({ operationId: "op", undoAvailable: true }), undo: async () => ({ undone: true }) },
+    readSnapshot: async () => { reads++; return snapshot("Original"); },
+    resolveTarget: async () => {},
+  });
+  await provider.withCanonicalReadScope(async () => {
+    await provider.readProject();
+    active = { ...active, revision: { id: "changed", sequence: 2, timestamp: new Date(2).toISOString() } };
+    await assert.rejects(provider.readProject(), /FINAL_CUT_CANONICAL_TARGET_STALE/);
+  });
+  assert.equal(reads, 1);
 });
 
 test("canonical provider delegates supported project selection and binds later reads", async () => {

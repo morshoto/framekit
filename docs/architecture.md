@@ -149,7 +149,10 @@ project and sequence until an explicit new selection succeeds. Passive MCP
 capability and routing inspection does not initiate a headed snapshot export;
 an unprobed canonical provider reports its snapshot capability unavailable.
 Validated evidence may be reused only while the live target and revision match;
-it does not authorize a later headed context or change read.
+it does not authorize a later headed context or change read. A confirmed
+canonical read shares its exported snapshot only within that request; a later
+request exports again. Matching live revisions do not prove that all timeline
+changes were observed or that a snapshot remains current after export.
 Supported FCPXML dialogue subroles are retained as `nativeAudioRole` on
 canonical clips and editing-session occurrences, including during materialization
 and publish readback comparison. Unsupported roles on audio elements fail closed.

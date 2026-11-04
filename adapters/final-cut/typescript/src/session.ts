@@ -30,7 +30,7 @@ import type {
 interface FinalCutSessionOptions {
   snapshot?: EditorPort;
   mutation?: EditorPort;
-  live?: LiveEditorStatePort & Partial<Pick<EditorPort, "readProject" | "apply" | "restore" | "previewTransaction" | "applyTransaction">> & {
+  live?: LiveEditorStatePort & Partial<Pick<EditorPort, "readProject" | "apply" | "restore" | "previewTransaction" | "applyTransaction" | "withCanonicalReadScope">> & {
     getIdentity(): Promise<EditorIdentity>;
     getCapabilities(options?: CapabilityInspectionOptions): Promise<RuntimeCapabilities>;
     listProjects?(): Promise<ProjectCatalog>;
@@ -47,6 +47,11 @@ interface FinalCutSessionOptions {
 /** Composes the independent Final Cut live, snapshot, and mutation surfaces. */
 export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
   public constructor(private readonly options: FinalCutSessionOptions) {}
+
+  public withCanonicalReadScope<T>(operation: () => Promise<T>): Promise<T> {
+    const provider = this.options.snapshot ?? this.options.live;
+    return provider?.withCanonicalReadScope?.(operation) ?? operation();
+  }
 
   public async getIdentity(): Promise<EditorIdentity> {
     if (this.options.snapshot && this.options.live) {
