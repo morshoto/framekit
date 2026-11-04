@@ -96,6 +96,8 @@ export async function inspectSenderFixture(directory: string, b: SenderFixtureBi
  * Start a disposable fixture child only after an exclusive, durable marker.
  * It deliberately has no production callers and never changes a reservation.
  * PID is not persisted or used as evidence; markers are not authenticated.
+ * After direct-child exit, inherited local pipes are bounded and may be closed;
+ * this neither proves descendant termination nor native receiver quiescence.
  */
 export async function startSenderFixture(directory: string, input: SenderFixtureBinding, options: {
   command: string; args: string[]; timeoutMs?: number; killAfterMs?: number;
@@ -112,8 +114,19 @@ export async function startSenderFixture(directory: string, input: SenderFixture
   let closed = false;
   let localState: "active" | "abort-requested" | "sender-settled" | "unknown" = "unknown";
   let exited = false;
+  let drainTimeout: ReturnType<typeof setTimeout> | undefined;
   child.once("spawn", () => { if (!closed && !exited) localState = "active"; });
-  child.once("exit", () => { exited = true; localState = "unknown"; });
+  child.once("exit", () => {
+    exited = true;
+    localState = "unknown";
+    // Descendants can inherit pipes after the direct child has exited. Allow a
+    // bounded drain, then close only our local ends; never signal descendants.
+    drainTimeout = setTimeout(() => {
+      child.stdin.destroy();
+      child.stdout.destroy();
+      child.stderr.destroy();
+    }, 250);
+  });
   let abortPromise: Promise<void> | undefined;
   let timeout: ReturnType<typeof setTimeout> | undefined;
   let forceKill: ReturnType<typeof setTimeout> | undefined;
@@ -139,6 +152,7 @@ export async function startSenderFixture(directory: string, input: SenderFixture
       closed = true;
       localState = "unknown";
       if (timeout) clearTimeout(timeout);
+      if (drainTimeout) clearTimeout(drainTimeout);
       if (forceKill) clearTimeout(forceKill);
       void (async () => {
         try {
