@@ -16,6 +16,7 @@ export interface SenderFixtureBinding {
   reservationVersion: 3 | 4;
   route: "publish" | "materialization";
   owner: string;
+  /** Caller-provided fixture identity; not authenticated by the intent or receiver. */
   executionId: string;
 }
 export interface SenderFixtureObservation {
@@ -35,7 +36,7 @@ function valid(b: SenderFixtureBinding): boolean {
       || (b.route !== "publish" && b.route !== "materialization") || !uuid.test(b.owner) || !uuid.test(b.executionId)) return false;
     const intent = JSON.parse(b.reservationBytes) as Record<string, unknown>;
     return !!intent && intent.version === b.reservationVersion && intent.kind === "native-operation" && intent.senderTracked === true
-      && typeof intent.owner === "string" && uuid.test(intent.owner) && intent.operation === `fixture.${b.route}`;
+      && typeof intent.owner === "string" && uuid.test(intent.owner) && intent.owner === b.owner && intent.operation === `fixture.${b.route}`;
   } catch { return false; }
 }
 function pathFor(directory: string, b: SenderFixtureBinding, kind: string): string {
