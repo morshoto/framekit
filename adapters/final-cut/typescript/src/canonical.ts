@@ -703,6 +703,22 @@ export function createFinalCutNativeTargetResolver(
     & Partial<Pick<NativeFinalCutEditor, "capabilities" | "selectOccurrence" | "locateOccurrenceForCanonicalTarget" | "searchMediaForCanonicalTarget" | "trackNativeDispatch">>,
 ): CanonicalNativeTargetResolver {
   const resolve: CanonicalNativeTargetResolver = async (clip, snapshot) => {
+    if (!clip.startTime || !clip.durationTime) {
+      throw new Error(`TARGET_MISMATCH: exact timeline coordinates are unavailable for ${clip.id}`);
+    }
+    try { rationalParts(clip.startTime); rationalParts(clip.durationTime); }
+    catch { throw new Error(`TARGET_MISMATCH: invalid timeline coordinates for ${clip.id}`); }
+    for (const other of snapshot.timeline.clips) {
+      if (other.id === clip.id) continue;
+      if (!other.startTime || !other.durationTime) {
+        throw new Error("AMBIGUOUS_PROJECT_TARGET: timeline occurrence coordinates are incomplete");
+      }
+      try { rationalParts(other.startTime); rationalParts(other.durationTime); }
+      catch { throw new Error("AMBIGUOUS_PROJECT_TARGET: timeline occurrence coordinates are invalid"); }
+      if (sameRational(other.startTime, clip.startTime) && sameRational(other.durationTime, clip.durationTime)) {
+        throw new Error(`AMBIGUOUS_PROJECT_TARGET: timeline occurrence coordinates are not unique for ${clip.id}`);
+      }
+    }
     if (!clip.mediaId) throw new Error(`TARGET_MISMATCH: occurrence ${clip.id} has no media binding`);
     const media = snapshot.media.find(({ mediaId }) => mediaId === clip.mediaId);
     if (!media?.source) throw new Error(`TARGET_MISMATCH: media ${clip.mediaId} has no source binding`);

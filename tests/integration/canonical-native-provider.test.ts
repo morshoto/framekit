@@ -2399,6 +2399,27 @@ test("canonical resolver rejects mismatched native identity before selecting an 
   }
 });
 
+test("canonical resolver rejects ambiguous or incomplete coordinates before native discovery", async () => {
+  for (const kind of ["different-source", "same-source", "missing", "invalid"] as const) {
+    const project = snapshot("Original");
+    const target = project.timeline.clips[0]!;
+    const other = { ...target, id: "other-occurrence", mediaId: kind === "different-source" ? "other-media" : target.mediaId, track: 1,
+      startTime: kind === "invalid" ? { value: "0", timescale: "0" } : { value: "0", timescale: "48" },
+      durationTime: { value: "192", timescale: "48" },
+    };
+    if (kind === "missing") Reflect.deleteProperty(other, "startTime");
+    project.timeline.clips.push(other);
+    const calls: string[] = [];
+    const native = {
+      searchMedia: async () => { calls.push("search"); return []; },
+      locateOccurrence: async () => { calls.push("locate"); return { status: "none" as const, occurrences: [] }; },
+      selectOccurrence: async () => { calls.push("select"); return {} as never; },
+    };
+    await assert.rejects(createFinalCutNativeTargetResolver(native)(target, project), /AMBIGUOUS_PROJECT_TARGET.*coordinates/i);
+    assert.deepEqual(calls, []);
+  }
+});
+
 test("canonical target preparation is protected by the recovery checkpoint", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-target-preparation-race-"));
   const path = join(directory, "pending.json");
