@@ -75,3 +75,14 @@ test("legacy v2 is never retroactively tracked", async () => fixture(async direc
   await assert.rejects(startSenderFixture(directory, { ...binding, reservationVersion: 2 as never }, { command: process.execPath, args: ["-e", "process.exit(0)"] }));
   assert.deepEqual(await readdir(directory), []);
 }));
+
+test("an exited child is never signalled using a potentially reused PID", async () => fixture(async directory => {
+  const parent = "const c=require('child_process').spawn(process.execPath,['-e','setTimeout(()=>process.exit(0),500)'],{stdio:['ignore',1,2]}); c.unref(); process.exit(0);";
+  const running = await startSenderFixture(directory, binding, { command: process.execPath, args: ["-e", parent] });
+  await once(running.child, "exit");
+  let signals = 0;
+  running.child.kill = (() => { signals++; return true; }) as typeof running.child.kill;
+  await running.abort();
+  assert.equal(signals, 0);
+  await running.closed;
+}));
