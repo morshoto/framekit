@@ -314,3 +314,27 @@ test("intent owner must match binding owner before any side effects", async () =
   assert.equal((await inspectSenderFixture(directory, { ...binding, owner: otherOwner })).status, "unknown");
   assert.deepEqual(await readdir(directory), []);
 }));
+
+test("marker recheck distinguishes absence from JSON null and changed bytes", async () => {
+  for (const phase of ["abort", "settled"] as const) await fixture(async directory => {
+    const running = await startSenderFixture(directory, binding, { command: process.execPath, args: ["-e", delayedChild] });
+    try {
+      await once(running.child.stdout!, "data");
+      const observed = await inspectSenderFixture(directory, binding, { beforeRecheck: async () => {
+        await writeFile(join(directory, `${id}.sender-${phase}`), "null");
+      } });
+      assert.equal(observed.status, "unknown", phase);
+    } finally { if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL"); await running.closed; }
+  });
+  await fixture(async directory => {
+    const running = await startSenderFixture(directory, binding, { command: process.execPath, args: ["-e", delayedChild] });
+    try {
+      await once(running.child.stdout!, "data");
+      const path = join(directory, `${id}.sender-start`);
+      const observed = await inspectSenderFixture(directory, binding, { beforeRecheck: async () => {
+        await writeFile(path, JSON.stringify(JSON.parse(await readFile(path, "utf8")), null, 2));
+      } });
+      assert.equal(observed.status, "unknown");
+    } finally { if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL"); await running.closed; }
+  });
+});
