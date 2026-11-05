@@ -3109,7 +3109,7 @@ function withPublishRecoveryGuard<T extends object>(
   validateRoute: (provider: T, property: "executePublishJob" | "publishNewProject") => Promise<void>,
 ): T {
   const allowed = new Set<PropertyKey>(["isAvailable", "inspectReadiness", "executionMode", "getPublishJob", "loadPublishJob", "preparePublish"]);
-  let current: { jobId?: string; reservation: Awaited<ReturnType<FileCanonicalRecoveryGuard["beginNative"]>>; active: boolean; dispatched: boolean; needsBinding: boolean; requestedIntent?: { libraryPath: string; artifactDigest: string; state: string } } | undefined;
+  let current: { jobId?: string; reservation: Awaited<ReturnType<FileCanonicalRecoveryGuard["beginNative"]>>; active: boolean; dispatched: boolean; needsBinding: boolean; requestedIntent?: { libraryPath: string; artifactDigest: string; state: string }; requestedConfiguration?: Array<PropertyDescriptor | undefined> } | undefined;
   return new Proxy(provider, {
     get(target, property) {
       if (property !== "executePublishJob" && property !== "publishNewProject") {
@@ -3162,13 +3162,15 @@ function withPublishRecoveryGuard<T extends object>(
             ? Object.freeze({ kind: "publish" as const, jobId, dispatchId: randomUUID(), requestedTarget: Object.freeze({ libraryPath: path }),
               artifactDigest: digest, executorIdentity: null, nativeQuiescence: "unproven" as const })
             : undefined;
-          // Capture primitives before awaiting the guard; its implementation
-          // must not be able to rewrite the evidence used for the recheck.
+          // Capture primitives and data descriptors before awaiting the guard;
+          // its implementation must not rewrite the evidence used for rechecks.
+          const configurationKeys = ["enabled", "liveState", "readCanonicalSnapshot", "sourcePath", "publishJobsDirectory"];
+          const requestedConfiguration = job ? configurationKeys.map((key) => Object.getOwnPropertyDescriptor(target, key)) : undefined;
           const requestedIntent = context && job ? { libraryPath: context.requestedTarget.libraryPath,
             artifactDigest: context.artifactDigest, state: job.state } : undefined;
           const reservation = await recovery.beginNative(operation, context);
           entry = { jobId, reservation, active: true, dispatched: pending, needsBinding: !context,
-            ...(requestedIntent ? { requestedIntent } : {}) };
+            ...(requestedIntent ? { requestedIntent } : {}), ...(requestedConfiguration ? { requestedConfiguration } : {}) };
           current = entry;
         }
         try {
@@ -3239,7 +3241,13 @@ function withPublishRecoveryGuard<T extends object>(
             if (job) {
               const enabled = Object.getOwnPropertyDescriptor(target, "enabled");
               const directory = Object.getOwnPropertyDescriptor(target, "publishJobsDirectory");
-              const safePersistence = Boolean(directory && "value" in directory
+              const configurationKeys = ["enabled", "liveState", "readCanonicalSnapshot", "sourcePath", "publishJobsDirectory"];
+              const configurationUnchanged = Boolean(entry.requestedConfiguration && configurationKeys.every((key, index) => {
+                const before = entry.requestedConfiguration?.[index];
+                const after = Object.getOwnPropertyDescriptor(target, key);
+                return before && after && "value" in before && "value" in after && Object.is(before.value, after.value);
+              }));
+              const safePersistence = Boolean(configurationUnchanged && directory && "value" in directory
                 && (directory.value === undefined
                   || (typeof directory.value === "string" && !builtInMapHas.call(stores[1], jobId))));
               provenDisabled = (job.state === "awaiting-confirmation" || job.state === "awaiting-final-cut")
