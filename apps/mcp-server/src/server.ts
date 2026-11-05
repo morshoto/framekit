@@ -85,7 +85,6 @@ const builtInPublishExecute = FinalCutProjectPublisher.prototype.executePublishJ
 const builtInPublishGetJob = FinalCutProjectPublisher.prototype.getPublishJob;
 const builtInPublishTrack = FinalCutProjectPublisher.prototype.trackNativeDispatch;
 const builtInPublishPersist = Reflect.get(FinalCutProjectPublisher.prototype, "persistPublishJob");
-const builtInNativeTrack = FinalCutNativeAutomationAdapter.prototype.trackNativeDispatch;
 const builtInNativeMethods = new Map(Reflect.ownKeys(FinalCutNativeAutomationAdapter.prototype)
   .map((key) => [key, Object.getOwnPropertyDescriptor(FinalCutNativeAutomationAdapter.prototype, key)?.value]));
 const builtInMapGet = Map.prototype.get;
@@ -3295,27 +3294,47 @@ function withRecoveryCheckpointGuard<T extends object>(
   const searchMethods = new Set<PropertyKey>(["searchMedia", "searchMediaForCanonicalTarget", "searchTitles", "searchTransitions"]);
   return new Proxy(provider, {
     get(target, property) {
-      const value = Reflect.get(target, property, target) as unknown;
-      if (typeof value !== "function") return value;
-      if (allowed.has(property)) return value.bind(target);
+      if (!reserved.has(property)) {
+        const value = Reflect.get(target, property, target) as unknown;
+        if (typeof value !== "function") return value;
+        if (allowed.has(property)) return value.bind(target);
+        return async (...args: unknown[]) => {
+          await recovery.assertClear();
+          return Reflect.apply(value, target, args);
+        };
+      }
+      // Inspect descriptors without invoking provider accessors while another
+      // native reservation may be held. Unknown proxy shapes stay guarded.
+      if (!utilTypes.isProxy(target)) {
+        let object: object | null = target;
+        while (object && !utilTypes.isProxy(object)) {
+          const descriptor = Object.getOwnPropertyDescriptor(object, property);
+          if (descriptor) {
+            if ("value" in descriptor && typeof descriptor.value !== "function") return descriptor.value;
+            break;
+          }
+          object = Object.getPrototypeOf(object);
+        }
+        if (!object) return undefined;
+      }
       return async (...args: unknown[]) => {
         if (reserved.has(property)) {
           const reservation = await recovery.beginNative(`native.${reservationKind === "disposable" ? "disposable." : ""}${String(property).toLowerCase()}`);
-          const track = Reflect.get(target, "trackNativeDispatch", target) as unknown;
-          let dispatched = typeof track !== "function";
           // Only a disabled, unmodified built-in adapter can prove that it
           // cannot dispatch. A live adapter's result or callback does not
           // prove receiver quiescence, even when its public method is intact.
-          const disabledBuiltIn = Object.getPrototypeOf(target) === FinalCutNativeAutomationAdapter.prototype
+          const disabledBuiltIn = !utilTypes.isProxy(target) && Object.getPrototypeOf(target) === FinalCutNativeAutomationAdapter.prototype
             && Object.getOwnPropertyDescriptor(target, "enabled")?.value === false
-            && track === builtInNativeTrack && value === builtInNativeMethods.get(property)
-            && [...builtInNativeMethods].every(([key, method]) => key === "constructor" || typeof method !== "function" || Reflect.get(target, key, target) === method);
+            && [...builtInNativeMethods].every(([key, method]) => key === "constructor" || typeof method !== "function"
+              || (!Object.getOwnPropertyDescriptor(target, key)
+                && Object.getOwnPropertyDescriptor(FinalCutNativeAutomationAdapter.prototype, key)?.value === method));
           const untrustedProvider = !disabledBuiltIn;
+          let dispatched = untrustedProvider;
           try {
-            if (untrustedProvider) {
-              dispatched = true;
-              await reservation.markDispatchPossible();
-            }
+            if (untrustedProvider) await reservation.markDispatchPossible();
+            const value = Reflect.get(target, property, target) as unknown;
+            const track = Reflect.get(target, "trackNativeDispatch", target) as unknown;
+            if (typeof value !== "function") throw new Error("CAPABILITY_UNAVAILABLE: native operation is not available");
             const invoke = async () => Reflect.apply(value, target, args) as Promise<unknown>;
             const result: unknown = typeof track === "function"
               ? await Reflect.apply(track, target, [invoke, () => { dispatched = true; }])
@@ -3374,8 +3393,7 @@ function withRecoveryCheckpointGuard<T extends object>(
             throw error;
           }
         }
-        await recovery.assertClear();
-        return Reflect.apply(value, target, args);
+        throw new Error("CAPABILITY_UNAVAILABLE: native operation is not available");
       };
     },
   });
