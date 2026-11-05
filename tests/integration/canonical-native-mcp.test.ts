@@ -1530,9 +1530,10 @@ test("publish verification rejects a replaced reservation", async () => {
   const other = new FileCanonicalRecoveryGuard(path);
   let state = "awaiting-confirmation";
   let verifications = 0;
+  let lookups = 0;
   const projectPublisher = {
     isAvailable: () => false,
-    getPublishJob: () => ({ state }),
+    getPublishJob: () => { lookups++; return { state }; },
     executePublishJob: async (_id: string, _confirm: boolean, verify?: boolean) => {
       if (verify) verifications += 1;
       state = "verification-pending";
@@ -1545,9 +1546,11 @@ test("publish verification rejects a replaced reservation", async () => {
     assert.equal(dispatched.isError ?? false, false, textFrom(dispatched));
     await rm(path);
     const replacement = await other.beginNative("native.publish.replacement");
+    const previousLookups = lookups;
     const verification = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "job-1", confirm: true, confirmVerification: true } });
     assert.equal(verification.isError, true);
     assert.equal(verifications, 0);
+    assert.equal(lookups, previousLookups);
     assert.equal((await other.inspectNativeReservation())?.reservationId, replacement.reservationId);
     await replacement.release();
   } finally {
@@ -2061,6 +2064,34 @@ test("custom lookup cannot bind a different publish job identity", async () => {
     const observed = await new FileCanonicalRecoveryGuard(path).inspectNativeRecoveryEvidence();
     assert.equal(observed.reservation?.version, 2);
     assert.equal(observed.boundaryEvidence, "dispatch-possible-recorded");
+    await assert.rejects(guard.assertClear(), /RECOVERY_REQUIRED/);
+  } finally {
+    await client.close(); await server.close(); await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("publish verification rejects a mismatched returned job identity", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-publish-verify-wrong-job-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  let pending = false;
+  let wrongIdentity = false;
+  let verifications = 0;
+  const publisher = {
+    isAvailable: () => false,
+    getPublishJob: () => ({ jobId: wrongIdentity ? "publish-job-other" : "publish-job-1", state: pending ? "verification-pending" : "awaiting-confirmation", artifactDigest: "a".repeat(64), targetLibraryPath: "/tmp/target.fcpbundle" }),
+    executePublishJob: async (_id: string, _confirm: boolean, verify?: boolean) => {
+      if (verify) verifications++;
+      pending = true;
+      return { state: "verification-pending" };
+    },
+  } as unknown as NonNullable<Parameters<typeof createMcpServer>[1]>["projectPublisher"];
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher: publisher });
+  try {
+    await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "publish-job-1", confirm: true } });
+    wrongIdentity = true;
+    const result = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "publish-job-1", confirm: true, confirmVerification: true } });
+    assert.equal(result.isError, true);
+    assert.equal(verifications, 0);
     await assert.rejects(guard.assertClear(), /RECOVERY_REQUIRED/);
   } finally {
     await client.close(); await server.close(); await rm(directory, { recursive: true, force: true });
