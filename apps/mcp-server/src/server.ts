@@ -3229,6 +3229,13 @@ function withPublishRecoveryGuard<T extends object>(
               && Object.getOwnPropertyDescriptor(Map.prototype, "set")?.value === builtInMapSet
               && Object.getOwnPropertyDescriptor(Map.prototype, "has")?.value === builtInMapHas);
             const job = ordinaryStores ? inertBuiltInPublishJob(target, jobId) : undefined;
+            if (!ordinaryStores || (!job && builtInMapHas.call(stores[0], jobId))) {
+              // A present but non-inert job may execute getters or identify a
+              // different operation. Do not invoke it even after the marker.
+              entry.dispatched = true;
+              await entry.reservation.markDispatchPossible();
+              throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish job identity cannot be inspected safely");
+            }
             if (job) {
               const enabled = Object.getOwnPropertyDescriptor(target, "enabled");
               const directory = Object.getOwnPropertyDescriptor(target, "publishJobsDirectory");
