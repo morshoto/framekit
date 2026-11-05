@@ -354,6 +354,9 @@ export class SessionMaterializationJobs {
         providerRequested = true;
         return this.publisher!.publish(request);
       };
+      // A tracker is executable provider code. It may defer invoking the
+      // supplied operation even if it returns or throws first.
+      dispatched = true;
       const result = this.publisher.trackNativeDispatch
         ? await this.publisher.trackNativeDispatch(invoke, () => { dispatched = true; })
         : await invoke();
