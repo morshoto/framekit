@@ -3097,6 +3097,7 @@ function withPublishRecoveryGuard<T extends object>(
         const jobId = property === "executePublishJob" && typeof args[0] === "string" ? args[0] : undefined;
         let provenDisabled = false;
         let entry = current;
+        const acquiringReservation = !entry;
         if (entry) {
           if (entry.active || !jobId || entry.jobId !== jobId || args[1] !== true || args[2] !== true
           ) {
@@ -3117,13 +3118,6 @@ function withPublishRecoveryGuard<T extends object>(
           const getJob = Reflect.get(target, "getPublishJob", target) as ((id: string) => { state?: string; artifactDigest?: string; targetLibraryPath?: string }) | undefined;
           const job = jobId ? getJob?.call(target, jobId) : undefined;
           const pending = job?.state === "verification-pending";
-          provenDisabled = property === "executePublishJob"
-            && Object.getPrototypeOf(target) === FinalCutProjectPublisher.prototype
-            && value === FinalCutProjectPublisher.prototype.executePublishJob
-            && getJob === FinalCutProjectPublisher.prototype.getPublishJob
-            && Reflect.get(target, "trackNativeDispatch", target) === FinalCutProjectPublisher.prototype.trackNativeDispatch
-            && (job?.state === "awaiting-confirmation" || job?.state === "awaiting-final-cut")
-            && FinalCutProjectPublisher.prototype.isDispatchDisabled.call(target as FinalCutProjectPublisher);
           const operation = jobId
             ? `native.publish.${createHash("sha256").update(jobId).digest("hex")}`
             : "native.publish.direct";
@@ -3142,6 +3136,15 @@ function withPublishRecoveryGuard<T extends object>(
         }
         const track = Reflect.get(target, "trackNativeDispatch", target) as unknown;
         try {
+          if (acquiringReservation && jobId && property === "executePublishJob"
+            && Object.getPrototypeOf(target) === FinalCutProjectPublisher.prototype
+            && value === FinalCutProjectPublisher.prototype.executePublishJob
+            && Reflect.get(target, "getPublishJob", target) === FinalCutProjectPublisher.prototype.getPublishJob
+            && track === FinalCutProjectPublisher.prototype.trackNativeDispatch) {
+            const job = FinalCutProjectPublisher.prototype.getPublishJob.call(target as FinalCutProjectPublisher, jobId);
+            provenDisabled = (job.state === "awaiting-confirmation" || job.state === "awaiting-final-cut")
+              && FinalCutProjectPublisher.prototype.isDispatchDisabled.call(target as FinalCutProjectPublisher);
+          }
           const invoke = async () => {
             // Once the provider is invoked, a missing callback is not proof of non-dispatch.
             if (!provenDisabled) entry!.dispatched = true;
