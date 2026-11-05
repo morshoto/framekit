@@ -3177,6 +3177,9 @@ function withPublishRecoveryGuard<T extends object>(
               const lookup = Reflect.get(target, "getPublishJob", target) as unknown;
               if (typeof lookup === "function") {
                 const requested = Reflect.apply(lookup, target, [jobId]) as { state?: unknown; targetLibraryPath?: unknown; artifactDigest?: unknown } | undefined;
+                if (requested?.state === "verification-pending") {
+                  throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: unowned pending publish cannot be invoked again");
+                }
                 const path = requested?.targetLibraryPath;
                 const digest = requested?.artifactDigest;
                 if (requested?.state !== "verification-pending" && /^publish-job-[a-z0-9-]{1,80}$/.test(jobId)
