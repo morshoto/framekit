@@ -3244,6 +3244,27 @@ function withPublishRecoveryGuard<T extends object>(
                   || (typeof directory.value === "string" && !builtInMapHas.call(stores[1], jobId))));
               provenDisabled = (job.state === "awaiting-confirmation" || job.state === "awaiting-final-cut")
                 && enabled?.value === false && safePersistence;
+              const liveState = Object.getOwnPropertyDescriptor(target, "liveState");
+              if (args[1] === true && enabled?.value === true && safePersistence
+                && (job.state === "awaiting-confirmation" || job.state === "awaiting-final-cut")
+                && liveState && "value" in liveState && liveState.value === undefined) {
+                // This preflight uses only inert data and never invokes the
+                // provider or its mutable dependencies.
+                const blocked = { ...job, state: "awaiting-final-cut" as const, nextAction: "retry" as const, retryable: true,
+                  error: { code: "FINAL_CUT_PUBLISH_VERIFICATION_UNAVAILABLE", message: "Final Cut project state verification is unavailable; retry this job when the live provider is ready" } };
+                builtInPublishPersist.call(target, blocked);
+                return blocked;
+              }
+              const readback = Object.getOwnPropertyDescriptor(target, "readCanonicalSnapshot");
+              if (args[1] === true && enabled?.value === true && safePersistence
+                && (job.state === "awaiting-confirmation" || job.state === "awaiting-final-cut")
+                && liveState && "value" in liveState && typeof liveState.value === "function"
+                && readback && "value" in readback && readback.value === undefined) {
+                const failed = { ...job, state: "failed" as const, nextAction: "none" as const, retryable: false,
+                  error: { code: "FINAL_CUT_PUBLISH_READBACK_UNAVAILABLE", message: "FINAL_CUT_PUBLISH_READBACK_UNAVAILABLE: headed canonical timeline readback is not configured; no import was attempted" } };
+                builtInPublishPersist.call(target, failed);
+                return failed;
+              }
               // A mismatching managed artifact can be rejected without invoking
               // the publisher or its tracker. Keep this synchronous so the
               // trusted store and publisher checks cannot race an await.
