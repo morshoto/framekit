@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { access, constants, stat } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
@@ -167,4 +167,23 @@ test("pre-commit hook forces headless fixture validation", async () => {
 test("Final Cut MCP test environment requires isolated state", () => {
   assert.throws(() => finalCutMcpEnvironment({ FRAMEKIT_TEST_STATE_DIR: "" }), /TEST_ISOLATION_REQUIRED/);
   assert.throws(() => finalCutMcpEnvironment({ FRAMEKIT_STATE_DIR: process.env.FRAMEKIT_TEST_ORIGINAL_HOME ?? "/" }), /TEST_ISOLATION_REQUIRED/);
+});
+
+test("Final Cut MCP test state cannot escape through a symlink", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("directory symlink creation may require privileges on Windows");
+    return;
+  }
+  const root = await mkdtemp("/tmp/framekit-isolation-test-");
+  try {
+    const outside = join(root, "outside");
+    await symlink("/", outside);
+    assert.throws(() => finalCutMcpEnvironment({
+      FRAMEKIT_COMMIT_VALIDATION: "1",
+      FRAMEKIT_TEST_STATE_DIR: root,
+      FRAMEKIT_STATE_DIR: outside,
+    }), /TEST_ISOLATION_REQUIRED/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
