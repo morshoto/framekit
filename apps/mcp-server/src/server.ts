@@ -2763,24 +2763,26 @@ async function inspectCanonicalReadForMcp<T>(
     }
   }
 
-  const inspected = await inspectMcpEditor(runtime, options, true);
-  const capability = inspected.capabilities.families.canonicalDocument.read;
-  if (!capability.available) return capabilityErrorResult(operation, "canonicalDocument.read", capability);
-  try {
-    const result = await read();
-    if (headed && expectedTarget) {
-      const live = await runtime.inspectLiveEditor();
-      const returnedTarget = targetOf(result);
-      if (!liveTargetMatches(live, expectedTarget)
-        || (returnedTarget.projectId !== undefined && returnedTarget.projectId !== expectedTarget.projectId)
-        || (returnedTarget.sequenceId !== undefined && returnedTarget.sequenceId !== expectedTarget.sequenceId)) {
-        return mcpReadErrorResult("TARGET_MISMATCH", `${operation} result or active target changed during the headed read`, operation);
+  return runtime.withCanonicalReadScope(async () => {
+    const inspected = await inspectMcpEditor(runtime, options, true);
+    const capability = inspected.capabilities.families.canonicalDocument.read;
+    if (!capability.available) return capabilityErrorResult(operation, "canonicalDocument.read", capability);
+    try {
+      const result = await read();
+      if (headed && expectedTarget) {
+        const live = await runtime.inspectLiveEditor();
+        const returnedTarget = targetOf(result);
+        if (!liveTargetMatches(live, expectedTarget)
+          || (returnedTarget.projectId !== undefined && returnedTarget.projectId !== expectedTarget.projectId)
+          || (returnedTarget.sequenceId !== undefined && returnedTarget.sequenceId !== expectedTarget.sequenceId)) {
+          return mcpReadErrorResult("TARGET_MISMATCH", `${operation} result or active target changed during the headed read`, operation);
+        }
       }
+      return jsonResult(result);
+    } catch (error) {
+      return capabilityUnavailableErrorResult(error);
     }
-    return jsonResult(result);
-  } catch (error) {
-    return capabilityUnavailableErrorResult(error);
-  }
+  });
 }
 
 function liveTargetMatches(
