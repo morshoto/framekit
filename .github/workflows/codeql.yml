@@ -85,13 +85,13 @@ jobs:
                   persist-credentials: false
 
             - name: Initialize CodeQL
-              uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+              uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
               with:
                   languages: ${{ matrix.language }}
                   build-mode: ${{ matrix.build-mode }}
 
             - name: Analyze with CodeQL
-              uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+              uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
               with:
                   category: /language:${{ matrix.language }}
                   wait-for-processing: true
@@ -143,7 +143,7 @@ jobs:
               run: bash .github/codeql/typecheck-swift.sh
 
             - name: Initialize CodeQL
-              uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+              uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
               with:
                   languages: swift
                   build-mode: manual
@@ -155,7 +155,7 @@ jobs:
               run: bash .github/codeql/typecheck-swift.sh
 
             - name: Analyze with CodeQL
-              uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+              uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
               with:
                   category: /language:swift
                   wait-for-processing: true
