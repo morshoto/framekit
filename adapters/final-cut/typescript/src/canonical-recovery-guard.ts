@@ -57,13 +57,13 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
   }
 
   /** Atomically reserve the same path used by canonical checkpoints. */
-  public async beginNative(operation: string, context?: NativeMaterializationRecoveryContext | NativePublishRecoveryContext): Promise<{ reservationId: string; markDispatchPossible(): Promise<void>; release(): Promise<void> }> {
+  public async beginNative(operation: string, context?: NativeMaterializationRecoveryContext | NativePublishRecoveryContext): Promise<{ readonly reservationId: string; markDispatchPossible(): Promise<void>; bindRecoveryContext(context: NativeMaterializationRecoveryContext | NativePublishRecoveryContext): Promise<void>; release(): Promise<void> }> {
     if (!/^[a-z][a-z0-9.-]{0,127}$/.test(operation)) throw new Error("INVALID_OPERATION: invalid native reservation operation");
     if (context && !validRecoveryContext(context, operation)) throw new Error("INVALID_OPERATION: invalid native recovery context");
     await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
     const owner = randomUUID();
-    const version = context ? 3 : 2;
-    const contents = JSON.stringify({ version, kind: "native-operation", owner, operation, ...(context ? { recoveryContext: context } : {}) }) + "\n";
+    let version = context ? 3 : 2;
+    let contents = JSON.stringify({ version, kind: "native-operation", owner, operation, ...(context ? { recoveryContext: context } : {}) }) + "\n";
     let handle;
     try {
       handle = await open(this.path, "wx", 0o600);
@@ -77,8 +77,9 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
     }
     let released = false;
     let dispatchPossible = false;
-    const reservationId = createHash("sha256").update(contents).digest("hex");
-    return { reservationId, markDispatchPossible: async () => {
+    let reservationId = createHash("sha256").update(contents).digest("hex");
+    let bindingStarted = false;
+    return { get reservationId() { return reservationId; }, markDispatchPossible: async () => {
       if (released || dispatchPossible) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: native dispatch boundary is unavailable");
       // Mark first: even a failed or interrupted write must never authorize release.
       dispatchPossible = true;
@@ -91,6 +92,52 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
       } catch (error) {
         throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot persist dispatch boundary", { cause: error });
       } finally { await marker?.close(); }
+    }, bindRecoveryContext: async (newContext) => {
+      if (released || !dispatchPossible || version !== 2 || bindingStarted) {
+        throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: native intent binding is unavailable");
+      }
+      // Binding is one-shot, including on error. Once provider code has run,
+      // no failure here may re-enable release or dispatch.
+      bindingStarted = true;
+      if (!validRecoveryContext(newContext, operation)) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: invalid native intent");
+      const nextContents = JSON.stringify({ version: 3, kind: "native-operation", owner, operation, recoveryContext: newContext }) + "\n";
+      if (Buffer.byteLength(nextContents) > 16_384) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: native intent is too large");
+      const nextId = createHash("sha256").update(nextContents).digest("hex");
+      let marker;
+      let pending;
+      try {
+        // Persist the next identity's uncertainty marker before updating the
+        // reservation. A crash during the rewrite stays unknown and closed.
+        marker = await open(`${this.path}.dispatch-${nextId}`, "wx", 0o600);
+        await marker.writeFile(JSON.stringify({ version: 1, reservationId: nextId, owner }) + "\n", "utf8");
+        await marker.sync();
+        await syncParentDirectory(this.path);
+        pending = await open(this.path, constants.O_RDWR | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+        const before = await pending.stat();
+        const current = await lstat(this.path);
+        if (!before.isFile() || !current.isFile() || before.dev !== current.dev || before.ino !== current.ino
+          || before.size > 16_384 || await pending.readFile("utf8") !== contents) throw new Error("reservation ownership changed");
+        const data = Buffer.from(nextContents, "utf8");
+        let offset = 0;
+        while (offset < data.length) {
+          const { bytesWritten } = await pending.write(data, offset, data.length - offset, offset);
+          if (!bytesWritten) throw new Error("short reservation write");
+          offset += bytesWritten;
+        }
+        await pending.truncate(data.length);
+        await pending.sync();
+        const after = await pending.stat();
+        const latest = await lstat(this.path);
+        if (!latest.isFile() || after.dev !== latest.dev || after.ino !== latest.ino) throw new Error("reservation ownership changed");
+        contents = nextContents;
+        version = 3;
+        reservationId = nextId;
+      } catch (error) {
+        throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot bind native intent", { cause: error });
+      } finally {
+        await pending?.close();
+        await marker?.close();
+      }
     }, release: async () => {
       if (released) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: native reservation was already released");
       if (dispatchPossible) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: native dispatch may have begun");
