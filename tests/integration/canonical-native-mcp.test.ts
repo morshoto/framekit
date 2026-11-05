@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -1141,17 +1141,52 @@ test("an invoked publisher without dispatch acknowledgement retains its reservat
 test("an untrusted publish tracker failure retains its reservation", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-publish-tracker-"));
   const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  let boundaryBeforeTracker: string | undefined;
   const projectPublisher = {
     isAvailable: () => false,
     getPublishJob: () => ({ state: "awaiting-confirmation" }),
-    trackNativeDispatch: async () => { throw new Error("TRACKER_FAILED"); },
+    trackNativeDispatch: async () => {
+      boundaryBeforeTracker = (await guard.inspectNativeRecoveryEvidence()).boundaryEvidence;
+      throw new Error("TRACKER_FAILED");
+    },
     executePublishJob: async () => { throw new Error("not invoked"); },
   } as unknown as NonNullable<Parameters<typeof createMcpServer>[1]>["projectPublisher"];
   const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher });
   try {
     const result = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "job-1", confirm: true } });
     assert.equal(result.isError, true);
+    assert.equal(boundaryBeforeTracker, "dispatch-possible-recorded");
     await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("a publish boundary failure does not call the tracker or release the reservation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-publish-boundary-failure-"));
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  const begin = guard.beginNative.bind(guard);
+  guard.beginNative = async (...args) => {
+    const reservation = await begin(...args);
+    await mkdir(`${path}.dispatch-${reservation.reservationId}`);
+    return reservation;
+  };
+  let trackerCalls = 0;
+  const projectPublisher = {
+    isAvailable: () => false,
+    getPublishJob: () => ({ state: "awaiting-confirmation" }),
+    trackNativeDispatch: async () => { trackerCalls++; throw new Error("must not invoke"); },
+    executePublishJob: async () => { throw new Error("must not invoke"); },
+  } as unknown as NonNullable<Parameters<typeof createMcpServer>[1]>["projectPublisher"];
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher });
+  try {
+    const result = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "job-1", confirm: true } });
+    assert.equal(result.isError, true);
+    assert.equal(trackerCalls, 0);
+    await assert.rejects(new FileCanonicalRecoveryGuard(path).assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   } finally {
     await client.close();
     await server.close();

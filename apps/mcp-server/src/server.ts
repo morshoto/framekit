@@ -3168,6 +3168,9 @@ function withPublishRecoveryGuard<T extends object>(
           };
           // Custom tracking code can defer invocation and return or throw first.
           if (!provenDisabled) entry.dispatched = true;
+          // Record uncertainty before entering any untrusted tracker or provider.
+          // Resumed verification reuses the already marked reservation.
+          if (acquiringReservation && !provenDisabled) await entry.reservation.markDispatchPossible();
           const result: unknown = typeof track === "function"
             ? await Reflect.apply(track, target, [invoke, () => { entry!.dispatched = true; }])
             : await invoke();
