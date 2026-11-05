@@ -84,6 +84,8 @@ const builtInPublishGetJob = FinalCutProjectPublisher.prototype.getPublishJob;
 const builtInPublishTrack = FinalCutProjectPublisher.prototype.trackNativeDispatch;
 const builtInPublishPersist = Reflect.get(FinalCutProjectPublisher.prototype, "persistPublishJob");
 const builtInNativeTrack = FinalCutNativeAutomationAdapter.prototype.trackNativeDispatch;
+const builtInNativeMethods = new Map(Reflect.ownKeys(FinalCutNativeAutomationAdapter.prototype)
+  .map((key) => [key, Object.getOwnPropertyDescriptor(FinalCutNativeAutomationAdapter.prototype, key)?.value]));
 const builtInMapGet = Map.prototype.get;
 const builtInMapSet = Map.prototype.set;
 const builtInMapHas = Map.prototype.has;
@@ -3244,7 +3246,14 @@ function withRecoveryCheckpointGuard<T extends object>(
           const reservation = await recovery.beginNative(`native.${reservationKind === "disposable" ? "disposable." : ""}${String(property).toLowerCase()}`);
           const track = Reflect.get(target, "trackNativeDispatch", target) as unknown;
           let dispatched = typeof track !== "function";
-          const untrustedProvider = !(Object.getPrototypeOf(target) === FinalCutNativeAutomationAdapter.prototype && track === builtInNativeTrack);
+          // Only a disabled, unmodified built-in adapter can prove that it
+          // cannot dispatch. A live adapter's result or callback does not
+          // prove receiver quiescence, even when its public method is intact.
+          const disabledBuiltIn = Object.getPrototypeOf(target) === FinalCutNativeAutomationAdapter.prototype
+            && Object.getOwnPropertyDescriptor(target, "enabled")?.value === false
+            && track === builtInNativeTrack && value === builtInNativeMethods.get(property)
+            && [...builtInNativeMethods].every(([key, method]) => key === "constructor" || typeof method !== "function" || Reflect.get(target, key, target) === method);
+          const untrustedProvider = !disabledBuiltIn;
           try {
             if (untrustedProvider) {
               dispatched = true;

@@ -152,10 +152,10 @@ legacy reservation format. Intent fields do not verify the actual target or
 dispatch. Retained-reservation diagnostics report possible dispatch, missing
 evidence and the safe actions of inspection and retention. Missing, malformed,
 conflicting or concurrently changing evidence is unknown; an active marker
-may instead reflect an interrupted sender. Direct native calls through custom
-or trackerless providers retain their
-reservations after invocation, even if a provider reports success; its return
-does not prove that no deferred native action remains.
+may instead reflect an interrupted sender. Direct native calls retain their
+reservations after invoking an enabled provider, even if it reports success;
+its return does not prove that no deferred native action remains. An unmodified
+disabled built-in adapter can reject calls without dispatching.
 No observation authorizes release, dispatch or recovery. Old writers do not participate in the newer lock protocol,
 so inspection cannot establish a globally consistent view or exclude a later
 write. `editor.native.recovery.preview` requires the inspected
