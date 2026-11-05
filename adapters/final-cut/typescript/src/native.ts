@@ -1468,7 +1468,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     return this.withNativeUi(() => this.searchMediaNative(query), options.signal);
   }
 
-  private async searchMediaNative(query: string, deadline?: number, timeoutCode = "FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT"): Promise<NativeFinalCutMediaMatch[]> {
+  private async searchMediaNative(query: string, deadline?: number, timeoutCode = "FINAL_CUT_NATIVE_SEARCH_TIMEOUT"): Promise<NativeFinalCutMediaMatch[]> {
     this.assertEnabled();
     if (!query.trim()) throw new Error("INVALID_OPERATION: media search query cannot be empty");
     const context = await this.ensureBrowserReady(deadline, timeoutCode);

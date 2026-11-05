@@ -2320,6 +2320,29 @@ test("native Final Cut rejects wildcard Browser queries before accessing the UI"
   assert.deepEqual(scripts, []);
 });
 
+test("native Final Cut reports standalone Browser search timeouts without implying an import", async () => {
+  let aborted = false;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    mediaImportDiscoveryTimeoutMs: 20,
+    executor: async (script, options) => {
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
+      if (script.includes("set value of searchField to searchQuery")) {
+        return new Promise<never>((_, reject) => {
+          options?.signal?.addEventListener("abort", () => {
+            aborted = true;
+            reject(new Error("executor aborted"));
+          }, { once: true });
+        });
+      }
+      return "";
+    },
+  });
+
+  await assert.rejects(adapter.searchMedia("Interview"), /FINAL_CUT_NATIVE_SEARCH_TIMEOUT/);
+  assert.equal(aborted, true);
+});
+
 test("native Final Cut search includes selected Browser media with an alternate AX role", async () => {
   const separator = String.fromCharCode(31);
   const recordSeparator = String.fromCharCode(30);
