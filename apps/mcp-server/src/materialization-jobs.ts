@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { timelineIrDigest, validateTimelineIr, type TimelineIr } from "@framekit/runtime";
 import {
   compileTimelineIrToFcpxml,
+  FinalCutBackgroundMaterializationPublisher,
   type FileCanonicalRecoveryGuard,
   type TimelineIrMaterializationCoverage,
   type TimelineIrMaterializationProvenance,
@@ -287,6 +288,19 @@ export class SessionMaterializationJobs {
     try {
       const finalFailure = await this.validateStagedJob(claimed);
       if (finalFailure) return this.fail(claimed, finalFailure);
+      // This check invokes no provider operation and is limited to the exact
+      // built-in implementation. Custom providers remain untrusted.
+      if (Object.getPrototypeOf(this.publisher) === FinalCutBackgroundMaterializationPublisher.prototype
+        && !FinalCutBackgroundMaterializationPublisher.prototype.isAvailable.call(this.publisher)) {
+        const blocked: SessionMaterializationJob = {
+          ...claimed, state: "blocked", nextAction: "retry", claim: undefined,
+          verification: { tier: "artifact", status: "blocked", artifactDigest: claimed.artifactDigest,
+            desiredDigest: claimed.desiredDigest, reason: "No non-UI materialization capability is configured; the provider was not called" },
+          error: { code: "FINAL_CUT_BACKGROUND_MATERIALIZATION_UNAVAILABLE", message: "No explicit non-UI Final Cut materialization capability is configured", retryable: true },
+        };
+        await this.save(blocked);
+        return blocked;
+      }
       if (this.recoveryGuard) {
         try {
           const id = createHash("sha256").update(claimed.jobId).digest("hex");
