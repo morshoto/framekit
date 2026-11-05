@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -875,8 +875,12 @@ test("a provider timeout without a dispatch callback remains reserved after rest
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-timeout-"));
   const path = join(directory, "pending.json");
   let calls = 0;
+  let boundaryBeforeTracker: string | undefined;
   const publisher: SessionMaterializationPublisher = {
-    trackNativeDispatch: async (call) => call(),
+    trackNativeDispatch: async (call) => {
+      boundaryBeforeTracker = (await new FileCanonicalRecoveryGuard(path).inspectNativeRecoveryEvidence()).boundaryEvidence;
+      return call();
+    },
     publish: async () => { calls++; throw new Error("RECEIVER_TIMEOUT: acknowledgement missing"); },
   };
   const connected = await connect(directory, publisher, undefined, "default", new FileCanonicalRecoveryGuard(path));
@@ -884,12 +888,44 @@ test("a provider timeout without a dispatch callback remains reserved after rest
     await connected.client.callTool({ name: "session.create", arguments: { sessionId: "session-timeout", provider: { id: "final-cut" }, base: timeline() } });
     const job = payload(await connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "session-timeout", target, confirm: true } }));
     assert.equal(job.evidence.providerRequested, true);
+    assert.equal(boundaryBeforeTracker, "dispatch-possible-recorded");
     assert.equal(job.nextAction, "none");
     const restarted = new FileCanonicalRecoveryGuard(path);
     assert.equal((await restarted.inspectNativeRecoveryEvidence()).dispatchState, "possibly-dispatched");
     await assert.rejects(restarted.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     await connected.client.callTool({ name: "session.materialize.retry", arguments: { jobId: job.jobId } });
     assert.equal(calls, 1);
+  } finally {
+    await connected.client.close();
+    await connected.server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("a failed dispatch boundary blocks provider invocation and retains the reservation", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-boundary-failure-"));
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  const begin = guard.beginNative.bind(guard);
+  guard.beginNative = async (...args) => {
+    const reservation = await begin(...args);
+    await mkdir(`${path}.dispatch-${reservation.reservationId}`);
+    return reservation;
+  };
+  let trackerCalls = 0;
+  let publishCalls = 0;
+  const publisher: SessionMaterializationPublisher = {
+    trackNativeDispatch: async (call) => { trackerCalls++; return call(); },
+    publish: async () => { publishCalls++; throw new Error("must not invoke"); },
+  };
+  const connected = await connect(directory, publisher, undefined, "default", guard);
+  try {
+    await connected.client.callTool({ name: "session.create", arguments: { sessionId: "session-boundary-failure", provider: { id: "final-cut" }, base: timeline() } });
+    const job = payload(await connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "session-boundary-failure", target, confirm: true } }));
+    assert.equal(job.state, "failed");
+    assert.equal(trackerCalls, 0);
+    assert.equal(publishCalls, 0);
+    await assert.rejects(new FileCanonicalRecoveryGuard(path).assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   } finally {
     await connected.client.close();
     await connected.server.close();

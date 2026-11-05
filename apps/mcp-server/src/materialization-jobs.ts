@@ -357,6 +357,9 @@ export class SessionMaterializationJobs {
       // A tracker is executable provider code. It may defer invoking the
       // supplied operation even if it returns or throws first.
       dispatched = true;
+      // Persist uncertainty before executing even the tracker: untrusted
+      // tracker code may invoke or defer the provider without acknowledgement.
+      if (reservation) await reservation.markDispatchPossible();
       const result = this.publisher.trackNativeDispatch
         ? await this.publisher.trackNativeDispatch(invoke, () => { dispatched = true; })
         : await invoke();

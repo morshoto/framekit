@@ -69,6 +69,7 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
       handle = await open(this.path, "wx", 0o600);
       await handle.writeFile(contents, "utf8");
       await handle.sync();
+      await syncParentDirectory(this.path);
     } catch (error) {
       throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot create exclusive native reservation", { cause: error });
     } finally {
@@ -86,6 +87,7 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
         marker = await open(`${this.path}.dispatch-${reservationId}`, "wx", 0o600);
         await marker.writeFile(JSON.stringify({ version: 1, reservationId, owner }) + "\n", "utf8");
         await marker.sync();
+        await syncParentDirectory(this.path);
       } catch (error) {
         throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot persist dispatch boundary", { cause: error });
       } finally { await marker?.close(); }
@@ -167,5 +169,14 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
     } catch (error) {
       throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot safely complete recovery checkpoint", { cause: error });
     }
+  }
+}
+
+async function syncParentDirectory(path: string): Promise<void> {
+  const directory = await open(dirname(path), "r");
+  try {
+    await directory.sync();
+  } finally {
+    await directory.close();
   }
 }
