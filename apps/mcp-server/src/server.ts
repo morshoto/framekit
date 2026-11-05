@@ -3176,7 +3176,10 @@ function withPublishRecoveryGuard<T extends object>(
             if (jobId && entry.needsBinding) {
               const lookup = Reflect.get(target, "getPublishJob", target) as unknown;
               if (typeof lookup === "function") {
-                const requested = Reflect.apply(lookup, target, [jobId]) as { state?: unknown; targetLibraryPath?: unknown; artifactDigest?: unknown } | undefined;
+                const requested = Reflect.apply(lookup, target, [jobId]) as { jobId?: unknown; state?: unknown; targetLibraryPath?: unknown; artifactDigest?: unknown } | undefined;
+                if (requested?.jobId !== undefined && requested.jobId !== jobId) {
+                  throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish job identity mismatch");
+                }
                 if (requested?.state === "verification-pending" && args[2] !== true) {
                   throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: pending publish cannot be dispatched again");
                 }
