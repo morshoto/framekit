@@ -2592,6 +2592,21 @@ test("canonical resolver uses nonselecting discovery before identity validation"
   assert.deepEqual(calls, ["canonical-locate"]);
 });
 
+test("canonical resolver rejects incomplete discovered occurrence coordinates before selection", async () => {
+  for (const coordinates of [{ duration: "96/24" }, { start: "0/24" }, { start: "invalid", duration: "96/24" }, { start: "0/24", duration: "1/0" }]) {
+    const calls: string[] = [];
+    const project = snapshot("Original");
+    const occurrence = { handle: "occ", mediaHandle: "media", name: "Original", identity: "item", sourceIdentity: "source", start: "0/24", duration: "96/24", sequenceId: project.timeline.id };
+    const native = {
+      searchMedia: async () => [{ handle: "media", name: "clip.mov", sourceIdentity: "source", source: "/tmp/clip.mov" }],
+      locateOccurrence: async () => ({ status: "ambiguous" as const, occurrences: [occurrence, { ...occurrence, handle: "other", start: coordinates.start, duration: coordinates.duration }] }),
+      selectOccurrence: async () => { calls.push("select"); return { target: { kind: "selected-clip", identity: "item" } } as never; },
+    };
+    await assert.rejects(createFinalCutNativeTargetResolver(native)(project.timeline.clips[0]!, project), /AMBIGUOUS_PROJECT_TARGET.*coordinates/i);
+    assert.deepEqual(calls, []);
+  }
+});
+
 test("canonical resolver compares the discovered occurrence identity after selection", async () => {
   const native = {
     searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1", source: "/tmp/clip.mov" }],
