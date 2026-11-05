@@ -958,3 +958,23 @@ test("mutable materialization availability cannot prove non-dispatch", async () 
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("inherited materialization availability getter stays guarded", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-inherited-availability-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  let calls = 0;
+  const options = Object.create({ get executor() { calls++; return undefined; } });
+  const publisher = new FinalCutBackgroundMaterializationPublisher(options);
+  const connected = await connect(directory, publisher, undefined, "default", guard);
+  try {
+    await connected.client.callTool({ name: "session.create", arguments: { sessionId: "session-inherited-availability", provider: { id: "final-cut" }, base: timeline() } });
+    const job = payload(await connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "session-inherited-availability", target, confirm: true } }));
+    assert.equal(calls, 1);
+    assert.equal(job.nextAction, "none");
+    await assert.rejects(guard.assertClear(), /RECOVERY_REQUIRED/);
+  } finally {
+    await connected.client.close();
+    await connected.server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});

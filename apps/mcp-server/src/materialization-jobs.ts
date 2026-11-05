@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { types as utilTypes } from "node:util";
 import { timelineIrDigest, validateTimelineIr, type TimelineIr } from "@framekit/runtime";
 import {
   compileTimelineIrToFcpxml,
@@ -290,8 +291,7 @@ export class SessionMaterializationJobs {
       if (finalFailure) return this.fail(claimed, finalFailure);
       // This check invokes no provider operation and is limited to the exact
       // built-in implementation. Custom providers remain untrusted.
-      if (Object.getPrototypeOf(this.publisher) === FinalCutBackgroundMaterializationPublisher.prototype
-        && !FinalCutBackgroundMaterializationPublisher.prototype.isAvailable.call(this.publisher)) {
+      if (hasInertUnavailableMaterializationOptions(this.publisher)) {
         const blocked: SessionMaterializationJob = {
           ...claimed, state: "blocked", nextAction: "retry", claim: undefined,
           verification: { tier: "artifact", status: "blocked", artifactDigest: claimed.artifactDigest,
@@ -750,6 +750,27 @@ function collectStructuralChanges(
     return;
   }
   changes.push({ path, ...(before !== undefined ? { before } : {}), ...(after !== undefined ? { after } : {}) });
+}
+
+// Only inspect own data properties on ordinary, non-proxy objects. Calling
+// isAvailable() here could execute a caller-supplied getter before a native
+// reservation exists, so every unfamiliar shape must take the guarded path.
+const builtinStringTrim = String.prototype.trim;
+
+function hasInertUnavailableMaterializationOptions(publisher: SessionMaterializationPublisher): boolean {
+  if (utilTypes.isProxy(publisher) || Object.getPrototypeOf(publisher) !== FinalCutBackgroundMaterializationPublisher.prototype) return false;
+  const optionsProperty = Object.getOwnPropertyDescriptor(publisher, "options");
+  if (!optionsProperty || !("value" in optionsProperty)) return false;
+  const options: unknown = optionsProperty.value;
+  if (!options || typeof options !== "object" || utilTypes.isProxy(options)) return false;
+  const prototype = Object.getPrototypeOf(options);
+  if (prototype !== null && prototype !== Object.prototype) return false;
+  if (prototype && (Object.getOwnPropertyDescriptor(prototype, "executor") || Object.getOwnPropertyDescriptor(prototype, "command"))) return false;
+  const executor = Object.getOwnPropertyDescriptor(options, "executor");
+  const command = Object.getOwnPropertyDescriptor(options, "command");
+  if ((executor && (!("value" in executor) || executor.value !== undefined)) || (command && !("value" in command))) return false;
+  const value: unknown = command?.value;
+  return value === undefined || value === null || (typeof value === "string" && builtinStringTrim.call(value) === "");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
