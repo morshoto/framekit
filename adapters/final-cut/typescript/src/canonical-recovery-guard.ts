@@ -57,7 +57,7 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
   }
 
   /** Atomically reserve the same path used by canonical checkpoints. */
-  public async beginNative(operation: string, context?: NativeMaterializationRecoveryContext | NativePublishRecoveryContext): Promise<{ reservationId: string; release(): Promise<void> }> {
+  public async beginNative(operation: string, context?: NativeMaterializationRecoveryContext | NativePublishRecoveryContext): Promise<{ reservationId: string; markDispatchPossible(): Promise<void>; release(): Promise<void> }> {
     if (!/^[a-z][a-z0-9.-]{0,127}$/.test(operation)) throw new Error("INVALID_OPERATION: invalid native reservation operation");
     if (context && !validRecoveryContext(context, operation)) throw new Error("INVALID_OPERATION: invalid native recovery context");
     await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
@@ -75,8 +75,23 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
       await handle?.close();
     }
     let released = false;
-    return { reservationId: createHash("sha256").update(contents).digest("hex"), release: async () => {
+    let dispatchPossible = false;
+    const reservationId = createHash("sha256").update(contents).digest("hex");
+    return { reservationId, markDispatchPossible: async () => {
+      if (released || dispatchPossible) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: native dispatch boundary is unavailable");
+      // Mark first: even a failed or interrupted write must never authorize release.
+      dispatchPossible = true;
+      let marker;
+      try {
+        marker = await open(`${this.path}.dispatch-${reservationId}`, "wx", 0o600);
+        await marker.writeFile(JSON.stringify({ version: 1, reservationId, owner }) + "\n", "utf8");
+        await marker.sync();
+      } catch (error) {
+        throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot persist dispatch boundary", { cause: error });
+      } finally { await marker?.close(); }
+    }, release: async () => {
       if (released) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: native reservation was already released");
+      if (dispatchPossible) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: native dispatch may have begun");
       await this.completeOwned(owner, version);
       released = true;
     } };
