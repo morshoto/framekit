@@ -11,7 +11,7 @@ export interface NativeMaterializationRecoveryContext {
   requestedTarget: { libraryUid: string; eventUid: string; projectUid: string; sequenceUid: string };
   artifactDigest: string;
   desiredDigest: string;
-  destination?: { mode: "versioned" | "reuse-existing"; projectUid: string; sequenceUid: string; projectName: string; sequenceName: string };
+  destination?: { mode: "versioned"; projectUid: string; sequenceUid: string; projectName: string; sequenceName: string };
   executorIdentity: null;
   nativeQuiescence: "unproven";
 }

@@ -301,6 +301,9 @@ export class SessionMaterializationJobs {
         await this.save(blocked);
         return blocked;
       }
+      if (claimed.destination.mode !== "versioned") return this.fail(claimed, {
+        code: "MATERIALIZATION_DESTINATION_INVALID", message: "Versioned destination required", retryable: false, providerRequested: false,
+      });
       if (this.recoveryGuard) {
         try {
           const id = createHash("sha256").update(claimed.jobId).digest("hex");
@@ -309,7 +312,7 @@ export class SessionMaterializationJobs {
             requestedTarget: { libraryUid: claimed.target.libraryUid, eventUid: claimed.target.eventUid,
               projectUid: claimed.target.projectUid, sequenceUid: claimed.target.sequenceUid },
             artifactDigest: claimed.artifactDigest, desiredDigest: claimed.desiredDigest,
-            destination: structuredClone(claimed.destination),
+            destination: { ...structuredClone(claimed.destination), mode: "versioned" },
             executorIdentity: null, nativeQuiescence: "unproven",
           });
         } catch {

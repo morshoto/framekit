@@ -205,6 +205,18 @@ test("materialization evidence binds a job to its operation without treating int
   assert.equal(result.recoveryEligibility, "unavailable");
 }));
 
+test("a materialization reservation with a non-versioned destination remains unknown", async () => fixture(async (path) => {
+  const materializationJob = "materialization-123";
+  const record = { version: 3, kind: "native-operation", owner,
+    operation: `native.materialize.${digest(materializationJob)}`,
+    recoveryContext: { kind: "materialization", jobId: materializationJob, dispatchId,
+      requestedTarget: { libraryUid: "library", eventUid: "event", projectUid: "project", sequenceUid: "sequence" },
+      artifactDigest: "a".repeat(64), desiredDigest: "b".repeat(64), executorIdentity: null, nativeQuiescence: "unproven",
+      destination: { mode: "reuse-existing", projectUid: "project", sequenceUid: "sequence", projectName: "Project", sequenceName: "Main" } } };
+  await put(path, record);
+  assert.equal((await inspectNativeRecoveryReadOnly(path)).status, "unknown");
+}));
+
 test("special files cannot block inspection or change state", async () => fixture(async (path, directory) => {
   const made = spawnSync("mkfifo", [path], { timeout: 5000 });
   assert.equal(made.status, 0);
