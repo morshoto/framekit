@@ -91,6 +91,10 @@ export interface NativeRecoveryInspection {
   recoveryEligibility: "unavailable";
   sender: { status: "untracked" | "active-or-interrupted" | "sender-settled" | "unknown" };
   reservation?: { version: 2 | 3 | 4; reservationId: string; operation: string; jobId?: string; dispatchId?: string; jobCorrelation?: "unverified" };
+  dispatchState?: "possibly-dispatched";
+  missingEvidence?: ["receiver-terminal-quiescence", "independent-target-outcome", "legacy-writer-exclusion"];
+  safeNextActions?: ["inspect", "retain-reservation"];
+  intent?: { requestedTarget: NativeRecoveryContext["requestedTarget"]; artifactDigest: string; desiredDigest?: string };
 }
 
 const unknown = (): NativeRecoveryInspection => ({ status: "unknown", nativeQuiescence: "unproven", recoveryEligibility: "unavailable", sender: { status: "unknown" } });
@@ -168,6 +172,10 @@ export async function inspectNativeRecoveryReadOnly(path: string): Promise<Nativ
       || await readSettlement(path, reservationId) !== settled) return unknown();
     const context = record.version === 3 || record.version === 4 ? record.recoveryContext as NativeRecoveryContext : undefined;
     return { status: "recovery-required", nativeQuiescence: "unproven", recoveryEligibility: "unavailable", sender: { status: sender },
+      dispatchState: "possibly-dispatched", missingEvidence: ["receiver-terminal-quiescence", "independent-target-outcome", "legacy-writer-exclusion"],
+      safeNextActions: ["inspect", "retain-reservation"],
+      ...(context ? { intent: { requestedTarget: context.requestedTarget, artifactDigest: context.artifactDigest,
+        ...(context.kind === "materialization" ? { desiredDigest: context.desiredDigest } : {}) } } : {}),
       reservation: { version: record.version as 2 | 3 | 4, reservationId, operation: record.operation,
         ...(context ? { jobId: context.jobId, dispatchId: context.dispatchId, jobCorrelation: "unverified" as const } : {}) } };
   } catch { return unknown(); }
