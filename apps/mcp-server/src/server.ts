@@ -3109,7 +3109,7 @@ function withPublishRecoveryGuard<T extends object>(
   validateRoute: (provider: T, property: "executePublishJob" | "publishNewProject") => Promise<void>,
 ): T {
   const allowed = new Set<PropertyKey>(["isAvailable", "inspectReadiness", "executionMode", "getPublishJob", "loadPublishJob", "preparePublish"]);
-  let current: { jobId?: string; reservation: Awaited<ReturnType<FileCanonicalRecoveryGuard["beginNative"]>>; active: boolean; dispatched: boolean; needsBinding: boolean } | undefined;
+  let current: { jobId?: string; reservation: Awaited<ReturnType<FileCanonicalRecoveryGuard["beginNative"]>>; active: boolean; dispatched: boolean; needsBinding: boolean; requestedIntent?: { libraryPath: string; artifactDigest: string; state: string } } | undefined;
   return new Proxy(provider, {
     get(target, property) {
       if (property !== "executePublishJob" && property !== "publishNewProject") {
@@ -3149,6 +3149,7 @@ function withPublishRecoveryGuard<T extends object>(
         } else {
           // Never invoke caller-controlled job lookup before the reservation.
           const job = jobId ? inertBuiltInPublishJob(target, jobId) : undefined;
+          if (job && job.jobId !== jobId) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish job identity mismatch");
           const pending = job?.state === "verification-pending";
           const operation = jobId
             ? `native.publish.${createHash("sha256").update(jobId).digest("hex")}`
@@ -3158,14 +3159,29 @@ function withPublishRecoveryGuard<T extends object>(
           const context = jobId && !pending && /^publish-job-[a-z0-9-]{1,80}$/.test(jobId)
             && typeof path === "string" && path.length <= 4096 && isAbsolute(path) && path.endsWith(".fcpbundle")
             && typeof digest === "string" && /^[a-f0-9]{64}$/.test(digest)
-            ? { kind: "publish" as const, jobId, dispatchId: randomUUID(), requestedTarget: { libraryPath: path },
-              artifactDigest: digest, executorIdentity: null, nativeQuiescence: "unproven" as const }
+            ? Object.freeze({ kind: "publish" as const, jobId, dispatchId: randomUUID(), requestedTarget: Object.freeze({ libraryPath: path }),
+              artifactDigest: digest, executorIdentity: null, nativeQuiescence: "unproven" as const })
             : undefined;
+          // Capture primitives before awaiting the guard; its implementation
+          // must not be able to rewrite the evidence used for the recheck.
+          const requestedIntent = context && job ? { libraryPath: context.requestedTarget.libraryPath,
+            artifactDigest: context.artifactDigest, state: job.state } : undefined;
           const reservation = await recovery.beginNative(operation, context);
-          entry = { jobId, reservation, active: true, dispatched: pending, needsBinding: !context };
+          entry = { jobId, reservation, active: true, dispatched: pending, needsBinding: !context,
+            ...(requestedIntent ? { requestedIntent } : {}) };
           current = entry;
         }
         try {
+          if (acquiringReservation && jobId && entry.requestedIntent) {
+            const currentJob = inertBuiltInPublishJob(target, jobId);
+            const expected = entry.requestedIntent;
+            if (!currentJob || currentJob.jobId !== jobId || currentJob.targetLibraryPath !== expected.libraryPath
+              || currentJob.artifactDigest !== expected.artifactDigest || currentJob.state !== expected.state) {
+              entry.dispatched = true;
+              await entry.reservation.markDispatchPossible();
+              throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish intent changed during reservation acquisition");
+            }
+          }
           // Property getters on arbitrary providers may themselves dispatch.
           const trustedShape = !utilTypes.isProxy(target) && property === "executePublishJob"
             && Object.getPrototypeOf(target) === FinalCutProjectPublisher.prototype

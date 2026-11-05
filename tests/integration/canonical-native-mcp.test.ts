@@ -2097,3 +2097,109 @@ test("publish verification rejects a mismatched returned job identity", async ()
     await client.close(); await server.close(); await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("publish intent changes during reservation acquisition remain uncertain", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-publish-intent-race-"));
+  const source = '<fcpxml version="1.11"><library><event><project uid="project" name="Project"><sequence uid="sequence" name="Main" /></project></event></library></fcpxml>';
+  const artifactPath = join(directory, "source.fcpxml");
+  await writeFile(artifactPath, source);
+  const publisher = new FinalCutProjectPublisher({ headlessSourceVerifier: async () => ({ targetLibraryUid: "library", sourceMediaDigests: [] }) });
+  const job = await publisher.preparePublish({ sourceTransactionId: "headless-rough-cut:intent-race", artifactPath,
+    artifactDigest: createHash("sha256").update(source).digest("hex"), targetLibraryPath: join(directory, "New.fcpbundle") });
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  const begin = guard.beginNative.bind(guard);
+  guard.beginNative = async (...args) => {
+    const reservation = await begin(...args);
+    const store = (publisher as unknown as { publishJobs: Map<string, { artifactDigest: string }> }).publishJobs;
+    store.get(job.jobId)!.artifactDigest = "b".repeat(64);
+    return reservation;
+  };
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher: publisher });
+  try {
+    const result = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: job.jobId, confirm: true } });
+    assert.equal(result.isError, true);
+    await assert.rejects(guard.assertClear(), /RECOVERY_REQUIRED/);
+    const observed = await new FileCanonicalRecoveryGuard(path).inspectNativeRecoveryEvidence();
+    assert.equal(observed.intent?.artifactDigest, job.artifactDigest);
+    assert.equal(observed.recoveryEligibility, "unavailable");
+  } finally {
+    await client.close(); await server.close(); await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("a built-in job stored under the wrong ID is rejected before execution", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-publish-stored-id-mismatch-"));
+  const source = '<fcpxml version="1.11"><library><event><project uid="project" name="Project"><sequence uid="sequence" name="Main" /></project></event></library></fcpxml>';
+  const artifactPath = join(directory, "source.fcpxml");
+  await writeFile(artifactPath, source);
+  const publisher = new FinalCutProjectPublisher({ headlessSourceVerifier: async () => ({ targetLibraryUid: "library", sourceMediaDigests: [] }) });
+  const job = await publisher.preparePublish({ sourceTransactionId: "headless-rough-cut:wrong-stored-id", artifactPath,
+    artifactDigest: createHash("sha256").update(source).digest("hex"), targetLibraryPath: join(directory, "New.fcpbundle") });
+  const store = (publisher as unknown as { publishJobs: Map<string, { jobId: string }> }).publishJobs;
+  store.get(job.jobId)!.jobId = "publish-job-other";
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher: publisher });
+  try {
+    const result = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: job.jobId, confirm: true } });
+    assert.equal(result.isError, true);
+  } finally {
+    await client.close(); await server.close(); await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("publish intent cannot be rewritten by a mutable guard during acquisition", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-publish-guard-context-race-"));
+  const source = '<fcpxml version="1.11"><library><event><project uid="project" name="Project"><sequence uid="sequence" name="Main" /></project></event></library></fcpxml>';
+  const artifactPath = join(directory, "source.fcpxml");
+  await writeFile(artifactPath, source);
+  const publisher = new FinalCutProjectPublisher({ headlessSourceVerifier: async () => ({ targetLibraryUid: "library", sourceMediaDigests: [] }) });
+  const job = await publisher.preparePublish({ sourceTransactionId: "headless-rough-cut:guard-context-race", artifactPath,
+    artifactDigest: createHash("sha256").update(source).digest("hex"), targetLibraryPath: join(directory, "New.fcpbundle") });
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  const begin = guard.beginNative.bind(guard);
+  guard.beginNative = async (...args) => {
+    const reservation = await begin(...args);
+    const context = args[1] as { artifactDigest: string };
+    context.artifactDigest = "b".repeat(64);
+    const store = (publisher as unknown as { publishJobs: Map<string, { artifactDigest: string }> }).publishJobs;
+    store.get(job.jobId)!.artifactDigest = "b".repeat(64);
+    return reservation;
+  };
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher: publisher });
+  try {
+    const result = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: job.jobId, confirm: true } });
+    assert.equal(result.isError, true);
+    const observed = await new FileCanonicalRecoveryGuard(path).inspectNativeRecoveryEvidence();
+    assert.equal(observed.intent?.artifactDigest, job.artifactDigest);
+    assert.equal(observed.recoveryEligibility, "unavailable");
+    await assert.rejects(guard.assertClear(), /RECOVERY_REQUIRED/);
+  } finally {
+    await client.close(); await server.close(); await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("publish intent cannot be altered before guard persistence", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-publish-guard-mutation-"));
+  const source = '<fcpxml version="1.11"><library><event><project uid="project" name="Project"><sequence uid="sequence" name="Main" /></project></event></library></fcpxml>';
+  const artifactPath = join(directory, "source.fcpxml");
+  await writeFile(artifactPath, source);
+  const publisher = new FinalCutProjectPublisher({ headlessSourceVerifier: async () => ({ targetLibraryUid: "library", sourceMediaDigests: [] }) });
+  const job = await publisher.preparePublish({ sourceTransactionId: "headless-rough-cut:guard-mutation", artifactPath,
+    artifactDigest: createHash("sha256").update(source).digest("hex"), targetLibraryPath: join(directory, "New.fcpbundle") });
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const begin = guard.beginNative.bind(guard);
+  guard.beginNative = async (...args) => {
+    (args[1] as { artifactDigest: string }).artifactDigest = "b".repeat(64);
+    return begin(...args);
+  };
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher: publisher });
+  try {
+    const result = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: job.jobId, confirm: true } });
+    assert.equal(result.isError, true);
+    await guard.assertClear();
+  } finally {
+    await client.close(); await server.close(); await rm(directory, { recursive: true, force: true });
+  }
+});
