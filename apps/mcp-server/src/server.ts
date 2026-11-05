@@ -3151,6 +3151,8 @@ function withPublishRecoveryGuard<T extends object>(
             if (!provenDisabled) entry!.dispatched = true;
             return Reflect.apply(value, target, args) as Promise<unknown>;
           };
+          // Custom tracking code can defer invocation and return or throw first.
+          if (!provenDisabled) entry.dispatched = true;
           const result: unknown = typeof track === "function"
             ? await Reflect.apply(track, target, [invoke, () => { entry!.dispatched = true; }])
             : await invoke();
