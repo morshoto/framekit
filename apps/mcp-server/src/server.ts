@@ -3134,7 +3134,11 @@ function withPublishRecoveryGuard<T extends object>(
         }
         const track = Reflect.get(target, "trackNativeDispatch", target) as unknown;
         try {
-          const invoke = async () => Reflect.apply(value, target, args) as Promise<unknown>;
+          const invoke = async () => {
+            // Once the provider is invoked, a missing callback is not proof of non-dispatch.
+            entry!.dispatched = true;
+            return Reflect.apply(value, target, args) as Promise<unknown>;
+          };
           const result: unknown = typeof track === "function"
             ? await Reflect.apply(track, target, [invoke, () => { entry!.dispatched = true; }])
             : await invoke();
