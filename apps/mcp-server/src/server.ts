@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { createHash } from "node:crypto";
-import { resolve as resolvePath } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { isAbsolute, resolve as resolvePath } from "node:path";
 import { z } from "zod/v3";
 import {
   AgentVideoRuntime,
@@ -3113,12 +3113,21 @@ function withPublishRecoveryGuard<T extends object>(
             throw error;
           }
         } else {
-          const getJob = Reflect.get(target, "getPublishJob", target) as ((id: string) => { state?: string }) | undefined;
-          const pending = Boolean(jobId && getJob?.call(target, jobId).state === "verification-pending");
+          const getJob = Reflect.get(target, "getPublishJob", target) as ((id: string) => { state?: string; artifactDigest?: string; targetLibraryPath?: string }) | undefined;
+          const job = jobId ? getJob?.call(target, jobId) : undefined;
+          const pending = job?.state === "verification-pending";
           const operation = jobId
             ? `native.publish.${createHash("sha256").update(jobId).digest("hex")}`
             : "native.publish.direct";
-          const reservation = await recovery.beginNative(operation);
+          const path = job?.targetLibraryPath;
+          const digest = job?.artifactDigest;
+          const context = jobId && !pending && /^publish-job-[a-z0-9-]{1,80}$/.test(jobId)
+            && typeof path === "string" && path.length <= 4096 && isAbsolute(path) && path.endsWith(".fcpbundle")
+            && typeof digest === "string" && /^[a-f0-9]{64}$/.test(digest)
+            ? { kind: "publish" as const, jobId, dispatchId: randomUUID(), requestedTarget: { libraryPath: path },
+              artifactDigest: digest, executorIdentity: null, nativeQuiescence: "unproven" as const }
+            : undefined;
+          const reservation = await recovery.beginNative(operation, context);
           const track = Reflect.get(target, "trackNativeDispatch", target);
           entry = { jobId, reservation, active: true, dispatched: pending || typeof track !== "function" };
           current = entry;
