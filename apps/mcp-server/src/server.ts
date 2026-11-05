@@ -3162,14 +3162,19 @@ function withPublishRecoveryGuard<T extends object>(
             if (ordinaryStores) {
               const job = builtInPublishGetJob.call(target as FinalCutProjectPublisher, jobId);
               const enabled = Object.getOwnPropertyDescriptor(target, "enabled");
-              provenDisabled = (job.state === "awaiting-confirmation" || job.state === "awaiting-final-cut")
+              const directory = Object.getOwnPropertyDescriptor(target, "publishJobsDirectory");
+              // Persistence must not execute an accessor or clone a mutable
+              // runtime record on a path that later releases the reservation.
+              const inertPersistence = Boolean(directory && "value" in directory
+                && (directory.value === undefined || typeof directory.value === "string")
+                && !builtInMapHas.call(stores[1], jobId));
+              provenDisabled = inertPersistence && (job.state === "awaiting-confirmation" || job.state === "awaiting-final-cut")
                 && enabled?.value === false;
               // A mismatching managed artifact can be rejected without invoking
               // the publisher or its tracker. Keep this synchronous so the
               // trusted store and publisher checks cannot race an await.
               const source = Object.getOwnPropertyDescriptor(target, "sourcePath");
-              const directory = Object.getOwnPropertyDescriptor(target, "publishJobsDirectory");
-              if (args[1] === true && enabled?.value === true && !provenDisabled
+              if (args[1] === true && enabled?.value === true && !provenDisabled && inertPersistence
                 && (job.state === "awaiting-confirmation" || job.state === "awaiting-final-cut")
                 && !job.sourceTransactionId.startsWith("headless-rough-cut:")
                 && typeof source?.value === "string" && source.value === job.sourcePath
