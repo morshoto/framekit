@@ -1,3 +1,5 @@
+worktree/
+
 node_modules/
 dist/
 dist-package/
