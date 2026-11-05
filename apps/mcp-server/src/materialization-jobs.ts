@@ -757,7 +757,7 @@ function collectStructuralChanges(
 // isAvailable() here could execute a caller-supplied getter before a native
 // reservation exists, so every unfamiliar shape must take the guarded path.
 const builtinStringTrim = String.prototype.trim;
-const builtinMaterializationMethods = new Map([
+const builtinMaterializationMethods = new Map<string, unknown>([
   ["publish", FinalCutBackgroundMaterializationPublisher.prototype.publish],
   ["trackNativeDispatch", FinalCutBackgroundMaterializationPublisher.prototype.trackNativeDispatch],
   ["isAvailable", FinalCutBackgroundMaterializationPublisher.prototype.isAvailable],
