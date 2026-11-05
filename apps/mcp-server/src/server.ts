@@ -77,6 +77,14 @@ import { registerSkillTools, skillPreviewResult } from "./tools/skills/register.
 
 export type { SessionMaterializationPublisher } from "./materialization-jobs.js";
 
+const builtInPublishExecute = FinalCutProjectPublisher.prototype.executePublishJob;
+const builtInPublishGetJob = FinalCutProjectPublisher.prototype.getPublishJob;
+const builtInPublishTrack = FinalCutProjectPublisher.prototype.trackNativeDispatch;
+const builtInPublishPersist = Reflect.get(FinalCutProjectPublisher.prototype, "persistPublishJob");
+const builtInMapGet = Map.prototype.get;
+const builtInMapSet = Map.prototype.set;
+const builtInMapHas = Map.prototype.has;
+
 const revisionValueSchema = z.object({
   id: z.string(),
   sequence: z.number().int().nonnegative(),
@@ -3138,16 +3146,16 @@ function withPublishRecoveryGuard<T extends object>(
         try {
           if (acquiringReservation && jobId && property === "executePublishJob"
             && Object.getPrototypeOf(target) === FinalCutProjectPublisher.prototype
-            && value === FinalCutProjectPublisher.prototype.executePublishJob
-            && Reflect.get(target, "getPublishJob", target) === FinalCutProjectPublisher.prototype.getPublishJob
-            && !Object.hasOwn(target, "persistPublishJob")
-            && track === FinalCutProjectPublisher.prototype.trackNativeDispatch) {
+            && value === builtInPublishExecute
+            && Reflect.get(target, "getPublishJob", target) === builtInPublishGetJob
+            && Reflect.get(target, "persistPublishJob", target) === builtInPublishPersist
+            && track === builtInPublishTrack) {
             const stores = ["publishJobs", "publishJobRuntime"].map((key) => Object.getOwnPropertyDescriptor(target, key)?.value);
             const ordinaryStores = stores.every((store: unknown) => store instanceof Map
               && Object.getPrototypeOf(store) === Map.prototype
-              && store.get === Map.prototype.get && store.set === Map.prototype.set && store.has === Map.prototype.has);
+              && store.get === builtInMapGet && store.set === builtInMapSet && store.has === builtInMapHas);
             if (ordinaryStores) {
-              const job = FinalCutProjectPublisher.prototype.getPublishJob.call(target as FinalCutProjectPublisher, jobId);
+              const job = builtInPublishGetJob.call(target as FinalCutProjectPublisher, jobId);
               const enabled = Object.getOwnPropertyDescriptor(target, "enabled");
               provenDisabled = (job.state === "awaiting-confirmation" || job.state === "awaiting-final-cut")
                 && enabled?.value === false;
