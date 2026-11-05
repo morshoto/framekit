@@ -2672,6 +2672,27 @@ test("canonical capabilities fail closed when source binding is unavailable", as
   assert.deepEqual(calls, []);
 });
 
+test("every source-bound operation rejects unavailable binding before dispatch", async () => {
+  const cases = [
+    { before: snapshot("Original"), operation: { type: "rename-clip" as const, clipId: "final-cut:occurrence:clip-1", name: "Renamed" } },
+    { before: snapshot("Original"), operation: { type: "trim-clip" as const, clipId: "final-cut:occurrence:clip-1", duration: 3, durationTime: { value: "72", timescale: "24" } } },
+    { before: rippleSnapshots().before, operation: { type: "ripple-delete" as const, timelineId: "final-cut:sequence:sequence-1", range: { start: 2, end: 4, startTime: { value: "48", timescale: "24" }, durationTime: { value: "48", timescale: "24" } }, candidateId: "filler-1", reason: "remove verified filler" } },
+    { before: gainSnapshots().before, operation: { type: "set-gain" as const, clipId: "final-cut:occurrence:clip-1", gainDb: 3 } },
+  ];
+  for (const { before: original, operation } of cases) {
+    const calls: string[] = [];
+    const resolveTarget = Object.assign(async () => { calls.push("resolve"); }, { sourceBindingAvailable: false });
+    const mutate = async () => { calls.push("dispatch"); return { operationId: "unexpected", undoAvailable: true }; };
+    const provider = providerFor([original, original, original], calls, resolveTarget, liveState(), undefined, {
+      renameSelectedClip: mutate, trimSelectedClipToRange: mutate, rippleDeleteRange: mutate, setSelectedClipGain: mutate,
+    });
+    const before = await provider.readProject();
+    await assert.rejects(provider.previewTransaction([operation], before.revision), /CAPABILITY_UNAVAILABLE.*source/i, operation.type);
+    await assert.rejects(provider.apply(operation, before.revision), /CAPABILITY_UNAVAILABLE.*source/i, operation.type);
+    assert.deepEqual(calls, [], operation.type);
+  }
+});
+
 test("source capability limits only source-bound operations when canonical readiness is otherwise available", async () => {
   const resolveTarget = Object.assign(async () => {}, { sourceBindingAvailable: false });
   const provider = new FinalCutCanonicalNativeProvider({
