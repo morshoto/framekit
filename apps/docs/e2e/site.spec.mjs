@@ -79,11 +79,12 @@ test('article navigation, anchors, pager, and history', async ({ page, site }) =
   await page.getByRole('navigation', { name: 'On this page' }).getByRole('link', { name: 'Sample table' }).click();
   await expect(page).toHaveURL(/#sample-table$/);
   await page.getByRole('navigation', { name: 'Page navigation' }).getByRole('link', { name: /Next:/ }).click();
-  await expect(page).toHaveURL(/\/en\/docs\/getting-started\/$/);
+  await expect(page).toHaveURL(/\/en\/docs\/installation\/$/);
+  await expect(page.getByRole('status')).toContainText('Placeholder');
   await page.getByRole('navigation', { name: 'Page navigation' }).getByRole('link', { name: /Previous:/ }).click();
   await expect(page).toHaveURL(/\/en\/docs\/introduction\/$/);
   await page.goBack();
-  await expect(page).toHaveURL(/\/en\/docs\/getting-started\/$/);
+  await expect(page).toHaveURL(/\/en\/docs\/installation\/$/);
 });
 
 test('theme persists and reduced motion is respected', async ({ page, site }) => {

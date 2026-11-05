@@ -36,3 +36,14 @@ test('rejects unregistered files and mailto image sources while allowing mail li
     assert.equal(errors.length, 2);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+test('checks registered localized pages in both directions', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'framekit-registry-'));
+  try {
+    const content = join(dir, 'content'); const pub = join(dir, 'public');
+    await mkdir(join(content, 'en'), { recursive: true }); await mkdir(join(content, 'ja'), { recursive: true }); await mkdir(pub);
+    await writeFile(join(content, 'ja', 'one.mdx'), '## Wrong locale');
+    const errors = await checkContentLinks(content, pub, [{ locale: 'en', slug: 'one' }]);
+    assert.ok(errors.some(error => error.includes('unregistered content file')));
+    assert.ok(errors.some(error => error.includes('missing content file')));
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
