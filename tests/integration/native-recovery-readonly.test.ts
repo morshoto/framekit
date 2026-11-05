@@ -326,3 +326,82 @@ test("sender killed during simulated dispatch leaves a retained reservation", as
     if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
   }
 }));
+
+test("uncertain reservation can durably bind a requested publish intent", async () => fixture(async (path) => {
+  const guard = new FileCanonicalRecoveryGuard(path);
+  const reservation = await guard.beginNative(operation);
+  const initialId = reservation.reservationId;
+  await reservation.markDispatchPossible();
+  await reservation.bindRecoveryContext(v3().recoveryContext);
+  assert.notEqual(reservation.reservationId, initialId);
+  const restarted = new FileCanonicalRecoveryGuard(path);
+  const observed = await restarted.inspectNativeRecoveryEvidence();
+  assert.equal(observed.reservation?.version, 3);
+  assert.equal(observed.reservation?.reservationId, reservation.reservationId);
+  assert.equal(observed.reservation?.jobId, jobId);
+  assert.equal(observed.intent?.artifactDigest, "a".repeat(64));
+  assert.equal(observed.boundaryEvidence, "dispatch-possible-recorded");
+  assert.equal(observed.dispatchState, "possibly-dispatched");
+  assert.equal(observed.recoveryEligibility, "unavailable");
+  await assert.rejects(reservation.release(), /RECOVERY_REQUIRED/);
+  await assert.rejects(reservation.bindRecoveryContext(v3().recoveryContext), /RECOVERY_REQUIRED/);
+}));
+
+test("intent cannot be bound before the uncertainty boundary", async () => fixture(async (path) => {
+  const guard = new FileCanonicalRecoveryGuard(path);
+  const reservation = await guard.beginNative(operation);
+  await assert.rejects(reservation.bindRecoveryContext(v3().recoveryContext), /RECOVERY_REQUIRED/);
+  await reservation.release();
+  await guard.assertClear();
+}));
+
+test("failed intent binding retains the original uncertain reservation", async () => fixture(async (path) => {
+  const guard = new FileCanonicalRecoveryGuard(path);
+  const reservation = await guard.beginNative(operation);
+  await reservation.markDispatchPossible();
+  const original = await readFile(path, "utf8");
+  const record = JSON.parse(original) as { owner: string };
+  const next = JSON.stringify({ version: 3, kind: "native-operation", owner: record.owner, operation, recoveryContext: v3().recoveryContext }) + "\n";
+  await mkdir(`${path}.dispatch-${digest(next)}`);
+  await assert.rejects(reservation.bindRecoveryContext(v3().recoveryContext), /RECOVERY_REQUIRED/);
+  assert.equal(await readFile(path, "utf8"), original);
+  await assert.rejects(reservation.release(), /RECOVERY_REQUIRED/);
+  const observed = await new FileCanonicalRecoveryGuard(path).inspectNativeRecoveryEvidence();
+  assert.equal(observed.reservation?.version, 2);
+  assert.equal(observed.boundaryEvidence, "dispatch-possible-recorded");
+  assert.equal(observed.recoveryEligibility, "unavailable");
+}));
+
+test("mismatched intent binding does not release or alter an uncertain reservation", async () => fixture(async (path) => {
+  const guard = new FileCanonicalRecoveryGuard(path);
+  const reservation = await guard.beginNative(operation);
+  await reservation.markDispatchPossible();
+  const original = await readFile(path, "utf8");
+  await assert.rejects(reservation.bindRecoveryContext({ ...v3().recoveryContext, jobId: "publish-job-other" }), /RECOVERY_REQUIRED/);
+  assert.equal(await readFile(path, "utf8"), original);
+  await assert.rejects(reservation.release(), /RECOVERY_REQUIRED/);
+}));
+
+test("intent binding refuses a replacement reservation", async () => fixture(async (path) => {
+  const first = await new FileCanonicalRecoveryGuard(path).beginNative(operation);
+  await first.markDispatchPossible();
+  await rm(path);
+  const replacement = await new FileCanonicalRecoveryGuard(path).beginNative(operation);
+  const before = await readFile(path, "utf8");
+  await assert.rejects(first.bindRecoveryContext(v3().recoveryContext), /RECOVERY_REQUIRED/);
+  assert.equal(await readFile(path, "utf8"), before);
+  const observed = await new FileCanonicalRecoveryGuard(path).inspectNativeRecoveryEvidence();
+  assert.equal(observed.reservation?.reservationId, replacement.reservationId);
+  await assert.rejects(first.release(), /RECOVERY_REQUIRED/);
+  await replacement.release();
+}));
+
+test("concurrent intent binding permits at most one attempt", async () => fixture(async (path) => {
+  const reservation = await new FileCanonicalRecoveryGuard(path).beginNative(operation);
+  await reservation.markDispatchPossible();
+  const first = reservation.bindRecoveryContext(v3().recoveryContext);
+  await assert.rejects(reservation.bindRecoveryContext(v3().recoveryContext), /RECOVERY_REQUIRED/);
+  await first;
+  assert.equal((await new FileCanonicalRecoveryGuard(path).inspectNativeRecoveryEvidence()).reservation?.version, 3);
+  await assert.rejects(reservation.release(), /RECOVERY_REQUIRED/);
+}));
