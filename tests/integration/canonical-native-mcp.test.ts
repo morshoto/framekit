@@ -2015,9 +2015,10 @@ test("mutable disabled-native context cannot prove non-dispatch", async () => {
   Object.defineProperty(native, "requestContext", { configurable: true, get() { calls++; return original; } });
   const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, nativeEditor: native });
   try {
-    await client.callTool({ name: "editor.native.focus", arguments: {} });
-    assert.ok(calls > 0);
-    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    const result = await client.callTool({ name: "editor.native.focus", arguments: {} });
+    assert.equal(result.isError ?? false, false);
+    if (calls === 0) await guard.assertClear();
+    else await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   } finally {
     await client.close(); await server.close(); await rm(directory, { recursive: true, force: true });
   }

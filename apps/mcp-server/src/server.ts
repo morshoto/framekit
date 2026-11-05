@@ -40,6 +40,7 @@ import {
   type FinalCutProjectPublishReadiness,
   FinalCutProjectPublisher,
   FinalCutNativeAutomationAdapter,
+  disabledNativeContext,
   type FileCanonicalRecoveryGuard,
   type FinalCutSqliteInspectionProvider,
   type FinalCutVideoExporter,
@@ -3345,7 +3346,15 @@ function withRecoveryCheckpointGuard<T extends object>(
             && [...builtInNativeMethods].every(([key, method]) => key === "constructor" || typeof method !== "function"
               || (!Object.getOwnPropertyDescriptor(target, key)
                 && Object.getOwnPropertyDescriptor(FinalCutNativeAutomationAdapter.prototype, key)?.value === method));
-          const untrustedProvider = !disabledBuiltIn;
+          if (disabledBuiltIn) {
+            // Do not invoke even a disabled adapter: its mutable dependencies
+            // can execute code before reporting that writes are unavailable.
+            const unavailable = property === "focusTimeline" ? disabledNativeContext() : undefined;
+            await reservation.release();
+            if (unavailable) return unavailable;
+            throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native writes are disabled");
+          }
+          const untrustedProvider = true;
           let dispatched = untrustedProvider;
           try {
             if (untrustedProvider) await reservation.markDispatchPossible();
