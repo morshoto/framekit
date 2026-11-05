@@ -46,6 +46,23 @@ test("reservation rejects a mismatched operation before creating durable intent"
   assert.equal((await inspectNativeRecoveryReadOnly(path)).status, "clear");
 }));
 
+test("a sender crash after durable intent remains uncertain across repeated inspections", async () => fixture(async (path) => {
+  const module = pathToFileURL(resolve("adapters/final-cut/typescript/src/canonical-recovery-guard.ts")).href;
+  const context = JSON.stringify(v3().recoveryContext);
+  const script = `import {FileCanonicalRecoveryGuard} from ${JSON.stringify(module)}; await new FileCanonicalRecoveryGuard(process.argv[1]).beginNative(${JSON.stringify(operation)}, ${context}); process.kill(process.pid, 'SIGKILL');`;
+  const child = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script, path], { timeout: 5000 });
+  assert.equal(child.signal, "SIGKILL");
+  const before = await readFile(path, "utf8");
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const restarted = new FileCanonicalRecoveryGuard(path);
+    const evidence = await restarted.inspectNativeRecoveryEvidence();
+    assert.equal(evidence.dispatchState, "possibly-dispatched");
+    assert.equal(evidence.recoveryEligibility, "unavailable");
+    await assert.rejects(restarted.beginNative(operation, v3().recoveryContext), /RECOVERY_REQUIRED/);
+    assert.equal(await readFile(path, "utf8"), before);
+  }
+}));
+
 async function snapshot(directory: string): Promise<Record<string, string>> {
   const found: Record<string, string> = {};
   async function walk(path: string, prefix: string) {
