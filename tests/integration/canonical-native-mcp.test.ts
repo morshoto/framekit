@@ -1060,22 +1060,27 @@ test("publish reservation excludes edits and permits verification of only the sa
   let verifications = 0;
   const projectPublisher = {
     isAvailable: () => false,
-    getPublishJob: (id: string) => ({ jobId: id, state: id === "job-1" ? state : "awaiting-confirmation" }),
+    getPublishJob: (id: string) => ({ jobId: id, state: id === "publish-job-1" ? state : "awaiting-confirmation", artifactDigest: "a".repeat(64), targetLibraryPath: "/tmp/target.fcpbundle" }),
     executePublishJob: async (_id: string, _confirm: boolean, verify?: boolean) => {
-      if (verify) { verifications += 1; state = "verified"; return { jobId: "job-1", state }; }
+      if (verify) { verifications += 1; state = "verified"; return { jobId: "publish-job-1", state }; }
       dispatches += 1;
       state = "verification-pending";
       entered();
       await held;
-      return { jobId: "job-1", state };
+      return { jobId: "publish-job-1", state };
     },
   } as unknown as NonNullable<Parameters<typeof createMcpServer>[1]>["projectPublisher"];
   const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher });
-  const dispatch = client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "job-1", confirm: true } });
+  const dispatch = client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "publish-job-1", confirm: true } });
   try {
     await started;
+    const durable = JSON.parse(await readFile(path, "utf8"));
+    assert.equal(durable.version, 3);
+    assert.equal(durable.recoveryContext.jobId, "publish-job-1");
+    assert.equal(durable.recoveryContext.artifactDigest, "a".repeat(64));
+    assert.equal(durable.recoveryContext.requestedTarget.libraryPath, "/tmp/target.fcpbundle");
     await assert.rejects(other.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "b".repeat(64), operation: "rename-clip" }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
-    const premature = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "job-1", confirm: true, confirmVerification: true } });
+    const premature = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "publish-job-1", confirm: true, confirmVerification: true } });
     assert.equal(premature.isError, true);
     assert.equal(verifications, 0);
     finish();
@@ -1083,18 +1088,18 @@ test("publish reservation excludes edits and permits verification of only the sa
     assert.equal(pending.isError ?? false, false);
     assert.equal(JSON.parse(textFrom(pending)).recoveryReservation.reason, "native-quiescence-unproven");
     await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
-    const otherJob = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "job-2", confirm: true } });
+    const otherJob = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "publish-job-2", confirm: true } });
     assert.equal(otherJob.isError, true);
     const restarted = await connect(createRuntime([]), { canonicalRecovery: other, projectPublisher });
     try {
-      const unowned = await restarted.client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "job-1", confirm: true, confirmVerification: true } });
+      const unowned = await restarted.client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "publish-job-1", confirm: true, confirmVerification: true } });
       assert.equal(unowned.isError, true);
       assert.equal(verifications, 0);
     } finally {
       await restarted.client.close();
       await restarted.server.close();
     }
-    const verified = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "job-1", confirm: true, confirmVerification: true } });
+    const verified = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "publish-job-1", confirm: true, confirmVerification: true } });
     assert.equal(verified.isError ?? false, false, textFrom(verified));
     assert.equal(JSON.parse(textFrom(verified)).recoveryReservation.reason, "native-quiescence-unproven");
     assert.equal(dispatches, 1);
