@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -1235,7 +1235,36 @@ test("built-in publisher rejects a changed artifact before dispatch without reta
     const result = JSON.parse(textFrom(await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: job.jobId, confirm: true } })));
     assert.equal(result.error.code, "PUBLISH_SOURCE_CHANGED");
     assert.equal(result.recoveryReservation, undefined);
+    assert.equal(publisher.getPublishJob(job.jobId).state, "failed");
     await guard.assertClear();
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("a changed symlinked publish source remains uncertain", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-publish-symlink-preflight-"));
+  const source = '<fcpxml version="1.11"><library><event><project uid="project" name="Project"><sequence uid="sequence" name="Main" /></project></event></library></fcpxml>';
+  const artifactPath = join(directory, "source.fcpxml");
+  const replacement = join(directory, "replacement.fcpxml");
+  await writeFile(artifactPath, source);
+  const publisher = new FinalCutProjectPublisher({ enabled: true, sourcePath: artifactPath,
+    liveState: async () => { throw new Error("must not contact Final Cut"); },
+    readCanonicalSnapshot: async () => { throw new Error("must not read Final Cut"); } });
+  const job = await publisher.preparePublish({ sourceTransactionId: "txn-symlink", artifactPath,
+    artifactDigest: createHash("sha256").update(source).digest("hex") });
+  await writeFile(replacement, `${source}\nchanged`);
+  await rm(artifactPath);
+  await symlink(replacement, artifactPath);
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher: publisher });
+  try {
+    const result = JSON.parse(textFrom(await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: job.jobId, confirm: true } })));
+    assert.equal(result.error.code, "PUBLISH_SOURCE_CHANGED");
+    assert.equal(result.recoveryReservation.reason, "native-quiescence-unproven");
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   } finally {
     await client.close();
     await server.close();

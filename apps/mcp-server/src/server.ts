@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { createHash, randomUUID } from "node:crypto";
+import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs";
 import { isAbsolute, resolve as resolvePath } from "node:path";
 import { z } from "zod/v3";
 import {
@@ -3159,6 +3160,22 @@ function withPublishRecoveryGuard<T extends object>(
               const enabled = Object.getOwnPropertyDescriptor(target, "enabled");
               provenDisabled = (job.state === "awaiting-confirmation" || job.state === "awaiting-final-cut")
                 && enabled?.value === false;
+              // A mismatching managed artifact can be rejected without invoking
+              // the publisher or its tracker. Keep this synchronous so the
+              // trusted store and publisher checks cannot race an await.
+              const source = Object.getOwnPropertyDescriptor(target, "sourcePath");
+              const directory = Object.getOwnPropertyDescriptor(target, "publishJobsDirectory");
+              if (args[1] === true && enabled?.value === true && !provenDisabled
+                && (job.state === "awaiting-confirmation" || job.state === "awaiting-final-cut")
+                && !job.sourceTransactionId.startsWith("headless-rough-cut:")
+                && typeof source?.value === "string" && source.value === job.sourcePath
+                && directory && "value" in directory
+                && managedArtifactChanged(job.sourcePath, job.artifactDigest)) {
+                const failed = { ...job, state: "failed" as const, nextAction: "none" as const, retryable: false,
+                  error: { code: "PUBLISH_SOURCE_CHANGED", message: "Managed FCPXML artifact changed after transaction verification" } };
+                builtInPublishPersist.call(target, failed);
+                return failed;
+              }
             }
           }
           const invoke = async () => {
@@ -3188,6 +3205,20 @@ function withPublishRecoveryGuard<T extends object>(
       };
     },
   });
+}
+
+function managedArtifactChanged(path: string, digest: string): boolean {
+  let fd: number | undefined;
+  try {
+    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const info = fstatSync(fd);
+    if (!info.isFile() || info.size > 64 * 1024 * 1024) return false;
+    return createHash("sha256").update(readFileSync(fd, "utf8")).digest("hex") !== digest;
+  } catch {
+    return false;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
 }
 
 function withRecoveryCheckpointGuard<T extends object>(
