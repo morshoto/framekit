@@ -962,7 +962,7 @@ export interface McpServerOptions {
   disposableNative?: Pick<DisposableNativeEditWorkflow, "preview" | "execute" | "undo">;
   nativeOperationSession?: Pick<NativeOperationSession, "submit" | "status" | "retry" | "cancel">;
   projectPublisher?: FinalCutProjectPublisher;
-  canonicalRecovery?: Pick<FileCanonicalRecoveryGuard, "inspectVersioned" | "inspectNativeReservation" | "assertClear" | "beginNative">;
+  canonicalRecovery?: Pick<FileCanonicalRecoveryGuard, "inspectVersioned" | "inspectNativeReservation" | "assertClear" | "beginNative"> & Partial<Pick<FileCanonicalRecoveryGuard, "inspectNativeRecoveryEvidence">>;
   videoExporter?: FinalCutVideoExporter;
   backgroundRenderer?: BackgroundRenderExportProvider;
   buildFingerprint?: FramekitBuildFingerprint;
@@ -1210,6 +1210,14 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ publishJobId }) => jsonResult(
     await inspectNativeHandoffReadiness(runtime, options, publishJobId),
   ));
+
+  server.registerTool("editor.native.recovery.evidence.inspect", {
+    description: "Read point-in-time native reservation and sender evidence without changing state or proving receiver quiescence. Recovery eligibility is unavailable.",
+    inputSchema: {},
+  }, async () => sessionResult(async () => {
+    if (!options.canonicalRecovery?.inspectNativeRecoveryEvidence) throw new Error("CAPABILITY_UNAVAILABLE: native recovery evidence inspection is not configured");
+    return options.canonicalRecovery.inspectNativeRecoveryEvidence();
+  }));
 
   server.registerTool("editor.native.recovery.inspect", {
     description: "Inspect recovery checkpoint evidence in the configured state directory without contacting Final Cut or clearing the checkpoint.",
@@ -2755,24 +2763,26 @@ async function inspectCanonicalReadForMcp<T>(
     }
   }
 
-  const inspected = await inspectMcpEditor(runtime, options, true);
-  const capability = inspected.capabilities.families.canonicalDocument.read;
-  if (!capability.available) return capabilityErrorResult(operation, "canonicalDocument.read", capability);
-  try {
-    const result = await read();
-    if (headed && expectedTarget) {
-      const live = await runtime.inspectLiveEditor();
-      const returnedTarget = targetOf(result);
-      if (!liveTargetMatches(live, expectedTarget)
-        || (returnedTarget.projectId !== undefined && returnedTarget.projectId !== expectedTarget.projectId)
-        || (returnedTarget.sequenceId !== undefined && returnedTarget.sequenceId !== expectedTarget.sequenceId)) {
-        return mcpReadErrorResult("TARGET_MISMATCH", `${operation} result or active target changed during the headed read`, operation);
+  return runtime.withCanonicalReadScope(async () => {
+    const inspected = await inspectMcpEditor(runtime, options, true);
+    const capability = inspected.capabilities.families.canonicalDocument.read;
+    if (!capability.available) return capabilityErrorResult(operation, "canonicalDocument.read", capability);
+    try {
+      const result = await read();
+      if (headed && expectedTarget) {
+        const live = await runtime.inspectLiveEditor();
+        const returnedTarget = targetOf(result);
+        if (!liveTargetMatches(live, expectedTarget)
+          || (returnedTarget.projectId !== undefined && returnedTarget.projectId !== expectedTarget.projectId)
+          || (returnedTarget.sequenceId !== undefined && returnedTarget.sequenceId !== expectedTarget.sequenceId)) {
+          return mcpReadErrorResult("TARGET_MISMATCH", `${operation} result or active target changed during the headed read`, operation);
+        }
       }
+      return jsonResult(result);
+    } catch (error) {
+      return capabilityUnavailableErrorResult(error);
     }
-    return jsonResult(result);
-  } catch (error) {
-    return capabilityUnavailableErrorResult(error);
-  }
+  });
 }
 
 function liveTargetMatches(

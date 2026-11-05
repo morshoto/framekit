@@ -1,5 +1,45 @@
 # Changelog
 
+## [v0.2.1](https://github.com/morshoto/framekit/compare/v0.2.0...v0.2.1) - 2026-11-04
+
+### New Features
+- fix: separate native publish verification consent by @morshoto in https://github.com/morshoto/framekit/pull/639
+- fix: clarify publish capability guarantees by @morshoto in https://github.com/morshoto/framekit/pull/650
+- fix: reject stale canonical Final Cut context by @morshoto in https://github.com/morshoto/framekit/pull/640
+- fix: persist verified Final Cut targets by @morshoto in https://github.com/morshoto/framekit/pull/556
+- feat: bootstrap static docs workspace by @morshoto in https://github.com/morshoto/framekit/pull/685
+- feat: add docs component toolkit by @morshoto in https://github.com/morshoto/framekit/pull/687
+- feat: build responsive docs shell by @morshoto in https://github.com/morshoto/framekit/pull/688
+- feat: deploy docs to GitHub Pages by @morshoto in https://github.com/morshoto/framekit/pull/686
+- feat: add localized mock MDX pages by @morshoto in https://github.com/morshoto/framekit/pull/689
+- feat: add static documentation search by @morshoto in https://github.com/morshoto/framekit/pull/690
+- Add static docs cross-browser quality gates by @morshoto in https://github.com/morshoto/framekit/pull/691
+- design: review native recovery decision independently by @morshoto in https://github.com/morshoto/framekit/pull/695
+- feat: inspect native recovery evidence read-only by @morshoto in https://github.com/morshoto/framekit/pull/696
+### Bug Fixes
+- fix: report CodeQL policy on merge commits by @morshoto in https://github.com/morshoto/framekit/pull/661
+- fix: restore documentation intent gate by @morshoto in https://github.com/morshoto/framekit/pull/651
+- fix: bind headed native selection targets by @morshoto in https://github.com/morshoto/framekit/pull/435
+### Documentation
+- chore: align contributor toolchain requirements by @morshoto in https://github.com/morshoto/framekit/pull/638
+- chore: gate CodeQL on PR readiness and Swift changes by @morshoto in https://github.com/morshoto/framekit/pull/644
+- chore: consolidate release automation by @morshoto in https://github.com/morshoto/framekit/pull/647
+- chore: separate CodeQL and security validation by @morshoto in https://github.com/morshoto/framekit/pull/658
+- chore: move Swift CodeQL off pull requests by @morshoto in https://github.com/morshoto/framekit/pull/660
+- chore: add fixture-first dev environment by @morshoto in https://github.com/morshoto/framekit/pull/655
+- chore: add compatible project storage ports by @morshoto in https://github.com/morshoto/framekit/pull/652
+- fix: preserve native publish evidence by @morshoto in https://github.com/morshoto/framekit/pull/663
+- chore: Update CodeQL workflow to remove main branch restriction by @morshoto in https://github.com/morshoto/framekit/pull/667
+- fix: guard canonical edits and recovery by @morshoto in https://github.com/morshoto/framekit/pull/664
+### Chores
+- chore: extract skill MCP tools by @morshoto in https://github.com/morshoto/framekit/pull/653
+- chore: validate skill tool metadata by @morshoto in https://github.com/morshoto/framekit/pull/656
+- chore: make Swift CodeQL profiling repeatable by @morshoto in https://github.com/morshoto/framekit/pull/654
+- chore(deps): lock file maintenance by @renovate[bot] in https://github.com/morshoto/framekit/pull/672
+### Other changes
+- chore: instrument Swift CodeQL build bottleneck by @morshoto in https://github.com/morshoto/framekit/pull/643
+- chore: consolidate CI workflows into ci.yml by @morshoto in https://github.com/morshoto/framekit/pull/649
+
 ## [v0.2.0](https://github.com/morshoto/framekit/compare/v0.1.18...v0.2.0) - 2026-10-30
 
 ### Bug Fixes
