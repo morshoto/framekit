@@ -427,3 +427,34 @@ test("intent binding rejects a context that serializes to a different job", asyn
   assert.equal(await readFile(path, "utf8"), before);
   await assert.rejects(reservation.release(), /RECOVERY_REQUIRED/);
 }));
+
+test("a process killed during an actual intent rewrite remains fail-closed", async () => fixture(async (path) => {
+  const module = pathToFileURL(resolve("adapters/final-cut/typescript/src/canonical-recovery-guard.ts")).href;
+  const context = JSON.stringify(v3().recoveryContext);
+  const script = `
+    import { open } from 'node:fs/promises';
+    import { FileCanonicalRecoveryGuard } from ${JSON.stringify(module)};
+    const scratch = await open(process.argv[1] + '.scratch', 'wx');
+    const prototype = Object.getPrototypeOf(scratch);
+    await scratch.close();
+    const original = prototype.write;
+    prototype.write = async function(buffer, offset, length, position) {
+      if (position === 0 && Buffer.isBuffer(buffer) && buffer.toString('utf8').includes('"version":3')) {
+        await original.call(this, buffer, offset, Math.min(length, 12), position);
+        await this.truncate(12);
+        await this.sync();
+        process.kill(process.pid, 'SIGKILL');
+      }
+      return original.call(this, buffer, offset, length, position);
+    };
+    const reservation = await new FileCanonicalRecoveryGuard(process.argv[1]).beginNative(${JSON.stringify(operation)});
+    await reservation.markDispatchPossible();
+    await reservation.bindRecoveryContext(${context});
+  `;
+  const child = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script, path], { timeout: 5000 });
+  assert.equal(child.signal, "SIGKILL", child.stderr?.toString());
+  const restarted = new FileCanonicalRecoveryGuard(path);
+  assert.equal((await restarted.inspectNativeRecoveryEvidence()).status, "unknown");
+  await assert.rejects(restarted.beginNative(operation), /RECOVERY_REQUIRED/);
+  await assert.rejects(restarted.assertClear(), /RECOVERY_REQUIRED/);
+}));

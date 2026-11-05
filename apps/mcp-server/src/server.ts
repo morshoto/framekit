@@ -3134,9 +3134,13 @@ function withPublishRecoveryGuard<T extends object>(
           entry.active = true;
           try {
             const observed = await recovery.inspectNativeReservation();
-            const getJob = Reflect.get(target, "getPublishJob", target) as (id: string) => { state?: string };
-            if (observed?.reservationId !== entry.reservation.reservationId || getJob.call(target, jobId).state !== "verification-pending") {
-              throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish reservation or job changed before verification");
+            if (observed?.reservationId !== entry.reservation.reservationId) {
+              throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish reservation changed before verification");
+            }
+            const getJob = Reflect.get(target, "getPublishJob", target) as (id: string) => { jobId?: unknown; state?: string } | undefined;
+            const job = getJob.call(target, jobId);
+            if (job?.state !== "verification-pending" || (job.jobId !== undefined && job.jobId !== jobId)) {
+              throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish job changed before verification");
             }
           } catch (error) {
             entry.active = false;
@@ -3177,7 +3181,10 @@ function withPublishRecoveryGuard<T extends object>(
             if (jobId && entry.needsBinding) {
               const lookup = Reflect.get(target, "getPublishJob", target) as unknown;
               if (typeof lookup === "function") {
-                const requested = Reflect.apply(lookup, target, [jobId]) as { state?: unknown; targetLibraryPath?: unknown; artifactDigest?: unknown } | undefined;
+                const requested = Reflect.apply(lookup, target, [jobId]) as { jobId?: unknown; state?: unknown; targetLibraryPath?: unknown; artifactDigest?: unknown } | undefined;
+                if (requested?.jobId !== undefined && requested.jobId !== jobId) {
+                  throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish job identity mismatch");
+                }
                 if (requested?.state === "verification-pending") {
                   throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: unowned pending publish cannot be invoked again");
                 }
