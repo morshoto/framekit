@@ -1939,3 +1939,23 @@ test("publish route availability runs only after the uncertainty marker", async 
     await client.close(); await server.close(); await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("a pending custom publish job cannot be dispatched again", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-publish-pending-no-replay-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  let executions = 0;
+  const publisher = {
+    isAvailable: () => false,
+    getPublishJob: () => ({ state: "verification-pending" }),
+    executePublishJob: async () => { executions++; return { state: "verification-pending" }; },
+  } as unknown as NonNullable<Parameters<typeof createMcpServer>[1]>["projectPublisher"];
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher: publisher });
+  try {
+    const result = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "publish-job-1", confirm: true } });
+    assert.equal(result.isError, true);
+    assert.equal(executions, 0);
+    await assert.rejects(guard.assertClear(), /RECOVERY_REQUIRED/);
+  } finally {
+    await client.close(); await server.close(); await rm(directory, { recursive: true, force: true });
+  }
+});
