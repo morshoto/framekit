@@ -1183,10 +1183,9 @@ test("publish reservation excludes edits and permits verification of only the sa
   try {
     await started;
     const durable = JSON.parse(await readFile(path, "utf8"));
-    assert.equal(durable.version, 3);
-    assert.equal(durable.recoveryContext.jobId, "publish-job-1");
-    assert.equal(durable.recoveryContext.artifactDigest, "a".repeat(64));
-    assert.equal(durable.recoveryContext.requestedTarget.libraryPath, "/tmp/target.fcpbundle");
+    // An arbitrary provider's job lookup cannot be called before reservation.
+    assert.equal(durable.version, 2);
+    assert.equal(durable.recoveryContext, undefined);
     await assert.rejects(other.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "b".repeat(64), operation: "rename-clip" }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     const premature = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "publish-job-1", confirm: true, confirmVerification: true } });
     assert.equal(premature.isError, true);
@@ -1618,6 +1617,102 @@ test("MCP native recovery evidence exposes only read-only unproven sender observ
   } finally {
     await client.close();
     await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("mutable publisher persistence dependency cannot prove non-dispatch", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-custom-publish-persistence-"));
+  const source = '<fcpxml version="1.11"><library><event><project uid="project" name="Project"><sequence uid="sequence" name="Main" /></project></event></library></fcpxml>';
+  const artifactPath = join(directory, "source.fcpxml");
+  await writeFile(artifactPath, source);
+  const publisher = new FinalCutProjectPublisher({ headlessSourceVerifier: async () => ({ targetLibraryUid: "library", sourceMediaDigests: [] }) });
+  const job = await publisher.preparePublish({ sourceTransactionId: "headless-rough-cut:mutable-persistence", artifactPath,
+    artifactDigest: createHash("sha256").update(source).digest("hex"), targetLibraryPath: join(directory, "New.fcpbundle") });
+  let arbitraryDependencyCalls = 0;
+  Object.defineProperty(publisher, "publishJobsDirectory", { configurable: true, get() { arbitraryDependencyCalls++; return undefined; } });
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher: publisher });
+  try {
+    const result = JSON.parse(textFrom(await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: job.jobId, confirm: true } })));
+    assert.equal(arbitraryDependencyCalls, 1);
+    assert.equal(result.recoveryReservation?.reason, "native-quiescence-unproven");
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("mutable runtime persistence data cannot prove non-dispatch", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-custom-publish-runtime-"));
+  const source = '<fcpxml version="1.11"><library><event><project uid="project" name="Project"><sequence uid="sequence" name="Main" /></project></event></library></fcpxml>';
+  const artifactPath = join(directory, "source.fcpxml");
+  await writeFile(artifactPath, source);
+  const publisher = new FinalCutProjectPublisher({ enabled: true, sourcePath: artifactPath, publishJobsDirectory: join(directory, "jobs"),
+    liveState: async () => { throw new Error("must not contact Final Cut"); },
+    readCanonicalSnapshot: async () => { throw new Error("must not read Final Cut"); } });
+  const job = await publisher.preparePublish({ sourceTransactionId: "txn-preflight", artifactPath,
+    artifactDigest: createHash("sha256").update(source).digest("hex") });
+  await writeFile(artifactPath, `${source}\nchanged`);
+  let arbitraryDependencyCalls = 0;
+  const runtime = { get arbitrary() { arbitraryDependencyCalls++; return "observed"; } };
+  (publisher as unknown as { publishJobRuntime: Map<string, unknown> }).publishJobRuntime.set(job.jobId, runtime);
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher: publisher });
+  try {
+    await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: job.jobId, confirm: true } });
+    assert.equal(arbitraryDependencyCalls, 1);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("untrusted publish job lookup cannot run while a native reservation is held", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-untrusted-publish-lookup-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const reservation = await guard.beginNative("native.existing");
+  let lookups = 0;
+  const projectPublisher = {
+    isAvailable: () => false,
+    getPublishJob: () => { lookups++; return { state: "awaiting-confirmation" }; },
+    executePublishJob: async () => { throw new Error("must not execute"); },
+  } as unknown as NonNullable<Parameters<typeof createMcpServer>[1]>["projectPublisher"];
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher });
+  try {
+    const result = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "job-1", confirm: true } });
+    assert.equal(result.isError, true);
+    assert.equal(lookups, 0);
+  } finally {
+    await client.close();
+    await server.close();
+    await reservation.release();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("publish execute getter cannot run while another reservation is held", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-publish-execute-getter-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const reservation = await guard.beginNative("native.existing");
+  let lookups = 0;
+  const publisher = { isAvailable: () => false, getPublishJob: () => ({ state: "awaiting-confirmation" }) };
+  Object.defineProperty(publisher, "executePublishJob", { get() { lookups++; return async () => ({}); } });
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard,
+    projectPublisher: publisher as unknown as NonNullable<Parameters<typeof createMcpServer>[1]>["projectPublisher"] });
+  try {
+    lookups = 0;
+    const result = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "job-1", confirm: true } });
+    assert.equal(result.isError, true);
+    assert.equal(lookups, 0);
+  } finally {
+    await client.close();
+    await server.close();
+    await reservation.release();
     await rm(directory, { recursive: true, force: true });
   }
 });

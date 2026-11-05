@@ -281,3 +281,48 @@ test("an empty sender marker on a legacy reservation remains unknown", async () 
   await writeFile(join(`${path}.sender-settled`, id), "");
   assert.equal((await unchanged(directory, () => inspectNativeRecoveryReadOnly(path))).sender.status, "unknown");
 }));
+
+test("sender crash after the durable dispatch marker retains uncertainty after restart", async () => fixture(async (path) => {
+  const module = pathToFileURL(resolve("adapters/final-cut/typescript/src/canonical-recovery-guard.ts")).href;
+  const context = JSON.stringify(v3().recoveryContext);
+  const script = `import {FileCanonicalRecoveryGuard} from ${JSON.stringify(module)}; const handle = await new FileCanonicalRecoveryGuard(process.argv[1]).beginNative(${JSON.stringify(operation)}, ${context}); await handle.markDispatchPossible(); process.kill(process.pid, 'SIGKILL');`;
+  const child = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script, path], { timeout: 5000 });
+  assert.equal(child.signal, "SIGKILL");
+  const restarted = new FileCanonicalRecoveryGuard(path);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const evidence = await restarted.inspectNativeRecoveryEvidence();
+    assert.equal(evidence.boundaryEvidence, "dispatch-possible-recorded");
+    assert.equal(evidence.dispatchState, "possibly-dispatched");
+    assert.equal(evidence.recoveryEligibility, "unavailable");
+    await assert.rejects(restarted.beginNative(operation, v3().recoveryContext), /RECOVERY_REQUIRED/);
+  }
+}));
+
+
+test("sender killed during simulated dispatch leaves a retained reservation", async () => fixture(async (path) => {
+  const module = pathToFileURL(resolve("adapters/final-cut/typescript/src/canonical-recovery-guard.ts")).href;
+  const context = JSON.stringify(v3().recoveryContext);
+  const script = `import {FileCanonicalRecoveryGuard} from ${JSON.stringify(module)}; const handle = await new FileCanonicalRecoveryGuard(process.argv[1]).beginNative(${JSON.stringify(operation)}, ${context}); await handle.markDispatchPossible(); process.stdout.write('dispatch-entered\\n'); setInterval(() => {}, 1000);`;
+  const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script, path], { stdio: ["ignore", "pipe", "pipe"] });
+  try {
+    const signal = await new Promise<NodeJS.Signals | null>((resolve, reject) => {
+      const timeout = setTimeout(() => { child.kill("SIGKILL"); reject(new Error("simulated dispatch did not start")); }, 5000);
+      let output = "";
+      child.stdout.on("data", (chunk: Buffer) => {
+        output += chunk.toString("utf8");
+        if (output.includes("dispatch-entered\n")) child.kill("SIGKILL");
+      });
+      child.once("error", (error) => { clearTimeout(timeout); reject(error); });
+      child.once("exit", (_code, exitSignal) => { clearTimeout(timeout); resolve(exitSignal); });
+    });
+    assert.equal(signal, "SIGKILL");
+    const restarted = new FileCanonicalRecoveryGuard(path);
+    const evidence = await restarted.inspectNativeRecoveryEvidence();
+    assert.equal(evidence.boundaryEvidence, "dispatch-possible-recorded");
+    assert.equal(evidence.dispatchState, "possibly-dispatched");
+    assert.equal(evidence.recoveryEligibility, "unavailable");
+    await assert.rejects(restarted.beginNative(operation, v3().recoveryContext), /RECOVERY_REQUIRED/);
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+  }
+}));

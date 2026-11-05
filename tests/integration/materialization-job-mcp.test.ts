@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
@@ -926,6 +927,96 @@ test("a failed dispatch boundary blocks provider invocation and retains the rese
     assert.equal(trackerCalls, 0);
     assert.equal(publishCalls, 0);
     await assert.rejects(new FileCanonicalRecoveryGuard(path).assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await connected.client.close();
+    await connected.server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+
+test("mutable materialization availability cannot prove non-dispatch", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-preflight-race-"));
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  const options: { executor?: never } = {};
+  const publisher = new FinalCutBackgroundMaterializationPublisher(options);
+  const connected = await connect(directory, publisher, undefined, "default", guard);
+  try {
+    await connected.client.callTool({ name: "session.create", arguments: { sessionId: "session-preflight-race", provider: { id: "final-cut" }, base: timeline() } });
+    let calls = 0;
+    Object.defineProperty(options, "executor", { configurable: true, get() {
+      calls++;
+      return undefined;
+    } });
+    const job = payload(await connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "session-preflight-race", target, confirm: true } }));
+    assert.equal(calls, 1);
+    assert.equal(job.nextAction, "none");
+    await assert.rejects(guard.assertClear(), /RECOVERY_REQUIRED/);
+  } finally {
+    await connected.client.close();
+    await connected.server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("inherited materialization availability getter stays guarded", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-inherited-availability-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  let calls = 0;
+  const options = Object.create({ get executor() { calls++; return undefined; } });
+  const publisher = new FinalCutBackgroundMaterializationPublisher(options);
+  const connected = await connect(directory, publisher, undefined, "default", guard);
+  try {
+    await connected.client.callTool({ name: "session.create", arguments: { sessionId: "session-inherited-availability", provider: { id: "final-cut" }, base: timeline() } });
+    const job = payload(await connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "session-inherited-availability", target, confirm: true } }));
+    assert.equal(calls, 1);
+    assert.equal(job.nextAction, "none");
+    await assert.rejects(guard.assertClear(), /RECOVERY_REQUIRED/);
+  } finally {
+    await connected.client.close();
+    await connected.server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+
+test("materialization tracker lookup occurs only with a reservation", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-tracker-property-"));
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  const observed: boolean[] = [];
+  const publisher: SessionMaterializationPublisher = {
+    publish: async () => { throw new Error("receiver timeout"); },
+  };
+  Object.defineProperty(publisher, "trackNativeDispatch", { configurable: true, get() { observed.push(existsSync(path)); return undefined; } });
+  const connected = await connect(directory, publisher, undefined, "default", guard);
+  try {
+    await connected.client.callTool({ name: "session.create", arguments: { sessionId: "session-tracker-property", provider: { id: "final-cut" }, base: timeline() } });
+    observed.length = 0;
+    await connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "session-tracker-property", target, confirm: true } });
+    assert.ok(observed.length > 0);
+    assert.ok(observed.every(Boolean), "tracker property was evaluated before reservation");
+  } finally {
+    await connected.client.close();
+    await connected.server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("an overridden built-in publisher does not use the unavailable shortcut", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-overridden-publisher-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const publisher = new FinalCutBackgroundMaterializationPublisher();
+  let calls = 0;
+  publisher.publish = async () => { calls++; throw new Error("RECEIVER_TIMEOUT"); };
+  const connected = await connect(directory, publisher, undefined, "default", guard);
+  try {
+    await connected.client.callTool({ name: "session.create", arguments: { sessionId: "session-overridden-publisher", provider: { id: "final-cut" }, base: timeline() } });
+    const job = payload(await connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "session-overridden-publisher", target, confirm: true } }));
+    assert.equal(calls, 1);
+    assert.equal(job.nextAction, "none");
+    await assert.rejects(guard.assertClear(), /RECOVERY_REQUIRED/);
   } finally {
     await connected.client.close();
     await connected.server.close();

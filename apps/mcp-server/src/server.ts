@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { createHash, randomUUID } from "node:crypto";
 import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs";
+import { types as utilTypes } from "node:util";
 import { isAbsolute, resolve as resolvePath } from "node:path";
 import { z } from "zod/v3";
 import {
@@ -35,6 +36,7 @@ import {
   nativeMediaSearchQueryError,
   type DisposableNativeEditWorkflow,
   type FinalCutProjectPublishJobState,
+  type FinalCutProjectPublishJob,
   type FinalCutProjectPublishReadiness,
   FinalCutProjectPublisher,
   FinalCutNativeAutomationAdapter,
@@ -3099,14 +3101,16 @@ function withPublishRecoveryGuard<T extends object>(
   let current: { jobId?: string; reservation: Awaited<ReturnType<FileCanonicalRecoveryGuard["beginNative"]>>; active: boolean; dispatched: boolean } | undefined;
   return new Proxy(provider, {
     get(target, property) {
-      const value = Reflect.get(target, property, target) as unknown;
-      if (typeof value !== "function") return value;
-      if (allowed.has(property)) return value.bind(target);
-      return async (...args: unknown[]) => {
-        if (property !== "executePublishJob" && property !== "publishNewProject") {
+      if (property !== "executePublishJob" && property !== "publishNewProject") {
+        const value = Reflect.get(target, property, target) as unknown;
+        if (typeof value !== "function") return value;
+        if (allowed.has(property)) return value.bind(target);
+        return async (...args: unknown[]) => {
           await recovery.assertClear();
           return Reflect.apply(value, target, args);
-        }
+        };
+      }
+      return async (...args: unknown[]) => {
         const jobId = property === "executePublishJob" && typeof args[0] === "string" ? args[0] : undefined;
         let provenDisabled = false;
         let entry = current;
@@ -3128,8 +3132,8 @@ function withPublishRecoveryGuard<T extends object>(
             throw error;
           }
         } else {
-          const getJob = Reflect.get(target, "getPublishJob", target) as ((id: string) => { state?: string; artifactDigest?: string; targetLibraryPath?: string }) | undefined;
-          const job = jobId ? getJob?.call(target, jobId) : undefined;
+          // Never invoke caller-controlled job lookup before the reservation.
+          const job = jobId ? inertBuiltInPublishJob(target, jobId) : undefined;
           const pending = job?.state === "verification-pending";
           const operation = jobId
             ? `native.publish.${createHash("sha256").update(jobId).digest("hex")}`
@@ -3143,37 +3147,49 @@ function withPublishRecoveryGuard<T extends object>(
               artifactDigest: digest, executorIdentity: null, nativeQuiescence: "unproven" as const }
             : undefined;
           const reservation = await recovery.beginNative(operation, context);
-          const track = Reflect.get(target, "trackNativeDispatch", target);
-          entry = { jobId, reservation, active: true, dispatched: pending || typeof track !== "function" };
+          entry = { jobId, reservation, active: true, dispatched: pending };
           current = entry;
         }
-        const track = Reflect.get(target, "trackNativeDispatch", target) as unknown;
         try {
-          if (acquiringReservation && jobId && property === "executePublishJob"
+          // Property getters on arbitrary providers may themselves dispatch.
+          const trustedShape = !utilTypes.isProxy(target) && property === "executePublishJob"
             && Object.getPrototypeOf(target) === FinalCutProjectPublisher.prototype
-            && value === builtInPublishExecute
-            && Reflect.get(target, "getPublishJob", target) === builtInPublishGetJob
-            && Reflect.get(target, "persistPublishJob", target) === builtInPublishPersist
-            && track === builtInPublishTrack) {
+            && [["executePublishJob", builtInPublishExecute], ["getPublishJob", builtInPublishGetJob],
+              ["persistPublishJob", builtInPublishPersist], ["trackNativeDispatch", builtInPublishTrack]].every(([key, method]) =>
+              typeof key === "string" && !Object.getOwnPropertyDescriptor(target, key)
+              && Object.getOwnPropertyDescriptor(FinalCutProjectPublisher.prototype, key)?.value === method);
+          if (acquiringReservation && !trustedShape) {
+            entry.dispatched = true;
+            await entry.reservation.markDispatchPossible();
+          }
+          const value = trustedShape ? builtInPublishExecute : Reflect.get(target, property, target) as unknown;
+          const track = trustedShape ? builtInPublishTrack : Reflect.get(target, "trackNativeDispatch", target) as unknown;
+          if (typeof value !== "function") throw new Error("CAPABILITY_UNAVAILABLE: publisher operation is not available");
+          if (acquiringReservation && jobId && property === "executePublishJob"
+            && trustedShape) {
             const stores = ["publishJobs", "publishJobRuntime"].map((key) => Object.getOwnPropertyDescriptor(target, key)?.value);
             const ordinaryStores = stores.every((store: unknown) => store instanceof Map
+              && !utilTypes.isProxy(store)
               && Object.getPrototypeOf(store) === Map.prototype
-              && store.get === builtInMapGet && store.set === builtInMapSet && store.has === builtInMapHas);
-            if (ordinaryStores) {
-              const job = builtInPublishGetJob.call(target as FinalCutProjectPublisher, jobId);
+              && !Object.getOwnPropertyDescriptor(store, "get") && !Object.getOwnPropertyDescriptor(store, "set") && !Object.getOwnPropertyDescriptor(store, "has")
+              && Map.prototype.get === builtInMapGet && Map.prototype.set === builtInMapSet && Map.prototype.has === builtInMapHas);
+            const job = ordinaryStores ? inertBuiltInPublishJob(target, jobId) : undefined;
+            if (job) {
               const enabled = Object.getOwnPropertyDescriptor(target, "enabled");
+              const directory = Object.getOwnPropertyDescriptor(target, "publishJobsDirectory");
+              const safePersistence = Boolean(directory && "value" in directory
+                && (directory.value === undefined || !builtInMapHas.call(stores[1], jobId)));
               provenDisabled = (job.state === "awaiting-confirmation" || job.state === "awaiting-final-cut")
-                && enabled?.value === false;
+                && enabled?.value === false && safePersistence;
               // A mismatching managed artifact can be rejected without invoking
               // the publisher or its tracker. Keep this synchronous so the
               // trusted store and publisher checks cannot race an await.
               const source = Object.getOwnPropertyDescriptor(target, "sourcePath");
-              const directory = Object.getOwnPropertyDescriptor(target, "publishJobsDirectory");
               if (args[1] === true && enabled?.value === true && !provenDisabled
                 && (job.state === "awaiting-confirmation" || job.state === "awaiting-final-cut")
                 && !job.sourceTransactionId.startsWith("headless-rough-cut:")
                 && typeof source?.value === "string" && source.value === job.sourcePath
-                && directory && "value" in directory
+                && safePersistence
                 && managedArtifactChanged(job.sourcePath, job.artifactDigest)) {
                 const failed = { ...job, state: "failed" as const, nextAction: "none" as const, retryable: false,
                   error: { code: "PUBLISH_SOURCE_CHANGED", message: "Managed FCPXML artifact changed after transaction verification" } };
@@ -3191,7 +3207,7 @@ function withPublishRecoveryGuard<T extends object>(
           if (!provenDisabled) entry.dispatched = true;
           // Record uncertainty before entering any untrusted tracker or provider.
           // Resumed verification reuses the already marked reservation.
-          if (acquiringReservation && !provenDisabled) await entry.reservation.markDispatchPossible();
+          if (acquiringReservation && trustedShape && !provenDisabled) await entry.reservation.markDispatchPossible();
           const result: unknown = typeof track === "function"
             ? await Reflect.apply(track, target, [invoke, () => { entry!.dispatched = true; }])
             : await invoke();
@@ -3209,6 +3225,30 @@ function withPublishRecoveryGuard<T extends object>(
       };
     },
   });
+}
+
+function inertBuiltInPublishJob(target: object, jobId: string): FinalCutProjectPublishJob | undefined {
+  if (utilTypes.isProxy(target) || Object.getPrototypeOf(target) !== FinalCutProjectPublisher.prototype
+    || Object.getOwnPropertyDescriptor(target, "getPublishJob")
+    || Object.getOwnPropertyDescriptor(FinalCutProjectPublisher.prototype, "getPublishJob")?.value !== builtInPublishGetJob) return undefined;
+  const store = Object.getOwnPropertyDescriptor(target, "publishJobs")?.value;
+  if (!(store instanceof Map) || utilTypes.isProxy(store) || Object.getPrototypeOf(store) !== Map.prototype
+    || Map.prototype.get !== builtInMapGet) return undefined;
+  const job: unknown = builtInMapGet.call(store, jobId);
+  const seen = new Set<object>();
+  const inert = (value: unknown): boolean => {
+    if (value === null || ["string", "boolean", "number", "undefined"].includes(typeof value)) return true;
+    if (typeof value !== "object" || utilTypes.isProxy(value) || seen.has(value) || seen.size >= 10_000) return false;
+    seen.add(value);
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== Array.prototype && prototype !== null) return false;
+    return Reflect.ownKeys(value).every((key) => {
+      if (typeof key !== "string") return false;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      return Boolean(descriptor && "value" in descriptor && inert(descriptor.value));
+    });
+  };
+  return inert(job) && job && typeof job === "object" ? structuredClone(job) as FinalCutProjectPublishJob : undefined;
 }
 
 function managedArtifactChanged(path: string, digest: string): boolean {
