@@ -92,8 +92,10 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
     }, release: async () => {
       if (released) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: native reservation was already released");
       if (dispatchPossible) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: native dispatch may have begun");
-      await this.completeOwned(owner, version);
+      // Block dispatch immediately, including while the filesystem release is pending.
+      // A failed release remains closed instead of reopening the dispatch boundary.
       released = true;
+      await this.completeOwned(owner, version);
     } };
   }
 
