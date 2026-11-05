@@ -1114,7 +1114,7 @@ test("publish reservation excludes edits and permits verification of only the sa
   }
 });
 
-test("publish validation before dispatch does not leave a reservation", async () => {
+test("an invoked publisher without dispatch acknowledgement retains its reservation", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-publish-validation-"));
   const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
   const projectPublisher = {
@@ -1127,7 +1127,8 @@ test("publish validation before dispatch does not leave a reservation", async ()
   try {
     const result = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "job-1", confirm: true } });
     assert.equal(result.isError ?? false, false, textFrom(result));
-    await guard.assertClear();
+    assert.equal(JSON.parse(textFrom(result)).recoveryReservation.reason, "native-quiescence-unproven");
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   } finally {
     await client.close();
     await server.close();
