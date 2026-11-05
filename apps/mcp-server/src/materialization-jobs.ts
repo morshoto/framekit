@@ -6,6 +6,7 @@ import { timelineIrDigest, validateTimelineIr, type TimelineIr } from "@framekit
 import {
   compileTimelineIrToFcpxml,
   FinalCutBackgroundMaterializationPublisher,
+  validateFinalCutBackgroundMaterializationRequest,
   type FileCanonicalRecoveryGuard,
   type TimelineIrMaterializationCoverage,
   type TimelineIrMaterializationProvenance,
@@ -290,6 +291,30 @@ export class SessionMaterializationJobs {
     try {
       const finalFailure = await this.validateStagedJob(claimed);
       if (finalFailure) return this.fail(claimed, finalFailure);
+      if (claimed.destination.mode !== "versioned") return this.fail(claimed, {
+        code: "MATERIALIZATION_DESTINATION_INVALID", message: "Versioned destination required", retryable: false, providerRequested: false,
+      });
+      const request: SessionMaterializationPublishRequest = {
+        jobId: claimed.jobId,
+        artifactPath: claimed.artifactPath,
+        artifactDigest: claimed.artifactDigest,
+        target: claimed.target,
+        destination: claimed.destination,
+        collisionPolicy: "create-only",
+        desired: structuredClone(claimed.desired),
+        desiredDigest: claimed.desiredDigest,
+        baseDigest: claimed.baseDigest,
+        baseRevision: structuredClone(claimed.baseRevision),
+        coverage: structuredClone(claimed.coverage!),
+        provenance: structuredClone(claimed.provenance!),
+      };
+      try {
+        // The built-in adapter's pure request checks must run before the
+        // dispatch boundary, while the staged request is still inert data.
+        validateFinalCutBackgroundMaterializationRequest(request);
+      } catch (error) {
+        return this.fail(claimed, materializationFailure(error, false));
+      }
       // This check invokes no provider operation and is limited to the exact
       // built-in implementation. Custom providers remain untrusted.
       if (hasInertUnavailableMaterializationOptions(this.publisher)) {
@@ -302,9 +327,6 @@ export class SessionMaterializationJobs {
         await this.save(blocked);
         return blocked;
       }
-      if (claimed.destination.mode !== "versioned") return this.fail(claimed, {
-        code: "MATERIALIZATION_DESTINATION_INVALID", message: "Versioned destination required", retryable: false, providerRequested: false,
-      });
       if (this.recoveryGuard) {
         try {
           const id = createHash("sha256").update(claimed.jobId).digest("hex");
@@ -331,20 +353,6 @@ export class SessionMaterializationJobs {
         claimed = { ...claimed, recoveryReservation: { reservationId: reservation.reservationId, reason: "native-quiescence-unproven" } };
         await this.save(claimed);
       }
-      const request: SessionMaterializationPublishRequest = {
-        jobId: claimed.jobId,
-        artifactPath: claimed.artifactPath,
-        artifactDigest: claimed.artifactDigest,
-        target: claimed.target,
-        destination: claimed.destination,
-        collisionPolicy: "create-only",
-        desired: structuredClone(claimed.desired),
-        desiredDigest: claimed.desiredDigest,
-        baseDigest: claimed.baseDigest,
-        baseRevision: structuredClone(claimed.baseRevision),
-        coverage: structuredClone(claimed.coverage!),
-        provenance: structuredClone(claimed.provenance!),
-      };
       const invoke = async () => {
         const intent: SessionMaterializationJob = {
           ...claimed, providerRequestPhase: "dispatch-intent",
