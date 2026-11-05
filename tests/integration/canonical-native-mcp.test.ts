@@ -1162,6 +1162,33 @@ test("disabled built-in publisher returns a safe pre-dispatch retry", async () =
   }
 });
 
+test("publisher configuration is rechecked after reservation acquisition", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-publish-preflight-race-"));
+  const source = '<fcpxml version="1.11"><library><event><project uid="project" name="Project"><sequence uid="sequence" name="Main" /></project></event></library></fcpxml>';
+  const artifactPath = join(directory, "source.fcpxml");
+  await writeFile(artifactPath, source);
+  const publisher = new FinalCutProjectPublisher({ headlessSourceVerifier: async () => ({ targetLibraryUid: "library", sourceMediaDigests: [] }) });
+  const job = await publisher.preparePublish({ sourceTransactionId: "headless-rough-cut:race", artifactPath,
+    artifactDigest: createHash("sha256").update(source).digest("hex"), targetLibraryPath: join(directory, "New.fcpbundle") });
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const begin = guard.beginNative.bind(guard);
+  guard.beginNative = async (...args) => {
+    const reservation = await begin(...args);
+    (publisher as unknown as { enabled: boolean }).enabled = true;
+    return reservation;
+  };
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher: publisher });
+  try {
+    const result = JSON.parse(textFrom(await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: job.jobId, confirm: true } })));
+    assert.equal(result.recoveryReservation.reason, "native-quiescence-unproven");
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("publish verification rejects a replaced reservation", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-publish-replaced-"));
   const path = join(directory, "pending.json");
