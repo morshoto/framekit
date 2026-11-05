@@ -46,6 +46,20 @@ test("reservation rejects a mismatched operation before creating durable intent"
   assert.equal((await inspectNativeRecoveryReadOnly(path)).status, "clear");
 }));
 
+test("durable dispatch boundary forbids owner release and survives restart", async () => fixture(async (path) => {
+  const guard = new FileCanonicalRecoveryGuard(path);
+  const reservation = await guard.beginNative(operation, v3().recoveryContext);
+  await reservation.markDispatchPossible();
+  await assert.rejects(reservation.release(), /RECOVERY_REQUIRED/);
+  const restarted = new FileCanonicalRecoveryGuard(path);
+  const evidence = await restarted.inspectNativeRecoveryEvidence();
+  assert.equal(evidence.reservation?.reservationId, reservation.reservationId);
+  assert.equal(evidence.dispatchState, "possibly-dispatched");
+  assert.equal(evidence.boundaryEvidence, "dispatch-possible-recorded");
+  assert.equal(evidence.recoveryEligibility, "unavailable");
+  await assert.rejects(restarted.beginNative(operation, v3().recoveryContext), /RECOVERY_REQUIRED/);
+}));
+
 test("a sender crash after durable intent remains uncertain across repeated inspections", async () => fixture(async (path) => {
   const module = pathToFileURL(resolve("adapters/final-cut/typescript/src/canonical-recovery-guard.ts")).href;
   const context = JSON.stringify(v3().recoveryContext);
