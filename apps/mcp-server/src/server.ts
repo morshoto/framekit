@@ -3162,10 +3162,13 @@ function withPublishRecoveryGuard<T extends object>(
             ? { kind: "publish" as const, jobId, dispatchId: randomUUID(), requestedTarget: { libraryPath: path },
               artifactDigest: digest, executorIdentity: null, nativeQuiescence: "unproven" as const }
             : undefined;
+          // Capture primitives before awaiting the guard; its implementation
+          // must not be able to rewrite the evidence used for the recheck.
+          const requestedIntent = context && job ? { libraryPath: context.requestedTarget.libraryPath,
+            artifactDigest: context.artifactDigest, state: job.state } : undefined;
           const reservation = await recovery.beginNative(operation, context);
           entry = { jobId, reservation, active: true, dispatched: pending, needsBinding: !context,
-            ...(context && job ? { requestedIntent: { libraryPath: context.requestedTarget.libraryPath,
-              artifactDigest: context.artifactDigest, state: job.state } } : {}) };
+            ...(requestedIntent ? { requestedIntent } : {}) };
           current = entry;
         }
         try {
