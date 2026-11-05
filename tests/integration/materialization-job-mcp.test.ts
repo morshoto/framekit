@@ -835,3 +835,29 @@ test("materialization does not claim a provider request when tracking fails firs
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("a provider timeout without a dispatch callback remains reserved after restart", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-timeout-"));
+  const path = join(directory, "pending.json");
+  let calls = 0;
+  const publisher: SessionMaterializationPublisher = {
+    trackNativeDispatch: async (call) => call(),
+    publish: async () => { calls++; throw new Error("RECEIVER_TIMEOUT: acknowledgement missing"); },
+  };
+  const connected = await connect(directory, publisher, undefined, "default", new FileCanonicalRecoveryGuard(path));
+  try {
+    await connected.client.callTool({ name: "session.create", arguments: { sessionId: "session-timeout", provider: { id: "final-cut" }, base: timeline() } });
+    const job = payload(await connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "session-timeout", target, confirm: true } }));
+    assert.equal(job.evidence.providerRequested, true);
+    assert.equal(job.nextAction, "none");
+    const restarted = new FileCanonicalRecoveryGuard(path);
+    assert.equal((await restarted.inspectNativeRecoveryEvidence()).dispatchState, "possibly-dispatched");
+    await assert.rejects(restarted.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await connected.client.callTool({ name: "session.materialize.retry", arguments: { jobId: job.jobId } });
+    assert.equal(calls, 1);
+  } finally {
+    await connected.client.close();
+    await connected.server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});

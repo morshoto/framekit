@@ -63,6 +63,24 @@ test("a sender crash after durable intent remains uncertain across repeated insp
   }
 }));
 
+test("a crash during reservation creation remains unknown and blocks a new writer", async () => fixture(async (path) => {
+  const script = "require('fs').closeSync(require('fs').openSync(process.argv[1], 'wx')); process.kill(process.pid, 'SIGKILL');";
+  const child = spawnSync(process.execPath, ["-e", script, path], { timeout: 5000 });
+  assert.equal(child.signal, "SIGKILL");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  assert.equal((await guard.inspectNativeRecoveryEvidence()).status, "unknown");
+  await assert.rejects(guard.beginNative(operation, v3().recoveryContext), /RECOVERY_REQUIRED/);
+  assert.equal(await readFile(path, "utf8"), "");
+}));
+
+test("a legacy reservation excludes a new intent writer", async () => fixture(async (path) => {
+  const legacy = JSON.stringify(v2()) + "\n";
+  const child = spawnSync(process.execPath, ["-e", "require('fs').writeFileSync(process.argv[1], process.argv[2], {flag:'wx'});", path, legacy], { timeout: 5000 });
+  assert.equal(child.status, 0);
+  await assert.rejects(new FileCanonicalRecoveryGuard(path).beginNative(operation, v3().recoveryContext), /RECOVERY_REQUIRED/);
+  assert.equal(await readFile(path, "utf8"), legacy);
+}));
+
 async function snapshot(directory: string): Promise<Record<string, string>> {
   const found: Record<string, string> = {};
   async function walk(path: string, prefix: string) {
