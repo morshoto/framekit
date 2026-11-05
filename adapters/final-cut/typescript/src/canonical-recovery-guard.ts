@@ -3,7 +3,7 @@ import { constants } from "node:fs";
 import { lstat, mkdir, open, readFile, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { CanonicalRecoveryCheckpoint, CanonicalRecoveryGuard } from "./canonical.js";
-import { inspectNativeRecoveryReadOnly } from "./native-recovery-inspection.js";
+import { inspectNativeRecoveryReadOnly, validRecoveryContext, type NativeMaterializationRecoveryContext, type NativePublishRecoveryContext } from "./native-recovery-inspection.js";
 
 /** A durable, exclusive checkpoint; unresolved checkpoints are never cleared automatically. */
 export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
@@ -40,10 +40,11 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
       if (!info.isFile() || info.size > 16_384) throw new Error("invalid reservation file");
       const contents = await handle.readFile("utf8");
       const record = JSON.parse(contents) as Record<string, unknown>;
-      if (record.version !== 2 || record.kind !== "native-operation"
+      if ((record.version !== 2 && record.version !== 3) || record.kind !== "native-operation"
         || typeof record.owner !== "string"
         || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(record.owner)
-        || typeof record.operation !== "string" || !/^[a-z][a-z0-9.-]{0,127}$/.test(record.operation)) {
+        || typeof record.operation !== "string" || !/^[a-z][a-z0-9.-]{0,127}$/.test(record.operation)
+        || (record.version === 3 && !validRecoveryContext(record.recoveryContext, record.operation))) {
         throw new Error("invalid native reservation");
       }
       return { reservationId: createHash("sha256").update(contents).digest("hex"), operation: record.operation };
@@ -56,11 +57,13 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
   }
 
   /** Atomically reserve the same path used by canonical checkpoints. */
-  public async beginNative(operation: string): Promise<{ reservationId: string; release(): Promise<void> }> {
+  public async beginNative(operation: string, context?: NativeMaterializationRecoveryContext | NativePublishRecoveryContext): Promise<{ reservationId: string; release(): Promise<void> }> {
     if (!/^[a-z][a-z0-9.-]{0,127}$/.test(operation)) throw new Error("INVALID_OPERATION: invalid native reservation operation");
+    if (context && !validRecoveryContext(context, operation)) throw new Error("INVALID_OPERATION: invalid native recovery context");
     await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
     const owner = randomUUID();
-    const contents = JSON.stringify({ version: 2, kind: "native-operation", owner, operation }) + "\n";
+    const version = context ? 3 : 2;
+    const contents = JSON.stringify({ version, kind: "native-operation", owner, operation, ...(context ? { recoveryContext: context } : {}) }) + "\n";
     let handle;
     try {
       handle = await open(this.path, "wx", 0o600);
@@ -74,7 +77,7 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
     let released = false;
     return { reservationId: createHash("sha256").update(contents).digest("hex"), release: async () => {
       if (released) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: native reservation was already released");
-      await this.completeOwned(owner, 2);
+      await this.completeOwned(owner, version);
       released = true;
     } };
   }

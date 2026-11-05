@@ -50,7 +50,7 @@ function validPublishContext(value: unknown, operation: string): value is Native
     && c.executorIdentity === null && c.nativeQuiescence === "unproven";
 }
 
-function validRecoveryContext(value: unknown, operation: string): value is NativeRecoveryContext {
+export function validRecoveryContext(value: unknown, operation: string): value is NativeMaterializationRecoveryContext | NativePublishRecoveryContext {
   return validMaterializationContext(value, operation) || validPublishContext(value, operation);
 }
 

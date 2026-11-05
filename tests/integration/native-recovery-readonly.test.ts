@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
-import { inspectNativeRecoveryReadOnly } from "../../adapters/final-cut/typescript/src/native-recovery-inspection.js";
+import { inspectNativeRecoveryReadOnly, type NativePublishRecoveryContext } from "../../adapters/final-cut/typescript/src/native-recovery-inspection.js";
 import { FileCanonicalRecoveryGuard } from "../../adapters/final-cut/typescript/src/canonical-recovery-guard.js";
 
 const owner = "00000000-0000-4000-8000-000000000001";
@@ -15,7 +15,7 @@ const dispatchId = "00000000-0000-4000-8000-000000000002";
 const digest = (s: string | Buffer) => createHash("sha256").update(s).digest("hex");
 const operation = `native.publish.${digest(jobId)}`;
 const v2 = () => ({ version: 2, kind: "native-operation", owner, operation: "native.searchmedia" });
-const v3 = () => ({ version: 3, kind: "native-operation", owner, operation, senderTracked: true, recoveryContext: {
+const v3 = (): { version: 3; kind: string; owner: string; operation: string; senderTracked: boolean; recoveryContext: NativePublishRecoveryContext } => ({ version: 3, kind: "native-operation", owner, operation, senderTracked: true, recoveryContext: {
   kind: "publish", jobId, dispatchId, requestedTarget: { libraryPath: "/tmp/target.fcpbundle" }, artifactDigest: "a".repeat(64), executorIdentity: null, nativeQuiescence: "unproven" } });
 const v4 = () => ({ ...v3(), version: 4, recoveryContext: { ...v3().recoveryContext, executorIdentity: "receiver-1", dispatchState: "intent", canonicalTarget: { libraryPath: "/tmp/target.fcpbundle", projectUid: "project", sequenceUid: "sequence" }, expectedCanonicalDigest: "b".repeat(64) } });
 
