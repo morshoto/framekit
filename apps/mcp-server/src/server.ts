@@ -3177,7 +3177,8 @@ function withPublishRecoveryGuard<T extends object>(
               const enabled = Object.getOwnPropertyDescriptor(target, "enabled");
               const directory = Object.getOwnPropertyDescriptor(target, "publishJobsDirectory");
               const safePersistence = Boolean(directory && "value" in directory
-                && (directory.value === undefined || !builtInMapHas.call(stores[1], jobId)));
+                && (directory.value === undefined
+                  || (typeof directory.value === "string" && !builtInMapHas.call(stores[1], jobId))));
               provenDisabled = (job.state === "awaiting-confirmation" || job.state === "awaiting-final-cut")
                 && enabled?.value === false && safePersistence;
               // A mismatching managed artifact can be rejected without invoking
