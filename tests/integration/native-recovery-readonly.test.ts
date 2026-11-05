@@ -7,6 +7,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { inspectNativeRecoveryReadOnly } from "../../adapters/final-cut/typescript/src/native-recovery-inspection.js";
+import { FileCanonicalRecoveryGuard } from "../../adapters/final-cut/typescript/src/canonical-recovery-guard.js";
 
 const owner = "00000000-0000-4000-8000-000000000001";
 const jobId = "publish-job-123";
@@ -17,6 +18,28 @@ const v2 = () => ({ version: 2, kind: "native-operation", owner, operation: "nat
 const v3 = () => ({ version: 3, kind: "native-operation", owner, operation, senderTracked: true, recoveryContext: {
   kind: "publish", jobId, dispatchId, requestedTarget: { libraryPath: "/tmp/target.fcpbundle" }, artifactDigest: "a".repeat(64), executorIdentity: null, nativeQuiescence: "unproven" } });
 const v4 = () => ({ ...v3(), version: 4, recoveryContext: { ...v3().recoveryContext, executorIdentity: "receiver-1", dispatchState: "intent", canonicalTarget: { libraryPath: "/tmp/target.fcpbundle", projectUid: "project", sequenceUid: "sequence" }, expectedCanonicalDigest: "b".repeat(64) } });
+
+test("durable publish intent survives restart as uncertain, never as receiver completion", async () => fixture(async (path) => {
+  const context = v3().recoveryContext;
+  const original = new FileCanonicalRecoveryGuard(path);
+  const reservation = await original.beginNative(operation, context);
+  const restarted = new FileCanonicalRecoveryGuard(path);
+  const evidence = await restarted.inspectNativeRecoveryEvidence();
+  assert.equal(evidence.reservation?.reservationId, reservation.reservationId);
+  assert.equal(evidence.reservation?.jobId, jobId);
+  assert.equal(evidence.reservation?.dispatchId, dispatchId);
+  assert.equal(evidence.nativeQuiescence, "unproven");
+  assert.equal(evidence.recoveryEligibility, "unavailable");
+  await assert.rejects(restarted.beginNative(operation, context), /RECOVERY_REQUIRED/);
+  await assert.rejects(restarted.assertClear(), /RECOVERY_REQUIRED/);
+  assert.deepEqual(JSON.parse(await readFile(path, "utf8")).recoveryContext, context);
+}));
+
+test("reservation rejects a mismatched operation before creating durable intent", async () => fixture(async (path) => {
+  const guard = new FileCanonicalRecoveryGuard(path);
+  await assert.rejects(guard.beginNative("native.publish.other", v3().recoveryContext), /INVALID_OPERATION/);
+  assert.equal((await inspectNativeRecoveryReadOnly(path)).status, "clear");
+}));
 
 async function snapshot(directory: string): Promise<Record<string, string>> {
   const found: Record<string, string> = {};
