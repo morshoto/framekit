@@ -1023,3 +1023,52 @@ test("an overridden built-in publisher does not use the unavailable shortcut", a
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("invalid persisted provenance is rejected before materialization reservation", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-provenance-source-"));
+  try {
+    const first = await connect(directory);
+    await first.client.callTool({ name: "session.create", arguments: { sessionId: "session-invalid-provenance", provider: { id: "final-cut" }, base: timeline() } });
+    const staged = payload(await first.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "session-invalid-provenance", target, confirm: true } }));
+    const jobPath = join(directory, "materializations", "jobs", `${staged.jobId}.json`);
+    const persisted = JSON.parse(await readFile(jobPath, "utf8"));
+    persisted.provenance.source = "other";
+    await writeFile(jobPath, `${JSON.stringify(persisted)}\n`, "utf8");
+    await first.client.close(); await first.server.close();
+    const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+    let dispatches = 0;
+    const publisher = new FinalCutBackgroundMaterializationPublisher({ executor: async () => { dispatches++; throw new Error("must not dispatch"); } });
+    const second = await connect(directory, publisher, undefined, "default", guard);
+    try {
+      const failed = payload(await second.client.callTool({ name: "session.materialize.retry", arguments: { jobId: staged.jobId } }));
+      assert.equal(failed.state, "failed");
+      assert.equal(failed.error.code, "MATERIALIZATION_PROVENANCE_INVALID");
+      assert.equal(dispatches, 0);
+      await guard.assertClear();
+    } finally { await second.client.close(); await second.server.close(); }
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("invalid provenance is checked before the unavailable-provider shortcut", async () => {
+  for (const corruption of ["source", "schemaVersion"] as const) {
+    const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-invalid-preflight-"));
+    try {
+      const first = await connect(directory);
+      await first.client.callTool({ name: "session.create", arguments: { sessionId: "session-invalid-preflight", provider: { id: "final-cut" }, base: timeline() } });
+      const staged = payload(await first.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "session-invalid-preflight", target, confirm: true } }));
+      const path = join(directory, "materializations", "jobs", `${staged.jobId}.json`);
+      const persisted = JSON.parse(await readFile(path, "utf8"));
+      persisted.provenance[corruption] = corruption === "source" ? "other" : 999;
+      await writeFile(path, `${JSON.stringify(persisted)}\n`, "utf8");
+      await first.client.close(); await first.server.close();
+      const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+      const second = await connect(directory, new FinalCutBackgroundMaterializationPublisher(), undefined, "default", guard);
+      try {
+        const failed = payload(await second.client.callTool({ name: "session.materialize.retry", arguments: { jobId: staged.jobId } }));
+        assert.equal(failed.state, "failed", corruption);
+        assert.equal(failed.error.code, "MATERIALIZATION_PROVENANCE_INVALID", corruption);
+        await guard.assertClear();
+      } finally { await second.client.close(); await second.server.close(); }
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  }
+});
