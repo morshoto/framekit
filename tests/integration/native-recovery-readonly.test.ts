@@ -30,6 +30,11 @@ test("durable publish intent survives restart as uncertain, never as receiver co
   assert.equal(evidence.reservation?.dispatchId, dispatchId);
   assert.equal(evidence.nativeQuiescence, "unproven");
   assert.equal(evidence.recoveryEligibility, "unavailable");
+  assert.equal(evidence.dispatchState, "possibly-dispatched");
+  assert.deepEqual(evidence.missingEvidence, ["receiver-terminal-quiescence", "independent-target-outcome", "legacy-writer-exclusion"]);
+  assert.deepEqual(evidence.safeNextActions, ["inspect", "retain-reservation"]);
+  assert.equal(evidence.intent?.artifactDigest, context.artifactDigest);
+  assert.deepEqual(evidence.intent?.requestedTarget, context.requestedTarget);
   await assert.rejects(restarted.beginNative(operation, context), /RECOVERY_REQUIRED/);
   await assert.rejects(restarted.assertClear(), /RECOVERY_REQUIRED/);
   assert.deepEqual(JSON.parse(await readFile(path, "utf8")).recoveryContext, context);
