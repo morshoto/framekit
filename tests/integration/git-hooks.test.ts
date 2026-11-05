@@ -166,4 +166,5 @@ test("pre-commit hook forces headless fixture validation", async () => {
 
 test("Final Cut MCP test environment requires isolated state", () => {
   assert.throws(() => finalCutMcpEnvironment({ FRAMEKIT_TEST_STATE_DIR: "" }), /TEST_ISOLATION_REQUIRED/);
+  assert.throws(() => finalCutMcpEnvironment({ FRAMEKIT_STATE_DIR: process.env.FRAMEKIT_TEST_ORIGINAL_HOME ?? "/" }), /TEST_ISOLATION_REQUIRED/);
 });
