@@ -1138,6 +1138,27 @@ test("an invoked publisher without dispatch acknowledgement retains its reservat
   }
 });
 
+test("an untrusted publish tracker failure retains its reservation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-publish-tracker-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const projectPublisher = {
+    isAvailable: () => false,
+    getPublishJob: () => ({ state: "awaiting-confirmation" }),
+    trackNativeDispatch: async () => { throw new Error("TRACKER_FAILED"); },
+    executePublishJob: async () => { throw new Error("not invoked"); },
+  } as unknown as NonNullable<Parameters<typeof createMcpServer>[1]>["projectPublisher"];
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher });
+  try {
+    const result = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "job-1", confirm: true } });
+    assert.equal(result.isError, true);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("disabled built-in publisher returns a safe pre-dispatch retry", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-disabled-publish-"));
   const source = '<fcpxml version="1.11"><library><event><project uid="source-project" name="Project"><sequence uid="source-sequence" name="Main" /></project></event></library></fcpxml>';
