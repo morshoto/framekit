@@ -1183,6 +1183,31 @@ test("disabled built-in publisher returns a safe pre-dispatch retry", async () =
   }
 });
 
+test("built-in publisher rejects a changed artifact before dispatch without retaining reservation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-publish-changed-preflight-"));
+  const source = '<fcpxml version="1.11"><library><event><project uid="project" name="Project"><sequence uid="sequence" name="Main" /></project></event></library></fcpxml>';
+  const artifactPath = join(directory, "source.fcpxml");
+  await writeFile(artifactPath, source);
+  const publisher = new FinalCutProjectPublisher({ enabled: true, sourcePath: artifactPath,
+    liveState: async () => { throw new Error("must not contact Final Cut"); },
+    readCanonicalSnapshot: async () => { throw new Error("must not read Final Cut"); } });
+  const job = await publisher.preparePublish({ sourceTransactionId: "txn-preflight", artifactPath,
+    artifactDigest: createHash("sha256").update(source).digest("hex") });
+  await writeFile(artifactPath, `${source}\nchanged`);
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher: publisher });
+  try {
+    const result = JSON.parse(textFrom(await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: job.jobId, confirm: true } })));
+    assert.equal(result.error.code, "PUBLISH_SOURCE_CHANGED");
+    assert.equal(result.recoveryReservation, undefined);
+    await guard.assertClear();
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("publisher configuration is rechecked after reservation acquisition", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-publish-preflight-race-"));
   const source = '<fcpxml version="1.11"><library><event><project uid="project" name="Project"><sequence uid="sequence" name="Main" /></project></event></library></fcpxml>';
