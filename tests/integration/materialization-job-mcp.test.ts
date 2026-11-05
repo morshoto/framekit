@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
@@ -972,6 +973,30 @@ test("inherited materialization availability getter stays guarded", async () => 
     assert.equal(calls, 1);
     assert.equal(job.nextAction, "none");
     await assert.rejects(guard.assertClear(), /RECOVERY_REQUIRED/);
+  } finally {
+    await connected.client.close();
+    await connected.server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+
+test("materialization tracker lookup occurs only with a reservation", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-tracker-property-"));
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  const observed: boolean[] = [];
+  const publisher: SessionMaterializationPublisher = {
+    publish: async () => { throw new Error("receiver timeout"); },
+  };
+  Object.defineProperty(publisher, "trackNativeDispatch", { configurable: true, get() { observed.push(existsSync(path)); return undefined; } });
+  const connected = await connect(directory, publisher, undefined, "default", guard);
+  try {
+    await connected.client.callTool({ name: "session.create", arguments: { sessionId: "session-tracker-property", provider: { id: "final-cut" }, base: timeline() } });
+    observed.length = 0;
+    await connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "session-tracker-property", target, confirm: true } });
+    assert.ok(observed.length > 0);
+    assert.ok(observed.every(Boolean), "tracker property was evaluated before reservation");
   } finally {
     await connected.client.close();
     await connected.server.close();

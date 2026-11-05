@@ -285,7 +285,8 @@ export class SessionMaterializationJobs {
     let claimed = claim.job;
     let reservation: Awaited<ReturnType<FileCanonicalRecoveryGuard["beginNative"]>> | undefined;
     let providerRequested = false;
-    let dispatched = typeof this.publisher.trackNativeDispatch !== "function";
+    // Do not evaluate provider properties before acquiring the reservation.
+    let dispatched = false;
     try {
       const finalFailure = await this.validateStagedJob(claimed);
       if (finalFailure) return this.fail(claimed, finalFailure);
