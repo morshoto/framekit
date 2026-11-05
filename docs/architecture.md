@@ -122,8 +122,8 @@ therefore leaves subsequent guarded operations blocked. Configured session
 materialization reserves the checkpoint at the provider boundary; if acquisition
 fails, it records that the provider was not called. Before invoking the provider,
 the job persists a `dispatch-intent` phase; this is not proof the call occurred.
-If the provider was not invoked and dispatch was not signaled, the reservation
-can be released. Once a publish or materialization provider is invoked, a
+The reservation can be released when local code positively establishes that
+neither the provider nor its tracking wrapper was invoked. Once a publish or materialization provider is invoked, a
 missing dispatch callback is not evidence that no dispatch occurred. The
 disabled built-in publisher and an unconfigured built-in background
 materializer are checked locally before they can issue a native request; these
