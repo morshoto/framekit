@@ -932,3 +932,29 @@ test("a failed dispatch boundary blocks provider invocation and retains the rese
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+
+test("mutable materialization availability cannot prove non-dispatch", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-preflight-race-"));
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  const options: { executor?: never } = {};
+  const publisher = new FinalCutBackgroundMaterializationPublisher(options);
+  const connected = await connect(directory, publisher, undefined, "default", guard);
+  try {
+    await connected.client.callTool({ name: "session.create", arguments: { sessionId: "session-preflight-race", provider: { id: "final-cut" }, base: timeline() } });
+    let calls = 0;
+    Object.defineProperty(options, "executor", { configurable: true, get() {
+      calls++;
+      return undefined;
+    } });
+    const job = payload(await connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "session-preflight-race", target, confirm: true } }));
+    assert.equal(calls, 1);
+    assert.equal(job.nextAction, "none");
+    await assert.rejects(guard.assertClear(), /RECOVERY_REQUIRED/);
+  } finally {
+    await connected.client.close();
+    await connected.server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
