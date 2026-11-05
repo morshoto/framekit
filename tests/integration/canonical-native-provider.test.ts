@@ -2145,6 +2145,22 @@ test("canonical read does not reuse a probe from a different request when revisi
   assert.equal(refreshed.timeline.clips[0]?.name, "Changed");
 });
 
+test("direct session reads export once per request and refresh across requests", async () => {
+  let reads = 0;
+  const provider = new FinalCutCanonicalNativeProvider({
+    live: { getIdentity: async () => identity, readLiveState: async () => liveState(), liveChangesSince: async () => [] },
+    native: { renameSelectedClip: async () => ({ operationId: "op", undoAvailable: true }), undo: async () => ({ undone: true }) },
+    readSnapshot: async () => snapshot(++reads === 1 ? "Original" : "Changed"),
+    resolveTarget: async () => {},
+    backgroundCatalog: { listProjects: async () => ({ projects: [{ id: "final-cut:project:project-1", name: "Canonical E2E", sequences: [{ id: "final-cut:sequence:sequence-1", name: "Canonical E2E" }] }], activeProjectId: "final-cut:project:project-1", activeSequenceId: "final-cut:sequence:sequence-1" }) },
+  });
+  const session = new FinalCutSessionAdapter({ live: provider });
+  assert.equal((await session.readProject()).timeline.clips[0]?.name, "Original");
+  assert.equal(reads, 1);
+  assert.equal((await session.readProject()).timeline.clips[0]?.name, "Changed");
+  assert.equal(reads, 2);
+});
+
 test("concurrent canonical read scopes do not share snapshots", async () => {
   let reads = 0;
   const provider = new FinalCutCanonicalNativeProvider({
