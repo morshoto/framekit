@@ -1019,6 +1019,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
         : {}),
     };
   }
+  const publishRouteIsGuarded = Boolean(options.canonicalRecovery && options.projectPublisher);
   if (options.canonicalRecovery) {
     const recovery = options.canonicalRecovery;
     options = {
@@ -1041,7 +1042,14 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
         ? { nativeOperationSession: withRecoveryCheckpointGuard(options.nativeOperationSession, recovery, ["status", "cancel"]) }
         : {}),
       ...(options.projectPublisher
-        ? { projectPublisher: withPublishRecoveryGuard(options.projectPublisher, recovery) }
+        ? { projectPublisher: withPublishRecoveryGuard(options.projectPublisher, recovery, async (publisher, property) => {
+            if (property === "executePublishJob") {
+              if (publisher.isAvailable() && requiresHeadedPublishingRoute(publisher)) await requireEditingRoute(runtime, options, "timeline.publish.new-project");
+            } else {
+              if (!publisher.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
+              if (requiresHeadedPublishingRoute(publisher)) await requireEditingRoute(runtime, options, "timeline.publish.new-project");
+            }
+          }) }
         : {}),
     };
   }
@@ -1986,7 +1994,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     },
   }, async ({ jobId, confirm, confirmVerification }) => {
     if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
-    if (options.projectPublisher.isAvailable() && requiresHeadedPublishingRoute(options.projectPublisher)) {
+    if (!publishRouteIsGuarded && options.projectPublisher.isAvailable() && requiresHeadedPublishingRoute(options.projectPublisher)) {
       await requireEditingRoute(runtime, options, "timeline.publish.new-project");
     }
     return jsonResult(await options.projectPublisher.executePublishJob(jobId, confirm, confirmVerification));
@@ -2004,9 +2012,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Experimental direct import; explicitly confirm both creation and headed readback for this artifact. Dispatch alone does not prove project creation.",
     inputSchema: artifactPublishInputSchema,
   }, async ({ artifactPath, targetLibraryPath, transactionId, confirm, confirmVerification }) => {
-    if (!options.projectPublisher?.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
-    if (requiresHeadedPublishingRoute(options.projectPublisher)) {
-      await requireEditingRoute(runtime, options, "timeline.publish.new-project");
+    if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
+    if (!publishRouteIsGuarded) {
+      if (!options.projectPublisher.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
+      if (requiresHeadedPublishingRoute(options.projectPublisher)) await requireEditingRoute(runtime, options, "timeline.publish.new-project");
     }
     const transaction = runtime.getTransaction(transactionId);
     if (transaction.target?.kind !== "artifact" || transaction.target.artifactPath !== artifactPath) {
@@ -2036,9 +2045,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       confirmVerification: z.boolean().optional(),
     },
   }, async ({ transactionId, targetLibraryPath, confirm, confirmVerification }) => {
-    if (!options.projectPublisher?.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
-    if (requiresHeadedPublishingRoute(options.projectPublisher)) {
-      await requireEditingRoute(runtime, options, "timeline.publish.new-project");
+    if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
+    if (!publishRouteIsGuarded) {
+      if (!options.projectPublisher.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
+      if (requiresHeadedPublishingRoute(options.projectPublisher)) await requireEditingRoute(runtime, options, "timeline.publish.new-project");
     }
     const transaction = runtime.getTransaction(transactionId);
     if (transaction.target?.kind !== "artifact") {
@@ -3095,6 +3105,7 @@ async function assertRequiredBuildAlignment(runtime: AgentVideoRuntime, options:
 function withPublishRecoveryGuard<T extends object>(
   provider: T,
   recovery: Pick<FileCanonicalRecoveryGuard, "assertClear" | "beginNative" | "inspectNativeReservation">,
+  validateRoute: (provider: T, property: "executePublishJob" | "publishNewProject") => Promise<void>,
 ): T {
   const allowed = new Set<PropertyKey>(["isAvailable", "inspectReadiness", "executionMode", "getPublishJob", "loadPublishJob", "preparePublish"]);
   let current: { jobId?: string; reservation: Awaited<ReturnType<FileCanonicalRecoveryGuard["beginNative"]>>; active: boolean; dispatched: boolean; needsBinding: boolean } | undefined;
@@ -3184,17 +3195,18 @@ function withPublishRecoveryGuard<T extends object>(
           if (acquiringReservation && jobId && property === "executePublishJob"
             && trustedShape) {
             const stores = ["publishJobs", "publishJobRuntime"].map((key) => Object.getOwnPropertyDescriptor(target, key)?.value);
-            const ordinaryStores = stores.every((store: unknown) => store instanceof Map
-              && !utilTypes.isProxy(store)
+            const ordinaryStores = stores.every((store: unknown) => !utilTypes.isProxy(store) && utilTypes.isMap(store)
               && Object.getPrototypeOf(store) === Map.prototype
               && !Object.getOwnPropertyDescriptor(store, "get") && !Object.getOwnPropertyDescriptor(store, "set") && !Object.getOwnPropertyDescriptor(store, "has")
-              && Map.prototype.get === builtInMapGet && Map.prototype.set === builtInMapSet && Map.prototype.has === builtInMapHas);
+              && Object.getOwnPropertyDescriptor(Map.prototype, "get")?.value === builtInMapGet
+              && Object.getOwnPropertyDescriptor(Map.prototype, "set")?.value === builtInMapSet
+              && Object.getOwnPropertyDescriptor(Map.prototype, "has")?.value === builtInMapHas);
             const job = ordinaryStores ? inertBuiltInPublishJob(target, jobId) : undefined;
             if (job) {
               const enabled = Object.getOwnPropertyDescriptor(target, "enabled");
               const directory = Object.getOwnPropertyDescriptor(target, "publishJobsDirectory");
               const safePersistence = Boolean(directory && "value" in directory
-                && (directory.value === undefined || !builtInMapHas.call(stores[1], jobId)));
+                && (directory.value === undefined || (typeof directory.value === "string" && !builtInMapHas.call(stores[1], jobId))));
               provenDisabled = (job.state === "awaiting-confirmation" || job.state === "awaiting-final-cut")
                 && enabled?.value === false && safePersistence;
               // A mismatching managed artifact can be rejected without invoking
@@ -3224,6 +3236,7 @@ function withPublishRecoveryGuard<T extends object>(
           // Record uncertainty before entering any untrusted tracker or provider.
           // Resumed verification reuses the already marked reservation.
           if (acquiringReservation && trustedShape && !provenDisabled) await entry.reservation.markDispatchPossible();
+          if (!provenDisabled) await validateRoute(target, property as "executePublishJob" | "publishNewProject");
           const result: unknown = typeof track === "function"
             ? await Reflect.apply(track, target, [invoke, () => { entry!.dispatched = true; }])
             : await invoke();
@@ -3248,8 +3261,8 @@ function inertBuiltInPublishJob(target: object, jobId: string): FinalCutProjectP
     || Object.getOwnPropertyDescriptor(target, "getPublishJob")
     || Object.getOwnPropertyDescriptor(FinalCutProjectPublisher.prototype, "getPublishJob")?.value !== builtInPublishGetJob) return undefined;
   const store = Object.getOwnPropertyDescriptor(target, "publishJobs")?.value;
-  if (!(store instanceof Map) || utilTypes.isProxy(store) || Object.getPrototypeOf(store) !== Map.prototype
-    || Map.prototype.get !== builtInMapGet) return undefined;
+  if (utilTypes.isProxy(store) || !utilTypes.isMap(store) || Object.getPrototypeOf(store) !== Map.prototype
+    || Object.getOwnPropertyDescriptor(Map.prototype, "get")?.value !== builtInMapGet) return undefined;
   const job: unknown = builtInMapGet.call(store, jobId);
   const seen = new Set<object>();
   const inert = (value: unknown): boolean => {

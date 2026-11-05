@@ -417,3 +417,13 @@ test("a simulated interrupted intent rewrite remains unknown and blocks new writ
   await assert.rejects(restarted.beginNative(operation), /RECOVERY_REQUIRED/);
   await assert.rejects(reservation.release(), /RECOVERY_REQUIRED/);
 }));
+
+test("intent binding rejects a context that serializes to a different job", async () => fixture(async (path) => {
+  const reservation = await new FileCanonicalRecoveryGuard(path).beginNative(operation);
+  await reservation.markDispatchPossible();
+  const before = await readFile(path, "utf8");
+  const context = { ...v3().recoveryContext, toJSON() { return { ...v3().recoveryContext, jobId: "publish-job-other" }; } };
+  await assert.rejects(reservation.bindRecoveryContext(context), /RECOVERY_REQUIRED/);
+  assert.equal(await readFile(path, "utf8"), before);
+  await assert.rejects(reservation.release(), /RECOVERY_REQUIRED/);
+}));

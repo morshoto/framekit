@@ -100,7 +100,26 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
       // no failure here may re-enable release or dispatch.
       bindingStarted = true;
       if (!validRecoveryContext(newContext, operation)) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: invalid native intent");
-      const nextContents = JSON.stringify({ version: 3, kind: "native-operation", owner, operation, recoveryContext: newContext }) + "\n";
+      let recorded: unknown;
+      try {
+        recorded = structuredClone(newContext);
+      } catch (error) {
+        throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot serialize native intent", { cause: error });
+      }
+      if (!validRecoveryContext(recorded, operation)) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: invalid serialized native intent");
+      const safeContext = recorded.kind === "publish"
+        ? { kind: recorded.kind, jobId: recorded.jobId, dispatchId: recorded.dispatchId,
+          requestedTarget: { libraryPath: recorded.requestedTarget.libraryPath }, artifactDigest: recorded.artifactDigest,
+          executorIdentity: null, nativeQuiescence: "unproven" }
+        : { kind: recorded.kind, jobId: recorded.jobId, dispatchId: recorded.dispatchId,
+          requestedTarget: { libraryUid: recorded.requestedTarget.libraryUid, eventUid: recorded.requestedTarget.eventUid,
+            projectUid: recorded.requestedTarget.projectUid, sequenceUid: recorded.requestedTarget.sequenceUid },
+          artifactDigest: recorded.artifactDigest, desiredDigest: recorded.desiredDigest,
+          ...(recorded.destination ? { destination: { mode: recorded.destination.mode, projectUid: recorded.destination.projectUid,
+            sequenceUid: recorded.destination.sequenceUid, projectName: recorded.destination.projectName,
+            sequenceName: recorded.destination.sequenceName } } : {}),
+          executorIdentity: null, nativeQuiescence: "unproven" };
+      const nextContents = JSON.stringify({ version: 3, kind: "native-operation", owner, operation, recoveryContext: safeContext }) + "\n";
       if (Buffer.byteLength(nextContents) > 16_384) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: native intent is too large");
       const nextId = createHash("sha256").update(nextContents).digest("hex");
       let marker;
