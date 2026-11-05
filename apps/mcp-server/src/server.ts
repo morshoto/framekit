@@ -3149,6 +3149,7 @@ function withPublishRecoveryGuard<T extends object>(
         } else {
           // Never invoke caller-controlled job lookup before the reservation.
           const job = jobId ? inertBuiltInPublishJob(target, jobId) : undefined;
+          if (job && job.jobId !== jobId) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish job identity mismatch");
           const pending = job?.state === "verification-pending";
           const operation = jobId
             ? `native.publish.${createHash("sha256").update(jobId).digest("hex")}`
@@ -3171,7 +3172,7 @@ function withPublishRecoveryGuard<T extends object>(
           if (acquiringReservation && jobId && entry.requestedIntent) {
             const currentJob = inertBuiltInPublishJob(target, jobId);
             const expected = entry.requestedIntent;
-            if (!currentJob || currentJob.targetLibraryPath !== expected.libraryPath
+            if (!currentJob || currentJob.jobId !== jobId || currentJob.targetLibraryPath !== expected.libraryPath
               || currentJob.artifactDigest !== expected.artifactDigest || currentJob.state !== expected.state) {
               entry.dispatched = true;
               await entry.reservation.markDispatchPossible();
