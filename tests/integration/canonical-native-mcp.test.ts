@@ -884,6 +884,61 @@ test("a trackerless provider that defers native search retains its reservation",
   }
 });
 
+test("an overridden built-in search cannot release a deferred reservation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-native-override-search-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  let resume!: () => void;
+  let complete!: () => void;
+  const gate = new Promise<void>((resolve) => { resume = resolve; });
+  const completed = new Promise<void>((resolve) => { complete = resolve; });
+  let searches = 0;
+  const nativeEditor = new FinalCutNativeAutomationAdapter({ enabled: true });
+  nativeEditor.searchMedia = async () => { void gate.then(() => { searches++; complete(); }); return []; };
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, nativeEditor });
+  try {
+    await client.callTool({ name: "editor.native.media.search", arguments: { query: "clip.mov" } });
+    assert.equal(searches, 0);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    resume();
+    await completed;
+    assert.equal(searches, 1);
+  } finally {
+    resume();
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("an overridden built-in search dependency cannot release a deferred reservation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-native-override-dependency-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  let resume!: () => void;
+  let complete!: () => void;
+  const gate = new Promise<void>((resolve) => { resume = resolve; });
+  const completed = new Promise<void>((resolve) => { complete = resolve; });
+  let searches = 0;
+  const nativeEditor = new FinalCutNativeAutomationAdapter({ enabled: true });
+  (nativeEditor as unknown as { searchMediaNative: () => Promise<unknown[]> }).searchMediaNative = async () => {
+    void gate.then(() => { searches++; complete(); });
+    return [];
+  };
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, nativeEditor });
+  try {
+    await client.callTool({ name: "editor.native.media.search", arguments: { query: "clip.mov" } });
+    assert.equal(searches, 0);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    resume();
+    await completed;
+    assert.equal(searches, 1);
+  } finally {
+    resume();
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("a direct edit rejected before native dispatch releases its reservation", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-direct-validation-"));
   const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
