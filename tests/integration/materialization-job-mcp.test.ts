@@ -695,6 +695,13 @@ test("materialization excludes canonical edits and never retries an uncertain pu
       assert.equal(running.state, "publishing");
       assert.equal(running.evidence.providerRequested, true);
       assert.equal(running.providerRequestPhase, "dispatch-intent");
+      const durable = JSON.parse(await readFile(path, "utf8"));
+      assert.equal(durable.version, 3);
+      assert.equal(durable.recoveryContext.jobId, runningJobId);
+      assert.equal(durable.recoveryContext.artifactDigest, running.artifactDigest);
+      assert.deepEqual(durable.recoveryContext.requestedTarget, {
+        libraryUid: target.libraryUid, eventUid: target.eventUid, projectUid: target.projectUid, sequenceUid: target.sequenceUid,
+      });
       await assert.rejects(other.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "a".repeat(64), operation: "rename-clip" }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     } finally { finish(); }
     const result = payload(await execution);
