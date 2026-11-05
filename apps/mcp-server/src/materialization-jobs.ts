@@ -295,6 +295,7 @@ export class SessionMaterializationJobs {
             requestedTarget: { libraryUid: claimed.target.libraryUid, eventUid: claimed.target.eventUid,
               projectUid: claimed.target.projectUid, sequenceUid: claimed.target.sequenceUid },
             artifactDigest: claimed.artifactDigest, desiredDigest: claimed.desiredDigest,
+            destination: structuredClone(claimed.destination),
             executorIdentity: null, nativeQuiescence: "unproven",
           });
         } catch {

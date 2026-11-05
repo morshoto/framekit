@@ -11,6 +11,7 @@ export interface NativeMaterializationRecoveryContext {
   requestedTarget: { libraryUid: string; eventUid: string; projectUid: string; sequenceUid: string };
   artifactDigest: string;
   desiredDigest: string;
+  destination?: { mode: "versioned" | "reuse-existing"; projectUid: string; sequenceUid: string; projectName: string; sequenceName: string };
   executorIdentity: null;
   nativeQuiescence: "unproven";
 }
@@ -81,6 +82,9 @@ function validMaterializationContext(value: unknown, operation: string): value i
     && Boolean(t && [t.libraryUid, t.eventUid, t.projectUid, t.sequenceUid].every((x) => typeof x === "string" && x.trim().length > 0 && x.length <= 1024))
     && typeof c.artifactDigest === "string" && /^[a-f0-9]{64}$/.test(c.artifactDigest)
     && typeof c.desiredDigest === "string" && /^[a-f0-9]{64}$/.test(c.desiredDigest)
+    && (c.destination === undefined || (c.destination.mode === "versioned" &&
+      [c.destination.projectUid, c.destination.sequenceUid, c.destination.projectName, c.destination.sequenceName]
+        .every((x) => typeof x === "string" && x.trim().length > 0 && x.length <= 1024)))
     && c.executorIdentity === null && c.nativeQuiescence === "unproven";
 }
 
@@ -94,7 +98,7 @@ export interface NativeRecoveryInspection {
   dispatchState?: "possibly-dispatched";
   missingEvidence?: ["receiver-terminal-quiescence", "independent-target-outcome", "legacy-writer-exclusion"];
   safeNextActions?: ["inspect", "retain-reservation"];
-  intent?: { requestedTarget: NativeRecoveryContext["requestedTarget"]; artifactDigest: string; desiredDigest?: string };
+  intent?: { requestedTarget: NativeRecoveryContext["requestedTarget"]; artifactDigest: string; desiredDigest?: string; destination?: NativeMaterializationRecoveryContext["destination"] };
 }
 
 const unknown = (): NativeRecoveryInspection => ({ status: "unknown", nativeQuiescence: "unproven", recoveryEligibility: "unavailable", sender: { status: "unknown" } });
@@ -175,7 +179,7 @@ export async function inspectNativeRecoveryReadOnly(path: string): Promise<Nativ
       dispatchState: "possibly-dispatched", missingEvidence: ["receiver-terminal-quiescence", "independent-target-outcome", "legacy-writer-exclusion"],
       safeNextActions: ["inspect", "retain-reservation"],
       ...(context ? { intent: { requestedTarget: context.requestedTarget, artifactDigest: context.artifactDigest,
-        ...(context.kind === "materialization" ? { desiredDigest: context.desiredDigest } : {}) } } : {}),
+        ...(context.kind === "materialization" ? { desiredDigest: context.desiredDigest, ...(context.destination ? { destination: context.destination } : {}) } : {}) } } : {}),
       reservation: { version: record.version as 2 | 3 | 4, reservationId, operation: record.operation,
         ...(context ? { jobId: context.jobId, dispatchId: context.dispatchId, jobCorrelation: "unverified" as const } : {}) } };
   } catch { return unknown(); }
