@@ -1783,3 +1783,27 @@ test("publish execute getter cannot run while another reservation is held", asyn
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("mutable stored job data cannot prove pre-dispatch cancellation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-mutable-publish-job-"));
+  const source = '<fcpxml version="1.11"><library><event><project uid="project" name="Project"><sequence uid="sequence" name="Main" /></project></event></library></fcpxml>';
+  const artifactPath = join(directory, "source.fcpxml");
+  await writeFile(artifactPath, source);
+  const publisher = new FinalCutProjectPublisher({ headlessSourceVerifier: async () => ({ targetLibraryUid: "library", sourceMediaDigests: [] }) });
+  const job = await publisher.preparePublish({ sourceTransactionId: "headless-rough-cut:mutable-job", artifactPath,
+    artifactDigest: createHash("sha256").update(source).digest("hex"), targetLibraryPath: join(directory, "New.fcpbundle") });
+  const store = (publisher as unknown as { publishJobs: Map<string, object> }).publishJobs;
+  let calls = 0;
+  Object.defineProperty(store.get(job.jobId)!, "untrusted", { enumerable: true, get() { calls++; return "value"; } });
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher: publisher });
+  try {
+    await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: job.jobId, confirm: true } });
+    assert.ok(calls > 0);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
