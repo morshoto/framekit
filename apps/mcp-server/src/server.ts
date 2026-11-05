@@ -3098,7 +3098,7 @@ function withPublishRecoveryGuard<T extends object>(
   recovery: Pick<FileCanonicalRecoveryGuard, "assertClear" | "beginNative" | "inspectNativeReservation">,
 ): T {
   const allowed = new Set<PropertyKey>(["isAvailable", "inspectReadiness", "executionMode", "getPublishJob", "loadPublishJob", "preparePublish"]);
-  let current: { jobId?: string; reservation: Awaited<ReturnType<FileCanonicalRecoveryGuard["beginNative"]>>; active: boolean; dispatched: boolean } | undefined;
+  let current: { jobId?: string; reservation: Awaited<ReturnType<FileCanonicalRecoveryGuard["beginNative"]>>; active: boolean; dispatched: boolean; needsBinding: boolean } | undefined;
   return new Proxy(provider, {
     get(target, property) {
       if (property !== "executePublishJob" && property !== "publishNewProject") {
@@ -3147,7 +3147,7 @@ function withPublishRecoveryGuard<T extends object>(
               artifactDigest: digest, executorIdentity: null, nativeQuiescence: "unproven" as const }
             : undefined;
           const reservation = await recovery.beginNative(operation, context);
-          entry = { jobId, reservation, active: true, dispatched: pending };
+          entry = { jobId, reservation, active: true, dispatched: pending, needsBinding: !context };
           current = entry;
         }
         try {
@@ -3161,6 +3161,23 @@ function withPublishRecoveryGuard<T extends object>(
           if (acquiringReservation && !trustedShape) {
             entry.dispatched = true;
             await entry.reservation.markDispatchPossible();
+            // A custom lookup may execute arbitrary provider code. Run it only
+            // after durable uncertainty, then bind any eligible requested intent.
+            if (jobId && entry.needsBinding) {
+              const lookup = Reflect.get(target, "getPublishJob", target) as unknown;
+              if (typeof lookup === "function") {
+                const requested = Reflect.apply(lookup, target, [jobId]) as { state?: unknown; targetLibraryPath?: unknown; artifactDigest?: unknown } | undefined;
+                const path = requested?.targetLibraryPath;
+                const digest = requested?.artifactDigest;
+                if (requested?.state !== "verification-pending" && /^publish-job-[a-z0-9-]{1,80}$/.test(jobId)
+                  && typeof path === "string" && path.length <= 4096 && isAbsolute(path) && path.endsWith(".fcpbundle")
+                  && typeof digest === "string" && /^[a-f0-9]{64}$/.test(digest)) {
+                  await entry.reservation.bindRecoveryContext({ kind: "publish", jobId, dispatchId: randomUUID(),
+                    requestedTarget: { libraryPath: path }, artifactDigest: digest,
+                    executorIdentity: null, nativeQuiescence: "unproven" });
+                }
+              }
+            }
           }
           const value = trustedShape ? builtInPublishExecute : Reflect.get(target, property, target) as unknown;
           const track = trustedShape ? builtInPublishTrack : Reflect.get(target, "trackNativeDispatch", target) as unknown;
