@@ -3109,7 +3109,7 @@ function withPublishRecoveryGuard<T extends object>(
   validateRoute: (provider: T, property: "executePublishJob" | "publishNewProject") => Promise<void>,
 ): T {
   const allowed = new Set<PropertyKey>(["isAvailable", "inspectReadiness", "executionMode", "getPublishJob", "loadPublishJob", "preparePublish"]);
-  let current: { jobId?: string; reservation: Awaited<ReturnType<FileCanonicalRecoveryGuard["beginNative"]>>; active: boolean; dispatched: boolean; needsBinding: boolean } | undefined;
+  let current: { jobId?: string; reservation: Awaited<ReturnType<FileCanonicalRecoveryGuard["beginNative"]>>; active: boolean; dispatched: boolean; needsBinding: boolean; requestedIntent?: { libraryPath: string; artifactDigest: string; state: string } } | undefined;
   return new Proxy(provider, {
     get(target, property) {
       if (property !== "executePublishJob" && property !== "publishNewProject") {
@@ -3162,10 +3162,22 @@ function withPublishRecoveryGuard<T extends object>(
               artifactDigest: digest, executorIdentity: null, nativeQuiescence: "unproven" as const }
             : undefined;
           const reservation = await recovery.beginNative(operation, context);
-          entry = { jobId, reservation, active: true, dispatched: pending, needsBinding: !context };
+          entry = { jobId, reservation, active: true, dispatched: pending, needsBinding: !context,
+            ...(context && job ? { requestedIntent: { libraryPath: context.requestedTarget.libraryPath,
+              artifactDigest: context.artifactDigest, state: job.state } } : {}) };
           current = entry;
         }
         try {
+          if (acquiringReservation && jobId && entry.requestedIntent) {
+            const currentJob = inertBuiltInPublishJob(target, jobId);
+            const expected = entry.requestedIntent;
+            if (!currentJob || currentJob.targetLibraryPath !== expected.libraryPath
+              || currentJob.artifactDigest !== expected.artifactDigest || currentJob.state !== expected.state) {
+              entry.dispatched = true;
+              await entry.reservation.markDispatchPossible();
+              throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish intent changed during reservation acquisition");
+            }
+          }
           // Property getters on arbitrary providers may themselves dispatch.
           const trustedShape = !utilTypes.isProxy(target) && property === "executePublishJob"
             && Object.getPrototypeOf(target) === FinalCutProjectPublisher.prototype
