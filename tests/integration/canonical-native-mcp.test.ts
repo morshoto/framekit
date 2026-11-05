@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -10,6 +11,7 @@ import {
   FinalCutCanonicalNativeProvider,
   FinalCutNativeAutomationAdapter,
   FileCanonicalRecoveryGuard,
+  FinalCutProjectPublisher,
   type NativeFinalCutEditor,
   FinalCutSessionAdapter,
 } from "@framekit/final-cut";
@@ -1129,6 +1131,30 @@ test("an invoked publisher without dispatch acknowledgement retains its reservat
     assert.equal(result.isError ?? false, false, textFrom(result));
     assert.equal(JSON.parse(textFrom(result)).recoveryReservation.reason, "native-quiescence-unproven");
     await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("disabled built-in publisher returns a safe pre-dispatch retry", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-disabled-publish-"));
+  const source = '<fcpxml version="1.11"><library><event><project uid="source-project" name="Project"><sequence uid="source-sequence" name="Main" /></project></event></library></fcpxml>';
+  const artifactPath = join(directory, "source.fcpxml");
+  await writeFile(artifactPath, source);
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const publisher = new FinalCutProjectPublisher({ headlessSourceVerifier: async () => ({ targetLibraryUid: "library", sourceMediaDigests: [] }) });
+  const job = await publisher.preparePublish({ sourceTransactionId: "headless-rough-cut:run", artifactPath,
+    artifactDigest: createHash("sha256").update(source).digest("hex"), targetLibraryPath: join(directory, "New.fcpbundle") });
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher: publisher });
+  try {
+    const response = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: job.jobId, confirm: true } });
+    const result = JSON.parse(textFrom(response));
+    assert.equal(result.state, "awaiting-final-cut");
+    assert.equal(result.nextAction, "retry");
+    assert.equal(result.recoveryReservation, undefined);
+    await guard.assertClear();
   } finally {
     await client.close();
     await server.close();
