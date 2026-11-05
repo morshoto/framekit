@@ -699,6 +699,7 @@ test("materialization excludes canonical edits and never retries an uncertain pu
       assert.equal(durable.version, 3);
       assert.equal(durable.recoveryContext.jobId, runningJobId);
       assert.equal(durable.recoveryContext.artifactDigest, running.artifactDigest);
+      assert.deepEqual(durable.recoveryContext.destination, running.destination);
       assert.deepEqual(durable.recoveryContext.requestedTarget, {
         libraryUid: target.libraryUid, eventUid: target.eventUid, projectUid: target.projectUid, sequenceUid: target.sequenceUid,
       });
