@@ -788,7 +788,7 @@ test("materialization retains provider failure evidence and forbids an uncertain
   }
 });
 
-test("materialization can retry when the provider proves no dispatch occurred", async () => {
+test("materialization retains a reservation when an invoked provider omits dispatch acknowledgement", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-no-dispatch-"));
   const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
   const publisher: SessionMaterializationPublisher = {
@@ -800,11 +800,11 @@ test("materialization can retry when the provider proves no dispatch occurred", 
     await connected.client.callTool({ name: "session.create", arguments: { sessionId: "session-no-dispatch", provider: { id: "final-cut" }, base: timeline() } });
     const job = payload(await connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "session-no-dispatch", target, confirm: true } }));
     assert.equal(job.state, "blocked");
-    assert.equal(job.nextAction, "retry");
-    assert.equal(job.error.code, "TEMPORARY_UNAVAILABLE");
-    assert.equal(job.error.retryable, true);
+    assert.equal(job.nextAction, "none");
+    assert.equal(job.error.code, "FINAL_CUT_CANONICAL_RECOVERY_REQUIRED");
+    assert.equal(job.error.retryable, false);
     assert.equal(job.evidence.providerRequested, true);
-    await guard.assertClear();
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   } finally {
     await connected.client.close();
     await connected.server.close();
