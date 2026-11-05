@@ -8,6 +8,9 @@ export function finalCutMcpEnvironment(overrides: NodeJS.ProcessEnv = {}): Recor
       .filter((entry): entry is [string, string] => typeof entry[1] === "string"),
   );
   const commitValidation = environment.FRAMEKIT_COMMIT_VALIDATION === "1";
+  if (!commitValidation || !environment.FRAMEKIT_TEST_STATE_DIR) {
+    throw new Error("TEST_ISOLATION_REQUIRED: run Final Cut MCP contract tests through the isolated test runner");
+  }
 
   return {
     ...environment,
