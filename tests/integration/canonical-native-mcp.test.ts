@@ -2307,3 +2307,26 @@ test("mutable readback availability cannot establish non-dispatch", async () => 
     await assert.rejects(guard.assertClear(), /RECOVERY_REQUIRED/);
   } finally { await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
 });
+
+test("live-state configuration changes during acquisition remain uncertain", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-publish-live-config-race-"));
+  const source = '<fcpxml version="1.11"><library><event><project uid="project" name="Project"><sequence uid="sequence" name="Main" /></project></event></library></fcpxml>';
+  const artifactPath = join(directory, "source.fcpxml");
+  await writeFile(artifactPath, source);
+  const publisher = new FinalCutProjectPublisher({ enabled: true, sourcePath: artifactPath });
+  const job = await publisher.preparePublish({ sourceTransactionId: "txn-live-config-race", artifactPath,
+    artifactDigest: createHash("sha256").update(source).digest("hex"), targetLibraryPath: join(directory, "New.fcpbundle") });
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const begin = guard.beginNative.bind(guard);
+  guard.beginNative = async (...args) => {
+    const reservation = await begin(...args);
+    (publisher as unknown as { readCanonicalSnapshot: () => never }).readCanonicalSnapshot = () => { throw new Error("must not read Final Cut"); };
+    return reservation;
+  };
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher: publisher });
+  try {
+    const result = JSON.parse(textFrom(await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: job.jobId, confirm: true } })));
+    assert.equal(result.recoveryReservation.reason, "native-quiescence-unproven");
+    await assert.rejects(guard.assertClear(), /RECOVERY_REQUIRED/);
+  } finally { await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
+});
