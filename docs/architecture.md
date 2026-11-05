@@ -125,9 +125,11 @@ the job persists a `dispatch-intent` phase; this is not proof the call occurred.
 The reservation can be released when local code positively establishes that
 neither the provider nor its tracking wrapper was invoked. Once a publish or materialization provider is invoked, a
 missing dispatch callback is not evidence that no dispatch occurred. The
-disabled built-in publisher and an unconfigured built-in background
-materializer are checked locally before they can issue a native request; these
-preflight cases retain safe retry. Other invoked-provider outcomes remain
+disabled built-in publisher, missing inert live-state or readback configuration,
+and an unconfigured built-in background materializer are checked locally before
+provider invocation. Staged materialization requests also undergo the same pure
+validation used by the built-in provider before reservation. A retry is offered
+only when the preflight result permits it. Other invoked-provider outcomes remain
 conservatively reserved. The reservation remains and automatic retry is
 disabled even if canonical readback matches, until native quiescence can be
 established. Other direct operations and
