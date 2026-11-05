@@ -3133,9 +3133,13 @@ function withPublishRecoveryGuard<T extends object>(
           entry.active = true;
           try {
             const observed = await recovery.inspectNativeReservation();
-            const getJob = Reflect.get(target, "getPublishJob", target) as (id: string) => { state?: string };
-            if (observed?.reservationId !== entry.reservation.reservationId || getJob.call(target, jobId).state !== "verification-pending") {
-              throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish reservation or job changed before verification");
+            if (observed?.reservationId !== entry.reservation.reservationId) {
+              throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish reservation changed before verification");
+            }
+            const getJob = Reflect.get(target, "getPublishJob", target) as (id: string) => { jobId?: unknown; state?: string } | undefined;
+            const job = getJob.call(target, jobId);
+            if (job?.state !== "verification-pending" || (job.jobId !== undefined && job.jobId !== jobId)) {
+              throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish job changed before verification");
             }
           } catch (error) {
             entry.active = false;
