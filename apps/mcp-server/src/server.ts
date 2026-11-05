@@ -3244,9 +3244,9 @@ function withRecoveryCheckpointGuard<T extends object>(
           const reservation = await recovery.beginNative(`native.${reservationKind === "disposable" ? "disposable." : ""}${String(property).toLowerCase()}`);
           const track = Reflect.get(target, "trackNativeDispatch", target) as unknown;
           let dispatched = typeof track !== "function";
-          const untrustedTracker = typeof track === "function" && !(Object.getPrototypeOf(target) === FinalCutNativeAutomationAdapter.prototype && track === builtInNativeTrack);
+          const untrustedProvider = !(Object.getPrototypeOf(target) === FinalCutNativeAutomationAdapter.prototype && track === builtInNativeTrack);
           try {
-            if (untrustedTracker) {
+            if (untrustedProvider) {
               dispatched = true;
               await reservation.markDispatchPossible();
             }
@@ -3299,7 +3299,7 @@ function withRecoveryCheckpointGuard<T extends object>(
                 : (evidence?.status === "VERIFIED" && evidence.verification?.passed === true)
                   || (evidence?.status === "ROLLED_BACK" && restored)
               : evidence?.verification?.verified === true && (property !== "undo" || evidence.undone === true);
-            if (!untrustedTracker && (verified || (!dispatched && contextMethods.has(property) && prepared?.available === false))) {
+            if (!untrustedProvider && (verified || (!dispatched && contextMethods.has(property) && prepared?.available === false))) {
               await reservation.release();
             }
             return result;

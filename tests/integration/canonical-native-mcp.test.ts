@@ -856,6 +856,34 @@ test("a tracker that defers native search cannot release its reservation", async
   }
 });
 
+test("a trackerless provider that defers native search retains its reservation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-native-deferred-provider-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  let resume!: () => void;
+  let complete!: () => void;
+  const gate = new Promise<void>((resolve) => { resume = resolve; });
+  const completed = new Promise<void>((resolve) => { complete = resolve; });
+  let searches = 0;
+  const nativeEditor = {
+    capabilities: () => ({}),
+    searchMedia: async () => { void gate.then(() => { searches++; complete(); }); return []; },
+  } as unknown as NativeFinalCutEditor;
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, nativeEditor });
+  try {
+    await client.callTool({ name: "editor.native.media.search", arguments: { query: "clip.mov" } });
+    assert.equal(searches, 0);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    resume();
+    await completed;
+    assert.equal(searches, 1);
+  } finally {
+    resume();
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("a direct edit rejected before native dispatch releases its reservation", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-direct-validation-"));
   const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
@@ -925,7 +953,7 @@ test("an in-flight direct native undo excludes a canonical checkpoint", async ()
   }
 });
 
-test("direct disposable execute and undo exclude canonical checkpoints", async () => {
+test("direct disposable execute and undo retain uncertain reservations", async () => {
   for (const operation of ["execute", "undo"] as const) {
     const directory = await mkdtemp(join(tmpdir(), "framekit-disposable-route-race-"));
     const path = join(directory, "pending.json");
@@ -953,7 +981,7 @@ test("direct disposable execute and undo exclude canonical checkpoints", async (
       finish();
       const result = await request;
       assert.equal(result.isError ?? false, false, textFrom(result));
-      await guard.assertClear();
+      await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     } finally {
       finish();
       await request;
@@ -990,7 +1018,7 @@ test("disposable routes retain uncertain outcomes from untrusted trackers", asyn
   }
 });
 
-test("native timeline command routes hold the shared checkpoint until verification", async () => {
+test("trackerless native timeline commands retain their reservation", async () => {
   const commands = [
     ["editor.native.blade.execute", "executeBlade"],
     ["editor.native.mask.execute", "executeMask"],
@@ -1019,7 +1047,7 @@ test("native timeline command routes hold the shared checkpoint until verificati
       await assert.rejects(other.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "b".repeat(64), operation: "rename-clip" }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/, tool);
       finish();
       assert.equal((await request).isError ?? false, false, tool);
-      await guard.assertClear();
+      await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     } finally {
       finish();
       await request;
@@ -1030,7 +1058,7 @@ test("native timeline command routes hold the shared checkpoint until verificati
   }
 });
 
-test("native media imports reserve until verified and retain partial outcomes", async () => {
+test("trackerless native media imports retain their reservation", async () => {
   for (const scenario of ["single", "directory", "partial", "mismatched"] as const) {
     const directory = await mkdtemp(join(tmpdir(), "framekit-import-reservation-"));
     const path = join(directory, "pending.json");
@@ -1060,8 +1088,7 @@ test("native media imports reserve until verified and retain partial outcomes", 
       await assert.rejects(other.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "b".repeat(64), operation: "rename-clip" }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/, scenario);
       finish();
       assert.equal((await request).isError ?? false, false, scenario);
-      if (scenario === "partial" || scenario === "mismatched") assert.equal((await guard.inspectNativeReservation())?.operation, "native.executeimportmediadirectory");
-      else await guard.assertClear();
+      await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     } finally {
       finish();
       await request;
@@ -1459,7 +1486,7 @@ test("native target preparation routes exclude concurrent canonical edits", asyn
       await assert.rejects(other.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "a".repeat(64), operation: "rename-clip" }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/, item.tool);
       finish();
       assert.equal((await request).isError ?? false, false, item.tool);
-      await guard.assertClear();
+      await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     } finally {
       finish();
       await request;
