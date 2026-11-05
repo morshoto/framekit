@@ -3159,8 +3159,8 @@ function withPublishRecoveryGuard<T extends object>(
           const context = jobId && !pending && /^publish-job-[a-z0-9-]{1,80}$/.test(jobId)
             && typeof path === "string" && path.length <= 4096 && isAbsolute(path) && path.endsWith(".fcpbundle")
             && typeof digest === "string" && /^[a-f0-9]{64}$/.test(digest)
-            ? { kind: "publish" as const, jobId, dispatchId: randomUUID(), requestedTarget: { libraryPath: path },
-              artifactDigest: digest, executorIdentity: null, nativeQuiescence: "unproven" as const }
+            ? Object.freeze({ kind: "publish" as const, jobId, dispatchId: randomUUID(), requestedTarget: Object.freeze({ libraryPath: path }),
+              artifactDigest: digest, executorIdentity: null, nativeQuiescence: "unproven" as const })
             : undefined;
           // Capture primitives before awaiting the guard; its implementation
           // must not be able to rewrite the evidence used for the recheck.
