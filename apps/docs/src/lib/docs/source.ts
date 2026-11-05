@@ -9,24 +9,24 @@ export const sections = [
 ] as const;
 type Section = typeof sections[number]['key'];
 export interface DocumentMeta { locale: Locale; slug: string; title: string; description: string; section: Section; order: number; status: 'draft' | 'ready' }
-type Page = { slug: string; section: Section; order: number; status: 'draft' | 'ready'; titles: Partial<Record<Locale, string>> };
+type Page = { slug: string; section: Section; order: number; status: 'draft' | 'ready'; englishStatus?: 'draft' | 'ready'; titles: Partial<Record<Locale, string>> };
 const pages: Page[] = [
-  { slug: 'introduction', section: 'getting-started', order: 0, status: 'ready', titles: { en: 'Introduction', ja: 'はじめに' } },
-  { slug: 'installation', section: 'getting-started', order: 1, status: 'draft', titles: { en: 'Installation', ja: 'インストール' } },
-  { slug: 'quick-start', section: 'getting-started', order: 2, status: 'draft', titles: { en: 'Quick Start', ja: 'クイックスタート' } },
-  { slug: 'codex-integration', section: 'guides', order: 0, status: 'draft', titles: { en: 'Codex Integration', ja: 'Codex 連携' } },
-  { slug: 'headless-editing', section: 'guides', order: 1, status: 'draft', titles: { en: 'Headless Editing', ja: 'ヘッドレス編集' } },
-  { slug: 'final-cut-pro', section: 'guides', order: 2, status: 'draft', titles: { en: 'Final Cut Pro', ja: 'Final Cut Pro' } },
-  { slug: 'projects-and-timeline', section: 'concepts', order: 0, status: 'draft', titles: { en: 'Projects & Timeline IR', ja: 'プロジェクトとタイムライン IR' } },
-  { slug: 'revisions-and-safety', section: 'concepts', order: 1, status: 'draft', titles: { en: 'Revisions & Safety', ja: 'リビジョンと安全性' } },
-  { slug: 'cli', section: 'reference', order: 0, status: 'draft', titles: { en: 'CLI Reference', ja: 'CLI リファレンス' } },
-  { slug: 'mcp-tools', section: 'reference', order: 1, status: 'draft', titles: { en: 'MCP Tools', ja: 'MCP ツール' } },
-  { slug: 'configuration', section: 'reference', order: 2, status: 'draft', titles: { en: 'Configuration', ja: '設定' } },
-  { slug: 'development', section: 'contributing', order: 0, status: 'draft', titles: { en: 'Development', ja: '開発' } },
-  { slug: 'testing', section: 'contributing', order: 1, status: 'draft', titles: { en: 'Testing', ja: 'テスト' } },
-  { slug: 'architecture', section: 'contributing', order: 2, status: 'draft', titles: { en: 'Architecture', ja: 'アーキテクチャ' } },
-  { slug: 'getting-started', section: 'getting-started', order: 3, status: 'ready', titles: { en: 'Getting started', ja: 'はじめの一歩' } },
-  { slug: 'examples', section: 'guides', order: 3, status: 'ready', titles: { en: 'Examples', ja: 'サンプル' } },
+  { slug: 'introduction', section: 'getting-started', order: 0, status: 'ready', englishStatus: 'ready', titles: { en: 'Introduction', ja: 'はじめに' } },
+  { slug: 'installation', section: 'getting-started', order: 1, status: 'draft', englishStatus: 'ready', titles: { en: 'Installation', ja: 'インストール' } },
+  { slug: 'quick-start', section: 'getting-started', order: 2, status: 'draft', englishStatus: 'ready', titles: { en: 'Quick Start', ja: 'クイックスタート' } },
+  { slug: 'codex-integration', section: 'guides', order: 0, status: 'draft', englishStatus: 'ready', titles: { en: 'Codex Integration', ja: 'Codex 連携' } },
+  { slug: 'headless-editing', section: 'guides', order: 1, status: 'draft', englishStatus: 'ready', titles: { en: 'Headless Editing', ja: 'ヘッドレス編集' } },
+  { slug: 'final-cut-pro', section: 'guides', order: 2, status: 'draft', englishStatus: 'ready', titles: { en: 'Final Cut Pro', ja: 'Final Cut Pro' } },
+  { slug: 'projects-and-timeline', section: 'concepts', order: 0, status: 'draft', englishStatus: 'ready', titles: { en: 'Projects & Timeline IR', ja: 'プロジェクトとタイムライン IR' } },
+  { slug: 'revisions-and-safety', section: 'concepts', order: 1, status: 'draft', englishStatus: 'ready', titles: { en: 'Revisions & Safety', ja: 'リビジョンと安全性' } },
+  { slug: 'cli', section: 'reference', order: 0, status: 'draft', englishStatus: 'ready', titles: { en: 'CLI Reference', ja: 'CLI リファレンス' } },
+  { slug: 'mcp-tools', section: 'reference', order: 1, status: 'draft', englishStatus: 'ready', titles: { en: 'MCP Tools', ja: 'MCP ツール' } },
+  { slug: 'configuration', section: 'reference', order: 2, status: 'draft', englishStatus: 'ready', titles: { en: 'Configuration', ja: '設定' } },
+  { slug: 'development', section: 'contributing', order: 0, status: 'draft', englishStatus: 'ready', titles: { en: 'Development', ja: '開発' } },
+  { slug: 'testing', section: 'contributing', order: 1, status: 'draft', englishStatus: 'ready', titles: { en: 'Testing', ja: 'テスト' } },
+  { slug: 'architecture', section: 'contributing', order: 2, status: 'draft', englishStatus: 'ready', titles: { en: 'Architecture', ja: 'アーキテクチャ' } },
+  { slug: 'getting-started', section: 'getting-started', order: 3, status: 'ready', englishStatus: 'ready', titles: { en: 'Getting started', ja: 'はじめの一歩' } },
+  { slug: 'examples', section: 'guides', order: 3, status: 'ready', englishStatus: 'ready', titles: { en: 'Examples', ja: 'サンプル' } },
 ];
 export function validateRegistry(docs: DocumentMeta[]) {
   const routes = new Set<string>(); const positions = new Set<string>(); const concepts = new Map<string, DocumentMeta>();
@@ -51,8 +51,26 @@ export function validatePages(entries: Page[]) {
     }
   }
 }
+const englishDescriptions: Record<string, string> = {
+  introduction: 'Learn what Framekit does and choose an editing path.',
+  installation: 'Install Framekit and prepare your environment.',
+  'quick-start': 'Connect an MCP client and inspect your editing capabilities.',
+  'getting-started': 'Set up a development checkout and run the fixture server.',
+  'codex-integration': 'Connect the Framekit plugin to Codex.',
+  'headless-editing': 'Work with Framekit-owned projects without Final Cut Pro.',
+  'final-cut-pro': 'Connect to Final Cut Pro and understand native capability limits.',
+  examples: 'Explore safe, practical Framekit workflows.',
+  'projects-and-timeline': 'Understand projects, sequences, and Timeline IR.',
+  'revisions-and-safety': 'Use revisions, previews, verification, and recovery safely.',
+  cli: 'Find the supported Framekit command-line entry points.',
+  'mcp-tools': 'Discover MCP tools, capabilities, and operation lifecycles.',
+  configuration: 'Configure the editor, connection, and optional analyzers.',
+  development: 'Set up the repository and contribute changes.',
+  testing: 'Run checks and interpret evidence levels.',
+  architecture: 'Understand Framekit components and dependency boundaries.',
+};
 validatePages(pages);
-export const documents: DocumentMeta[] = pages.flatMap(page => (['en', 'ja'] as const).flatMap(locale => page.titles[locale] ? [{ locale, slug: page.slug, title: page.titles[locale]!, description: locale === 'en' ? 'Synthetic documentation example.' : 'サンプルのドキュメントです。', section: page.section, order: page.order, status: page.status }] : []));
+export const documents: DocumentMeta[] = pages.flatMap(page => (['en', 'ja'] as const).flatMap(locale => page.titles[locale] ? [{ locale, slug: page.slug, title: page.titles[locale]!, description: locale === 'en' ? englishDescriptions[page.slug] : 'サンプルのドキュメントです。', section: page.section, order: page.order, status: locale === 'en' ? page.englishStatus ?? 'draft' : page.status }] : []));
 validateRegistry(documents);
 export function getDocument(locale: string, slug: string) { return documents.find(doc => doc.locale === locale && doc.slug === slug); }
 export function getNavigationGroups(locale: Locale) { return sections.map(section => ({ title: section.titles[locale], items: documents.filter(doc => doc.locale === locale && doc.section === section.key).sort((a, b) => a.order - b.order).map(doc => ({ title: doc.title, href: `/${locale}/docs/${doc.slug}/` })) })).filter(group => group.items.length); }

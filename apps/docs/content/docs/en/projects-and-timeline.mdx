@@ -1,1 +1,9 @@
-Content is forthcoming.
+## Project and timeline
+
+A Framekit project owns editor-independent editing state. Its Timeline IR describes sequences and occurrences using stable identities and frame-accurate rational times. Adapters translate between that model and external representations such as FCPXML.
+
+## Identity and revision
+
+A target binds the relevant project, sequence, and revision, and an occurrence when an operation needs one. `playheadTime` describes the editor playhead; it is not a substitute for a stable target. A project revision is not a history commit. Inspect the current revision before a change and again before a render.
+
+See [Revisions & Safety](/en/docs/revisions-and-safety/) and the [architecture reference](https://github.com/morshoto/framekit/blob/main/docs/architecture.md#state-identity-and-revisions).

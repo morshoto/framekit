@@ -29,13 +29,13 @@ try {
       await page.reload({ waitUntil:'networkidle' });
     }
     await page.goto(`${origin}${base}/`, { waitUntil:'networkidle' });
-    await page.getByRole('link', { name:'Read the English introduction' }).click();
+    await page.getByRole('link', { name:'Learn the basics' }).click();
     await page.waitForURL(`**${base}/en/docs/introduction/`);
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
     await page.goto(`${origin}${base}/en/docs/getting-started/`, { waitUntil:'networkidle' });
     await page.getByRole('button', { name:'Copy code' }).first().click();
     await page.getByText('Copied', { exact:true }).waitFor();
-    assert.ok((await page.evaluate(() => navigator.clipboard.readText())).includes('printf'));
+    assert.ok((await page.evaluate(() => navigator.clipboard.readText())).includes('pnpm install --frozen-lockfile'));
     await page.goto(`${origin}${base}/en/docs/introduction/`, { waitUntil:'networkidle' });
     await page.getByRole('link', {name:'日本語'}).click(); await page.waitForURL(`**${base}/ja/docs/introduction/`);
     assert.equal(await page.locator('html').getAttribute('lang'), 'ja');

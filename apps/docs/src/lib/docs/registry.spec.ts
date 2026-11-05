@@ -4,7 +4,7 @@ import { documents, getNavigationGroups, validateRegistry } from './source';
 describe('documentation registry', () => {
   it('renders the planned sections in order with valid localized metadata', () => {
     expect(getNavigationGroups('en').map(group => group.title)).toEqual(['Getting Started', 'Guides', 'Concepts', 'Reference', 'Contributing']);
-    expect(documents.find(doc => doc.locale === 'en' && doc.slug === 'installation')).toMatchObject({ section: 'getting-started', status: 'draft', title: 'Installation' });
+    expect(documents.find(doc => doc.locale === 'en' && doc.slug === 'installation')).toMatchObject({ section: 'getting-started', status: 'ready', title: 'Installation' });
     expect(documents.every(doc => Boolean(doc.title && doc.description))).toBe(true);
   });
   it('rejects duplicate routes and invalid metadata', () => {
@@ -16,10 +16,10 @@ describe('documentation registry', () => {
 });
 it('marks draft metadata as noindex while preserving available language routes', async () => {
   const { documentMetadata } = await import('./metadata');
-  const draft = documents.find(doc => doc.locale === 'en' && doc.slug === 'installation')!;
+  const draft = documents.find(doc => doc.locale === 'ja' && doc.slug === 'installation')!;
   const metadata = documentMetadata(draft, 'https://example.com', '/framekit');
   expect(metadata.robots).toEqual({ index: false, follow: true });
-  expect(metadata.alternates).toEqual({ canonical: '/framekit/en/docs/installation/', languages: { en: '/framekit/en/docs/installation/', ja: '/framekit/ja/docs/installation/' } });
+  expect(metadata.alternates).toEqual({ canonical: '/framekit/ja/docs/installation/', languages: { en: '/framekit/en/docs/installation/', ja: '/framekit/ja/docs/installation/' } });
 });
 it('rejects conflicting conceptual keys across locales', () => {
   const en = documents.find(doc => doc.locale === 'en' && doc.slug === 'installation')!;

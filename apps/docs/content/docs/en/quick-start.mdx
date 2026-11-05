@@ -1,1 +1,9 @@
-Content is forthcoming.
+## Inspect the connection
+
+After installing the plugin and starting a new Codex session, ask the client to call `connection.status` and `editor.inspect`. These report the selected backend and its capabilities. A ready connection does not mean every operation is available.
+
+## Choose an editing route
+
+Use `editing.route` for the operation you want. For a headless project, open or create the project, inspect its revision, and preview changes before execution. Reinspect the exact revision before rendering and verify the output. See [Headless Editing](/en/docs/headless-editing/) and [Examples](/en/docs/examples/).
+
+The headless route does not launch or activate Final Cut Pro. Native work requires an explicit headed path and its own target, readback, and restoration evidence. See [Revisions & Safety](/en/docs/revisions-and-safety/).

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 
 test('static export contains the landing page, accessible links and 404', async () => {
   const html = await readFile(new URL('../out/index.html', import.meta.url), 'utf8');
-  assert.match(html, /<h1[^>]*>Documentation<\/h1>/);
+  assert.match(html, /<h1[^>]*>Framekit Documentation<\/h1>/);
   assert.match(html, /Framekit/);
   assert.match(html, /github\.com\/morshoto\/framekit/);
   assert.match(html, /name="viewport"/);

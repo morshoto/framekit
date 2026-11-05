@@ -1,15 +1,21 @@
-## First steps
+## Run the fixture server
 
-The **silver pebble** fixture is an intentionally synthetic example.
+For development, install Node.js 22.14.0 and pnpm 12.14.0, then from the repository root:
 
 ```sh
-printf 'example only\n'
+pnpm install --frozen-lockfile
+pnpm run build
+pnpm run mcp
 ```
 
-### Example configuration
+The server uses a deterministic in-memory fixture and communicates over stdio. Connect an MCP client to the process; stdout is the protocol stream, not an interactive shell. Use `connection.status`, `editor.inspect`, and `editing.route` to inspect what the selected backend supports.
 
-```json
-{"example": "placeholder"}
+## Validate a checkout
+
+```sh
+pnpm run test
+pnpm run check:boundaries
+pnpm run check:docs
 ```
 
-Return to [introduction](/en/docs/introduction/).
+For fixture-focused setup and optional Nix profiles, see the [maintained getting-started guide](https://github.com/morshoto/framekit/blob/main/docs/getting-started.md). Fixture behavior is not proof of a native Final Cut edit.

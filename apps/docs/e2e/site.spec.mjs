@@ -7,7 +7,7 @@ test('landing and localized articles load with healthy assets', async ({ page, s
   page.on('response', response => { if (response.url().startsWith(site + '/') && response.status() >= 400) failures.push(`${response.status()} ${response.url()}`); });
   await page.goto(`${site}/`, { waitUntil: 'networkidle' });
   await expect(page.getByRole('main')).toHaveCount(1);
-  await expect(page.getByRole('link', { name: 'Read the English introduction' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Learn the basics' })).toBeVisible();
   for (const locale of ['en', 'ja']) {
     await page.goto(`${site}/${locale}/docs/introduction/`, { waitUntil: 'networkidle' });
     await expect(page.locator('html')).toHaveAttribute('lang', locale);
@@ -63,8 +63,8 @@ test('static content works with JavaScript disabled and missing routes return 40
   const context = await browser.newContext({ javaScriptEnabled: false });
   const page = await context.newPage();
   await page.goto(`${site}/en/docs/introduction/`);
-  await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
-  await page.getByRole('main').getByRole('link', { name: 'getting started', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'What is Framekit?' })).toBeVisible();
+  await page.getByRole('main').getByRole('link', { name: 'Getting started', exact: true }).click();
   await expect(page).toHaveURL(/\/en\/docs\/getting-started\/$/);
   await expect(page.getByRole('heading', { name: 'Getting started', level: 1 })).toBeVisible();
   const response = await page.goto(`${site}/en/docs/not-real/`);
@@ -76,11 +76,11 @@ test('static content works with JavaScript disabled and missing routes return 40
 test('article navigation, anchors, pager, and history', async ({ page, site }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`${site}/en/docs/introduction/`);
-  await page.getByRole('navigation', { name: 'On this page' }).getByRole('link', { name: 'Sample table' }).click();
-  await expect(page).toHaveURL(/#sample-table$/);
+  await page.getByRole('navigation', { name: 'On this page' }).getByRole('link', { name: 'Choose a path' }).click();
+  await expect(page).toHaveURL(/#choose-a-path$/);
   await page.getByRole('navigation', { name: 'Page navigation' }).getByRole('link', { name: /Next:/ }).click();
   await expect(page).toHaveURL(/\/en\/docs\/installation\/$/);
-  await expect(page.getByRole('status')).toContainText('Placeholder');
+  await expect(page.getByRole('heading', { name: 'Installation', level: 1 })).toBeVisible();
   await page.getByRole('navigation', { name: 'Page navigation' }).getByRole('link', { name: /Previous:/ }).click();
   await expect(page).toHaveURL(/\/en\/docs\/introduction\/$/);
   await page.goBack();
@@ -103,7 +103,7 @@ test('blocked search assets leave static navigation usable', async ({ page, site
   await page.goto(`${site}/en/docs/introduction/`);
   await page.getByRole('button', { name: 'Search docs' }).click();
   const dialog = page.getByRole('dialog', { name: 'Search documentation' });
-  await dialog.getByRole('combobox').fill('lantern');
+  await dialog.getByRole('combobox').fill('local-first');
   await expect(dialog.getByRole('link', { name: 'Browse docs' })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('main')).toBeVisible();
@@ -120,7 +120,7 @@ test('capture representative layouts for visual review', async ({ page, site }, 
   await page.getByRole('button', { name: 'Open navigation' }).click(); await capture('mobile-navigation');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Search docs' }).click(); await capture('search-open');
-  await page.getByRole('combobox').fill('lantern'); await expect(page.getByRole('option').first()).toBeVisible(); await capture('search-results');
+  await page.getByRole('combobox').fill('local-first'); await expect(page.getByRole('option').first()).toBeVisible(); await capture('search-results');
   await page.getByRole('combobox').fill('unlikely-fixture-query-zzzz'); await expect(page.getByText('No results found')).toBeVisible(); await capture('search-empty');
   await page.keyboard.press('Escape'); await page.emulateMedia({ colorScheme: 'dark' }); await capture('dark-mode');
   await page.goto(`${site}/missing-route/`); await capture('not-found');
@@ -142,15 +142,15 @@ test('mobile drawer closes by button, backdrop, and navigation', async ({ page, 
 });
 
 test('search results open the correct localized articles', async ({ page, site }) => {
-  for (const [locale, query] of [['en', 'lantern'], ['ja', 'ランタン']]) {
+  for (const [locale, query] of [['en', 'local-first'], ['ja', 'ランタン']]) {
     await page.goto(`${site}/${locale}/`);
     const trigger = page.getByRole('button', { name: 'Search docs' });
     await trigger.click();
     const dialog = page.getByRole('dialog', { name: 'Search documentation' });
     await dialog.getByRole('combobox').fill(query);
     await expect(dialog.getByRole('option').first()).toBeVisible();
-    await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter');
-    await expect(page).toHaveURL(new RegExp(`/${locale}/docs/`));
+    await dialog.getByRole('option').filter({ hasText: locale === 'en' ? 'Introduction' : 'はじめに' }).first().click();
+    await expect(page).toHaveURL(new RegExp(`/${locale}/docs/introduction/`));
     await page.reload(); await expect(page.locator('html')).toHaveAttribute('lang', locale);
   }
 });
@@ -169,10 +169,8 @@ test('mobile controls meet minimum touch size and article assets load', async ({
     expect(box.width, `${name} width`).toBeGreaterThanOrEqual(44);
     expect(box.height, `${name} height`).toBeGreaterThanOrEqual(44);
   }
-  const image = page.getByRole('img', { name: 'Synthetic diagram of two example blocks' });
-  await expect(image).toBeVisible();
-  expect(await image.evaluate(element => element.complete && element.naturalWidth > 0)).toBe(true);
-  await expect(page.getByRole('link', { name: 'GitHub' }).last()).toHaveAttribute('href', 'https://github.com/morshoto/framekit');
+  await expect(page.getByRole('heading', { name: 'What is Framekit?' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Headless Editing' }).first()).toHaveAttribute('href', /headless-editing/);
 });
 
 
