@@ -155,7 +155,7 @@ conflicting or concurrently changing evidence is unknown; an active marker
 may instead reflect an interrupted sender. Direct native calls retain their
 reservations after invoking an enabled provider, even if it reports success;
 its return does not prove that no deferred native action remains. An unmodified
-disabled built-in adapter can reject calls without dispatching. Disposable
+disabled built-in adapter's operations can be rejected without invoking it. Disposable
 native jobs similarly retain reservations after entering their tracker or workflow.
 No observation authorizes release, dispatch or recovery. Old writers do not participate in the newer lock protocol,
 so inspection cannot establish a globally consistent view or exclude a later

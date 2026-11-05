@@ -40,6 +40,7 @@ import {
   type FinalCutProjectPublishReadiness,
   FinalCutProjectPublisher,
   FinalCutNativeAutomationAdapter,
+  disabledNativeFocusContext,
   type FileCanonicalRecoveryGuard,
   type FinalCutSqliteInspectionProvider,
   type FinalCutVideoExporter,
@@ -3337,18 +3338,29 @@ function withRecoveryCheckpointGuard<T extends object>(
       return async (...args: unknown[]) => {
         if (reserved.has(property)) {
           const reservation = await recovery.beginNative(`native.${reservationKind === "disposable" ? "disposable." : ""}${String(property).toLowerCase()}`);
-          // Only a disabled, unmodified built-in adapter can prove that it
-          // cannot dispatch. A live adapter's result or callback does not
-          // prove receiver quiescence, even when its public method is intact.
-          const disabledBuiltIn = !utilTypes.isProxy(target) && Object.getPrototypeOf(target) === FinalCutNativeAutomationAdapter.prototype
+          // Reject a disabled operation without invoking any adapter code. For all
+          // other cases, callbacks and mutable internals may schedule dispatch.
+          const disabledPreflight = !utilTypes.isProxy(target)
+            && Object.getPrototypeOf(target) === FinalCutNativeAutomationAdapter.prototype
             && Object.getOwnPropertyDescriptor(target, "enabled")?.value === false
+            && Reflect.ownKeys(target).every((key) => {
+              const descriptor = Object.getOwnPropertyDescriptor(target, key);
+              return Boolean(descriptor && "value" in descriptor);
+            })
             && [...builtInNativeMethods].every(([key, method]) => key === "constructor" || typeof method !== "function"
               || (!Object.getOwnPropertyDescriptor(target, key)
                 && Object.getOwnPropertyDescriptor(FinalCutNativeAutomationAdapter.prototype, key)?.value === method));
-          const untrustedProvider = !disabledBuiltIn;
+          const untrustedProvider = !disabledPreflight;
           let dispatched = untrustedProvider;
           try {
             if (untrustedProvider) await reservation.markDispatchPossible();
+            if (disabledPreflight) {
+              if (property === "focusTimeline") {
+                await reservation.release();
+                return disabledNativeFocusContext();
+              }
+              throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native writes are disabled");
+            }
             const value = Reflect.get(target, property, target) as unknown;
             const track = Reflect.get(target, "trackNativeDispatch", target) as unknown;
             if (typeof value !== "function") throw new Error("CAPABILITY_UNAVAILABLE: native operation is not available");
