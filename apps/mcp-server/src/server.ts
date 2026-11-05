@@ -37,6 +37,7 @@ import {
   type FinalCutProjectPublishJobState,
   type FinalCutProjectPublishReadiness,
   FinalCutProjectPublisher,
+  FinalCutNativeAutomationAdapter,
   type FileCanonicalRecoveryGuard,
   type FinalCutSqliteInspectionProvider,
   type FinalCutVideoExporter,
@@ -82,6 +83,7 @@ const builtInPublishExecute = FinalCutProjectPublisher.prototype.executePublishJ
 const builtInPublishGetJob = FinalCutProjectPublisher.prototype.getPublishJob;
 const builtInPublishTrack = FinalCutProjectPublisher.prototype.trackNativeDispatch;
 const builtInPublishPersist = Reflect.get(FinalCutProjectPublisher.prototype, "persistPublishJob");
+const builtInNativeTrack = FinalCutNativeAutomationAdapter.prototype.trackNativeDispatch;
 const builtInMapGet = Map.prototype.get;
 const builtInMapSet = Map.prototype.set;
 const builtInMapHas = Map.prototype.has;
@@ -3242,7 +3244,12 @@ function withRecoveryCheckpointGuard<T extends object>(
           const reservation = await recovery.beginNative(`native.${reservationKind === "disposable" ? "disposable." : ""}${String(property).toLowerCase()}`);
           const track = Reflect.get(target, "trackNativeDispatch", target) as unknown;
           let dispatched = typeof track !== "function";
+          const untrustedTracker = typeof track === "function" && !(Object.getPrototypeOf(target) === FinalCutNativeAutomationAdapter.prototype && track === builtInNativeTrack);
           try {
+            if (untrustedTracker) {
+              dispatched = true;
+              await reservation.markDispatchPossible();
+            }
             const invoke = async () => Reflect.apply(value, target, args) as Promise<unknown>;
             const result: unknown = typeof track === "function"
               ? await Reflect.apply(track, target, [invoke, () => { dispatched = true; }])
@@ -3292,7 +3299,7 @@ function withRecoveryCheckpointGuard<T extends object>(
                 : (evidence?.status === "VERIFIED" && evidence.verification?.passed === true)
                   || (evidence?.status === "ROLLED_BACK" && restored)
               : evidence?.verification?.verified === true && (property !== "undo" || evidence.undone === true);
-            if (verified || (!dispatched && contextMethods.has(property) && prepared?.available === false)) {
+            if (!untrustedTracker && (verified || (!dispatched && contextMethods.has(property) && prepared?.available === false))) {
               await reservation.release();
             }
             return result;

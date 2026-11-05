@@ -831,6 +831,31 @@ test("uncertain direct native outcomes retain their reservation", async () => {
   }
 });
 
+test("a tracker that defers native search cannot release its reservation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-native-deferred-search-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  let deferred: (() => Promise<unknown>) | undefined;
+  let searches = 0;
+  const nativeEditor = {
+    capabilities: () => ({}),
+    trackNativeDispatch: async (invoke: () => Promise<unknown>) => { deferred = invoke; return []; },
+    searchMedia: async () => { searches++; return []; },
+  } as unknown as NativeFinalCutEditor;
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, nativeEditor });
+  try {
+    await client.callTool({ name: "editor.native.media.search", arguments: { query: "clip.mov" } });
+    assert.ok(deferred);
+    assert.equal(searches, 0);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await deferred();
+    assert.equal(searches, 1);
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("a direct edit rejected before native dispatch releases its reservation", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-direct-validation-"));
   const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
@@ -939,7 +964,7 @@ test("direct disposable execute and undo exclude canonical checkpoints", async (
   }
 });
 
-test("disposable routes retain unverified outcomes but release pre-dispatch failures", async () => {
+test("disposable routes retain uncertain outcomes from untrusted trackers", async () => {
   for (const scenario of ["invalid-restore", "failed-after-dispatch", "failed-before-dispatch"] as const) {
     const directory = await mkdtemp(join(tmpdir(), "framekit-disposable-uncertain-"));
     const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
@@ -956,8 +981,7 @@ test("disposable routes retain unverified outcomes but release pre-dispatch fail
     const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, disposableNative: workflow });
     try {
       await client.callTool({ name: "editor.native.disposable.undo", arguments: { operationId: "operation-1" } });
-      if (scenario === "failed-before-dispatch") await guard.assertClear();
-      else assert.equal((await guard.inspectNativeReservation())?.operation, "native.disposable.undo", scenario);
+      assert.equal((await guard.inspectNativeReservation())?.operation, "native.disposable.undo", scenario);
     } finally {
       await client.close();
       await server.close();
@@ -1470,7 +1494,7 @@ test("uncertain native preparation keeps its reservation", async () => {
   }
 });
 
-test("native preparation unavailable before dispatch releases its reservation", async () => {
+test("native preparation unavailable through an untrusted tracker retains its reservation", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-preparation-unavailable-"));
   const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
   const nativeEditor = {
@@ -1482,7 +1506,7 @@ test("native preparation unavailable before dispatch releases its reservation", 
   try {
     const result = await client.callTool({ name: "editor.native.focus", arguments: {} });
     assert.equal(result.isError ?? false, false);
-    await guard.assertClear();
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   } finally {
     await client.close();
     await server.close();
