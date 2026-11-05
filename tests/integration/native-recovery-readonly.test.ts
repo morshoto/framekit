@@ -405,3 +405,15 @@ test("concurrent intent binding permits at most one attempt", async () => fixtur
   assert.equal((await new FileCanonicalRecoveryGuard(path).inspectNativeRecoveryEvidence()).reservation?.version, 3);
   await assert.rejects(reservation.release(), /RECOVERY_REQUIRED/);
 }));
+
+test("a simulated interrupted intent rewrite remains unknown and blocks new writers", async () => fixture(async (path) => {
+  const reservation = await new FileCanonicalRecoveryGuard(path).beginNative(operation);
+  await reservation.markDispatchPossible();
+  const script = "const fs = require('fs'); const fd = fs.openSync(process.argv[1], 'r+'); fs.writeSync(fd, '{\\\"version\\\":3', 0, 'utf8'); fs.ftruncateSync(fd, 12); fs.fsyncSync(fd); process.kill(process.pid, 'SIGKILL');";
+  const child = spawnSync(process.execPath, ["-e", script, path], { timeout: 5000 });
+  assert.equal(child.signal, "SIGKILL");
+  const restarted = new FileCanonicalRecoveryGuard(path);
+  assert.equal((await restarted.inspectNativeRecoveryEvidence()).status, "unknown");
+  await assert.rejects(restarted.beginNative(operation), /RECOVERY_REQUIRED/);
+  await assert.rejects(reservation.release(), /RECOVERY_REQUIRED/);
+}));

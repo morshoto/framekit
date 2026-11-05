@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -1183,9 +1184,10 @@ test("publish reservation excludes edits and permits verification of only the sa
   try {
     await started;
     const durable = JSON.parse(await readFile(path, "utf8"));
-    // An arbitrary provider's job lookup cannot be called before reservation.
-    assert.equal(durable.version, 2);
-    assert.equal(durable.recoveryContext, undefined);
+    assert.equal(durable.version, 3);
+    assert.equal(durable.recoveryContext.jobId, "publish-job-1");
+    assert.equal(durable.recoveryContext.artifactDigest, "a".repeat(64));
+    assert.equal(durable.recoveryContext.requestedTarget.libraryPath, "/tmp/target.fcpbundle");
     await assert.rejects(other.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "b".repeat(64), operation: "rename-clip" }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     const premature = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "publish-job-1", confirm: true, confirmVerification: true } });
     assert.equal(premature.isError, true);
@@ -1714,5 +1716,94 @@ test("publish execute getter cannot run while another reservation is held", asyn
     await server.close();
     await reservation.release();
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+
+test("custom publish lookup runs after durable uncertainty and binds intent", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-publish-bound-lookup-"));
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  let lookups = 0;
+  let markerObserved = false;
+  const projectPublisher = {
+    isAvailable: () => false,
+    getPublishJob: () => {
+      lookups++;
+      const contents = readFileSync(path, "utf8");
+      const id = createHash("sha256").update(contents).digest("hex");
+      markerObserved = existsSync(`${path}.dispatch-${id}`);
+      return { state: "awaiting-confirmation", artifactDigest: "a".repeat(64), targetLibraryPath: "/tmp/target.fcpbundle" };
+    },
+    executePublishJob: async () => ({ state: "verification-pending" }),
+  } as unknown as NonNullable<Parameters<typeof createMcpServer>[1]>["projectPublisher"];
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher });
+  try {
+    await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "publish-job-1", confirm: true } });
+    assert.equal(lookups, 1);
+    assert.equal(markerObserved, true);
+    const observed = await new FileCanonicalRecoveryGuard(path).inspectNativeRecoveryEvidence();
+    assert.equal(observed.reservation?.version, 3);
+    assert.equal(observed.reservation?.jobId, "publish-job-1");
+    assert.equal(observed.intent?.artifactDigest, "a".repeat(64));
+    assert.equal(observed.boundaryEvidence, "dispatch-possible-recorded");
+    await assert.rejects(guard.assertClear(), /RECOVERY_REQUIRED/);
+  } finally {
+    await client.close(); await server.close(); await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("failed publish intent binding blocks provider execution and retains reservation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-publish-bind-failure-"));
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  const begin = guard.beginNative.bind(guard);
+  guard.beginNative = async (...args) => {
+    const reservation = await begin(...args);
+    reservation.bindRecoveryContext = async () => { throw new Error("binding failed"); };
+    return reservation;
+  };
+  let calls = 0;
+  const projectPublisher = {
+    isAvailable: () => false,
+    getPublishJob: () => ({ state: "awaiting-confirmation", artifactDigest: "a".repeat(64), targetLibraryPath: "/tmp/target.fcpbundle" }),
+    executePublishJob: async () => { calls++; return { state: "verification-pending" }; },
+  } as unknown as NonNullable<Parameters<typeof createMcpServer>[1]>["projectPublisher"];
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher });
+  try {
+    const result = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "publish-job-1", confirm: true } });
+    assert.equal(result.isError, true);
+    assert.equal(calls, 0);
+    const observed = await new FileCanonicalRecoveryGuard(path).inspectNativeRecoveryEvidence();
+    assert.equal(observed.reservation?.version, 2);
+    assert.equal(observed.boundaryEvidence, "dispatch-possible-recorded");
+    await assert.rejects(guard.assertClear(), /RECOVERY_REQUIRED/);
+  } finally {
+    await client.close(); await server.close(); await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("a throwing custom publish lookup retains the uncertain reservation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-publish-lookup-failure-"));
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  let calls = 0;
+  const projectPublisher = {
+    isAvailable: () => false,
+    getPublishJob: () => { throw new Error("lookup failed"); },
+    executePublishJob: async () => { calls++; return { state: "verification-pending" }; },
+  } as unknown as NonNullable<Parameters<typeof createMcpServer>[1]>["projectPublisher"];
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher });
+  try {
+    const result = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: "publish-job-1", confirm: true } });
+    assert.equal(result.isError, true);
+    assert.equal(calls, 0);
+    const observed = await new FileCanonicalRecoveryGuard(path).inspectNativeRecoveryEvidence();
+    assert.equal(observed.reservation?.version, 2);
+    assert.equal(observed.boundaryEvidence, "dispatch-possible-recorded");
+    assert.equal(observed.recoveryEligibility, "unavailable");
+    await assert.rejects(guard.assertClear(), /RECOVERY_REQUIRED/);
+  } finally {
+    await client.close(); await server.close(); await rm(directory, { recursive: true, force: true });
   }
 });
