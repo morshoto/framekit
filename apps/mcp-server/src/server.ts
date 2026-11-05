@@ -3140,6 +3140,7 @@ function withPublishRecoveryGuard<T extends object>(
             && Object.getPrototypeOf(target) === FinalCutProjectPublisher.prototype
             && value === FinalCutProjectPublisher.prototype.executePublishJob
             && Reflect.get(target, "getPublishJob", target) === FinalCutProjectPublisher.prototype.getPublishJob
+            && !Object.hasOwn(target, "persistPublishJob")
             && track === FinalCutProjectPublisher.prototype.trackNativeDispatch) {
             const job = FinalCutProjectPublisher.prototype.getPublishJob.call(target as FinalCutProjectPublisher, jobId);
             provenDisabled = (job.state === "awaiting-confirmation" || job.state === "awaiting-final-cut")
