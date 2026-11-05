@@ -848,7 +848,7 @@ test("an existing reservation takes precedence over unavailable built-in preflig
   }
 });
 
-test("materialization does not claim a provider request when tracking fails first", async () => {
+test("an untrusted tracking failure retains a reservation before provider invocation", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-tracking-failure-"));
   const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
   let publishes = 0;
@@ -863,7 +863,7 @@ test("materialization does not claim a provider request when tracking fails firs
     assert.equal(job.state, "failed");
     assert.equal(job.evidence.providerRequested, false);
     assert.equal(publishes, 0);
-    await guard.assertClear();
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   } finally {
     await connected.client.close();
     await connected.server.close();
