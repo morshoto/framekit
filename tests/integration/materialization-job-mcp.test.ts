@@ -830,6 +830,24 @@ test("built-in materialization preflight without an executor permits a safe retr
   }
 });
 
+test("an existing reservation takes precedence over unavailable built-in preflight", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-existing-preflight-"));
+  const path = join(directory, "pending.json");
+  const guard = new FileCanonicalRecoveryGuard(path);
+  const connected = await connect(directory, new FinalCutBackgroundMaterializationPublisher(), undefined, "default", guard);
+  try {
+    await connected.client.callTool({ name: "session.create", arguments: { sessionId: "session-existing", provider: { id: "final-cut" }, base: timeline() } });
+    await guard.beginNative("native.searchmedia");
+    const job = payload(await connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "session-existing", target, confirm: true } }));
+    assert.equal(job.code, "FINAL_CUT_CANONICAL_RECOVERY_REQUIRED");
+    assert.equal((await guard.inspectNativeReservation())?.operation, "native.searchmedia");
+  } finally {
+    await connected.client.close();
+    await connected.server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("materialization does not claim a provider request when tracking fails first", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-tracking-failure-"));
   const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
