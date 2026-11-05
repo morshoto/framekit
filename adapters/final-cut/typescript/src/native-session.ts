@@ -441,25 +441,18 @@ export function createDisposableNativeOperationSession(
       },
       execute: async (request, context) => {
         const reservation = await options.recoveryGuard?.beginNative("native.job.disposable-rename");
-        let dispatched = typeof options.native.trackNativeDispatch !== "function";
-        let mutationStarted = false;
-        try {
-          const invoke = () => options.workflow.execute(request.previewToken, {
-            signal: context.signal,
-            onMutationStart: () => { mutationStarted = true; context.markMutationStarted(); },
-          });
-          const result = options.native.trackNativeDispatch
-            ? await options.native.trackNativeDispatch(invoke, () => { dispatched = true; })
-            : await invoke();
-          const evidence = disposableEvidence(result);
-          const verified = result.status === "VERIFIED" && hasVerifiedCompletionEvidence(evidence);
-          const restored = result.status === "ROLLED_BACK" && result.restoredDigest === result.beforeDigest;
-          if (!context.signal.aborted && (verified || restored)) await reservation?.release();
-          return { outcome: result.status === "VERIFIED" ? "completed" : "rolled_back", evidence };
-        } catch (error) {
-          if (!dispatched && !mutationStarted) await reservation?.release();
-          throw error;
-        }
+        // Trackers and workflows may defer work even after they return or fail.
+        // Persist uncertainty before invoking either and retain the reservation.
+        await reservation?.markDispatchPossible();
+        const invoke = () => options.workflow.execute(request.previewToken, {
+          signal: context.signal,
+          onMutationStart: () => { context.markMutationStarted(); },
+        });
+        const result = options.native.trackNativeDispatch
+          ? await options.native.trackNativeDispatch(invoke, () => {})
+          : await invoke();
+        const evidence = disposableEvidence(result);
+        return { outcome: result.status === "VERIFIED" ? "completed" : "rolled_back", evidence };
       },
     },
   });
