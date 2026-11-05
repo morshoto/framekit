@@ -340,7 +340,7 @@ export class SessionMaterializationJobs {
         ? await this.publisher.trackNativeDispatch(invoke, () => { dispatched = true; })
         : await invoke();
       claimed = { ...claimed, providerRequestPhase: "returned" };
-      if (reservation && !dispatched) {
+      if (reservation && !providerRequested && !dispatched) {
         await reservation.release();
         reservation = undefined;
         claimed = { ...claimed, recoveryReservation: undefined };
@@ -431,7 +431,7 @@ export class SessionMaterializationJobs {
       await this.save(outcome);
       return outcome;
     } catch (error) {
-      if (reservation && (!providerRequested || !dispatched)) {
+      if (reservation && !providerRequested && !dispatched) {
         await reservation.release();
         claimed = { ...claimed, recoveryReservation: undefined };
       }
