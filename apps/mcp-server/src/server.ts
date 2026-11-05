@@ -3142,9 +3142,16 @@ function withPublishRecoveryGuard<T extends object>(
             && Reflect.get(target, "getPublishJob", target) === FinalCutProjectPublisher.prototype.getPublishJob
             && !Object.hasOwn(target, "persistPublishJob")
             && track === FinalCutProjectPublisher.prototype.trackNativeDispatch) {
-            const job = FinalCutProjectPublisher.prototype.getPublishJob.call(target as FinalCutProjectPublisher, jobId);
-            provenDisabled = (job.state === "awaiting-confirmation" || job.state === "awaiting-final-cut")
-              && FinalCutProjectPublisher.prototype.isDispatchDisabled.call(target as FinalCutProjectPublisher);
+            const stores = ["publishJobs", "publishJobRuntime"].map((key) => Object.getOwnPropertyDescriptor(target, key)?.value);
+            const ordinaryStores = stores.every((store: unknown) => store instanceof Map
+              && Object.getPrototypeOf(store) === Map.prototype
+              && store.get === Map.prototype.get && store.set === Map.prototype.set && store.has === Map.prototype.has);
+            if (ordinaryStores) {
+              const job = FinalCutProjectPublisher.prototype.getPublishJob.call(target as FinalCutProjectPublisher, jobId);
+              const enabled = Object.getOwnPropertyDescriptor(target, "enabled");
+              provenDisabled = (job.state === "awaiting-confirmation" || job.state === "awaiting-final-cut")
+                && enabled?.value === false;
+            }
           }
           const invoke = async () => {
             // Once the provider is invoked, a missing callback is not proof of non-dispatch.

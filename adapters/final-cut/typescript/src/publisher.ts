@@ -263,11 +263,6 @@ export class FinalCutProjectPublisher {
     return this.inspectReadiness().available;
   }
 
-  /** Pure local configuration check; no native request is made. */
-  public isDispatchDisabled(): boolean {
-    return !this.enabled;
-  }
-
   /** Describe configured handoff providers without querying or changing Final Cut. */
   public inspectReadiness(): FinalCutProjectPublishReadiness {
     const reasons: FinalCutProjectPublishReadiness["reasons"] = [];
