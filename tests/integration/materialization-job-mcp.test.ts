@@ -813,6 +813,23 @@ test("materialization retains a reservation when an invoked provider omits dispa
   }
 });
 
+test("built-in materialization preflight without an executor permits a safe retry", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-built-in-preflight-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const connected = await connect(directory, new FinalCutBackgroundMaterializationPublisher(), undefined, "default", guard);
+  try {
+    await connected.client.callTool({ name: "session.create", arguments: { sessionId: "session-preflight", provider: { id: "final-cut" }, base: timeline() } });
+    const job = payload(await connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "session-preflight", target, confirm: true } }));
+    assert.equal(job.nextAction, "retry");
+    assert.equal(job.error.code, "FINAL_CUT_BACKGROUND_MATERIALIZATION_UNAVAILABLE");
+    await guard.assertClear();
+  } finally {
+    await connected.client.close();
+    await connected.server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("materialization does not claim a provider request when tracking fails first", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-tracking-failure-"));
   const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
