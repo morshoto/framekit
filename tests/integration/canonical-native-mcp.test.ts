@@ -2004,3 +2004,21 @@ test("a pending custom publish job cannot be dispatched again", async () => {
     await client.close(); await server.close(); await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("mutable disabled-native context cannot prove non-dispatch", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-native-disabled-context-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const native = new FinalCutNativeAutomationAdapter({ enabled: false });
+  const mutable = native as unknown as { requestContext: unknown };
+  const original = mutable.requestContext;
+  let calls = 0;
+  Object.defineProperty(native, "requestContext", { configurable: true, get() { calls++; return original; } });
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, nativeEditor: native });
+  try {
+    await client.callTool({ name: "editor.native.focus", arguments: {} });
+    assert.ok(calls > 0);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await client.close(); await server.close(); await rm(directory, { recursive: true, force: true });
+  }
+});
