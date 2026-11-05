@@ -281,3 +281,20 @@ test("an empty sender marker on a legacy reservation remains unknown", async () 
   await writeFile(join(`${path}.sender-settled`, id), "");
   assert.equal((await unchanged(directory, () => inspectNativeRecoveryReadOnly(path))).sender.status, "unknown");
 }));
+
+test("sender crash after the durable dispatch marker retains uncertainty after restart", async () => fixture(async (path) => {
+  const module = pathToFileURL(resolve("adapters/final-cut/typescript/src/canonical-recovery-guard.ts")).href;
+  const context = JSON.stringify(v3().recoveryContext);
+  const script = `import {FileCanonicalRecoveryGuard} from ${JSON.stringify(module)}; const handle = await new FileCanonicalRecoveryGuard(process.argv[1]).beginNative(${JSON.stringify(operation)}, ${context}); await handle.markDispatchPossible(); process.kill(process.pid, 'SIGKILL');`;
+  const child = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script, path], { timeout: 5000 });
+  assert.equal(child.signal, "SIGKILL");
+  const restarted = new FileCanonicalRecoveryGuard(path);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const evidence = await restarted.inspectNativeRecoveryEvidence();
+    assert.equal(evidence.boundaryEvidence, "dispatch-possible-recorded");
+    assert.equal(evidence.dispatchState, "possibly-dispatched");
+    assert.equal(evidence.recoveryEligibility, "unavailable");
+    await assert.rejects(restarted.beginNative(operation, v3().recoveryContext), /RECOVERY_REQUIRED/);
+  }
+}));
+
