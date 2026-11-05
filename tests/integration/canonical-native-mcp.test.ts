@@ -1259,6 +1259,30 @@ test("custom publisher job-store methods cannot establish non-dispatch", async (
   }
 });
 
+test("a replaced publisher prototype method cannot establish non-dispatch", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-custom-publish-prototype-"));
+  const source = '<fcpxml version="1.11"><library><event><project uid="project" name="Project"><sequence uid="sequence" name="Main" /></project></event></library></fcpxml>';
+  const artifactPath = join(directory, "source.fcpxml");
+  await writeFile(artifactPath, source);
+  const publisher = new FinalCutProjectPublisher({ headlessSourceVerifier: async () => ({ targetLibraryUid: "library", sourceMediaDigests: [] }) });
+  const job = await publisher.preparePublish({ sourceTransactionId: "headless-rough-cut:prototype", artifactPath,
+    artifactDigest: createHash("sha256").update(source).digest("hex"), targetLibraryPath: join(directory, "New.fcpbundle") });
+  const original = FinalCutProjectPublisher.prototype.executePublishJob;
+  FinalCutProjectPublisher.prototype.executePublishJob = async () => ({ ...job, state: "awaiting-final-cut", nextAction: "retry" });
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher: publisher });
+  try {
+    const result = JSON.parse(textFrom(await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: job.jobId, confirm: true } })));
+    assert.equal(result.recoveryReservation.reason, "native-quiescence-unproven");
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    FinalCutProjectPublisher.prototype.executePublishJob = original;
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("publish verification rejects a replaced reservation", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-publish-replaced-"));
   const path = join(directory, "pending.json");
