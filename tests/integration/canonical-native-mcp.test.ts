@@ -2127,3 +2127,23 @@ test("publish intent changes during reservation acquisition remain uncertain", a
     await client.close(); await server.close(); await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("a built-in job stored under the wrong ID is rejected before execution", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-publish-stored-id-mismatch-"));
+  const source = '<fcpxml version="1.11"><library><event><project uid="project" name="Project"><sequence uid="sequence" name="Main" /></project></event></library></fcpxml>';
+  const artifactPath = join(directory, "source.fcpxml");
+  await writeFile(artifactPath, source);
+  const publisher = new FinalCutProjectPublisher({ headlessSourceVerifier: async () => ({ targetLibraryUid: "library", sourceMediaDigests: [] }) });
+  const job = await publisher.preparePublish({ sourceTransactionId: "headless-rough-cut:wrong-stored-id", artifactPath,
+    artifactDigest: createHash("sha256").update(source).digest("hex"), targetLibraryPath: join(directory, "New.fcpbundle") });
+  const store = (publisher as unknown as { publishJobs: Map<string, { jobId: string }> }).publishJobs;
+  store.get(job.jobId)!.jobId = "publish-job-other";
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, projectPublisher: publisher });
+  try {
+    const result = await client.callTool({ name: "artifact.publish.execute", arguments: { jobId: job.jobId, confirm: true } });
+    assert.equal(result.isError, true);
+  } finally {
+    await client.close(); await server.close(); await rm(directory, { recursive: true, force: true });
+  }
+});
