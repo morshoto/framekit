@@ -757,9 +757,18 @@ function collectStructuralChanges(
 // isAvailable() here could execute a caller-supplied getter before a native
 // reservation exists, so every unfamiliar shape must take the guarded path.
 const builtinStringTrim = String.prototype.trim;
+const builtinMaterializationMethods = new Map([
+  ["publish", FinalCutBackgroundMaterializationPublisher.prototype.publish],
+  ["trackNativeDispatch", FinalCutBackgroundMaterializationPublisher.prototype.trackNativeDispatch],
+  ["isAvailable", FinalCutBackgroundMaterializationPublisher.prototype.isAvailable],
+]);
 
 function hasInertUnavailableMaterializationOptions(publisher: SessionMaterializationPublisher): boolean {
   if (utilTypes.isProxy(publisher) || Object.getPrototypeOf(publisher) !== FinalCutBackgroundMaterializationPublisher.prototype) return false;
+  for (const [name, method] of builtinMaterializationMethods) {
+    if (Object.getOwnPropertyDescriptor(publisher, name)
+      || Object.getOwnPropertyDescriptor(FinalCutBackgroundMaterializationPublisher.prototype, name)?.value !== method) return false;
+  }
   const optionsProperty = Object.getOwnPropertyDescriptor(publisher, "options");
   if (!optionsProperty || !("value" in optionsProperty)) return false;
   const options: unknown = optionsProperty.value;

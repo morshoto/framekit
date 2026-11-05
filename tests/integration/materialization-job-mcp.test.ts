@@ -1003,3 +1003,23 @@ test("materialization tracker lookup occurs only with a reservation", async () =
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("an overridden built-in publisher does not use the unavailable shortcut", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-materialization-overridden-publisher-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const publisher = new FinalCutBackgroundMaterializationPublisher();
+  let calls = 0;
+  publisher.publish = async () => { calls++; throw new Error("RECEIVER_TIMEOUT"); };
+  const connected = await connect(directory, publisher, undefined, "default", guard);
+  try {
+    await connected.client.callTool({ name: "session.create", arguments: { sessionId: "session-overridden-publisher", provider: { id: "final-cut" }, base: timeline() } });
+    const job = payload(await connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "session-overridden-publisher", target, confirm: true } }));
+    assert.equal(calls, 1);
+    assert.equal(job.nextAction, "none");
+    await assert.rejects(guard.assertClear(), /RECOVERY_REQUIRED/);
+  } finally {
+    await connected.client.close();
+    await connected.server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
