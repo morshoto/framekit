@@ -70,7 +70,6 @@ import type {
 
 /** Stable runtime façade exposed to the MCP server and editor adapters. */
 export class AgentVideoRuntime {
-  private readonly editor: EditorPort;
   private readonly projects: ProjectService;
   private readonly contexts: ContextService;
   private readonly media: MediaAnalysisService;
@@ -85,7 +84,6 @@ export class AgentVideoRuntime {
     adapter: EditorPort,
     options: RuntimeOptions = {},
   ) {
-    this.editor = adapter;
     const context = new ContextEngine(adapter);
     const verificationEngine = options.verificationEngine ?? new DefaultVerificationEngine();
     const transactions = new InMemoryTransactionStore();
@@ -100,16 +98,12 @@ export class AgentVideoRuntime {
     this.skills = new SkillRuntime(this.projects, this.media, this.edits, options);
   }
 
-  public withCanonicalReadScope<T>(operation: () => Promise<T>): Promise<T> {
-    return this.editor.withCanonicalReadScope?.(operation) ?? operation();
-  }
-
   public async inspectProject(): Promise<ProjectSnapshot> {
-    return this.withCanonicalReadScope(() => this.projects.inspectProject());
+    return this.projects.inspectProject();
   }
 
   public async inspectTimeline(): Promise<ProjectSnapshot["timeline"]> {
-    return this.withCanonicalReadScope(() => this.projects.inspectTimeline());
+    return this.projects.inspectTimeline();
   }
 
   public async inspectArtifact(): Promise<ManagedArtifact> {
@@ -150,12 +144,9 @@ export class AgentVideoRuntime {
   }
 
   public async inspectContext(options: CapabilityInspectionOptions = {}): Promise<AgentContext> {
-    const inspect = async () => {
-      const editor = await this.inspectEditor({ ...options, probeCanonicalSnapshot: options.probeCanonicalSnapshot === true });
-      const headedRead = editor.capabilities.families?.canonicalDocument.read.evidenceTier === "headed-native";
-      return this.contexts.inspectContext(editor.capabilities, { includeCanonicalSnapshot: !headedRead || options.probeCanonicalSnapshot === true });
-    };
-    return options.probeCanonicalSnapshot === true ? this.withCanonicalReadScope(inspect) : inspect();
+    const editor = await this.inspectEditor({ ...options, probeCanonicalSnapshot: options.probeCanonicalSnapshot === true });
+    const headedRead = editor.capabilities.families?.canonicalDocument.read.evidenceTier === "headed-native";
+    return this.contexts.inspectContext(editor.capabilities, { includeCanonicalSnapshot: !headedRead || options.probeCanonicalSnapshot === true });
   }
 
   public async inspectLiveEditor(): Promise<EditorLiveState> {

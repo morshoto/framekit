@@ -1,6 +1,5 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { homedir, tmpdir } from "node:os";
@@ -843,7 +842,11 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   private lastLiveRevision?: Pick<ContextRevision, "id" | "sequence">;
   private readonly revisionEpoch = randomUUID();
   private lastSnapshot?: ProjectSnapshot;
-  private readonly readScope = new AsyncLocalStorage<{ snapshot?: ProjectSnapshot; liveRevision?: Pick<ContextRevision, "id" | "sequence"> }>();
+  /** Reuse a capability probe's export once, only while its live target revision still matches. */
+  private probedSnapshot?: {
+    snapshot: ProjectSnapshot;
+    liveRevision: Pick<ContextRevision, "id" | "sequence">;
+  };
   private selectedTarget?: { projectId: string; sequenceId: string };
   private revisionSequence = 0;
   private revision?: ContextRevision;
@@ -863,10 +866,6 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   public async getIdentity(): Promise<EditorIdentity> {
     const identity = await this.live.getIdentity();
     return { ...identity, backend: "final-cut-native-canonical" };
-  }
-
-  public withCanonicalReadScope<T>(operation: () => Promise<T>): Promise<T> {
-    return this.readScope.getStore() ? operation() : this.readScope.run({}, operation);
   }
 
   public async getCapabilities(options: CapabilityInspectionOptions = {}): Promise<RuntimeCapabilities> {
@@ -1002,9 +1001,16 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
 
   private async probeCanonicalSnapshot(): Promise<{ available: true } | { available: false; reason: string }> {
     try {
-      await this.readProject();
+      const snapshot = await this.readProject();
+      if (this.lastLiveRevision) {
+        this.probedSnapshot = {
+          snapshot: structuredClone(snapshot),
+          liveRevision: { ...this.lastLiveRevision },
+        };
+      }
       return { available: true };
     } catch (error) {
+      this.probedSnapshot = undefined;
       const detail = error instanceof Error ? error.message : String(error);
       return {
         available: false,
@@ -1018,17 +1024,17 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
   }
 
   public async readProject(): Promise<ProjectSnapshot> {
-    const scoped = this.readScope.getStore();
-    if (scoped?.snapshot && scoped.liveRevision) {
+    const probed = this.probedSnapshot;
+    this.probedSnapshot = undefined;
+    if (probed) {
       const live = await this.live.readLiveState();
-      if (live.project?.id === scoped.snapshot.projectId
-        && live.sequence?.id === scoped.snapshot.timeline.id
-        && live.revision?.id === scoped.liveRevision.id
-        && live.revision.sequence === scoped.liveRevision.sequence) {
+      if (live.project?.id === probed.snapshot.projectId
+        && live.sequence?.id === probed.snapshot.timeline.id
+        && live.revision?.id === probed.liveRevision.id
+        && live.revision.sequence === probed.liveRevision.sequence) {
         this.assertSelectedTarget(live);
-        return structuredClone(scoped.snapshot);
+        return structuredClone(probed.snapshot);
       }
-      throw new Error("FINAL_CUT_CANONICAL_TARGET_STALE: live target or revision changed during scoped read");
     }
 
     const beforeLive = await this.live.readLiveState();
@@ -1055,10 +1061,6 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
       };
     }
     this.lastSnapshot = { ...snapshot, revision: this.revision };
-    if (scoped) {
-      scoped.snapshot = structuredClone(this.lastSnapshot);
-      scoped.liveRevision = { id: live.revision.id, sequence: live.revision.sequence };
-    }
     return structuredClone(this.lastSnapshot);
   }
 
@@ -1436,6 +1438,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
     }
 
     this.selectedTarget = target;
+    this.probedSnapshot = undefined;
     return structuredClone(result);
   }
 

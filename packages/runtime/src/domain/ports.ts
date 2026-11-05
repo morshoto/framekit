@@ -24,8 +24,6 @@ export interface EditorAdapter {
 }
 
 export interface EditorPort extends EditorAdapter {
-  /** Share a single canonical observation only within this read operation. */
-  withCanonicalReadScope?<T>(operation: () => Promise<T>): Promise<T>;
   getIdentity(): Promise<EditorIdentity>;
   getCapabilities(options?: CapabilityInspectionOptions): Promise<RuntimeCapabilities>;
   getManagedArtifact?(): Promise<ManagedArtifact>;
