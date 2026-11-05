@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readdirSync } from "node:fs";
 import test from "node:test";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -878,6 +879,50 @@ test("a trackerless provider that defers native search retains its reservation",
     assert.equal(searches, 1);
   } finally {
     resume();
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("a native search getter cannot run while another reservation is held", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-native-search-getter-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const reservation = await guard.beginNative("native.existing");
+  let lookups = 0;
+  const nativeEditor = { capabilities: () => ({}) } as unknown as NativeFinalCutEditor;
+  Object.defineProperty(nativeEditor, "searchMedia", { get() { lookups++; return async () => []; } });
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, nativeEditor });
+  try {
+    lookups = 0;
+    const result = await client.callTool({ name: "editor.native.media.search", arguments: { query: "clip.mov" } });
+    assert.equal(result.isError, true);
+    assert.equal(lookups, 0);
+  } finally {
+    await client.close();
+    await server.close();
+    await reservation.release();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("native provider getters run only after the dispatch boundary is recorded", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-native-getter-boundary-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const observations: boolean[] = [];
+  const nativeEditor = { capabilities: () => ({}) } as unknown as NativeFinalCutEditor;
+  Object.defineProperty(nativeEditor, "searchMedia", { get() {
+    observations.push(readdirSync(directory).some((name) => name.startsWith("pending.json.dispatch-")));
+    return async () => [];
+  } });
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, nativeEditor });
+  try {
+    observations.length = 0;
+    const result = await client.callTool({ name: "editor.native.media.search", arguments: { query: "clip.mov" } });
+    assert.equal(result.isError ?? false, false);
+    assert.deepEqual(observations, [true]);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
     await client.close();
     await server.close();
     await rm(directory, { recursive: true, force: true });
