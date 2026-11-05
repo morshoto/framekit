@@ -749,6 +749,9 @@ export function createFinalCutNativeTargetResolver(
     if (located.status === "none" || located.occurrences.length === 0) {
       throw new Error(`TARGET_MISMATCH: Final Cut timeline has no occurrence for ${query}`);
     }
+    if (located.occurrences.some((candidate) => !validRationalText(candidate.start) || !validRationalText(candidate.duration))) {
+      throw new Error("AMBIGUOUS_PROJECT_TARGET: discovered occurrence coordinates are incomplete or invalid");
+    }
     const matchingOccurrences = located.occurrences.filter((candidate) =>
       candidate.start && candidate.duration && clip.startTime && clip.durationTime
       && sameRationalText(candidate.start, clip.startTime)
@@ -2233,6 +2236,11 @@ function exactLocalSourcePath(source: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function validRationalText(value: string | undefined): boolean {
+  const match = value?.trim().match(/^(-?\d+)\/(\d+)$/);
+  return Boolean(match && BigInt(match[2]!) > 0n);
 }
 
 function sameRationalText(value: string, expected: { value: string; timescale: string }): boolean {
