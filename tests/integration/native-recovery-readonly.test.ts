@@ -60,6 +60,13 @@ test("durable dispatch boundary forbids owner release and survives restart", asy
   await assert.rejects(restarted.beginNative(operation, v3().recoveryContext), /RECOVERY_REQUIRED/);
 }));
 
+test("release cannot race a dispatch boundary on the same owner", async () => fixture(async (path) => {
+  const reservation = await new FileCanonicalRecoveryGuard(path).beginNative(operation, v3().recoveryContext);
+  const releasing = reservation.release();
+  await assert.rejects(reservation.markDispatchPossible(), /RECOVERY_REQUIRED/);
+  await releasing;
+}));
+
 test("a sender crash after durable intent remains uncertain across repeated inspections", async () => fixture(async (path) => {
   const module = pathToFileURL(resolve("adapters/final-cut/typescript/src/canonical-recovery-guard.ts")).href;
   const context = JSON.stringify(v3().recoveryContext);
