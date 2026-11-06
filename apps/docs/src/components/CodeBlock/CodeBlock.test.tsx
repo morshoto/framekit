@@ -21,3 +21,24 @@ it('copies code and announces success', async () => {
   expect(writeText).toHaveBeenCalledWith('example\n');
   expect(screen.getByRole('status')).toHaveTextContent('Copied');
 });
+
+it.each([['json', '{"enabled": true}'], ['ts', 'const enabled = true;']])('highlights %s while preserving snippet text', (language, code) => {
+  const { container } = render(<CodeBlock code={code} language={language} />);
+  const element = container.querySelector('pre code')!;
+  expect(element.textContent).toBe(code);
+  expect(element.querySelector('span')).not.toBeNull();
+});
+
+it('renders unknown languages as plain text', () => {
+  const { container } = render(<CodeBlock code="raw <text>" language="unknown" />);
+  expect(container.querySelector('pre code')).toHaveTextContent('raw <text>');
+  expect(container.querySelector('pre code span')).toBeNull();
+});
+
+it('announces a clipboard failure', async () => {
+  const user = userEvent.setup();
+  vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('denied'));
+  render(<CodeBlock code="example" />);
+  await user.click(screen.getByRole('button', { name: 'Copy code' }));
+  expect(screen.getByRole('status')).toHaveTextContent('Copy unavailable');
+});
