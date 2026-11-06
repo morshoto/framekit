@@ -17,6 +17,6 @@ export default async function DocumentPage({ params }: { params: Params }) {
   const { lang, slug } = await params; if (!isLocale(lang)) notFound(); const doc = getDocument(lang, slug); if (!doc) notFound();
   const { default: Component } = await import(`../../../../../content/docs/${lang}/${slug}.mdx`);
   const text = await readFile(join(process.cwd(), 'content/docs', lang, `${slug}.mdx`), 'utf8');
-  const headings = extractHeadings(text); const items = getNavigation(lang); const index = items.findIndex(item => item.href === `/${lang}/docs/${slug}/`);
-  return <DocsLayout locale={lang} slug={slug} title={doc.title} description={doc.description} groups={getNavigationGroups(lang)} section={sections.find(section => section.key === doc.section)?.titles[lang]} status={doc.status} headings={headings} activeHref={items[index]?.href} previous={items[index - 1]} next={items[index + 1]}><Component /></DocsLayout>;
+  const headings = lang === 'ja' && doc.status === 'draft' ? [] : extractHeadings(text); const items = getNavigation(lang); const index = items.findIndex(item => item.href === `/${lang}/docs/${slug}/`);
+  return <DocsLayout locale={lang} slug={slug} title={doc.title} description={lang === 'ja' && doc.status === 'draft' ? undefined : doc.description} groups={getNavigationGroups(lang)} section={sections.find(section => section.key === doc.section)?.titles[lang]} status={doc.status} headings={headings} activeHref={items[index]?.href} previous={items[index - 1]} next={items[index + 1]}>{!(lang === 'ja' && doc.status === 'draft') && <Component />}</DocsLayout>;
 }

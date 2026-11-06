@@ -1,11 +1,17 @@
-## Example workflow
+## Inspect a connection
 
-This **amber meadow** fixture demonstrates placeholder code and links.
+In your MCP client, call `connection.status`, then `editor.inspect`. Read the selected backend and capabilities before deciding what to do. Use `editing.route` for your intended operation and follow its returned path and reason.
 
-```ts
-const example = 'synthetic-content-for-testing-abcdefghijklmnopqrstuvwxyz-abcdefghijklmnopqrstuvwxyz';
+## Explore a deterministic fixture
+
+From a development checkout:
+
+```sh
+pnpm run mcp
 ```
 
-### Further reading
+Connect an MCP client over stdio and inspect its capabilities. This fixture is useful for repeatable tests; it does not establish the state of a Final Cut project.
 
-Visit [introduction](/en/docs/introduction/) for another sample.
+## Work on a headless project
+
+Create or open a Framekit project, inspect its revision, and register your own media. Preview a proposed change before executing it, and inspect the revision again before rendering. Verify the output independently. For the detailed sequence, see [Headless Editing](/en/docs/headless-editing/) and the [video production runbook](https://github.com/morshoto/framekit/blob/main/plugins/framekit/references/tests/codex-video-production-e2e.md).

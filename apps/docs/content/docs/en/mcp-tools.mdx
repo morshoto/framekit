@@ -1,1 +1,11 @@
-Content is forthcoming.
+## Discover capabilities
+
+Use the MCP client's tool list and each tool's input schema as the current interface reference. Start with `connection.status` for diagnostics, `editor.inspect` for backend capabilities, and `editing.route` for an operation-specific route. A `CAPABILITY_UNAVAILABLE` result means the selected operation is unavailable; it is not permission to infer an alternative capability.
+
+## Common workflows
+
+- Headless project tools create, open, inspect, and edit Framekit-owned projects. Inspect the revision and preview before executing changes.
+- Skills use `skill.list`, `skill.inspect`, `skill.preview`, and `skill.execute`. Execute against the selected candidate and exact preview target and revision.
+- Native recovery inspection reports recorded evidence without clearing a checkpoint or proving native quiescence.
+
+Tool availability and input requirements are reported by the running server. See [Headless Editing](/en/docs/headless-editing/) and [Final Cut Pro](/en/docs/final-cut-pro/) before choosing an operation.

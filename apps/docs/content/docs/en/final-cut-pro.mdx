@@ -1,1 +1,13 @@
-Content is forthcoming.
+## Connect the extension
+
+The Codex plugin and the Final Cut Workflow Extension are separate. Install the signed extension from a matching [GitHub release](https://github.com/morshoto/framekit/releases) when live integration is needed. Diagnose the connection with:
+
+```sh
+npx -y @morshoto/framekit doctor finalcut
+```
+
+Use `connection.status` and `editor.inspect` for more detail. A ready metadata-only bridge can report editor information without providing a canonical timeline or a write capability. An FCPXML file is an interchange artifact; editing it does not prove a change to the open Final Cut project.
+
+## Native operations
+
+Native UI editing requires an explicitly selected headed path and separate authorization. Bind the operation to the exact project, sequence, occurrence, and revision; preview, verify target-bound readback, and verify Undo or rollback. Stop when required capability or evidence is unavailable. An uncertain native outcome can block further operations; restarting or changing state directories does not establish recovery. See [Revisions & Safety](/en/docs/revisions-and-safety/) and the [architecture reference](https://github.com/morshoto/framekit/blob/main/docs/architecture.md).

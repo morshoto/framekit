@@ -13,7 +13,7 @@ const server = createServer(async (req,res) => {
 await new Promise(resolve => server.listen(0,'127.0.0.1',resolve)); let browser;
 try {
   browser=await chromium.launch({executablePath:process.env.STORYBOOK_CHROMIUM_PATH||undefined}); const origin=`http://127.0.0.1:${server.address().port}`; await mkdir('artifacts/search',{recursive:true});
-  for (const [locale, query, title] of [['en','lantern','Introduction'], ['ja','ランタン','はじめに']]) for (const colorScheme of ['light', 'dark']) {
+  for (const [locale, query, title] of [['en','local-first','Introduction']]) for (const colorScheme of ['light', 'dark']) {
     const context=await browser.newContext({viewport:{width:375,height:800}, colorScheme}); const page=await context.newPage(); const errors=[];
     page.on('pageerror',error=>errors.push(error.message)); page.on('response',response=>{if(response.url().startsWith(origin) && response.status()>=400) errors.push(`${response.status()} ${response.url()}`);});
     await page.goto(`${origin}${base}/${locale}/docs/examples/`,{waitUntil:'networkidle'});
@@ -27,19 +27,18 @@ try {
     await page.screenshot({path:`artifacts/search/${locale}-${colorScheme}.png`});
     await page.keyboard.press('Escape'); assert.equal(await page.getByRole('dialog').count(),0); assert.equal(await trigger.evaluate(el=>document.activeElement===el),true);
     await page.keyboard.press('Control+k'); await page.getByRole('combobox').fill(query); await page.getByRole('option').filter({hasText:title}).first().waitFor();
-    await page.keyboard.press('Enter'); await page.waitForURL(`**${base}/${locale}/docs/introduction/`); await page.reload({waitUntil:'networkidle'});
+    await page.getByRole('option').filter({hasText:title}).first().click(); await page.waitForURL(`**${base}/${locale}/docs/introduction/`); await page.reload({waitUntil:'networkidle'});
     if (locale === 'en') {
       await page.getByRole('link', { name:'日本語' }).click(); await page.waitForURL(`**${base}/ja/docs/introduction/`);
       await page.getByRole('button', { name:'Search docs' }).click(); await page.getByRole('combobox').fill('ランタン');
-      await page.getByRole('option').filter({hasText:'はじめに'}).first().waitFor();
-      for (const link of await page.getByRole('option').all()) assert.ok((await link.getAttribute('href')).startsWith(`${base}/ja/`));
+      await page.getByText('No results found.').waitFor();
     }
     assert.deepEqual(errors,[]); await context.close();
   }
   for (const colorScheme of ['light', 'dark']) {
     const offline=await browser.newContext({colorScheme}); const page=await offline.newPage(); await page.route('**/pagefind/**',route=>route.abort());
-    await page.goto(`${origin}${base}/en/docs/introduction/`,{waitUntil:'networkidle'}); await page.getByRole('button',{name:'Search docs'}).click(); await page.getByRole('combobox').fill('lantern'); await page.getByRole('link',{name:'Browse docs'}).waitFor(); const offlineAxe = await new AxeBuilder({ page }).include('[role=dialog]').analyze(); assert.deepEqual(offlineAxe.violations.map(item => item.id), []); await offline.close();
+    await page.goto(`${origin}${base}/en/docs/introduction/`,{waitUntil:'networkidle'}); await page.getByRole('button',{name:'Search docs'}).click(); await page.getByRole('combobox').fill('Framekit'); await page.getByRole('link',{name:'Browse docs'}).waitFor(); const offlineAxe = await new AxeBuilder({ page }).include('[role=dialog]').analyze(); assert.deepEqual(offlineAxe.violations.map(item => item.id), []); await offline.close();
   }
-  const noJs=await browser.newPage({javaScriptEnabled:false}); await noJs.goto(`${origin}${base}/en/docs/introduction/`); assert.ok(await noJs.getByRole('heading',{name:'Overview'}).count()); await noJs.close();
+  const noJs=await browser.newPage({javaScriptEnabled:false}); await noJs.goto(`${origin}${base}/en/docs/introduction/`); assert.ok(await noJs.getByRole('heading',{name:'What is Framekit?'}).count()); await noJs.close();
   console.log(`Search browser checks passed at ${base||'(root)'}`);
 } finally { await browser?.close(); await new Promise(resolve=>server.close(resolve)); }
