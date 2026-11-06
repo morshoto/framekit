@@ -11,7 +11,7 @@ type Section = typeof sections[number]['key'];
 export interface DocumentMeta { locale: Locale; slug: string; title: string; description: string; section: Section; order: number; status: 'draft' | 'ready' }
 type Page = { slug: string; section: Section; order: number; status: 'draft' | 'ready'; englishStatus?: 'draft' | 'ready'; titles: Partial<Record<Locale, string>> };
 const pages: Page[] = [
-  { slug: 'introduction', section: 'getting-started', order: 0, status: 'ready', englishStatus: 'ready', titles: { en: 'Introduction', ja: 'はじめに' } },
+  { slug: 'introduction', section: 'getting-started', order: 0, status: 'draft', englishStatus: 'ready', titles: { en: 'Introduction', ja: 'はじめに' } },
   { slug: 'installation', section: 'getting-started', order: 1, status: 'draft', englishStatus: 'ready', titles: { en: 'Installation', ja: 'インストール' } },
   { slug: 'quick-start', section: 'getting-started', order: 2, status: 'draft', englishStatus: 'ready', titles: { en: 'Quick Start', ja: 'クイックスタート' } },
   { slug: 'codex-integration', section: 'guides', order: 0, status: 'draft', englishStatus: 'ready', titles: { en: 'Codex Integration', ja: 'Codex 連携' } },
@@ -25,8 +25,8 @@ const pages: Page[] = [
   { slug: 'development', section: 'contributing', order: 0, status: 'draft', englishStatus: 'ready', titles: { en: 'Development', ja: '開発' } },
   { slug: 'testing', section: 'contributing', order: 1, status: 'draft', englishStatus: 'ready', titles: { en: 'Testing', ja: 'テスト' } },
   { slug: 'architecture', section: 'contributing', order: 2, status: 'draft', englishStatus: 'ready', titles: { en: 'Architecture', ja: 'アーキテクチャ' } },
-  { slug: 'getting-started', section: 'getting-started', order: 3, status: 'ready', englishStatus: 'ready', titles: { en: 'Getting started', ja: 'はじめの一歩' } },
-  { slug: 'examples', section: 'guides', order: 3, status: 'ready', englishStatus: 'ready', titles: { en: 'Examples', ja: 'サンプル' } },
+  { slug: 'getting-started', section: 'getting-started', order: 3, status: 'draft', englishStatus: 'ready', titles: { en: 'Fixture setup', ja: 'はじめの一歩' } },
+  { slug: 'examples', section: 'guides', order: 3, status: 'draft', englishStatus: 'ready', titles: { en: 'Examples', ja: 'サンプル' } },
 ];
 export function validateRegistry(docs: DocumentMeta[]) {
   const routes = new Set<string>(); const positions = new Set<string>(); const concepts = new Map<string, DocumentMeta>();

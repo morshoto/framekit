@@ -1,4 +1,5 @@
 import { withBasePath } from '../docs/paths';
+import { searchDevelopmentDocs } from './development-search';
 import { normalizeResultPath, type SearchResult } from './normalize-results';
 import type { Locale } from '../i18n/locales';
 
@@ -21,6 +22,7 @@ async function getApi(locale: Locale): Promise<PagefindApi> {
 }
 let queue: Promise<void> = Promise.resolve();
 async function performSearch(query: string, locale: Locale): Promise<SearchResult[]> {
+  if (process.env.NODE_ENV === 'development') return searchDevelopmentDocs(query, locale);
   const api = await getApi(locale); const result = await api.search(query);
   if (!result) return [];
   const entries = await Promise.all(result.results.slice(0, 20).map(item => item.data()));

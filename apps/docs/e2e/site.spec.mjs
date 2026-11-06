@@ -7,7 +7,7 @@ test('landing and localized articles load with healthy assets', async ({ page, s
   page.on('response', response => { if (response.url().startsWith(site + '/') && response.status() >= 400) failures.push(`${response.status()} ${response.url()}`); });
   await page.goto(`${site}/`, { waitUntil: 'networkidle' });
   await expect(page.getByRole('main')).toHaveCount(1);
-  await expect(page.getByRole('link', { name: 'Learn the basics' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Explore the documentation' })).toBeVisible();
   for (const locale of ['en', 'ja']) {
     await page.goto(`${site}/${locale}/docs/introduction/`, { waitUntil: 'networkidle' });
     await expect(page.locator('html')).toHaveAttribute('lang', locale);
@@ -26,7 +26,7 @@ test('localized navigation and search work', async ({ page, site }) => {
   const dialog = page.getByRole('dialog', { name: 'Search documentation' });
   await expect(dialog).toBeVisible();
   await dialog.getByRole('combobox').fill('ランタン');
-  await expect(dialog.getByRole('option').first()).toBeVisible();
+  await expect(dialog.getByText('No results found.')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   await page.goBack();
@@ -64,9 +64,9 @@ test('static content works with JavaScript disabled and missing routes return 40
   const page = await context.newPage();
   await page.goto(`${site}/en/docs/introduction/`);
   await expect(page.getByRole('heading', { name: 'What is Framekit?' })).toBeVisible();
-  await page.getByRole('main').getByRole('link', { name: 'Getting started', exact: true }).click();
+  await page.getByRole('main').getByRole('link', { name: 'Fixture setup', exact: true }).click();
   await expect(page).toHaveURL(/\/en\/docs\/getting-started\/$/);
-  await expect(page.getByRole('heading', { name: 'Getting started', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Fixture setup', level: 1 })).toBeVisible();
   const response = await page.goto(`${site}/en/docs/not-real/`);
   expect(response.status()).toBe(404);
   await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();
@@ -136,13 +136,13 @@ test('mobile drawer closes by button, backdrop, and navigation', async ({ page, 
   expect(await page.evaluate(() => document.body.style.overflow)).toBe('hidden');
   await activate(dialog.getByRole('button', { name: 'Close navigation' })); await expect(dialog).toHaveCount(0);
   await activate(open); await page.mouse.click(370, 400); await expect(dialog).toHaveCount(0);
-  await activate(open); await activate(dialog.getByRole('link', { name: 'Getting started' }));
+  await activate(open); await activate(dialog.getByRole('link', { name: 'Fixture setup' }));
   await expect(dialog).toHaveCount(0); await expect(page).toHaveURL(/\/en\/docs\/getting-started\/$/);
   expect(await page.evaluate(() => document.body.style.overflow)).toBe('');
 });
 
 test('search results open the correct localized articles', async ({ page, site }) => {
-  for (const [locale, query] of [['en', 'local-first'], ['ja', 'ランタン']]) {
+  for (const [locale, query] of [['en', 'local-first']]) {
     await page.goto(`${site}/${locale}/`);
     const trigger = page.getByRole('button', { name: 'Search docs' });
     await trigger.click();
@@ -190,4 +190,27 @@ test('keyboard search traps focus and returns it to the trigger', async ({ page,
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   await expect(trigger).toBeFocused();
+});
+
+test('landing offers distinct paths and unfinished Japanese pages offer English', async ({ page, site }) => {
+  await page.goto(`${site}/`);
+  await expect(page.getByRole('link', { name: 'Get started' })).toHaveAttribute('href', /\/en\/docs\/installation\/$/);
+  for (const text of ['Edit without Final Cut', 'Connect to Final Cut Pro', 'Build Framekit']) await expect(page.getByRole('link', { name: new RegExp(text) })).toBeVisible();
+  await page.goto(`${site}/en/docs/quick-start/`);
+  await expect(page.getByText('Use Framekit to check the connection status', { exact: false })).toBeVisible();
+  await page.getByRole('link', { name: '日本語' }).click();
+  await expect(page.getByRole('link', { name: '英語版を読む' })).toHaveAttribute('href', /\/en\/docs\/quick-start\/$/);
+  await expect(page.getByRole('navigation', { name: 'On this page' })).toHaveCount(0);
+  await page.goto(`${site}/ja/`);
+  await expect(page.getByRole('link', { name: '英語版のドキュメントを読む' })).toBeVisible();
+});
+
+test('landing paths remain readable on narrow screens', async ({ page, site }) => {
+  for (const width of [320, 375, 768, 1024]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`${site}/`, { waitUntil: 'networkidle' });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `landing overflow at ${width}px`).toBe(true);
+    await expect(page.getByRole('link', { name: 'Get started' })).toBeVisible();
+    await expect(page.getByRole('link', { name: /Edit without Final Cut/ })).toBeVisible();
+  }
 });

@@ -10,6 +10,16 @@ pnpm run mcp
 
 The server uses a deterministic in-memory fixture and communicates over stdio. Connect an MCP client to the process; stdout is the protocol stream, not an interactive shell. Use `connection.status`, `editor.inspect`, and `editing.route` to inspect what the selected backend supports.
 
+## Confirm the fixture responds
+
+In a separate terminal, from the repository root, run:
+
+```sh
+pnpm run smoke:fixture-mcp
+```
+
+The command starts an isolated fixture server and checks its connection. A successful run prints `Fixture MCP stdio smoke passed: connection.status ready.` You can stop the server started above with Ctrl+C when you are done.
+
 ## Validate a checkout
 
 ```sh

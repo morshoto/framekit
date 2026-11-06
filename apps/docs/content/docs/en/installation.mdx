@@ -1,6 +1,8 @@
-## Requirements
+## Choose your requirements
 
-The published package requires Node.js 20 or newer. A repository checkout uses Node.js 22.14.0 and pnpm 12.14.0. Xcode 16.4 and the macOS 15.5 SDK are needed only for native Workflow Extension work.
+- **Using the published package:** Node.js 20 or newer. The Codex plugin starts the package with `npx`.
+- **Developing from a checkout:** Node.js 22.14.0 and pnpm 12.14.0. See [Development](/en/docs/development/).
+- **Building the native extension:** Xcode 16.4 and the macOS 15.5 SDK, in addition to the contributor tools. These are not required for headless use.
 
 ## Install the Codex plugin
 
@@ -10,6 +12,10 @@ Add the marketplace once:
 codex plugin marketplace add morshoto/framekit
 ```
 
-Open `/plugins` in Codex, install **Framekit**, and start a new Codex session. The plugin starts the published package with `npx`; a checkout is not required. The Final Cut Workflow Extension is a separate release asset, available from [GitHub releases](https://github.com/morshoto/framekit/releases).
+Open `/plugins` in Codex, install **Framekit**, and start a new Codex session. A checkout is not required.
 
-For contributor setup, see [Development](/en/docs/development/). Continue with [Quick Start](/en/docs/quick-start/).
+## Optional: connect Final Cut Pro
+
+The Final Cut Workflow Extension is a separate release asset. When you need a live connection, obtain it from a matching [GitHub release](https://github.com/morshoto/framekit/releases); see [Final Cut Pro](/en/docs/final-cut-pro/) for connection and capability details.
+
+Continue to [Quick Start](/en/docs/quick-start/) to check your connection.

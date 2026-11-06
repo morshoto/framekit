@@ -1,9 +1,19 @@
-## Inspect the connection
+## Before you begin
 
-After installing the plugin and starting a new Codex session, ask the client to call `connection.status` and `editor.inspect`. These report the selected backend and its capabilities. A ready connection does not mean every operation is available.
+Install the Framekit plugin and start a new Codex session as described in [Installation](/en/docs/installation/).
 
-## Choose an editing route
+## 1. Ask for a connection check
 
-Use `editing.route` for the operation you want. For a headless project, open or create the project, inspect its revision, and preview changes before execution. Reinspect the exact revision before rendering and verify the output. See [Headless Editing](/en/docs/headless-editing/) and [Examples](/en/docs/examples/).
+Type this in Codex:
 
-The headless route does not launch or activate Final Cut Pro. Native work requires an explicit headed path and its own target, readback, and restoration evidence. See [Revisions & Safety](/en/docs/revisions-and-safety/).
+```text
+Use Framekit to check the connection status and tell me which editor and capabilities are available. Do not edit anything.
+```
+
+The assistant can call `connection.status` and `editor.inspect`. A successful check gives you the connection state and the available capabilities. If a Final Cut connection or capability is unavailable, read the reported reason and follow [Final Cut Pro](/en/docs/final-cut-pro/) to set it up; a ready connection does not mean every edit is supported.
+
+## 2. Choose a safe next step
+
+For a repeatable local check without Final Cut, follow [Fixture setup](/en/docs/getting-started/). Its smoke test prints `Fixture MCP stdio smoke passed: connection.status ready.` when the test server responds successfully.
+
+For your own media, follow [Headless Editing](/en/docs/headless-editing/): inspect the project revision and preview a change before execution. This path does not launch Final Cut Pro. Native editing is a separately authorized path; see [Revisions & Safety](/en/docs/revisions-and-safety/).

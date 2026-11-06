@@ -41,10 +41,10 @@ export function SearchDialog({ open, locale, onClose, search = searchDocs, initi
     else if (event.key === 'Enter') { event.preventDefault(); document.querySelector<HTMLAnchorElement>(`#search-result-${selected}`)?.click(); }
   }
   if (!open) return null;
-  const status = state === 'loading' ? 'Searching…' : state === 'ready' ? `${results.length} results` : state === 'error' ? 'Search unavailable' : 'Type to search documentation';
+  const status = state === 'loading' ? 'Searching…' : state === 'ready' ? `${results.length} ${results.length === 1 ? 'result' : 'results'}` : state === 'error' ? '' : 'Type to search documentation';
   return <div className={styles.overlay} onClick={event => { if (event.target === event.currentTarget) onClose(); }}><div ref={panel} role="dialog" aria-modal="true" aria-label="Search documentation" className={styles.dialog}>
     <div className={styles.heading}><strong>Search docs</strong><button type="button" onClick={onClose} aria-label="Close search">×</button></div>
     <SearchInput ref={input} value={query} onChange={setQuery} onKeyDown={navigate} activeId={results.length ? `search-result-${selected}` : undefined} />
-    <div className={styles.results}><p role="status" className={styles.status}>{status}</p>{state === 'error' && <p className={styles.error}>Search unavailable. <Link href={`/${locale}/`} onClick={onClose}>Browse docs</Link>.</p>}{state === 'ready' && !results.length && <EmptySearchState message="No results found." />}<SearchResultList results={results} selected={selected} query={query} onSelect={onClose} /></div>
+    <div className={styles.results}>{process.env.NODE_ENV === 'development' && <p className={styles.status}>Development search covers page titles and summaries.</p>}<p role="status" className={styles.status}>{status}</p>{state === 'error' && <p className={styles.error}>Search unavailable. <Link href={`/${locale}/`} onClick={onClose}>Browse docs</Link>.</p>}{state === 'ready' && !results.length && <EmptySearchState message="No results found." />}<SearchResultList results={results} selected={selected} query={query} onSelect={onClose} /></div>
   </div></div>;
 }
