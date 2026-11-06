@@ -1,1 +1,19 @@
-Content is forthcoming.
+## Required checks
+
+From the repository root run:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm run build
+pnpm run test
+pnpm run check:boundaries
+pnpm run check:docs
+```
+
+Native changes also require `pnpm run xcode:check` and the Xcode project listing described in the [testing reference](https://github.com/morshoto/framekit/blob/main/docs/testing.md).
+
+## Interpret evidence
+
+Deterministic fixtures establish behavior against controlled test data. FCPXML tests establish behavior on a selected artifact. Metadata-only observations establish only the bridge information actually exposed. Canonical-live and headed-native tests require their own supported capabilities, target binding, and verification. Report unavailable or unrun evidence as such; none of the earlier levels proves a native edit.
+
+For focused suites and headed prerequisites, consult the [testing reference](https://github.com/morshoto/framekit/blob/main/docs/testing.md).

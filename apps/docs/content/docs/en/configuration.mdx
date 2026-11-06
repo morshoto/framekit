@@ -1,1 +1,16 @@
-Content is forthcoming.
+## Editor and connection
+
+| Variable | Purpose |
+| --- | --- |
+| `FRAMEKIT_EDITOR` | Selects the backend, such as `final-cut-live`. |
+| `FRAMEKIT_FCPXML_PATH` | Selects an explicit FCPXML artifact; it does not enable live timeline mutation. |
+| `FRAMEKIT_FINAL_CUT_SOCKET` | Selects the Workflow Extension socket. |
+| `FRAMEKIT_STATE_DIR` | Selects the Framekit state directory, including native reservations. |
+
+The CLI also accepts `mcp --editor fixture` and `mcp --editor final-cut-live --headless`. Inspect the resulting capabilities instead of assuming the selected backend supports a particular operation.
+
+## Optional analyzers
+
+`FRAMEKIT_SPEECH_ANALYZER`, `FRAMEKIT_AUDIO_ANALYZER`, `FRAMEKIT_VISUAL_ANALYZER`, and `FRAMEKIT_METADATA_ANALYZER` select local analysis commands. Each receives a JSON request on standard input and returns a typed JSON result on standard output. `FRAMEKIT_ANALYZER_TIMEOUT_MS` sets the bounded timeout. Missing providers report unavailable analysis rather than invented descriptions.
+
+For development and explicit native configuration, see the [maintained setup guide](https://github.com/morshoto/framekit/blob/main/docs/getting-started.md).

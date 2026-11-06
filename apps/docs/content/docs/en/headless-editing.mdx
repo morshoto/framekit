@@ -1,1 +1,14 @@
-Content is forthcoming.
+## Framekit-owned projects
+
+The headless path works without a running Final Cut Pro session. Framekit owns the project and timeline state; a connected editor or exported artifact does not silently replace it.
+
+## Typical workflow
+
+1. Call `editing.route` for the intended operation.
+2. Create or open a project and inspect its current revision with the headless project tools.
+3. Register media against the expected revision, then preview an edit before executing it.
+4. Reopen and inspect the exact project revision before rendering. Verify the resulting output independently.
+
+A stale revision or unavailable provider requires a fresh inspection or a structured failure. Framekit does not silently substitute a native operation or external renderer. The [video production runbook](https://github.com/morshoto/framekit/blob/main/plugins/framekit/references/tests/codex-video-production-e2e.md) shows a detailed workflow and its evidence boundaries.
+
+See [Projects & Timeline IR](/en/docs/projects-and-timeline/) and [Revisions & Safety](/en/docs/revisions-and-safety/).

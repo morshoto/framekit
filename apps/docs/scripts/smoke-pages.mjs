@@ -26,9 +26,10 @@ try {
     if (!response?.ok() || await page.locator('html').getAttribute('lang') !== locale) blocked(`${locale} article did not load correctly`);
     await page.reload({ waitUntil: 'networkidle' });
   }
+  await page.getByRole('link', { name: '英語版を読む' }).click();
   await page.getByRole('button', { name: 'Search docs' }).click();
-  await page.getByRole('combobox').fill('ランタン');
-  await page.getByRole('option').first().waitFor();
+  await page.getByRole('combobox').fill('installation');
+  await page.getByRole('option').filter({ hasText: 'Installation' }).first().waitFor();
   if (failures.length) blocked(`site errors: ${failures.join('; ')}`);
   console.log(`PASS ${expected} ${run.url} ${site.href}`);
 } finally { await browser.close(); }

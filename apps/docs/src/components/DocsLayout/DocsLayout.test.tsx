@@ -10,3 +10,8 @@ it('identifies the section and marks draft content as a placeholder', () => {
   expect(screen.getByText(/placeholder/i)).toBeInTheDocument();
   expect(screen.getByText('Future content').closest('article')).toHaveAttribute('data-pagefind-ignore');
 });
+it('offers the English page for an unfinished Japanese translation without an empty contents menu', () => {
+  render(<DocsLayout locale="ja" slug="quick-start" title="クイックスタート" status="draft" groups={[]} headings={[]}>準備中</DocsLayout>);
+  expect(screen.getByRole('link', { name: /英語版/ })).toHaveAttribute('href', '/en/docs/quick-start');
+  expect(screen.queryByRole('navigation', { name: /On this page|このページ/ })).not.toBeInTheDocument();
+});
