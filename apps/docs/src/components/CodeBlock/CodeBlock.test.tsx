@@ -42,3 +42,8 @@ it('announces a clipboard failure', async () => {
   await user.click(screen.getByRole('button', { name: 'Copy code' }));
   expect(screen.getByRole('status')).toHaveTextContent('Copy unavailable');
 });
+
+it('provides a keyboard-focusable scroll region for long code', () => {
+  render(<CodeBlock code={'x'.repeat(200)} language="ts" />);
+  expect(screen.getByRole('region', { name: 'Code snippet' })).toHaveAttribute('tabindex', '0');
+});
