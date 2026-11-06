@@ -18,5 +18,5 @@ export function CodeBlock({ code, language, title }: CodeBlockProps) {
   const grammar = language && Prism.languages[language];
   const label = title || (['sh', 'bash', 'shell'].includes(language || '') ? 'Terminal' : language || 'text');
   async function copy() { try { await navigator.clipboard.writeText(code); setStatus('Copied'); } catch { setStatus('Copy unavailable'); } }
-  return <div className={styles.block}><div className={styles.bar}><span>{label}</span><button type="button" onClick={copy}>Copy code</button></div><pre><code>{grammar ? Prism.tokenize(code, grammar).map(renderToken) : code}</code></pre><span className={styles.status} role="status">{status}</span></div>;
+  return <div className={styles.block}><div className={styles.bar}><span>{label}</span><button type="button" onClick={copy}>Copy code</button></div><pre role="region" aria-label="Code snippet" tabIndex={0}><code>{grammar ? Prism.tokenize(code, grammar).map(renderToken) : code}</code></pre><span className={styles.status} role="status">{status}</span></div>;
 }
