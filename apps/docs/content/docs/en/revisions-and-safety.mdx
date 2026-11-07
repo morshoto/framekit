@@ -1,0 +1,9 @@
+## Preview and verify
+
+Inspect the target and current revision, preview the intended operation, and execute only the matching preview. A stale revision, ambiguous identity, or unavailable capability must stop the operation. Verify the resulting state against the same target; do not infer success from dispatch alone.
+
+## Native evidence and recovery
+
+A native UI operation needs an explicitly authorized headed path, exact target binding, canonical readback, and verified Undo or rollback. Fixture tests, FCPXML files, and metadata-only bridge observations each prove less than a live native edit.
+
+An uncertain native outcome or unverified Undo can retain a checkpoint and block further guarded operations. Recovery inspection is read-only; it does not clear a reservation or prove the native operation has stopped. Do not retry a dispatched operation or treat a restart as recovery. See the [architecture reference](https://github.com/morshoto/framekit/blob/main/docs/architecture.md#state-identity-and-revisions) for current limits.

@@ -1,0 +1,18 @@
+## Setup
+
+Use Node.js 22.14.0 and pnpm 12.14.0 for contribution. From the repository root:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm run hooks:install
+pnpm run build
+pnpm run test
+pnpm run check:boundaries
+pnpm run check:docs
+```
+
+The optional `nix develop ./nix` environment provides the development tools for fixture and headless work. Native extension work additionally requires Xcode 16.4 and the macOS 15.5 SDK.
+
+## Where changes belong
+
+Keep editor-independent contracts in `packages/runtime`, MCP transport and tool definitions in `apps/mcp-server`, Final Cut integration in its adapters, and deterministic fixtures in `packages/testkit`. Dependencies flow toward runtime contracts. See [Architecture](/en/docs/architecture/) and [Testing](/en/docs/testing/).

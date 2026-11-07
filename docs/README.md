@@ -8,7 +8,8 @@ These five files are the maintained documentation set:
 - [Release](./release.md) for publishing, signing, and provenance.
 
 Implementation rationale belongs in issues, pull requests, reviews, and tests.
-Do not add ADRs, per-feature guides, generated catalogs, or one-off evidence
-reports under `docs/`. Keep durable release and QA evidence attached to its
+The explicitly requested [native recovery decision](./adr/0676-native-recovery.md)
+is the sole exception to the ADR restriction. Do not add other ADRs, per-feature
+guides, generated catalogs, or one-off evidence reports under `docs/`. Keep durable release and QA evidence attached to its
 issue, pull request, workflow run, or GitHub release so the source and status
 remain traceable.

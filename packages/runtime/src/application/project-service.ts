@@ -19,6 +19,11 @@ export class ProjectService {
   ) {}
 
   public async inspectProject(): Promise<ProjectSnapshot> {
+    const inspect = () => this.inspectProjectInScope();
+    return this.adapter.withCanonicalReadScope?.(inspect) ?? inspect();
+  }
+
+  private async inspectProjectInScope(): Promise<ProjectSnapshot> {
     const identity = await this.adapter.getIdentity();
     const capabilities = withCanonicalTimelineMode(withCapabilityFamilies(await this.adapter.getCapabilities(), {
       backend: identity.backend,

@@ -19,6 +19,10 @@ test("the docs allowlist contains the five canonical documents", () => {
   ]);
 });
 
+test("the issue 676 decision is permitted without opening the docs tree", () => {
+  assert.deepEqual(findNonCanonicalDocs(["docs/adr/0676-native-recovery.md", "docs/adr/other.md"]), ["docs/adr/other.md"]);
+});
+
 test("the docs tree rejects retired files and directories", () => {
   assert.deepEqual(
     findNonCanonicalDocs([

@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import { lstat, mkdir, open, readFile, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { CanonicalRecoveryCheckpoint, CanonicalRecoveryGuard } from "./canonical.js";
+import { inspectNativeRecoveryReadOnly } from "./native-recovery-inspection.js";
 
 /** A durable, exclusive checkpoint; unresolved checkpoints are never cleared automatically. */
 export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
@@ -18,6 +19,11 @@ export class FileCanonicalRecoveryGuard implements CanonicalRecoveryGuard {
       throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: cannot inspect recovery checkpoint", { cause: error });
     }
     throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: unresolved canonical edit checkpoint exists");
+  }
+
+  /** Read native reservation and sender evidence without acquiring or modifying locks. */
+  public async inspectNativeRecoveryEvidence() {
+    return inspectNativeRecoveryReadOnly(this.path);
   }
 
   /** Return evidence only; inspection never clears or claims recovery. */

@@ -142,7 +142,17 @@ is no automatic checkpoint reset or supported recovery flow yet. The read-only
 native-operation reservation in the configured state directory without inventing
 a target, contacting Final Cut, or clearing it; a
 clear result is point-in-time and does not establish recovery or the state of
-other directories. `editor.native.recovery.preview` requires the inspected
+other directories. `editor.native.recovery.evidence.inspect` separately reads native
+v2, v3 and v4 reservation identity and any durable sender evidence without
+creating a transaction lock. It reports a point-in-time observation, unavailable
+recovery eligibility, and unproven native quiescence. Job and dispatch IDs are
+recorded reservation fields; no independent job or receiver correlation is
+verified. Missing, malformed,
+conflicting or concurrently changing evidence is unknown; an active marker
+may instead reflect an interrupted sender. No observation authorizes release,
+dispatch or recovery. Old writers do not participate in the newer lock protocol,
+so inspection cannot establish a globally consistent view or exclude a later
+write. `editor.native.recovery.preview` requires the inspected
 checkpoint ID, matching target IDs, and explicit headed-read confirmation; it
 compares a canonical snapshot with the recorded digests. Its point-in-time
 result does not prove that a native operation has stopped and never clears the
@@ -154,7 +164,10 @@ project and sequence until an explicit new selection succeeds. Passive MCP
 capability and routing inspection does not initiate a headed snapshot export;
 an unprobed canonical provider reports its snapshot capability unavailable.
 Validated evidence may be reused only while the live target and revision match;
-it does not authorize a later headed context or change read.
+it does not authorize a later headed context or change read. A confirmed
+canonical read shares its exported snapshot only within that request; a later
+request exports again. Matching live revisions do not prove that all timeline
+changes were observed or that a snapshot remains current after export.
 Supported FCPXML dialogue subroles are retained as `nativeAudioRole` on
 canonical clips and editing-session occurrences, including during materialization
 and publish readback comparison. Unsupported roles on audio elements fail closed.
@@ -185,6 +198,8 @@ evidence.
 
 `editor.native.media.search` treats query text literally. Queries containing
 `*` or `?` return a structured unsupported error before Browser UI access.
+If standalone Browser search automation exceeds its deadline, it reports
+`FINAL_CUT_NATIVE_SEARCH_TIMEOUT`; import discovery retains its separate timeout.
 
 MCP Skills use the generic `skill.list`, `skill.inspect`, `skill.preview`, and
 `skill.execute` lifecycle. An execution must use the selected candidate and

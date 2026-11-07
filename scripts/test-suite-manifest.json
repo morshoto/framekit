@@ -929,6 +929,16 @@
       "requires": []
     },
     {
+      "path": "tests/integration/native-recovery-readonly.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration",
+        "native"
+      ],
+      "requires": []
+    },
+    {
       "path": "tests/integration/native-title-discovery.test.ts",
       "owner": "shared",
       "tags": [
@@ -1318,6 +1328,15 @@
         "ffmpeg",
         "ffprobe"
       ]
+    },
+    {
+      "path": "tests/integration/sender-lifecycle-fixture.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
     },
     {
       "path": "tests/integration/skill-conformance.test.ts",

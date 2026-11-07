@@ -30,7 +30,7 @@ import type {
 interface FinalCutSessionOptions {
   snapshot?: EditorPort;
   mutation?: EditorPort;
-  live?: LiveEditorStatePort & Partial<Pick<EditorPort, "readProject" | "apply" | "restore" | "previewTransaction" | "applyTransaction">> & {
+  live?: LiveEditorStatePort & Partial<Pick<EditorPort, "readProject" | "apply" | "restore" | "previewTransaction" | "applyTransaction" | "withCanonicalReadScope">> & {
     getIdentity(): Promise<EditorIdentity>;
     getCapabilities(options?: CapabilityInspectionOptions): Promise<RuntimeCapabilities>;
     listProjects?(): Promise<ProjectCatalog>;
@@ -47,6 +47,11 @@ interface FinalCutSessionOptions {
 /** Composes the independent Final Cut live, snapshot, and mutation surfaces. */
 export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
   public constructor(private readonly options: FinalCutSessionOptions) {}
+
+  public withCanonicalReadScope<T>(operation: () => Promise<T>): Promise<T> {
+    const provider = this.options.snapshot ?? this.options.live;
+    return provider?.withCanonicalReadScope?.(operation) ?? operation();
+  }
 
   public async getIdentity(): Promise<EditorIdentity> {
     if (this.options.snapshot && this.options.live) {
@@ -264,16 +269,18 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
 
   public async readProject(): Promise<ProjectSnapshot> {
     if (this.options.snapshot) return this.options.snapshot.readProject();
-    const liveCapabilities = await optionalCapabilities(this.options.live);
-    if (
-      liveCapabilities?.editor.canonicalTimelineMode !== "metadata-only"
-      && !this.options.mutation
-      && liveCapabilities?.editor.timelineSnapshotRead
-      && this.options.live?.readProject
-    ) {
-      return this.options.live.readProject();
-    }
-    throw new Error("CAPABILITY_UNAVAILABLE: Final Cut session has no snapshot provider");
+    return this.withCanonicalReadScope(async () => {
+      const liveCapabilities = await optionalCapabilities(this.options.live);
+      if (
+        liveCapabilities?.editor.canonicalTimelineMode !== "metadata-only"
+        && !this.options.mutation
+        && liveCapabilities?.editor.timelineSnapshotRead
+        && this.options.live?.readProject
+      ) {
+        return this.options.live.readProject();
+      }
+      throw new Error("CAPABILITY_UNAVAILABLE: Final Cut session has no snapshot provider");
+    });
   }
 
   public async apply(operation: EditOperation, expectedRevision: ContextRevision): Promise<ContextRevision> {
