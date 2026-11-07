@@ -3304,6 +3304,40 @@ test("native import rejects independently observed source and target mismatches"
   }
 });
 
+test("native import requires the independently observed target to match approval before dispatch", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-import-approved-target-"));
+  const sourcePath = join(directory, "interview.mov");
+  await writeFile(sourcePath, "source fixture");
+  const target = { libraryId: "library", eventId: "event", projectId: "project", sequenceId: "sequence", revision: "revision" };
+  const scripts: string[] = [];
+  let searches = 0;
+  const options = {
+    enabled: true,
+    importSourceObserver: {
+      captureTarget: async () => target,
+      observeImportedSource: async () => ({ sourceIdentity: "browser-source", originalSourcePath: sourcePath, target }),
+    },
+    executor: async (script: string) => {
+      scripts.push(script);
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
+      if (script.includes("FRAMEKIT_IMPORT_MEDIA")) return "import-requested";
+      if (script.includes("AXBrowserMedia")) {
+        searches += 1;
+        return searches === 1 ? "" : `interview.mov${String.fromCharCode(31)}AXBrowserMedia${String.fromCharCode(31)}browser-1${String.fromCharCode(31)}browser-source${String.fromCharCode(30)}`;
+      }
+      return "";
+    },
+  };
+  try {
+    const adapter = new FinalCutNativeAutomationAdapter(options);
+    await assert.rejects(adapter.importMedia(sourcePath), /TARGET_MISMATCH|CAPABILITY_UNAVAILABLE/);
+    await assert.rejects(adapter.importMedia(sourcePath, { expectedImportTarget: { ...target, eventId: "wrong-event" } } as never), /TARGET_MISMATCH/);
+    assert.equal(scripts.some((script) => script.includes("FRAMEKIT_IMPORT_MEDIA")), false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("native capabilities do not advertise source-verified import without source observation", () => {
   const adapter = new FinalCutNativeAutomationAdapter({ enabled: true, executor: async () => "" });
   assert.equal(adapter.capabilities().mediaImport, false);
