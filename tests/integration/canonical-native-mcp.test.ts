@@ -480,6 +480,30 @@ test("native import forwards the caller-approved target to file and directory pr
   }
 });
 
+test("native import preserves the exact approved target identifiers", async () => {
+  const target = { libraryId: " library ", eventId: " event ", projectId: " project ", sequenceId: " sequence ", revision: " revision " };
+  const observed: unknown[] = [];
+  const nativeEditor = {
+    capabilities: () => ({}),
+    importMedia: async (_path: string, options: { expectedImportTarget?: unknown }) => { observed.push(options.expectedImportTarget); return { mediaHandle: "fixture" }; },
+    previewImportMediaDirectory: async (_path: string, options: { expectedImportTarget?: unknown }) => { observed.push(options.expectedImportTarget); return { previewToken: "fixture" }; },
+  } as unknown as NativeFinalCutEditor;
+  const { client, server } = await connect(createRuntime([]), { nativeEditor });
+  try {
+    const file = await client.callTool({ name: "editor.native.media.import", arguments: { path: "/fixture/clip.mov", expectedImportTarget: target } });
+    const directory = await client.callTool({ name: "editor.native.media.directory.preview", arguments: { path: "/fixture", expectedImportTarget: target } });
+    assert.equal(file.isError ?? false, false);
+    assert.equal(directory.isError ?? false, false);
+    assert.deepEqual(observed, [target, target]);
+    const blank = await client.callTool({ name: "editor.native.media.import", arguments: { path: "/fixture/clip.mov", expectedImportTarget: { ...target, projectId: "  " } } });
+    assert.equal(blank.isError, true);
+    assert.equal(observed.length, 2);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
 test("an unresolved checkpoint blocks direct native edits while allowing inspection", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-direct-"));
   const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
