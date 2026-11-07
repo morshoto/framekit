@@ -1465,6 +1465,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     query: string,
     options: NativeFinalCutRequestOptions = {},
   ): Promise<NativeFinalCutMediaMatch[]> {
+    const queryError = nativeMediaSearchQueryError(query);
+    if (queryError) throw new Error(`${queryError.code}: ${queryError.message}`);
     return this.withNativeUi(() => this.searchMediaNative(query), options.signal);
   }
 
