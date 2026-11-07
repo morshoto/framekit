@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { execFile as execFileCallback } from "node:child_process";
 import { access, constants, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, extname, resolve } from "node:path";
+import { basename, dirname, extname, isAbsolute, resolve } from "node:path";
 import { promisify } from "node:util";
 import { assertValidTimelineTarget } from "@framekit/runtime";
 import type {
@@ -706,6 +706,24 @@ interface NativeOperationRecord {
   rollbackEvidence?: NativeFinalCutRollbackEvidence;
 }
 
+/** An independent provider must observe the original source and exact native target. */
+export interface NativeFinalCutImportTarget {
+  libraryId: string;
+  eventId: string;
+  projectId: string;
+  sequenceId: string;
+  revision: string;
+}
+
+export interface NativeFinalCutImportSourceObserver {
+  captureTarget(): Promise<NativeFinalCutImportTarget>;
+  observeImportedSource(sourceIdentity: string): Promise<{
+    sourceIdentity: string;
+    originalSourcePath: string;
+    target: NativeFinalCutImportTarget;
+  }>;
+}
+
 export interface NativeFinalCutAutomationOptions {
   enabled?: boolean;
   /** Home directory used to expand ~/ media paths; defaults to the process home. */
@@ -713,6 +731,8 @@ export interface NativeFinalCutAutomationOptions {
   executor?: NativeFinalCutExecutor;
   nativeMouseExecutor?: NativeFinalCutMouseExecutor;
   liveState?: () => Promise<EditorLiveState>;
+  /** No bundled observer exists; an injected provider must make independent observations. */
+  importSourceObserver?: NativeFinalCutImportSourceObserver;
   nativeOperationLease?: NativeOperationLease;
   suspendLiveConnection?: () => void;
   resumeLiveConnection?: () => void;
@@ -801,6 +821,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly nativeMouseExecutor?: NativeFinalCutMouseExecutor;
   private readonly canDriveNativeMouse: boolean;
   private readonly liveState?: () => Promise<EditorLiveState>;
+  private readonly importSourceObserver?: NativeFinalCutImportSourceObserver;
   private readonly nativeOperationLease?: NativeOperationLease;
   private readonly suspendLiveConnection?: () => void;
   private readonly resumeLiveConnection?: () => void;
@@ -893,6 +914,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.nativeMouseExecutor = options.nativeMouseExecutor;
     this.canDriveNativeMouse = options.executor === undefined;
     this.liveState = options.liveState;
+    this.importSourceObserver = options.importSourceObserver;
     this.nativeOperationLease = options.nativeOperationLease;
     this.suspendLiveConnection = options.suspendLiveConnection;
     this.resumeLiveConnection = options.resumeLiveConnection;
@@ -909,7 +931,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       selectionEdit: this.enabled,
       undo: this.enabled,
       mediaLibrarySearch: this.enabled,
-      mediaImport: this.enabled,
+      mediaImport: this.enabled && Boolean(this.importSourceObserver),
       mediaSelection: this.enabled,
       mediaAppendSelected: this.enabled,
       timelineOccurrenceLocate: this.enabled,
@@ -1242,6 +1264,12 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   }
 
   public async importMedia(sourcePath: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutMediaImportResult> {
+    this.assertEnabled();
+    if (!this.importSourceObserver) {
+      throw new NativeFinalCutMediaImportError("CAPABILITY_UNAVAILABLE", "native media import requires independently observed original source binding", {
+        stage: "pre-import-browser-discovery", elapsedMs: 0, stageElapsedMs: 0, partialImportPossible: false,
+      });
+    }
     return this.withNativeUi(() => this.importMediaNative(sourcePath), options.signal);
   }
 
@@ -1277,6 +1305,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     confirm: boolean,
     options: NativeFinalCutRequestOptions = {},
   ): Promise<NativeFinalCutMediaImportDirectoryResult> {
+    if (!this.importSourceObserver) return this.executeImportMediaDirectoryNative(previewToken, confirm);
     return this.withNativeUi(() => this.executeImportMediaDirectoryNative(previewToken, confirm), options.signal);
   }
 
@@ -1313,6 +1342,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     }
 
     try {
+      const observer = this.importSourceObserver;
+      if (!observer) return fail("CAPABILITY_UNAVAILABLE", "independent original source observation is unavailable", false);
+      const expectedTarget = normalizeNativeImportTarget(await observer.captureTarget());
+      if (!expectedTarget) return fail("CAPABILITY_UNAVAILABLE", "independent native import target observation is unavailable", false);
       const beforeDiscoveryDeadline = this.now() + this.mediaImportDiscoveryTimeoutMs;
       await this.ensureBrowserReady(beforeDiscoveryDeadline, "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT");
       const beforeMatches = await this.searchMediaNative(name, beforeDiscoveryDeadline, "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT");
@@ -1374,6 +1407,19 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
             fail("FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE", `Final Cut did not expose an immutable Browser source identity for ${name}`, true);
             throw new Error("unreachable");
           }
+          // The observer receives only the independently identified Browser item,
+          // never the requested source path. A matching name or requested path is
+          // not evidence that the item actually references the original source.
+          const observed = await observer.observeImportedSource(identity);
+          const observedTarget = normalizeNativeImportTarget(observed?.target);
+          const currentTarget = normalizeNativeImportTarget(await observer.captureTarget());
+          if (!observed || observed.sourceIdentity !== identity
+            || typeof observed.originalSourcePath !== "string" || !isAbsolute(observed.originalSourcePath)
+            || observed.originalSourcePath !== normalizedPath
+            || !sameNativeImportTarget(expectedTarget, observedTarget)
+            || !sameNativeImportTarget(expectedTarget, currentTarget)) {
+            return fail("FINAL_CUT_NATIVE_MEDIA_IMPORT_SOURCE_MISMATCH", "independent original source or native target observation does not match the approved import", true);
+          }
           const mediaHandle = this.stableMediaHandle(identity);
           const stableMatch = { ...match, handle: mediaHandle };
           this.stableMediaHandles.set(identity, mediaHandle);
@@ -1387,7 +1433,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
             verification: {
               verified: true,
               stage: "post-import-browser-discovery",
-              detail: "Final Cut exposed one newly imported Browser asset with immutable source identity",
+              detail: "An independent observation bound the imported Browser identity to the original source and native target",
             },
           };
         }
@@ -7046,6 +7092,18 @@ function classifyNativeFocusTarget(
   const focusText = [focusedDescription, focusedName].filter(Boolean).join(" ").toLowerCase();
   if (focusText.includes("browser") || focusText.includes("search")) return "browser";
   return "unknown";
+}
+
+function normalizeNativeImportTarget(value: NativeFinalCutImportTarget | undefined): NativeFinalCutImportTarget | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const { libraryId, eventId, projectId, sequenceId, revision } = value;
+  if (![libraryId, eventId, projectId, sequenceId, revision].every((item) => typeof item === "string" && item.trim().length > 0)) return undefined;
+  return { libraryId, eventId, projectId, sequenceId, revision };
+}
+
+function sameNativeImportTarget(expected: NativeFinalCutImportTarget, actual: NativeFinalCutImportTarget | undefined): boolean {
+  return Boolean(actual && expected.libraryId === actual.libraryId && expected.eventId === actual.eventId
+    && expected.projectId === actual.projectId && expected.sequenceId === actual.sequenceId && expected.revision === actual.revision);
 }
 
 function parseMediaMatches(output: string): NativeFinalCutMediaMatch[] {

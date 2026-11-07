@@ -15,6 +15,19 @@ import { finalCutBrowserSearchAccessibilityFixture } from "../fixtures/final-cut
 
 const separator = String.fromCharCode(31);
 
+// Fixture-only observer: values represent independently recorded observations.
+function fixtureImportSourceObserver(paths: Record<string, string> = {}) {
+  const target = { libraryId: "fixture-library", eventId: "fixture-event", projectId: "fixture-project", sequenceId: "fixture-sequence", revision: "fixture-revision" };
+  return {
+    captureTarget: async () => target,
+    observeImportedSource: async (sourceIdentity: string) => ({
+      sourceIdentity,
+      originalSourcePath: paths[sourceIdentity] ?? "",
+      target,
+    }),
+  };
+}
+
 function boundNativeLiveState() {
   return {
     project: { id: "project-1", name: "Edit" },
@@ -3136,6 +3149,7 @@ test("native Final Cut imports local video and audio, waits for Browser availabi
   let clock = 0;
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    importSourceObserver: fixtureImportSourceObserver({ "file:///imported/interview.mov": videoPath, "file:///imported/music.wav": audioPath }),
     now: () => clock,
     sleep: async (milliseconds) => { clock += milliseconds; },
     executor: async (script) => {
@@ -3161,7 +3175,7 @@ test("native Final Cut imports local video and audio, waits for Browser availabi
   assert.deepEqual(video.verification, {
     verified: true,
     stage: "post-import-browser-discovery",
-    detail: "Final Cut exposed one newly imported Browser asset with immutable source identity",
+    detail: "An independent observation bound the imported Browser identity to the original source and native target",
   });
   assert.equal(video.sourcePath, videoPath);
   assert.equal(audio.name, "music.wav");
@@ -3306,6 +3320,7 @@ test("native Final Cut expands a user-home path before validating and importing 
   const scripts: string[] = [];
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    importSourceObserver: fixtureImportSourceObserver({ "file:///imported/home-import.mov": sourcePath }),
     homeDirectory,
     executor: async (script) => {
       scripts.push(script);
@@ -3346,6 +3361,7 @@ test("native Final Cut resolves relative paths from the process cwd", async () =
   let searchCalls = 0;
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    importSourceObserver: fixtureImportSourceObserver({ "file:///imported/relative-import.mov": sourcePath }),
     executor: async (script) => {
       if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
       if (script.includes("FRAMEKIT_IMPORT_MEDIA")) return "import-requested";
@@ -3552,6 +3568,7 @@ test("native Final Cut keeps an imported media handle usable after an unrelated 
   let interviewSearches = 0;
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    importSourceObserver: fixtureImportSourceObserver({ "file:///imported/interview.mov": sourcePath }),
     executor: async (script) => {
       if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
       if (script.includes("FRAMEKIT_IMPORT_MEDIA")) return "import-requested";
@@ -3599,6 +3616,7 @@ test("native Final Cut ignores a pre-existing same-name Browser item during impo
   let clock = 0;
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    importSourceObserver: fixtureImportSourceObserver({ "file:///imported/interview.mov": sourcePath }),
     now: () => clock,
     sleep: async (milliseconds) => { clock += milliseconds; },
     executor: async (script) => {
@@ -3634,6 +3652,7 @@ test("native Final Cut rejects synthetic Browser identities during import", asyn
   let searchCalls = 0;
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    importSourceObserver: fixtureImportSourceObserver({ "file:///imported/interview.mov": sourcePath }),
     executor: async (script) => {
       if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
       if (script.includes("FRAMEKIT_IMPORT_MEDIA")) return "import-requested";
@@ -3663,6 +3682,7 @@ test("native Final Cut import reports staged Browser discovery timeout diagnosti
   let clock = 0;
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    importSourceObserver: fixtureImportSourceObserver({ "file:///imported/interview.mov": sourcePath }),
     now: () => clock,
     sleep: async (milliseconds) => { clock += milliseconds; },
     mediaImportDiscoveryTimeoutMs: 20,
@@ -3700,6 +3720,7 @@ test("native Final Cut import aborts a stalled native executor at its deadline",
   let aborted = false;
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    importSourceObserver: fixtureImportSourceObserver({ "file:///imported/interview.mov": sourcePath }),
     mediaImportTimeoutMs: 20,
     executor: async (script, options) => {
       if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
@@ -3730,6 +3751,7 @@ test("native Final Cut rejects an unavailable local media path before opening im
   const scripts: string[] = [];
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    importSourceObserver: fixtureImportSourceObserver(),
     executor: async (script) => {
       scripts.push(script);
       return "";
@@ -3744,6 +3766,7 @@ test("native Final Cut expands home paths and rejects ambiguous tilde paths", as
   const scripts: string[] = [];
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    importSourceObserver: fixtureImportSourceObserver(),
     executor: async (script) => {
       scripts.push(script);
       return "";
@@ -3770,6 +3793,7 @@ test("native Final Cut reports directory media import guidance before opening im
   const scripts: string[] = [];
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    importSourceObserver: fixtureImportSourceObserver(),
     executor: async (script) => {
       scripts.push(script);
       return "";
