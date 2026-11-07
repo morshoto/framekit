@@ -695,6 +695,9 @@ function applyOperation(timeline: TimelineIr, operation: TimelineIrEditOperation
       canonicalizeOccurrences(timeline);
       return;
     case "split-occurrence": {
+      if (occurrence!.fadeIn !== undefined || occurrence!.fadeOut !== undefined) {
+        throw new Error("TIMELINE_IR_OPERATION_INVALID: splitting an occurrence with fades is unsupported");
+      }
       requireText(operation.newOccurrenceId, "operation.newOccurrenceId");
       if (timeline.sequence.occurrences.some(({ id }) => id === operation.newOccurrenceId)) {
         throw new Error(`TIMELINE_IR_OPERATION_INVALID: occurrence already exists: ${operation.newOccurrenceId}`);
