@@ -318,8 +318,8 @@ result of its dispatch step.
 ## Persistence and synchronization
 
 Framekit-owned projects persist provider-neutral Timeline IR and revision history.
-Timeline IR split operations reject occurrences with fades until fade behavior
-can be preserved across both resulting occurrences.
+Timeline IR split operations reject occurrences with fades or connected
+occurrences until those relationships can be preserved across both results.
 External editor state is synchronized through an adapter and reconciled
 against the bound revision before applying edits. A conflict, stale revision,
 or uncertain source state blocks materialization and publication until the
