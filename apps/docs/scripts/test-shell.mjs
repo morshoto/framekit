@@ -25,7 +25,7 @@ try {
     page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
     await page.goto(`http://127.0.0.1:${server.address().port}/`, { waitUntil: 'networkidle' });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `overflow at ${width}`);
-    assert.equal(await page.getByRole('navigation', { name: 'Documentation' }).first().isVisible(), width >= 768, `sidebar at ${width}`);
+    assert.equal(await page.locator('aside[aria-label="Documentation sidebar"]').isVisible(), false, `landing sidebar at ${width}`);
     if (width < 768) {
       const trigger = page.getByRole('button', { name: 'Open navigation' }); await trigger.click();
       await page.getByRole('dialog', { name: 'Documentation navigation' }).waitFor();
@@ -43,7 +43,7 @@ try {
   await page.reload({ waitUntil: 'networkidle' });
   assert.equal(await page.locator('html').getAttribute('data-theme'), 'light');
   const trigger = page.getByRole('button', { name: 'Open navigation' });
-  await trigger.click(); await page.getByRole('dialog').getByRole('link', { name: 'Getting started' }).click();
+  await trigger.click(); await page.getByRole('dialog').getByRole('link', { name: 'Fixture setup' }).click();
   assert.equal(await page.getByRole('dialog').count(), 0);
   assert.equal(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches), true);
   await page.close();

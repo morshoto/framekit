@@ -1,0 +1,9 @@
+## Components
+
+Framekit is a local-first runtime with an editor-independent project and timeline model. `packages/runtime` owns domain contracts and verification; `packages/headless-application` provides transport-neutral project workflows; `apps/mcp-server` exposes MCP transport and tools. Final Cut adapters handle the document and native bridge boundaries, while `packages/testkit` provides deterministic fixtures.
+
+Dependencies flow toward runtime contracts. The runtime must not import the MCP SDK or Final Cut adapters. Framekit-owned project state remains canonical for headless editing; an external artifact or metadata observation does not silently replace it.
+
+## Capability boundaries
+
+Inspect operation-level capabilities before use. Headless work does not require a running Final Cut Pro session. Native UI operations are an explicit, separately authorized path with target-bound readback and restoration requirements. See [Final Cut Pro](/en/docs/final-cut-pro/), [Revisions & Safety](/en/docs/revisions-and-safety/), and the [maintained architecture reference](https://github.com/morshoto/framekit/blob/main/docs/architecture.md).

@@ -1,0 +1,13 @@
+## Install and connect
+
+```sh
+codex plugin marketplace add morshoto/framekit
+```
+
+In Codex, open `/plugins`, install **Framekit**, and start a new session. Alternatively, install it with `codex plugin add framekit@framekit`. The plugin starts the published package through `npx`; it does not install the Final Cut Workflow Extension.
+
+## Inspect before editing
+
+Use `connection.status` for diagnostics, `editor.inspect` for backend and capability details, and `editing.route` for an operation's selected path. Follow a headless route with project inspection and preview before execution. The published plugin runs headlessly; a live bridge connection alone does not grant native timeline writes.
+
+See [Final Cut Pro](/en/docs/final-cut-pro/) for the separate extension and [MCP Tools](/en/docs/mcp-tools/) for tool discovery.

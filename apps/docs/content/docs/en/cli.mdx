@@ -1,0 +1,14 @@
+## Entry point
+
+`framekit` is the supported CLI. With the published package, invoke it through `npx -y @morshoto/framekit`; from a checkout use `pnpm run framekit --` before the arguments below.
+
+| Command | Purpose |
+| --- | --- |
+| `help` | Show CLI usage. |
+| `mcp` | Start the MCP server; use `--editor fixture` for the fixture backend. |
+| `mcp --headless` | Start the live backend in headless mode. |
+| `doctor finalcut` | Check Final Cut connection readiness; `--json` emits structured status. |
+| `doctor dev --profile fixture` | Check the development environment; profiles also include `headless` and `native`. |
+| `connect finalcut --development` | Build and connect the development extension; this can reload Final Cut. |
+
+Use `framekit help` for current usage. Compiled application files are private implementation paths, not stable package APIs.

@@ -24,7 +24,7 @@ For each shared visual component, create a directory containing `Component.tsx`,
 
 ## Mock localized content
 
-The files in `content/docs/en` and `content/docs/ja` are synthetic test content. `pnpm --filter @framekit/docs check:content` checks local article links, anchors and images and runs as part of the build. Add a document to the locale manifest and static import map as well as its content file. `pnpm --filter @framekit/docs test:locales` exercises a built export using Chromium. Set `DOCS_SITE_ORIGIN` at build time when publishing under a different origin; combine it with `DOCS_BASE_PATH` for canonical and language-alternate URLs.
+The files in `content/docs/en` and `content/docs/ja` are synthetic test content. `pnpm --filter @framekit/docs check:content` checks local article links, anchors and images and runs as part of the build. Register each document and its available locales in the content registry as well as adding its content file. `pnpm --filter @framekit/docs test:locales` exercises a built export using Chromium. Set `DOCS_SITE_ORIGIN` at build time when publishing under a different origin; combine it with `DOCS_BASE_PATH` for canonical and language-alternate URLs.
 
 ## Static search
 
@@ -67,3 +67,9 @@ The command requires `gh` authentication and a Playwright Chromium installation.
 `.github/workflows/docs-pages.yml` builds and verifies the project-path export on pushes to `main` and publishes `out/` using GitHub Pages. Pull requests run the export checks in CI but do not deploy. The repository site is enabled in **Settings → Pages → Build and deployment → GitHub Actions**. The workflow's environment reports the deployed URL; check it after the deploy succeeds. For a future root-domain host, build with `DOCS_BASE_PATH` unset and publish the resulting `out/` directory.
 
 `test:export` checks generated local asset and route references; external URLs are not fetched by that check. Nested routes and production refresh must also be checked after they exist and are deployed.
+
+## Content registry and drafts
+
+`src/lib/docs/source.ts` is the registry for stable slugs, section order, localized titles and editorial status. To add a page, choose a URL-safe slug and a unique nonnegative order within its section, add a registry entry, and add an MDX file under each locale listed in its `titles`. Add a translation by adding its localized title and corresponding file; locales may be omitted. The content check rejects missing or unregistered files and broken links. Reorder pages by changing their order values; the sidebar, breadcrumbs and pager follow the registry. Existing `getting-started` and `examples` routes are retained as synthetic QA fixtures.
+
+Draft pages are navigable for design review, visibly labeled, marked `noindex`, and excluded from Pagefind. They have no edit link and there is currently no sitemap; any future sitemap must omit drafts. Change a page to `ready` only after its content and translations have been reviewed. Readiness describes editorial state and does not establish native Final Cut capabilities. Missing translations link to the locale overview with a visible fallback notice. Run `check:content`, `test`, and both root and project-path builds and export checks after content changes.
