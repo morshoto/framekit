@@ -241,6 +241,50 @@ test("splits an occurrence without fabricating a provider binding for the new ri
   }
 });
 
+test("previews and applies a fractional-frame split without changing another use of the source", async () => {
+  const { directory, store, initial, service } = await createService();
+  try {
+    initial.timeline.sequence.frameDuration = { value: "1001", timescale: "24000" };
+    initial.timeline.sequence.durationTime = { value: "5", timescale: "1" };
+    const first = initial.timeline.sequence.occurrences[0]!;
+    first.startTime = { value: "1001", timescale: "24000" };
+    first.durationTime = { value: "1001", timescale: "3000" };
+    first.sourceStartTime = { value: "1", timescale: "3" };
+    const repeated = {
+      id: "repeat", name: "Repeated source", track: 0, mediaId: "media-1",
+      startTime: { value: "3", timescale: "1" }, durationTime: { value: "1", timescale: "1" },
+      sourceStartTime: { value: "2", timescale: "1" },
+    };
+    initial.timeline.sequence.occurrences.push(repeated);
+    await store.save(initial);
+    const split = command(initial, "unused", [{
+      type: "split-occurrence", occurrenceId: "occurrence-1",
+      splitOffsetTime: { value: "1001", timescale: "12000" }, newOccurrenceId: "occurrence-1-right",
+    }]);
+    const preview = await service.preview(split);
+    assert.deepEqual(await store.load(), initial);
+    const [left, right, other] = preview.after.timeline.sequence.occurrences;
+    assert.equal(left?.id, "occurrence-1");
+    assert.equal(right?.id, "occurrence-1-right");
+    assert.equal(left?.mediaId, "media-1");
+    assert.equal(right?.mediaId, "media-1");
+    assert.deepEqual(left?.sourceStartTime, { value: "1", timescale: "3" });
+    assert.deepEqual(left?.durationTime, { value: "1001", timescale: "12000" });
+    assert.deepEqual(right?.sourceStartTime, { value: "1667", timescale: "4000" });
+    assert.deepEqual(right?.startTime, { value: "1001", timescale: "8000" });
+    assert.deepEqual(right?.durationTime, { value: "1001", timescale: "4000" });
+    assert.deepEqual(other, repeated);
+    assert.deepEqual(preview.after.timeline.sequence.durationTime, initial.timeline.sequence.durationTime);
+    const result = await service.execute(split);
+    assert.deepEqual(result.after.timeline.sequence.occurrences, preview.after.timeline.sequence.occurrences);
+    await assert.rejects(service.execute(split), (error: unknown) => error instanceof Error
+      && (error as Error & { code?: string }).code === "PROJECT_EDIT_STALE_REVISION");
+    assert.deepEqual(await store.load(), result.after);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("rejects splitting clips with fades before changing the project", async () => {
   for (const fade of [{ fadeIn: 0.25 }, { fadeOut: 0.25 }]) {
     const { directory, store, initial, service } = await createService();
