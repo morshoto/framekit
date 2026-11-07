@@ -2490,13 +2490,14 @@ test("canonical resolver rejects mismatched native identity before selecting an 
 });
 
 test("canonical resolver rejects ambiguous or incomplete coordinates before native discovery", async () => {
-  for (const kind of ["different-source", "same-source", "missing", "invalid"] as const) {
+  for (const kind of ["same-source", "source-alias", "missing", "invalid"] as const) {
     const project = snapshot("Original");
     const target = project.timeline.clips[0]!;
-    const other = { ...target, id: "other-occurrence", mediaId: kind === "different-source" ? "other-media" : target.mediaId, track: 1,
+    const other = { ...target, id: "other-occurrence", mediaId: kind === "source-alias" ? "alias-media" : target.mediaId, track: 1,
       startTime: kind === "invalid" ? { value: "0", timescale: "0" } : { value: "0", timescale: "48" },
       durationTime: { value: "192", timescale: "48" },
     };
+    if (kind === "source-alias") project.media.push({ mediaId: "alias-media", source: "file:///tmp/clip.mov" });
     if (kind === "missing") Reflect.deleteProperty(other, "startTime");
     project.timeline.clips.push(other);
     const calls: string[] = [];
@@ -2508,6 +2509,39 @@ test("canonical resolver rejects ambiguous or incomplete coordinates before nati
     await assert.rejects(createFinalCutNativeTargetResolver(native)(target, project), /AMBIGUOUS_PROJECT_TARGET.*coordinates/i);
     assert.deepEqual(calls, []);
   }
+});
+
+test("canonical resolver ignores unrelated media coordinates", async () => {
+  for (const coordinates of ["overlapping", "missing", "invalid"] as const) {
+    const project = snapshot("Original");
+    const target = project.timeline.clips[0]!;
+    const other = { ...target, id: "other", mediaId: "other-media", track: 1 };
+    project.media.push({ mediaId: "other-media", source: "/tmp/other.mov" });
+    if (coordinates === "missing") Reflect.deleteProperty(other, "startTime");
+    if (coordinates === "invalid") other.startTime = { value: "0", timescale: "0" };
+    project.timeline.clips.push(other);
+    const selected: string[] = [];
+    const native = {
+      searchMedia: async () => [{ handle: "media", name: "clip.mov", sourceIdentity: "source", source: "/tmp/clip.mov" }],
+      locateOccurrence: async () => ({ status: "unique" as const, occurrences: [{ handle: "occ", mediaHandle: "media", name: "Original", identity: "item", sourceIdentity: "source", start: "0/24", duration: "96/24", sequenceId: project.timeline.id }] }),
+      selectOccurrence: async (handle: string) => { selected.push(handle); return { target: { kind: "selected-clip", identity: "item" } } as never; },
+    };
+    await createFinalCutNativeTargetResolver(native)(target, project);
+    assert.deepEqual(selected, ["occ"], coordinates);
+  }
+});
+
+test("canonical resolver classifies unknown capabilities before selection", async () => {
+  const project = snapshot("Original");
+  let selected = false;
+  const native = {
+    capabilities: () => { throw new Error("unclassified provider failure"); },
+    searchMedia: async () => [{ handle: "media", name: "clip.mov", sourceIdentity: "source", source: "/tmp/clip.mov" }],
+    locateOccurrence: async () => ({ status: "unique" as const, occurrences: [{ handle: "occ", mediaHandle: "media", name: "Original", identity: "item", sourceIdentity: "source", start: "0/24", duration: "96/24", sequenceId: project.timeline.id }] }),
+    selectOccurrence: async () => { selected = true; return {} as never; },
+  };
+  await assert.rejects(createFinalCutNativeTargetResolver(native)(project.timeline.clips[0]!, project), /TARGET_MISMATCH/);
+  assert.equal(selected, false);
 });
 
 test("canonical target preparation is protected by the recovery checkpoint", async () => {
@@ -2676,7 +2710,7 @@ test("canonical resolver rejects a timeline occurrence without observed source i
 });
 
 test("source-capable resolver requires matching selected Inspector evidence", async () => {
-  for (const mismatch of ["path", "range", "duration", "identity", "missing"] as const) {
+  for (const mismatch of ["path", "range", "duration", "identity", "missing", "missing-path", "missing-range", "invalid-range", "missing-duration"] as const) {
     const project = snapshot("Original");
     project.timeline.clips[0]!.sourceStartTime = { value: "120", timescale: "24" };
     const native = {
@@ -2684,7 +2718,7 @@ test("source-capable resolver requires matching selected Inspector evidence", as
       searchMedia: async () => [{ handle: "media", name: "clip.mov", sourceIdentity: "source", source: "/tmp/clip.mov" }],
       locateOccurrence: async () => ({ status: "unique" as const, occurrences: [{ handle: "occ", mediaHandle: "media", name: "Original", identity: "item", sourceIdentity: "source", start: "0/24", duration: "96/24", sequenceId: project.timeline.id }] }),
       selectOccurrence: async () => ({ target: { kind: "selected-clip", identity: "item" } }) as never,
-      inspectSelectedOccurrenceSource: async () => mismatch === "missing" ? undefined : ({ identity: mismatch === "identity" ? "other" : "item", source: mismatch === "path" ? "/other/clip.mov" : "/tmp/clip.mov", sourceStartTime: { value: mismatch === "range" ? "6" : "5", timescale: "1" }, durationTime: { value: mismatch === "duration" ? "3" : "4", timescale: "1" } }),
+      inspectSelectedOccurrenceSource: async () => mismatch === "missing" ? undefined : ({ identity: mismatch === "identity" ? "other" : "item", source: mismatch === "missing-path" ? undefined as never : mismatch === "path" ? "/other/clip.mov" : "/tmp/clip.mov", sourceStartTime: mismatch === "missing-range" ? undefined as never : { value: mismatch === "range" ? "6" : "5", timescale: mismatch === "invalid-range" ? "0" : "1" }, durationTime: mismatch === "missing-duration" ? undefined as never : { value: mismatch === "duration" ? "3" : "4", timescale: "1" } }),
     };
     await assert.rejects(createFinalCutNativeTargetResolver(native)(project.timeline.clips[0]!, project), /TARGET_MISMATCH.*Inspector/i, mismatch);
   }
