@@ -1659,6 +1659,7 @@ test("canonical target resolver requires one exact native occurrence", async () 
       sourceIdentity: "browser-source-1",
       source: "/tmp/clip.mov",
     }],
+    selectOccurrence: async () => ({ target: { kind: "selected-clip", identity: "native-occurrence-1" } }) as never,
     locateOccurrence: async () => ({
       status: "unique" as const,
       occurrences: [{
@@ -1690,6 +1691,7 @@ test("canonical target resolver searches literal source basenames outside the pu
       seenQueries.push(query);
       return [{ handle: "media-handle", name: query, sourceIdentity: "browser-source-1", source: "/tmp/interview?.mov" }];
     },
+    selectOccurrence: async () => ({ target: { kind: "selected-clip", identity: "native-occurrence-1" } }) as never,
     locateOccurrence: async () => ({
       status: "unique" as const,
       occurrences: [{
@@ -2487,6 +2489,61 @@ test("canonical resolver rejects mismatched native identity before selecting an 
   }
 });
 
+test("canonical resolver rejects ambiguous or incomplete coordinates before native discovery", async () => {
+  for (const kind of ["same-source", "source-alias", "missing", "invalid"] as const) {
+    const project = snapshot("Original");
+    const target = project.timeline.clips[0]!;
+    const other = { ...target, id: "other-occurrence", mediaId: kind === "source-alias" ? "alias-media" : target.mediaId, track: 1,
+      startTime: kind === "invalid" ? { value: "0", timescale: "0" } : { value: "0", timescale: "48" },
+      durationTime: { value: "192", timescale: "48" },
+    };
+    if (kind === "source-alias") project.media.push({ mediaId: "alias-media", source: "file:///tmp/clip.mov" });
+    if (kind === "missing") Reflect.deleteProperty(other, "startTime");
+    project.timeline.clips.push(other);
+    const calls: string[] = [];
+    const native = {
+      searchMedia: async () => { calls.push("search"); return []; },
+      locateOccurrence: async () => { calls.push("locate"); return { status: "none" as const, occurrences: [] }; },
+      selectOccurrence: async () => { calls.push("select"); return {} as never; },
+    };
+    await assert.rejects(createFinalCutNativeTargetResolver(native)(target, project), /AMBIGUOUS_PROJECT_TARGET.*coordinates/i);
+    assert.deepEqual(calls, []);
+  }
+});
+
+test("canonical resolver ignores unrelated media coordinates", async () => {
+  for (const coordinates of ["overlapping", "missing", "invalid"] as const) {
+    const project = snapshot("Original");
+    const target = project.timeline.clips[0]!;
+    const other = { ...target, id: "other", mediaId: "other-media", track: 1 };
+    project.media.push({ mediaId: "other-media", source: "/tmp/other.mov" });
+    if (coordinates === "missing") Reflect.deleteProperty(other, "startTime");
+    if (coordinates === "invalid") other.startTime = { value: "0", timescale: "0" };
+    project.timeline.clips.push(other);
+    const selected: string[] = [];
+    const native = {
+      searchMedia: async () => [{ handle: "media", name: "clip.mov", sourceIdentity: "source", source: "/tmp/clip.mov" }],
+      locateOccurrence: async () => ({ status: "unique" as const, occurrences: [{ handle: "occ", mediaHandle: "media", name: "Original", identity: "item", sourceIdentity: "source", start: "0/24", duration: "96/24", sequenceId: project.timeline.id }] }),
+      selectOccurrence: async (handle: string) => { selected.push(handle); return { target: { kind: "selected-clip", identity: "item" } } as never; },
+    };
+    await createFinalCutNativeTargetResolver(native)(target, project);
+    assert.deepEqual(selected, ["occ"], coordinates);
+  }
+});
+
+test("canonical resolver classifies unknown capabilities before selection", async () => {
+  const project = snapshot("Original");
+  let selected = false;
+  const native = {
+    capabilities: () => { throw new Error("unclassified provider failure"); },
+    searchMedia: async () => [{ handle: "media", name: "clip.mov", sourceIdentity: "source", source: "/tmp/clip.mov" }],
+    locateOccurrence: async () => ({ status: "unique" as const, occurrences: [{ handle: "occ", mediaHandle: "media", name: "Original", identity: "item", sourceIdentity: "source", start: "0/24", duration: "96/24", sequenceId: project.timeline.id }] }),
+    selectOccurrence: async () => { selected = true; return {} as never; },
+  };
+  await assert.rejects(createFinalCutNativeTargetResolver(native)(project.timeline.clips[0]!, project), /TARGET_MISMATCH/);
+  assert.equal(selected, false);
+});
+
 test("canonical target preparation is protected by the recovery checkpoint", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-target-preparation-race-"));
   const path = join(directory, "pending.json");
@@ -2603,6 +2660,21 @@ test("canonical resolver uses nonselecting discovery before identity validation"
   assert.deepEqual(calls, ["canonical-locate"]);
 });
 
+test("canonical resolver rejects incomplete discovered occurrence coordinates before selection", async () => {
+  for (const coordinates of [{ duration: "96/24" }, { start: "0/24" }, { start: "invalid", duration: "96/24" }, { start: "0/24", duration: "1/0" }]) {
+    const calls: string[] = [];
+    const project = snapshot("Original");
+    const occurrence = { handle: "occ", mediaHandle: "media", name: "Original", identity: "item", sourceIdentity: "source", start: "0/24", duration: "96/24", sequenceId: project.timeline.id };
+    const native = {
+      searchMedia: async () => [{ handle: "media", name: "clip.mov", sourceIdentity: "source", source: "/tmp/clip.mov" }],
+      locateOccurrence: async () => ({ status: "ambiguous" as const, occurrences: [occurrence, { ...occurrence, handle: "other", start: coordinates.start, duration: coordinates.duration }] }),
+      selectOccurrence: async () => { calls.push("select"); return { target: { kind: "selected-clip", identity: "item" } } as never; },
+    };
+    await assert.rejects(createFinalCutNativeTargetResolver(native)(project.timeline.clips[0]!, project), /AMBIGUOUS_PROJECT_TARGET.*coordinates/i);
+    assert.deepEqual(calls, []);
+  }
+});
+
 test("canonical resolver compares the discovered occurrence identity after selection", async () => {
   const native = {
     searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1", source: "/tmp/clip.mov" }],
@@ -2637,6 +2709,35 @@ test("canonical resolver rejects a timeline occurrence without observed source i
   assert.equal(selected, false);
 });
 
+test("source-capable resolver requires matching selected Inspector evidence", async () => {
+  for (const mismatch of ["path", "range", "duration", "identity", "missing", "missing-path", "missing-range", "invalid-range", "missing-duration"] as const) {
+    const project = snapshot("Original");
+    project.timeline.clips[0]!.sourceStartTime = { value: "120", timescale: "24" };
+    const native = {
+      capabilities: () => ({ timelineOccurrenceSourceBinding: true }) as never,
+      searchMedia: async () => [{ handle: "media", name: "clip.mov", sourceIdentity: "source", source: "/tmp/clip.mov" }],
+      locateOccurrence: async () => ({ status: "unique" as const, occurrences: [{ handle: "occ", mediaHandle: "media", name: "Original", identity: "item", sourceIdentity: "source", start: "0/24", duration: "96/24", sequenceId: project.timeline.id }] }),
+      selectOccurrence: async () => ({ target: { kind: "selected-clip", identity: "item" } }) as never,
+      inspectSelectedOccurrenceSource: async () => mismatch === "missing" ? undefined : ({ identity: mismatch === "identity" ? "other" : "item", source: mismatch === "missing-path" ? undefined as never : mismatch === "path" ? "/other/clip.mov" : "/tmp/clip.mov", sourceStartTime: mismatch === "missing-range" ? undefined as never : { value: mismatch === "range" ? "6" : "5", timescale: mismatch === "invalid-range" ? "0" : "1" }, durationTime: mismatch === "missing-duration" ? undefined as never : { value: mismatch === "duration" ? "3" : "4", timescale: "1" } }),
+    };
+    await assert.rejects(createFinalCutNativeTargetResolver(native)(project.timeline.clips[0]!, project), /TARGET_MISMATCH.*Inspector/i, mismatch);
+  }
+});
+
+test("source-capable resolver rejects a missing canonical source range before selection", async () => {
+  let selected = false;
+  const project = snapshot("Original");
+  const native = {
+    capabilities: () => ({ timelineOccurrenceSourceBinding: true }) as never,
+    searchMedia: async () => [{ handle: "media", name: "clip.mov", sourceIdentity: "source", source: "/tmp/clip.mov" }],
+    locateOccurrence: async () => ({ status: "unique" as const, occurrences: [{ handle: "occ", mediaHandle: "media", name: "Original", identity: "item", sourceIdentity: "source", start: "0/24", duration: "96/24", sequenceId: project.timeline.id }] }),
+    selectOccurrence: async () => { selected = true; return {} as never; },
+    inspectSelectedOccurrenceSource: async () => undefined,
+  };
+  await assert.rejects(createFinalCutNativeTargetResolver(native)(project.timeline.clips[0]!, project), /TARGET_MISMATCH.*Inspector/);
+  assert.equal(selected, false);
+});
+
 test("canonical capabilities fail closed when source binding is unavailable", async () => {
   const calls: string[] = [];
   const resolveTarget = Object.assign(async () => { calls.push("resolve"); }, { sourceBindingAvailable: false });
@@ -2652,6 +2753,27 @@ test("canonical capabilities fail closed when source binding is unavailable", as
   await assert.rejects(provider.previewTransaction([{ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "Renamed" }], before.revision), /CAPABILITY_UNAVAILABLE.*source/i);
   await assert.rejects(provider.apply({ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "Renamed" }, before.revision), /CAPABILITY_UNAVAILABLE.*source/i);
   assert.deepEqual(calls, []);
+});
+
+test("every source-bound operation rejects unavailable binding before dispatch", async () => {
+  const cases = [
+    { before: snapshot("Original"), operation: { type: "rename-clip" as const, clipId: "final-cut:occurrence:clip-1", name: "Renamed" } },
+    { before: snapshot("Original"), operation: { type: "trim-clip" as const, clipId: "final-cut:occurrence:clip-1", duration: 3, durationTime: { value: "72", timescale: "24" } } },
+    { before: rippleSnapshots().before, operation: { type: "ripple-delete" as const, timelineId: "final-cut:sequence:sequence-1", range: { start: 2, end: 4, startTime: { value: "48", timescale: "24" }, durationTime: { value: "48", timescale: "24" } }, candidateId: "filler-1", reason: "remove verified filler" } },
+    { before: gainSnapshots().before, operation: { type: "set-gain" as const, clipId: "final-cut:occurrence:clip-1", gainDb: 3 } },
+  ];
+  for (const { before: original, operation } of cases) {
+    const calls: string[] = [];
+    const resolveTarget = Object.assign(async () => { calls.push("resolve"); }, { sourceBindingAvailable: false });
+    const mutate = async () => { calls.push("dispatch"); return { operationId: "unexpected", undoAvailable: true }; };
+    const provider = providerFor([original, original, original], calls, resolveTarget, liveState(), undefined, {
+      renameSelectedClip: mutate, trimSelectedClipToRange: mutate, rippleDeleteRange: mutate, setSelectedClipGain: mutate,
+    });
+    const before = await provider.readProject();
+    await assert.rejects(provider.previewTransaction([operation], before.revision), /CAPABILITY_UNAVAILABLE.*source/i, operation.type);
+    await assert.rejects(provider.apply(operation, before.revision), /CAPABILITY_UNAVAILABLE.*source/i, operation.type);
+    assert.deepEqual(calls, [], operation.type);
+  }
 });
 
 test("source capability limits only source-bound operations when canonical readiness is otherwise available", async () => {
@@ -2709,8 +2831,10 @@ test("canonical source binding is enabled only for an explicitly capable nonsele
     locateOccurrence: locate,
     locateOccurrenceForCanonicalTarget: locate,
     selectOccurrence: async () => ({ target: { kind: "selected-clip", identity: "native-1" } }) as never,
+    inspectSelectedOccurrenceSource: async () => ({ identity: "native-1", source: "/tmp/clip.mov", sourceStartTime: { value: "0", timescale: "1" }, durationTime: { value: "4", timescale: "1" } }),
   };
   const project = snapshot("Original");
+  project.timeline.clips[0]!.sourceStartTime = { value: "0", timescale: "1" };
   const resolver = createFinalCutNativeTargetResolver(native);
   assert.equal(resolver.sourceBindingAvailable, true);
   await resolver(project.timeline.clips[0]!, project);
@@ -2719,6 +2843,12 @@ test("canonical source binding is enabled only for an explicitly capable nonsele
   sourceAvailable = true;
   const { locateOccurrenceForCanonicalTarget: _removed, ...withoutDedicatedLocator } = native;
   assert.equal(createFinalCutNativeTargetResolver(withoutDedicatedLocator).sourceBindingAvailable, false);
+  const { selectOccurrence: _removedSelector, ...withoutSelector } = native;
+  const unsafe = createFinalCutNativeTargetResolver(withoutSelector);
+  assert.equal(unsafe.sourceBindingAvailable, false);
+  await assert.rejects(unsafe(project.timeline.clips[0]!, project), /TARGET_MISMATCH.*selection/i);
+  const { inspectSelectedOccurrenceSource: _removedInspector, ...withoutInspector } = native;
+  assert.equal(createFinalCutNativeTargetResolver(withoutInspector).sourceBindingAvailable, false);
   assert.equal(createFinalCutNativeTargetResolver({ ...native, capabilities: () => ({ timelineOccurrenceSourceBinding: false }) as never }).sourceBindingAvailable, false);
   assert.equal(createFinalCutNativeTargetResolver({ ...native, capabilities: () => { throw new Error("provider unavailable"); } }).sourceBindingAvailable, false);
 });
@@ -2752,9 +2882,12 @@ test("independently bound source evidence permits a canonical edit in a determin
     locateOccurrence: async () => ({ status: "unique" as const, occurrences: [occurrence] }),
     locateOccurrenceForCanonicalTarget: async () => ({ status: "unique" as const, occurrences: [occurrence] }),
     selectOccurrence: async () => ({ target: { kind: "selected-clip", identity: "native-1" } }) as never,
+    inspectSelectedOccurrenceSource: async () => ({ identity: "native-1", source: "/tmp/clip.mov", sourceStartTime: { value: "0", timescale: "1" }, durationTime: { value: "4", timescale: "1" } }),
   };
   const resolver = createFinalCutNativeTargetResolver(native);
-  const provider = providerFor([snapshot("Original"), snapshot("Original"), snapshot("Renamed")], calls, resolver, liveState(), undefined, {}, guard);
+  const snapshots = [snapshot("Original"), snapshot("Original"), snapshot("Renamed")];
+  for (const item of snapshots) item.timeline.clips[0]!.sourceStartTime = { value: "0", timescale: "1" };
+  const provider = providerFor(snapshots, calls, resolver, liveState(), undefined, {}, guard);
   try {
     const before = await provider.readProject();
     await provider.apply({ type: "rename-clip", clipId: before.timeline.clips[0]!.id, name: "Renamed" }, before.revision);
@@ -2806,6 +2939,8 @@ test("a same-named different source cannot dispatch a canonical edit", async () 
   const calls: string[] = [];
   const native = {
     capabilities: () => ({ timelineOccurrenceSourceBinding: true }) as never,
+    selectOccurrence: async () => { throw new Error("must not select a mismatched source"); },
+    inspectSelectedOccurrenceSource: async () => { throw new Error("must not inspect a mismatched source"); },
     searchMedia: async () => [{ handle: "media-handle", name: "clip.mov", sourceIdentity: "browser-source-1", source: "/other/clip.mov" }],
     locateOccurrence: async () => { throw new Error("must not locate a mismatched source"); },
     locateOccurrenceForCanonicalTarget: async () => { throw new Error("must not locate a mismatched source"); },

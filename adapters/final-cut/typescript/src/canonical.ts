@@ -701,22 +701,47 @@ end tell`;
 
 export function createFinalCutNativeTargetResolver(
   native: Pick<NativeFinalCutEditor, "searchMedia" | "locateOccurrence">
-    & Partial<Pick<NativeFinalCutEditor, "capabilities" | "selectOccurrence" | "locateOccurrenceForCanonicalTarget" | "searchMediaForCanonicalTarget" | "trackNativeDispatch">>,
+    & Partial<Pick<NativeFinalCutEditor, "capabilities" | "selectOccurrence" | "locateOccurrenceForCanonicalTarget" | "searchMediaForCanonicalTarget" | "trackNativeDispatch" | "inspectSelectedOccurrenceSource">>,
 ): CanonicalNativeTargetResolver {
   const resolve: CanonicalNativeTargetResolver = async (clip, snapshot) => {
+    if (!clip.startTime || !clip.durationTime) {
+      throw new Error(`TARGET_MISMATCH: exact timeline coordinates are unavailable for ${clip.id}`);
+    }
+    try { rationalParts(clip.startTime); rationalParts(clip.durationTime); }
+    catch { throw new Error(`TARGET_MISMATCH: invalid timeline coordinates for ${clip.id}`); }
     if (!clip.mediaId) throw new Error(`TARGET_MISMATCH: occurrence ${clip.id} has no media binding`);
     const media = snapshot.media.find(({ mediaId }) => mediaId === clip.mediaId);
     if (!media?.source) throw new Error(`TARGET_MISMATCH: media ${clip.mediaId} has no source binding`);
     const query = sourceBasename(media.source);
     if (!query) throw new Error(`TARGET_MISMATCH: media ${clip.mediaId} has no searchable source basename`);
+    const expectedSource = exactLocalSourcePath(media.source);
+    if (!expectedSource) {
+      throw new Error(`TARGET_MISMATCH: independently observed Browser source does not match the canonical source for ${clip.id}`);
+    }
+
+    for (const other of snapshot.timeline.clips) {
+      if (other.id === clip.id) continue;
+      const otherMedia = snapshot.media.find(({ mediaId }) => mediaId === other.mediaId);
+      const otherSource = otherMedia?.source ? exactLocalSourcePath(otherMedia.source) : undefined;
+      // Discovery is source-scoped. Different resources can still alias one source.
+      // Unknown source identity cannot prove that another occurrence is unrelated.
+      if (other.mediaId !== clip.mediaId && otherSource && otherSource !== expectedSource) continue;
+      if (!other.startTime || !other.durationTime) {
+        throw new Error("AMBIGUOUS_PROJECT_TARGET: timeline occurrence coordinates are incomplete");
+      }
+      try { rationalParts(other.startTime); rationalParts(other.durationTime); }
+      catch { throw new Error("AMBIGUOUS_PROJECT_TARGET: timeline occurrence coordinates are invalid"); }
+      if (sameRational(other.startTime, clip.startTime) && sameRational(other.durationTime, clip.durationTime)) {
+        throw new Error(`AMBIGUOUS_PROJECT_TARGET: timeline occurrence coordinates are not unique for ${clip.id}`);
+      }
+    }
 
     const searchMedia = native.searchMediaForCanonicalTarget ?? native.searchMedia;
     const matches = (await searchMedia.call(native, query))
       .filter((match) => match.name.toLocaleLowerCase() === query.toLocaleLowerCase());
     if (matches.length === 0) throw new Error(`TARGET_MISMATCH: Final Cut Browser has no exact media match for ${query}`);
-    const expectedSource = exactLocalSourcePath(media.source);
     const observedSources = matches.map((candidate) => candidate.source ? exactLocalSourcePath(candidate.source) : undefined);
-    if (!expectedSource || observedSources.some((source) => !source)) {
+    if (observedSources.some((source) => !source)) {
       throw new Error(`TARGET_MISMATCH: independently observed Browser source does not match the canonical source for ${clip.id}`);
     }
     const sourceMatches = matches.filter((_candidate, index) => observedSources[index] === expectedSource);
@@ -729,6 +754,9 @@ export function createFinalCutNativeTargetResolver(
     const located = await locate.call(native, match.handle);
     if (located.status === "none" || located.occurrences.length === 0) {
       throw new Error(`TARGET_MISMATCH: Final Cut timeline has no occurrence for ${query}`);
+    }
+    if (located.occurrences.some((candidate) => !validRationalText(candidate.start) || !validRationalText(candidate.duration))) {
+      throw new Error("AMBIGUOUS_PROJECT_TARGET: discovered occurrence coordinates are incomplete or invalid");
     }
     const matchingOccurrences = located.occurrences.filter((candidate) =>
       candidate.start && candidate.duration && clip.startTime && clip.durationTime
@@ -761,9 +789,27 @@ export function createFinalCutNativeTargetResolver(
       throw new Error(`TARGET_MISMATCH: native occurrence coordinates changed for ${clip.id}`);
     }
     const expectedSelectedIdentity = occurrence.nativeIdentity ?? occurrence.identity;
-    const selected = await native.selectOccurrence?.(occurrence.handle);
-    if (native.selectOccurrence && selected?.target?.identity !== expectedSelectedIdentity) {
+    let needsInspector: boolean;
+    try {
+      needsInspector = native.capabilities?.().timelineOccurrenceSourceBinding === true || Boolean(native.inspectSelectedOccurrenceSource);
+    } catch {
+      throw new Error(`TARGET_MISMATCH: selected Inspector capability is unknown for ${clip.id}`);
+    }
+    if (needsInspector && (!native.inspectSelectedOccurrenceSource || !clip.sourceStartTime)) {
+      throw new Error(`TARGET_MISMATCH: selected Inspector verification is unavailable for ${clip.id}`);
+    }
+    if (!native.selectOccurrence) throw new Error(`TARGET_MISMATCH: native occurrence selection is unavailable for ${clip.id}`);
+    const selected = await native.selectOccurrence(occurrence.handle);
+    if (selected?.target?.identity !== expectedSelectedIdentity) {
       throw new Error(`TARGET_MISMATCH: selected native occurrence identity changed for ${clip.id}`);
+    }
+    if (needsInspector) {
+      const observed = await native.inspectSelectedOccurrenceSource!();
+      if (!observed || observed.identity !== expectedSelectedIdentity || exactLocalSourcePath(observed.source) !== expectedSource
+        || !clip.sourceStartTime || !sameRational(observed.sourceStartTime, clip.sourceStartTime)
+        || !sameRational(observed.durationTime, clip.durationTime)) {
+        throw new Error(`TARGET_MISMATCH: selected Inspector source or range changed for ${clip.id}`);
+      }
     }
   };
   // Only an explicit source-observation capability with nonselecting discovery can enable source-bound edits.
@@ -771,6 +817,8 @@ export function createFinalCutNativeTargetResolver(
     get: () => {
       try {
         return Boolean(native.locateOccurrenceForCanonicalTarget
+          && native.selectOccurrence
+          && native.inspectSelectedOccurrenceSource
           && native.capabilities?.().timelineOccurrenceSourceBinding === true);
       } catch {
         return false;
@@ -2199,6 +2247,11 @@ function exactLocalSourcePath(source: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function validRationalText(value: string | undefined): boolean {
+  const match = value?.trim().match(/^(-?\d+)\/(\d+)$/);
+  return Boolean(match && BigInt(match[2]!) > 0n);
 }
 
 function sameRationalText(value: string, expected: { value: string; timescale: string }): boolean {

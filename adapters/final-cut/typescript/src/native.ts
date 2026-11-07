@@ -758,6 +758,8 @@ export interface NativeFinalCutEditor {
   locateOccurrence(mediaHandle: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutOccurrenceSearchResult>;
   locateOccurrenceForCanonicalTarget?(mediaHandle: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutOccurrenceSearchResult>;
   selectOccurrence(occurrenceHandle: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;
+  /** Observe Inspector source and range independently, binding them to the currently selected identity; fail closed on drift. */
+  inspectSelectedOccurrenceSource?(options?: NativeFinalCutRequestOptions): Promise<{ identity: string; source: string; sourceStartTime: RationalTime; durationTime: RationalTime } | undefined>;
   selectCanonicalOccurrence(name: string, occurrenceIndex: number, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutContext>;
   targetMedia(query: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutTargetResult>;
   previewBlade(occurrenceHandle: string, options?: NativeFinalCutRequestOptions): Promise<NativeFinalCutBladePreview>;
@@ -5735,7 +5737,7 @@ function locateOccurrenceScript(match: NativeFinalCutMediaMatch, scanAll: boolea
   return `
   using terms from application "System Events"
     on collectTimelineClipMatches(containerItem, depth, targetName, sourceIdentity, mainOrigin, mainSize)
-      if depth > 12 then return ""
+      if depth > 12 then error "timeline traversal depth exceeded"
       set output to ""
       set candidateItems to UI elements of containerItem
       repeat with candidateRef in candidateItems
@@ -5746,6 +5748,7 @@ function locateOccurrenceScript(match: NativeFinalCutMediaMatch, scanAll: boolea
           try
             set candidateDescription to description of candidate as text
           end try
+          if candidateRole is "AXLayoutItem" and candidateDescription is "" then error "timeline item description unavailable"
           if candidateRole is "AXLayoutItem" and candidateDescription contains ("Video-Clip:" & targetName) then
             set candidatePosition to position of candidate
             set candidateStart to ""
@@ -5761,15 +5764,14 @@ function locateOccurrenceScript(match: NativeFinalCutMediaMatch, scanAll: boolea
                 if childRole is "AXHandle" and childDescription is "Leading Edge" then set candidateStart to value of child as text
               end try
             end repeat
-            if candidateStart is not "" and candidateDuration is not "" then
-              set candidateOffset to ((item 1 of candidatePosition) + 10) - (item 1 of mainOrigin)
+            if candidateStart is "" or candidateDuration is "" then error "timeline clip has no complete range"
+            set candidateOffset to ((item 1 of candidatePosition) + 10) - (item 1 of mainOrigin)
             set candidateIdentity to ""
             try
               set candidateIdentity to value of attribute "AXIdentifier" of candidate as text
             end try
             if candidateIdentity is "" then error "FINAL_CUT_NATIVE_OCCURRENCE_ID_UNAVAILABLE: timeline clip has no AXIdentifier"
             set output to output & targetName & (ASCII character 31) & candidateRole & (ASCII character 31) & "" & (ASCII character 31) & (candidateOffset as text) & (ASCII character 31) & candidateStart & (ASCII character 31) & candidateDuration & (ASCII character 31) & candidateIdentity & (ASCII character 30)
-            end if
           else
             set shouldDescend to false
             try
@@ -5782,12 +5784,13 @@ function locateOccurrenceScript(match: NativeFinalCutMediaMatch, scanAll: boolea
               set timelineLeft to (item 1 of mainOrigin) + ((item 1 of mainSize) * 0.25)
               set timelineTop to (item 2 of mainOrigin) + ((item 2 of mainSize) * 0.55)
               set shouldDescend to (candidateX + candidateWidth) is greater than timelineLeft and (candidateY + candidateHeight) is greater than timelineTop
+            on error
+              error "timeline node geometry unavailable"
             end try
             if shouldDescend then set output to output & my collectTimelineClipMatches(candidate, depth + 1, targetName, sourceIdentity, mainOrigin, mainSize)
           end if
         on error
-          -- Accessibility nodes can disappear while Final Cut redraws the
-          -- timeline. Ignore that node and continue the bounded traversal.
+          error "FINAL_CUT_NATIVE_OCCURRENCE_SCAN_INCOMPLETE: a timeline node could not be inspected"
         end try
       end repeat
       return output

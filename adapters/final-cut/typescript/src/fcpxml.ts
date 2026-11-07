@@ -1096,12 +1096,11 @@ export class FcpxmlDocumentAdapter implements EditorPort {
         const originalMedia = storyEntries(node).find(({ kind, node: representation }) =>
           kind === "media-rep" && attribute(representation, "kind") === "original-media",
         )?.node;
+        const rawSource = attribute(node, "src") ?? (originalMedia && attribute(originalMedia, "src"));
+        const source = rawSource === undefined ? "" : String(rawSource);
         return {
           mediaId: String(attribute(node, "id") ?? ""),
-          source: resolveMediaSource(
-            String(attribute(node, "src") ?? (originalMedia && attribute(originalMedia, "src")) ?? attribute(node, "name") ?? attribute(node, "id") ?? ""),
-            this.filePath,
-          ),
+          source: source.trim() ? resolveMediaSource(source, this.filePath) : "",
           ...(mediaKind ? { mediaKind } : {}),
           ...(durationValue !== undefined ? { duration: parseSeconds(durationValue) } : {}),
         };
@@ -1122,6 +1121,7 @@ export function resolveMediaSource(source: string, documentPath: string): string
       return source;
     }
   }
+  if (/^[a-z][a-z0-9+.-]*:/i.test(source)) return source;
   if (isAbsolute(source)) return source;
   return resolve(dirname(documentPath), source);
 }
