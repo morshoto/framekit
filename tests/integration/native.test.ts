@@ -3248,6 +3248,48 @@ test("directory import does not dispatch when source observation is unavailable"
   }
 });
 
+test("native import rejects independently observed source and target mismatches", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-import-observation-"));
+  const sourcePath = join(directory, "interview.mov");
+  await writeFile(sourcePath, "source fixture");
+  const target = { libraryId: "library", eventId: "event", projectId: "project", sequenceId: "sequence", revision: "revision" };
+  try {
+    for (const mismatch of ["source", "identity", "target", "revision"] as const) {
+      let searches = 0;
+      const observer = {
+        captureTarget: async () => target,
+        observeImportedSource: async () => ({
+          sourceIdentity: mismatch === "identity" ? "different" : "browser-source",
+          originalSourcePath: mismatch === "source" ? join(directory, "other.mov") : sourcePath,
+          target: { ...target, ...(mismatch === "target" ? { eventId: "other-event" } : {}), ...(mismatch === "revision" ? { revision: "other-revision" } : {}) },
+        }),
+      };
+      const options = {
+        enabled: true,
+        importSourceObserver: observer,
+        executor: async (script: string) => {
+          if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
+          if (script.includes("FRAMEKIT_IMPORT_MEDIA")) return "import-requested";
+          if (script.includes("AXBrowserMedia")) {
+            searches += 1;
+            return searches === 1 ? "" : `interview.mov${String.fromCharCode(31)}AXBrowserMedia${String.fromCharCode(31)}browser-1${String.fromCharCode(31)}browser-source${String.fromCharCode(30)}`;
+          }
+          return "";
+        },
+      };
+      const adapter = new FinalCutNativeAutomationAdapter(options);
+      await assert.rejects(adapter.importMedia(sourcePath), (error: unknown) => {
+        assert.ok(error instanceof NativeFinalCutMediaImportError);
+        assert.equal(error.code, "FINAL_CUT_NATIVE_MEDIA_IMPORT_SOURCE_MISMATCH");
+        assert.equal(error.details.partialImportPossible, true);
+        return true;
+      }, mismatch);
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("native capabilities do not advertise source-verified import without source observation", () => {
   const adapter = new FinalCutNativeAutomationAdapter({ enabled: true, executor: async () => "" });
   assert.equal(adapter.capabilities().mediaImport, false);
