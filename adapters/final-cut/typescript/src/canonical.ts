@@ -709,17 +709,6 @@ export function createFinalCutNativeTargetResolver(
     }
     try { rationalParts(clip.startTime); rationalParts(clip.durationTime); }
     catch { throw new Error(`TARGET_MISMATCH: invalid timeline coordinates for ${clip.id}`); }
-    for (const other of snapshot.timeline.clips) {
-      if (other.id === clip.id) continue;
-      if (!other.startTime || !other.durationTime) {
-        throw new Error("AMBIGUOUS_PROJECT_TARGET: timeline occurrence coordinates are incomplete");
-      }
-      try { rationalParts(other.startTime); rationalParts(other.durationTime); }
-      catch { throw new Error("AMBIGUOUS_PROJECT_TARGET: timeline occurrence coordinates are invalid"); }
-      if (sameRational(other.startTime, clip.startTime) && sameRational(other.durationTime, clip.durationTime)) {
-        throw new Error(`AMBIGUOUS_PROJECT_TARGET: timeline occurrence coordinates are not unique for ${clip.id}`);
-      }
-    }
     if (!clip.mediaId) throw new Error(`TARGET_MISMATCH: occurrence ${clip.id} has no media binding`);
     const media = snapshot.media.find(({ mediaId }) => mediaId === clip.mediaId);
     if (!media?.source) throw new Error(`TARGET_MISMATCH: media ${clip.mediaId} has no source binding`);
@@ -728,6 +717,23 @@ export function createFinalCutNativeTargetResolver(
     const expectedSource = exactLocalSourcePath(media.source);
     if (!expectedSource) {
       throw new Error(`TARGET_MISMATCH: independently observed Browser source does not match the canonical source for ${clip.id}`);
+    }
+
+    for (const other of snapshot.timeline.clips) {
+      if (other.id === clip.id) continue;
+      const otherMedia = snapshot.media.find(({ mediaId }) => mediaId === other.mediaId);
+      const otherSource = otherMedia?.source ? exactLocalSourcePath(otherMedia.source) : undefined;
+      // Discovery is source-scoped. Different resources can still alias one source.
+      // Unknown source identity cannot prove that another occurrence is unrelated.
+      if (other.mediaId !== clip.mediaId && otherSource && otherSource !== expectedSource) continue;
+      if (!other.startTime || !other.durationTime) {
+        throw new Error("AMBIGUOUS_PROJECT_TARGET: timeline occurrence coordinates are incomplete");
+      }
+      try { rationalParts(other.startTime); rationalParts(other.durationTime); }
+      catch { throw new Error("AMBIGUOUS_PROJECT_TARGET: timeline occurrence coordinates are invalid"); }
+      if (sameRational(other.startTime, clip.startTime) && sameRational(other.durationTime, clip.durationTime)) {
+        throw new Error(`AMBIGUOUS_PROJECT_TARGET: timeline occurrence coordinates are not unique for ${clip.id}`);
+      }
     }
 
     const searchMedia = native.searchMediaForCanonicalTarget ?? native.searchMedia;
@@ -783,7 +789,12 @@ export function createFinalCutNativeTargetResolver(
       throw new Error(`TARGET_MISMATCH: native occurrence coordinates changed for ${clip.id}`);
     }
     const expectedSelectedIdentity = occurrence.nativeIdentity ?? occurrence.identity;
-    const needsInspector = native.capabilities?.().timelineOccurrenceSourceBinding === true || Boolean(native.inspectSelectedOccurrenceSource);
+    let needsInspector: boolean;
+    try {
+      needsInspector = native.capabilities?.().timelineOccurrenceSourceBinding === true || Boolean(native.inspectSelectedOccurrenceSource);
+    } catch {
+      throw new Error(`TARGET_MISMATCH: selected Inspector capability is unknown for ${clip.id}`);
+    }
     if (needsInspector && (!native.inspectSelectedOccurrenceSource || !clip.sourceStartTime)) {
       throw new Error(`TARGET_MISMATCH: selected Inspector verification is unavailable for ${clip.id}`);
     }
