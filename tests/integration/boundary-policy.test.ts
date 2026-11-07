@@ -346,3 +346,23 @@ function packageManifest(name: string, dependencies: Record<string, string>): st
     dependencies,
   });
 }
+
+test("production entrypoints cannot reach SQLite research providers", async () => {
+  const { FRAMEKIT_PACKAGES, FRAMEKIT_BOUNDARY_POLICY } = await import("../../scripts/boundary-policy.mjs");
+  for (const name of ["sqlite-inspection.ts", "sqlite-wal-observation.ts"]) {
+    assert.ok(FRAMEKIT_BOUNDARY_POLICY.experimentalModules.includes(`adapters/final-cut/typescript/src/${name}`));
+  }
+  const result = await analyzeWorkspaceBoundaries({
+    rootDir: process.cwd(), packages: FRAMEKIT_PACKAGES, policy: FRAMEKIT_BOUNDARY_POLICY,
+  });
+  assert.deepEqual(result.violations.filter((item) => item.code === "experimental-production-import"), []);
+});
+
+test("SQLite research providers require the experimental entrypoint", async () => {
+  const regular = await import("@framekit/final-cut");
+  const experimental = await import("@framekit/final-cut/experimental");
+  assert.equal("FinalCutSqliteInspectionProvider" in regular, false);
+  assert.equal("FinalCutSqliteWalObservationProvider" in regular, false);
+  assert.equal(typeof experimental.FinalCutSqliteInspectionProvider, "function");
+  assert.equal(typeof experimental.FinalCutSqliteWalObservationProvider, "function");
+});

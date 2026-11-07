@@ -20,7 +20,6 @@ import {
   FinalCutBackgroundMaterializationPublisher,
   FinalCutProjectPublisher,
   parseFinalCutProjectPublishRoute,
-  FinalCutSqliteInspectionProvider,
   FinalCutVideoExporter,
   FinalCutSessionAdapter,
   createNativeOperationLease,
@@ -228,7 +227,6 @@ const headlessProjects = new HeadlessProjectService({
   renderer: new FfmpegTimelineRenderer(),
   verifier: new FfmpegRenderVerifier(),
 });
-const sqliteObservationProvider = new FinalCutSqliteInspectionProvider();
 const disposableNative = liveMode && !headlessFinalCut && !fcpxmlPath && nativeEditor
   ? new DisposableNativeEditWorkflow({
       native: nativeEditor,
@@ -317,7 +315,6 @@ const server = createMcpServer(runtime, {
   sessionDirectory: join(framekitStateDirectory, "sessions"),
   sessionChangeSource: createCanonicalSessionChangeSource(() => runtime.inspectProject()),
   materializationDirectory: join(framekitStateDirectory, "materializations"),
-  sqliteObservationProvider,
   headlessProjects,
 });
 const transport = new StdioServerTransport();
