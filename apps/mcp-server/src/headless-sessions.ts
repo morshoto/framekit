@@ -15,7 +15,7 @@ export interface SessionSqliteObservationProvider {
       backend: string; databaseKind: "flexolibrary" | "fcpevent" | "unknown";
       digest: string; schemaVersion: number; revision: { timestamp: string };
     } }
-    | { status: "error"; error: { code: string; message: string } }
+    | { status: "error" | "unavailable"; error: { code: string; message: string } }
   >;
 }
 
