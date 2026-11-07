@@ -3269,10 +3269,14 @@ test("native import rejects independently observed source and target mismatches"
   await writeFile(sourcePath, "source fixture");
   const target = { libraryId: "library", eventId: "event", projectId: "project", sequenceId: "sequence", revision: "revision" };
   try {
-    for (const mismatch of ["source", "identity", "target", "revision"] as const) {
+    for (const mismatch of ["source", "identity", "target", "revision", "active-target"] as const) {
       let searches = 0;
+      let targetReads = 0;
       const observer = {
-        captureTarget: async () => target,
+        captureTarget: async () => {
+          targetReads += 1;
+          return mismatch === "active-target" && targetReads > 1 ? { ...target, projectId: "changed-project" } : target;
+        },
         observeImportedSource: async () => ({
           sourceIdentity: mismatch === "identity" ? "different" : "browser-source",
           originalSourcePath: mismatch === "source" ? join(directory, "other.mov") : sourcePath,
@@ -3334,6 +3338,43 @@ test("native import requires the independently observed target to match approval
     await assert.rejects(adapter.importMedia(sourcePath), /TARGET_MISMATCH|CAPABILITY_UNAVAILABLE/);
     await assert.rejects(adapter.importMedia(sourcePath, { expectedImportTarget: { ...target, eventId: "wrong-event" } } as never), /TARGET_MISMATCH/);
     assert.equal(scripts.some((script) => script.includes("FRAMEKIT_IMPORT_MEDIA")), false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("directory preview binds approved import target and rejects missing approval", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-directory-approved-"));
+  const sourcePath = join(directory, "interview.mov");
+  await writeFile(sourcePath, "source fixture");
+  const scripts: string[] = [];
+  let searches = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    importSourceObserver: fixtureImportSourceObserver({ "browser-source": sourcePath }),
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
+      if (script.includes("FRAMEKIT_IMPORT_MEDIA")) return "import-requested";
+      if (script.includes("AXBrowserMedia")) {
+        searches += 1;
+        return searches === 1 ? "" : `interview.mov${String.fromCharCode(31)}AXBrowserMedia${String.fromCharCode(31)}browser-1${String.fromCharCode(31)}browser-source${String.fromCharCode(30)}`;
+      }
+      return "";
+    },
+  });
+  try {
+    const unapproved = await adapter.previewImportMediaDirectory(directory);
+    await assert.rejects(adapter.executeImportMediaDirectory(unapproved.previewToken, true), /TARGET_MISMATCH/);
+    assert.equal(scripts.some((script) => script.includes("FRAMEKIT_IMPORT_MEDIA")), false);
+    const requested = { ...fixtureImportTarget };
+    const preview = await adapter.previewImportMediaDirectory(directory, { expectedImportTarget: requested });
+    assert.deepEqual(preview.expectedImportTarget, fixtureImportTarget);
+    requested.eventId = "changed-after-preview";
+    const result = await adapter.executeImportMediaDirectory(preview.previewToken, true);
+    assert.equal(result.importedCount, 1);
+    assert.equal(result.failedCount, 0);
+    assert.equal(scripts.filter((script) => script.includes("FRAMEKIT_IMPORT_MEDIA")).length, 1);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -3482,10 +3523,10 @@ test("native Final Cut directory import fails closed and reports partial complet
         "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT",
         "Final Cut did not expose the imported Browser asset",
         {
-          stage: "post-import-browser-discovery",
+          stage: "pre-import-browser-discovery",
           elapsedMs: 420,
           stageElapsedMs: 300,
-          partialImportPossible: true,
+          partialImportPossible: false,
           diagnostics: "Browser > Events",
         },
       );
@@ -3522,12 +3563,12 @@ test("native Final Cut directory import fails closed and reports partial complet
       status: "failed",
       error: {
         code: "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT",
-        message: "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT: Final Cut did not expose the imported Browser asset; stage=post-import-browser-discovery; elapsedMs=420; stageElapsedMs=300; partialImportPossible=true; diagnostics=Browser > Events",
+        message: "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT: Final Cut did not expose the imported Browser asset; stage=pre-import-browser-discovery; elapsedMs=420; stageElapsedMs=300; partialImportPossible=false; diagnostics=Browser > Events",
         details: {
-          stage: "post-import-browser-discovery",
+          stage: "pre-import-browser-discovery",
           elapsedMs: 420,
           stageElapsedMs: 300,
-          partialImportPossible: true,
+          partialImportPossible: false,
           diagnostics: "Browser > Events",
         },
       },
@@ -3550,6 +3591,32 @@ test("native Final Cut directory import fails closed and reports partial complet
       },
     },
   ]);
+});
+
+test("directory import stops after an uncertain file outcome", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-directory-uncertain-"));
+  const first = join(directory, "a.mov");
+  const second = join(directory, "b.mov");
+  await writeFile(first, "first fixture");
+  await writeFile(second, "second fixture");
+  const attempted: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({ enabled: true });
+  adapter.importMedia = async (sourcePath: string) => {
+    attempted.push(sourcePath);
+    throw new NativeFinalCutMediaImportError("FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT", "outcome unknown", {
+      stage: "native-import-ui", elapsedMs: 20, stageElapsedMs: 20, partialImportPossible: true,
+    });
+  };
+  try {
+    const preview = await adapter.previewImportMediaDirectory(directory);
+    const result = await adapter.executeImportMediaDirectory(preview.previewToken, true);
+    assert.deepEqual(attempted, [first]);
+    assert.equal(result.status, "failed");
+    assert.equal(result.results[0]?.status, "failed");
+    assert.equal(result.results[1]?.status, "not-attempted");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("native Final Cut rejects directory imports when files change after preview", async () => {
