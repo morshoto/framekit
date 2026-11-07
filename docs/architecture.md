@@ -150,9 +150,15 @@ therefore leaves subsequent guarded operations blocked. Configured session
 materialization reserves the checkpoint at the provider boundary; if acquisition
 fails, it records that the provider was not called. Before invoking the provider,
 the job persists a `dispatch-intent` phase; this is not proof the call occurred.
-A provider that proves it
-did not dispatch can release the reservation and retain a safe retry. After a
-dispatch or an unknown outcome, the reservation remains and automatic retry is
+The reservation can be released when local code positively establishes that
+neither the provider nor its tracking wrapper was invoked. Once a publish or materialization provider is invoked, a
+missing dispatch callback is not evidence that no dispatch occurred. The
+disabled built-in publisher, missing inert live-state or readback configuration,
+and an unconfigured built-in background materializer are checked locally before
+provider invocation. Staged materialization requests also undergo the same pure
+validation used by the built-in provider before reservation. A retry is offered
+only when the preflight result permits it. Other invoked-provider outcomes remain
+conservatively reserved. The reservation remains and automatic retry is
 disabled even if canonical readback matches, until native quiescence can be
 established. Other direct operations and
 background jobs still use entry checks, so shared exclusion
@@ -168,10 +174,20 @@ v2, v3 and v4 reservation identity and any durable sender evidence without
 creating a transaction lock. It reports a point-in-time observation, unavailable
 recovery eligibility, and unproven native quiescence. Job and dispatch IDs are
 recorded reservation fields; no independent job or receiver correlation is
-verified. Missing, malformed,
+verified. New materialization reservations record the requested target,
+versioned destination, artifact and desired digests and a locally generated
+dispatch ID. Publish jobs with an explicit library path record that requested
+path, artifact digest and local dispatch ID. Other publish requests retain the
+legacy reservation format. Intent fields do not verify the actual target or
+dispatch. Retained-reservation diagnostics report possible dispatch, missing
+evidence and the safe actions of inspection and retention. Missing, malformed,
 conflicting or concurrently changing evidence is unknown; an active marker
-may instead reflect an interrupted sender. No observation authorizes release,
-dispatch or recovery. Old writers do not participate in the newer lock protocol,
+may instead reflect an interrupted sender. Direct native calls retain their
+reservations after invoking an enabled provider, even if it reports success;
+its return does not prove that no deferred native action remains. An unmodified
+disabled built-in adapter's operations can be rejected without invoking it. Disposable
+native jobs similarly retain reservations after entering their tracker or workflow.
+No observation authorizes release, dispatch or recovery. Old writers do not participate in the newer lock protocol,
 so inspection cannot establish a globally consistent view or exclude a later
 write. `editor.native.recovery.preview` requires the inspected
 checkpoint ID, matching target IDs, and explicit headed-read confirmation; it

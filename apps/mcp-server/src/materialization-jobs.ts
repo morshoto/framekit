@@ -1,9 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { types as utilTypes } from "node:util";
 import { timelineIrDigest, validateTimelineIr, type TimelineIr } from "@framekit/runtime";
 import {
   compileTimelineIrToFcpxml,
+  FinalCutBackgroundMaterializationPublisher,
+  validateFinalCutBackgroundMaterializationRequest,
   type FileCanonicalRecoveryGuard,
   type TimelineIrMaterializationCoverage,
   type TimelineIrMaterializationProvenance,
@@ -283,14 +286,58 @@ export class SessionMaterializationJobs {
     let claimed = claim.job;
     let reservation: Awaited<ReturnType<FileCanonicalRecoveryGuard["beginNative"]>> | undefined;
     let providerRequested = false;
-    let dispatched = typeof this.publisher.trackNativeDispatch !== "function";
+    // Do not evaluate provider properties before acquiring the reservation.
+    let dispatched = false;
     try {
       const finalFailure = await this.validateStagedJob(claimed);
       if (finalFailure) return this.fail(claimed, finalFailure);
+      if (claimed.destination.mode !== "versioned") return this.fail(claimed, {
+        code: "MATERIALIZATION_DESTINATION_INVALID", message: "Versioned destination required", retryable: false, providerRequested: false,
+      });
+      const request: SessionMaterializationPublishRequest = {
+        jobId: claimed.jobId,
+        artifactPath: claimed.artifactPath,
+        artifactDigest: claimed.artifactDigest,
+        target: claimed.target,
+        destination: claimed.destination,
+        collisionPolicy: "create-only",
+        desired: structuredClone(claimed.desired),
+        desiredDigest: claimed.desiredDigest,
+        baseDigest: claimed.baseDigest,
+        baseRevision: structuredClone(claimed.baseRevision),
+        coverage: structuredClone(claimed.coverage!),
+        provenance: structuredClone(claimed.provenance!),
+      };
+      try {
+        // The built-in adapter's pure request checks must run before the
+        // dispatch boundary, while the staged request is still inert data.
+        validateFinalCutBackgroundMaterializationRequest(request);
+      } catch (error) {
+        return this.fail(claimed, materializationFailure(error, false));
+      }
+      // This check invokes no provider operation and is limited to the exact
+      // built-in implementation. Custom providers remain untrusted.
+      if (hasInertUnavailableMaterializationOptions(this.publisher)) {
+        const blocked: SessionMaterializationJob = {
+          ...claimed, state: "blocked", nextAction: "retry", claim: undefined,
+          verification: { tier: "artifact", status: "blocked", artifactDigest: claimed.artifactDigest,
+            desiredDigest: claimed.desiredDigest, reason: "No non-UI materialization capability is configured; the provider was not called" },
+          error: { code: "FINAL_CUT_BACKGROUND_MATERIALIZATION_UNAVAILABLE", message: "No explicit non-UI Final Cut materialization capability is configured", retryable: true },
+        };
+        await this.save(blocked);
+        return blocked;
+      }
       if (this.recoveryGuard) {
         try {
           const id = createHash("sha256").update(claimed.jobId).digest("hex");
-          reservation = await this.recoveryGuard.beginNative(`native.materialize.${id}`);
+          reservation = await this.recoveryGuard.beginNative(`native.materialize.${id}`, {
+            kind: "materialization", jobId: claimed.jobId, dispatchId: randomUUID(),
+            requestedTarget: { libraryUid: claimed.target.libraryUid, eventUid: claimed.target.eventUid,
+              projectUid: claimed.target.projectUid, sequenceUid: claimed.target.sequenceUid },
+            artifactDigest: claimed.artifactDigest, desiredDigest: claimed.desiredDigest,
+            destination: { ...structuredClone(claimed.destination), mode: "versioned" },
+            executorIdentity: null, nativeQuiescence: "unproven",
+          });
         } catch {
           const blocked: SessionMaterializationJob = {
             ...claimed, state: "blocked", nextAction: "retry", claim: undefined,
@@ -306,20 +353,6 @@ export class SessionMaterializationJobs {
         claimed = { ...claimed, recoveryReservation: { reservationId: reservation.reservationId, reason: "native-quiescence-unproven" } };
         await this.save(claimed);
       }
-      const request: SessionMaterializationPublishRequest = {
-        jobId: claimed.jobId,
-        artifactPath: claimed.artifactPath,
-        artifactDigest: claimed.artifactDigest,
-        target: claimed.target,
-        destination: claimed.destination,
-        collisionPolicy: "create-only",
-        desired: structuredClone(claimed.desired),
-        desiredDigest: claimed.desiredDigest,
-        baseDigest: claimed.baseDigest,
-        baseRevision: structuredClone(claimed.baseRevision),
-        coverage: structuredClone(claimed.coverage!),
-        provenance: structuredClone(claimed.provenance!),
-      };
       const invoke = async () => {
         const intent: SessionMaterializationJob = {
           ...claimed, providerRequestPhase: "dispatch-intent",
@@ -330,11 +363,17 @@ export class SessionMaterializationJobs {
         providerRequested = true;
         return this.publisher!.publish(request);
       };
+      // A tracker is executable provider code. It may defer invoking the
+      // supplied operation even if it returns or throws first.
+      dispatched = true;
+      // Persist uncertainty before executing even the tracker: untrusted
+      // tracker code may invoke or defer the provider without acknowledgement.
+      if (reservation) await reservation.markDispatchPossible();
       const result = this.publisher.trackNativeDispatch
         ? await this.publisher.trackNativeDispatch(invoke, () => { dispatched = true; })
         : await invoke();
       claimed = { ...claimed, providerRequestPhase: "returned" };
-      if (reservation && !dispatched) {
+      if (reservation && !providerRequested && !dispatched) {
         await reservation.release();
         reservation = undefined;
         claimed = { ...claimed, recoveryReservation: undefined };
@@ -425,7 +464,7 @@ export class SessionMaterializationJobs {
       await this.save(outcome);
       return outcome;
     } catch (error) {
-      if (reservation && (!providerRequested || !dispatched)) {
+      if (reservation && !providerRequested && !dispatched) {
         await reservation.release();
         claimed = { ...claimed, recoveryReservation: undefined };
       }
@@ -720,6 +759,36 @@ function collectStructuralChanges(
     return;
   }
   changes.push({ path, ...(before !== undefined ? { before } : {}), ...(after !== undefined ? { after } : {}) });
+}
+
+// Only inspect own data properties on ordinary, non-proxy objects. Calling
+// isAvailable() here could execute a caller-supplied getter before a native
+// reservation exists, so every unfamiliar shape must take the guarded path.
+const builtinStringTrim = String.prototype.trim;
+const builtinMaterializationMethods = new Map<string, unknown>([
+  ["publish", FinalCutBackgroundMaterializationPublisher.prototype.publish],
+  ["trackNativeDispatch", FinalCutBackgroundMaterializationPublisher.prototype.trackNativeDispatch],
+  ["isAvailable", FinalCutBackgroundMaterializationPublisher.prototype.isAvailable],
+]);
+
+function hasInertUnavailableMaterializationOptions(publisher: SessionMaterializationPublisher): boolean {
+  if (utilTypes.isProxy(publisher) || Object.getPrototypeOf(publisher) !== FinalCutBackgroundMaterializationPublisher.prototype) return false;
+  for (const [name, method] of builtinMaterializationMethods) {
+    if (Object.getOwnPropertyDescriptor(publisher, name)
+      || Object.getOwnPropertyDescriptor(FinalCutBackgroundMaterializationPublisher.prototype, name)?.value !== method) return false;
+  }
+  const optionsProperty = Object.getOwnPropertyDescriptor(publisher, "options");
+  if (!optionsProperty || !("value" in optionsProperty)) return false;
+  const options: unknown = optionsProperty.value;
+  if (!options || typeof options !== "object" || utilTypes.isProxy(options)) return false;
+  const prototype = Object.getPrototypeOf(options);
+  if (prototype !== null && prototype !== Object.prototype) return false;
+  if (prototype && (Object.getOwnPropertyDescriptor(prototype, "executor") || Object.getOwnPropertyDescriptor(prototype, "command"))) return false;
+  const executor = Object.getOwnPropertyDescriptor(options, "executor");
+  const command = Object.getOwnPropertyDescriptor(options, "command");
+  if ((executor && (!("value" in executor) || executor.value !== undefined)) || (command && !("value" in command))) return false;
+  const value: unknown = command?.value;
+  return value === undefined || value === null || (typeof value === "string" && builtinStringTrim.call(value) === "");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

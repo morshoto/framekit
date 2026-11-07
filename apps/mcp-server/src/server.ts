@@ -1,8 +1,10 @@
 import type { SessionSqliteObservationProvider } from "./headless-sessions.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { createHash } from "node:crypto";
-import { resolve as resolvePath } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs";
+import { types as utilTypes } from "node:util";
+import { isAbsolute, resolve as resolvePath } from "node:path";
 import { z } from "zod/v3";
 import {
   AgentVideoRuntime,
@@ -35,8 +37,11 @@ import {
   nativeMediaSearchQueryError,
   type DisposableNativeEditWorkflow,
   type FinalCutProjectPublishJobState,
+  type FinalCutProjectPublishJob,
   type FinalCutProjectPublishReadiness,
-  type FinalCutProjectPublisher,
+  FinalCutProjectPublisher,
+  FinalCutNativeAutomationAdapter,
+  disabledNativeFocusContext,
   type FileCanonicalRecoveryGuard,
   type FinalCutVideoExporter,
   type NativeFinalCutEditor,
@@ -76,6 +81,16 @@ import { chooseTimelineReadback } from "./readback-policy.js";
 import { registerSkillTools, skillPreviewResult } from "./tools/skills/register.js";
 
 export type { SessionMaterializationPublisher } from "./materialization-jobs.js";
+
+const builtInPublishExecute = FinalCutProjectPublisher.prototype.executePublishJob;
+const builtInPublishGetJob = FinalCutProjectPublisher.prototype.getPublishJob;
+const builtInPublishTrack = FinalCutProjectPublisher.prototype.trackNativeDispatch;
+const builtInPublishPersist = Reflect.get(FinalCutProjectPublisher.prototype, "persistPublishJob");
+const builtInNativeMethods = new Map(Reflect.ownKeys(FinalCutNativeAutomationAdapter.prototype)
+  .map((key) => [key, Object.getOwnPropertyDescriptor(FinalCutNativeAutomationAdapter.prototype, key)?.value]));
+const builtInMapGet = Map.prototype.get;
+const builtInMapSet = Map.prototype.set;
+const builtInMapHas = Map.prototype.has;
 
 const revisionValueSchema = z.object({
   id: z.string(),
@@ -1005,6 +1020,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
         : {}),
     };
   }
+  const publishRouteIsGuarded = Boolean(options.canonicalRecovery && options.projectPublisher);
   if (options.canonicalRecovery) {
     const recovery = options.canonicalRecovery;
     options = {
@@ -1027,7 +1043,14 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
         ? { nativeOperationSession: withRecoveryCheckpointGuard(options.nativeOperationSession, recovery, ["status", "cancel"]) }
         : {}),
       ...(options.projectPublisher
-        ? { projectPublisher: withPublishRecoveryGuard(options.projectPublisher, recovery) }
+        ? { projectPublisher: withPublishRecoveryGuard(options.projectPublisher, recovery, async (publisher, property) => {
+            if (property === "executePublishJob") {
+              if (publisher.isAvailable() && requiresHeadedPublishingRoute(publisher)) await requireEditingRoute(runtime, options, "timeline.publish.new-project");
+            } else {
+              if (!publisher.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
+              if (requiresHeadedPublishingRoute(publisher)) await requireEditingRoute(runtime, options, "timeline.publish.new-project");
+            }
+          }) }
         : {}),
     };
   }
@@ -1972,7 +1995,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     },
   }, async ({ jobId, confirm, confirmVerification }) => {
     if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
-    if (options.projectPublisher.isAvailable() && requiresHeadedPublishingRoute(options.projectPublisher)) {
+    if (!publishRouteIsGuarded && options.projectPublisher.isAvailable() && requiresHeadedPublishingRoute(options.projectPublisher)) {
       await requireEditingRoute(runtime, options, "timeline.publish.new-project");
     }
     return jsonResult(await options.projectPublisher.executePublishJob(jobId, confirm, confirmVerification));
@@ -1990,9 +2013,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Experimental direct import; explicitly confirm both creation and headed readback for this artifact. Dispatch alone does not prove project creation.",
     inputSchema: artifactPublishInputSchema,
   }, async ({ artifactPath, targetLibraryPath, transactionId, confirm, confirmVerification }) => {
-    if (!options.projectPublisher?.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
-    if (requiresHeadedPublishingRoute(options.projectPublisher)) {
-      await requireEditingRoute(runtime, options, "timeline.publish.new-project");
+    if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
+    if (!publishRouteIsGuarded) {
+      if (!options.projectPublisher.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
+      if (requiresHeadedPublishingRoute(options.projectPublisher)) await requireEditingRoute(runtime, options, "timeline.publish.new-project");
     }
     const transaction = runtime.getTransaction(transactionId);
     if (transaction.target?.kind !== "artifact" || transaction.target.artifactPath !== artifactPath) {
@@ -2022,9 +2046,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       confirmVerification: z.boolean().optional(),
     },
   }, async ({ transactionId, targetLibraryPath, confirm, confirmVerification }) => {
-    if (!options.projectPublisher?.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
-    if (requiresHeadedPublishingRoute(options.projectPublisher)) {
-      await requireEditingRoute(runtime, options, "timeline.publish.new-project");
+    if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
+    if (!publishRouteIsGuarded) {
+      if (!options.projectPublisher.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
+      if (requiresHeadedPublishingRoute(options.projectPublisher)) await requireEditingRoute(runtime, options, "timeline.publish.new-project");
     }
     const transaction = runtime.getTransaction(transactionId);
     if (transaction.target?.kind !== "artifact") {
@@ -3083,21 +3108,26 @@ async function assertRequiredBuildAlignment(runtime: AgentVideoRuntime, options:
 function withPublishRecoveryGuard<T extends object>(
   provider: T,
   recovery: Pick<FileCanonicalRecoveryGuard, "assertClear" | "beginNative" | "inspectNativeReservation">,
+  validateRoute: (provider: T, property: "executePublishJob" | "publishNewProject") => Promise<void>,
 ): T {
   const allowed = new Set<PropertyKey>(["isAvailable", "inspectReadiness", "executionMode", "getPublishJob", "loadPublishJob", "preparePublish"]);
-  let current: { jobId?: string; reservation: Awaited<ReturnType<FileCanonicalRecoveryGuard["beginNative"]>>; active: boolean; dispatched: boolean } | undefined;
+  let current: { jobId?: string; reservation: Awaited<ReturnType<FileCanonicalRecoveryGuard["beginNative"]>>; active: boolean; dispatched: boolean; needsBinding: boolean; requestedIntent?: { libraryPath: string; artifactDigest: string; state: string }; requestedConfiguration?: Array<PropertyDescriptor | undefined> } | undefined;
   return new Proxy(provider, {
     get(target, property) {
-      const value = Reflect.get(target, property, target) as unknown;
-      if (typeof value !== "function") return value;
-      if (allowed.has(property)) return value.bind(target);
-      return async (...args: unknown[]) => {
-        if (property !== "executePublishJob" && property !== "publishNewProject") {
+      if (property !== "executePublishJob" && property !== "publishNewProject") {
+        const value = Reflect.get(target, property, target) as unknown;
+        if (typeof value !== "function") return value;
+        if (allowed.has(property)) return value.bind(target);
+        return async (...args: unknown[]) => {
           await recovery.assertClear();
           return Reflect.apply(value, target, args);
-        }
+        };
+      }
+      return async (...args: unknown[]) => {
         const jobId = property === "executePublishJob" && typeof args[0] === "string" ? args[0] : undefined;
+        let provenDisabled = false;
         let entry = current;
+        const acquiringReservation = !entry;
         if (entry) {
           if (entry.active || !jobId || entry.jobId !== jobId || args[1] !== true || args[2] !== true
           ) {
@@ -3106,28 +3136,173 @@ function withPublishRecoveryGuard<T extends object>(
           entry.active = true;
           try {
             const observed = await recovery.inspectNativeReservation();
-            const getJob = Reflect.get(target, "getPublishJob", target) as (id: string) => { state?: string };
-            if (observed?.reservationId !== entry.reservation.reservationId || getJob.call(target, jobId).state !== "verification-pending") {
-              throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish reservation or job changed before verification");
+            if (observed?.reservationId !== entry.reservation.reservationId) {
+              throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish reservation changed before verification");
+            }
+            const getJob = Reflect.get(target, "getPublishJob", target) as (id: string) => { jobId?: unknown; state?: string } | undefined;
+            const job = getJob.call(target, jobId);
+            if (job?.state !== "verification-pending" || (job.jobId !== undefined && job.jobId !== jobId)) {
+              throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish job changed before verification");
             }
           } catch (error) {
             entry.active = false;
             throw error;
           }
         } else {
-          const getJob = Reflect.get(target, "getPublishJob", target) as ((id: string) => { state?: string }) | undefined;
-          const pending = Boolean(jobId && getJob?.call(target, jobId).state === "verification-pending");
+          // Never invoke caller-controlled job lookup before the reservation.
+          const job = jobId ? inertBuiltInPublishJob(target, jobId) : undefined;
+          if (job && job.jobId !== jobId) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish job identity mismatch");
+          const pending = job?.state === "verification-pending";
           const operation = jobId
             ? `native.publish.${createHash("sha256").update(jobId).digest("hex")}`
             : "native.publish.direct";
-          const reservation = await recovery.beginNative(operation);
-          const track = Reflect.get(target, "trackNativeDispatch", target);
-          entry = { jobId, reservation, active: true, dispatched: pending || typeof track !== "function" };
+          const path = job?.targetLibraryPath;
+          const digest = job?.artifactDigest;
+          const context = jobId && !pending && /^publish-job-[a-z0-9-]{1,80}$/.test(jobId)
+            && typeof path === "string" && path.length <= 4096 && isAbsolute(path) && path.endsWith(".fcpbundle")
+            && typeof digest === "string" && /^[a-f0-9]{64}$/.test(digest)
+            ? Object.freeze({ kind: "publish" as const, jobId, dispatchId: randomUUID(), requestedTarget: Object.freeze({ libraryPath: path }),
+              artifactDigest: digest, executorIdentity: null, nativeQuiescence: "unproven" as const })
+            : undefined;
+          // Capture primitives and data descriptors before awaiting the guard;
+          // its implementation must not rewrite the evidence used for rechecks.
+          const configurationKeys = ["enabled", "liveState", "readCanonicalSnapshot", "sourcePath", "publishJobsDirectory"];
+          const requestedConfiguration = job ? configurationKeys.map((key) => Object.getOwnPropertyDescriptor(target, key)) : undefined;
+          const requestedIntent = context && job ? { libraryPath: context.requestedTarget.libraryPath,
+            artifactDigest: context.artifactDigest, state: job.state } : undefined;
+          const reservation = await recovery.beginNative(operation, context);
+          entry = { jobId, reservation, active: true, dispatched: pending, needsBinding: !context,
+            ...(requestedIntent ? { requestedIntent } : {}), ...(requestedConfiguration ? { requestedConfiguration } : {}) };
           current = entry;
         }
-        const track = Reflect.get(target, "trackNativeDispatch", target) as unknown;
         try {
-          const invoke = async () => Reflect.apply(value, target, args) as Promise<unknown>;
+          if (acquiringReservation && jobId && entry.requestedIntent) {
+            const currentJob = inertBuiltInPublishJob(target, jobId);
+            const expected = entry.requestedIntent;
+            if (!currentJob || currentJob.jobId !== jobId || currentJob.targetLibraryPath !== expected.libraryPath
+              || currentJob.artifactDigest !== expected.artifactDigest || currentJob.state !== expected.state) {
+              entry.dispatched = true;
+              await entry.reservation.markDispatchPossible();
+              throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish intent changed during reservation acquisition");
+            }
+          }
+          // Property getters on arbitrary providers may themselves dispatch.
+          const trustedShape = !utilTypes.isProxy(target) && property === "executePublishJob"
+            && Object.getPrototypeOf(target) === FinalCutProjectPublisher.prototype
+            && [["executePublishJob", builtInPublishExecute], ["getPublishJob", builtInPublishGetJob],
+              ["persistPublishJob", builtInPublishPersist], ["trackNativeDispatch", builtInPublishTrack]].every(([key, method]) =>
+              typeof key === "string" && !Object.getOwnPropertyDescriptor(target, key)
+              && Object.getOwnPropertyDescriptor(FinalCutProjectPublisher.prototype, key)?.value === method);
+          if (acquiringReservation && !trustedShape) {
+            entry.dispatched = true;
+            await entry.reservation.markDispatchPossible();
+            // A custom lookup may execute arbitrary provider code. Run it only
+            // after durable uncertainty, then bind any eligible requested intent.
+            if (jobId && entry.needsBinding) {
+              const lookup = Reflect.get(target, "getPublishJob", target) as unknown;
+              if (typeof lookup === "function") {
+                const requested = Reflect.apply(lookup, target, [jobId]) as { jobId?: unknown; state?: unknown; targetLibraryPath?: unknown; artifactDigest?: unknown } | undefined;
+                if (requested?.jobId !== undefined && requested.jobId !== jobId) {
+                  throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish job identity mismatch");
+                }
+                if (requested?.state === "verification-pending") {
+                  throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: unowned pending publish cannot be invoked again");
+                }
+                const path = requested?.targetLibraryPath;
+                const digest = requested?.artifactDigest;
+                if (requested?.state !== "verification-pending" && /^publish-job-[a-z0-9-]{1,80}$/.test(jobId)
+                  && typeof path === "string" && path.length <= 4096 && isAbsolute(path) && path.endsWith(".fcpbundle")
+                  && typeof digest === "string" && /^[a-f0-9]{64}$/.test(digest)) {
+                  await entry.reservation.bindRecoveryContext({ kind: "publish", jobId, dispatchId: randomUUID(),
+                    requestedTarget: { libraryPath: path }, artifactDigest: digest,
+                    executorIdentity: null, nativeQuiescence: "unproven" });
+                }
+              }
+            }
+          }
+          const value = trustedShape ? builtInPublishExecute : Reflect.get(target, property, target) as unknown;
+          const track = trustedShape ? builtInPublishTrack : Reflect.get(target, "trackNativeDispatch", target) as unknown;
+          if (typeof value !== "function") throw new Error("CAPABILITY_UNAVAILABLE: publisher operation is not available");
+          if (acquiringReservation && jobId && property === "executePublishJob"
+            && trustedShape) {
+            const stores = ["publishJobs", "publishJobRuntime"].map((key) => Object.getOwnPropertyDescriptor(target, key)?.value);
+            const ordinaryStores = stores.every((store: unknown) => !utilTypes.isProxy(store) && utilTypes.isMap(store)
+              && Object.getPrototypeOf(store) === Map.prototype
+              && !Object.getOwnPropertyDescriptor(store, "get") && !Object.getOwnPropertyDescriptor(store, "set") && !Object.getOwnPropertyDescriptor(store, "has")
+              && Object.getOwnPropertyDescriptor(Map.prototype, "get")?.value === builtInMapGet
+              && Object.getOwnPropertyDescriptor(Map.prototype, "set")?.value === builtInMapSet
+              && Object.getOwnPropertyDescriptor(Map.prototype, "has")?.value === builtInMapHas);
+            const job = ordinaryStores ? inertBuiltInPublishJob(target, jobId) : undefined;
+            if (!ordinaryStores || (!job && builtInMapHas.call(stores[0], jobId))) {
+              // A present but non-inert job may execute getters or identify a
+              // different operation. Do not invoke it even after the marker.
+              entry.dispatched = true;
+              await entry.reservation.markDispatchPossible();
+              throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish job identity cannot be inspected safely");
+            }
+            if (job) {
+              const enabled = Object.getOwnPropertyDescriptor(target, "enabled");
+              const directory = Object.getOwnPropertyDescriptor(target, "publishJobsDirectory");
+              const configurationKeys = ["enabled", "liveState", "readCanonicalSnapshot", "sourcePath", "publishJobsDirectory"];
+              const configurationUnchanged = Boolean(entry.requestedConfiguration && configurationKeys.every((key, index) => {
+                const before = entry.requestedConfiguration?.[index];
+                const after = Object.getOwnPropertyDescriptor(target, key);
+                return before && after && "value" in before && "value" in after && Object.is(before.value, after.value);
+              }));
+              const safePersistence = Boolean(configurationUnchanged && directory && "value" in directory
+                && (directory.value === undefined
+                  || (typeof directory.value === "string" && !builtInMapHas.call(stores[1], jobId))));
+              provenDisabled = (job.state === "awaiting-confirmation" || job.state === "awaiting-final-cut")
+                && enabled?.value === false && safePersistence;
+              const liveState = Object.getOwnPropertyDescriptor(target, "liveState");
+              if (args[1] === true && enabled?.value === true && safePersistence
+                && (job.state === "awaiting-confirmation" || job.state === "awaiting-final-cut")
+                && liveState && "value" in liveState && liveState.value === undefined) {
+                // This preflight uses only inert data and never invokes the
+                // provider or its mutable dependencies.
+                const blocked = { ...job, state: "awaiting-final-cut" as const, nextAction: "retry" as const, retryable: true,
+                  error: { code: "FINAL_CUT_PUBLISH_VERIFICATION_UNAVAILABLE", message: "Final Cut project state verification is unavailable; retry this job when the live provider is ready" } };
+                builtInPublishPersist.call(target, blocked);
+                return blocked;
+              }
+              const readback = Object.getOwnPropertyDescriptor(target, "readCanonicalSnapshot");
+              if (args[1] === true && enabled?.value === true && safePersistence
+                && (job.state === "awaiting-confirmation" || job.state === "awaiting-final-cut")
+                && liveState && "value" in liveState && typeof liveState.value === "function"
+                && readback && "value" in readback && readback.value === undefined) {
+                const failed = { ...job, state: "failed" as const, nextAction: "none" as const, retryable: false,
+                  error: { code: "FINAL_CUT_PUBLISH_READBACK_UNAVAILABLE", message: "FINAL_CUT_PUBLISH_READBACK_UNAVAILABLE: headed canonical timeline readback is not configured; no import was attempted" } };
+                builtInPublishPersist.call(target, failed);
+                return failed;
+              }
+              // A mismatching managed artifact can be rejected without invoking
+              // the publisher or its tracker. Keep this synchronous so the
+              // trusted store and publisher checks cannot race an await.
+              const source = Object.getOwnPropertyDescriptor(target, "sourcePath");
+              if (args[1] === true && enabled?.value === true && !provenDisabled
+                && (job.state === "awaiting-confirmation" || job.state === "awaiting-final-cut")
+                && !job.sourceTransactionId.startsWith("headless-rough-cut:")
+                && typeof source?.value === "string" && source.value === job.sourcePath
+                && safePersistence
+                && managedArtifactChanged(job.sourcePath, job.artifactDigest)) {
+                const failed = { ...job, state: "failed" as const, nextAction: "none" as const, retryable: false,
+                  error: { code: "PUBLISH_SOURCE_CHANGED", message: "Managed FCPXML artifact changed after transaction verification" } };
+                builtInPublishPersist.call(target, failed);
+                return failed;
+              }
+            }
+          }
+          const invoke = async () => {
+            // Once the provider is invoked, a missing callback is not proof of non-dispatch.
+            if (!provenDisabled) entry!.dispatched = true;
+            return Reflect.apply(value, target, args) as Promise<unknown>;
+          };
+          // Custom tracking code can defer invocation and return or throw first.
+          if (!provenDisabled) entry.dispatched = true;
+          // Record uncertainty before entering any untrusted tracker or provider.
+          // Resumed verification reuses the already marked reservation.
+          if (acquiringReservation && trustedShape && !provenDisabled) await entry.reservation.markDispatchPossible();
+          if (!provenDisabled) await validateRoute(target, property as "executePublishJob" | "publishNewProject");
           const result: unknown = typeof track === "function"
             ? await Reflect.apply(track, target, [invoke, () => { entry!.dispatched = true; }])
             : await invoke();
@@ -3147,6 +3322,44 @@ function withPublishRecoveryGuard<T extends object>(
   });
 }
 
+function inertBuiltInPublishJob(target: object, jobId: string): FinalCutProjectPublishJob | undefined {
+  if (utilTypes.isProxy(target) || Object.getPrototypeOf(target) !== FinalCutProjectPublisher.prototype
+    || Object.getOwnPropertyDescriptor(target, "getPublishJob")
+    || Object.getOwnPropertyDescriptor(FinalCutProjectPublisher.prototype, "getPublishJob")?.value !== builtInPublishGetJob) return undefined;
+  const store = Object.getOwnPropertyDescriptor(target, "publishJobs")?.value;
+  if (utilTypes.isProxy(store) || !utilTypes.isMap(store) || Object.getPrototypeOf(store) !== Map.prototype
+    || Object.getOwnPropertyDescriptor(Map.prototype, "get")?.value !== builtInMapGet) return undefined;
+  const job: unknown = builtInMapGet.call(store, jobId);
+  const seen = new Set<object>();
+  const inert = (value: unknown): boolean => {
+    if (value === null || ["string", "boolean", "number", "undefined"].includes(typeof value)) return true;
+    if (typeof value !== "object" || utilTypes.isProxy(value) || seen.has(value) || seen.size >= 10_000) return false;
+    seen.add(value);
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== Array.prototype && prototype !== null) return false;
+    return Reflect.ownKeys(value).every((key) => {
+      if (typeof key !== "string") return false;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      return Boolean(descriptor && "value" in descriptor && inert(descriptor.value));
+    });
+  };
+  return inert(job) && job && typeof job === "object" ? structuredClone(job) as FinalCutProjectPublishJob : undefined;
+}
+
+function managedArtifactChanged(path: string, digest: string): boolean {
+  let fd: number | undefined;
+  try {
+    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const info = fstatSync(fd);
+    if (!info.isFile() || info.size > 64 * 1024 * 1024) return false;
+    return createHash("sha256").update(readFileSync(fd, "utf8")).digest("hex") !== digest;
+  } catch {
+    return false;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+
 function withRecoveryCheckpointGuard<T extends object>(
   provider: T,
   recovery: Pick<FileCanonicalRecoveryGuard, "assertClear" | "beginNative">,
@@ -3160,15 +3373,58 @@ function withRecoveryCheckpointGuard<T extends object>(
   const searchMethods = new Set<PropertyKey>(["searchMedia", "searchMediaForCanonicalTarget", "searchTitles", "searchTransitions"]);
   return new Proxy(provider, {
     get(target, property) {
-      const value = Reflect.get(target, property, target) as unknown;
-      if (typeof value !== "function") return value;
-      if (allowed.has(property)) return value.bind(target);
+      if (!reserved.has(property)) {
+        const value = Reflect.get(target, property, target) as unknown;
+        if (typeof value !== "function") return value;
+        if (allowed.has(property)) return value.bind(target);
+        return async (...args: unknown[]) => {
+          await recovery.assertClear();
+          return Reflect.apply(value, target, args);
+        };
+      }
+      // Inspect descriptors without invoking provider accessors while another
+      // native reservation may be held. Unknown proxy shapes stay guarded.
+      if (!utilTypes.isProxy(target)) {
+        let object: object | null = target;
+        while (object && !utilTypes.isProxy(object)) {
+          const descriptor = Object.getOwnPropertyDescriptor(object, property);
+          if (descriptor) {
+            if ("value" in descriptor && typeof descriptor.value !== "function") return descriptor.value;
+            break;
+          }
+          object = Object.getPrototypeOf(object);
+        }
+        if (!object) return undefined;
+      }
       return async (...args: unknown[]) => {
         if (reserved.has(property)) {
           const reservation = await recovery.beginNative(`native.${reservationKind === "disposable" ? "disposable." : ""}${String(property).toLowerCase()}`);
-          const track = Reflect.get(target, "trackNativeDispatch", target) as unknown;
-          let dispatched = typeof track !== "function";
+          // Reject a disabled operation without invoking any adapter code. For all
+          // other cases, callbacks and mutable internals may schedule dispatch.
+          const disabledPreflight = !utilTypes.isProxy(target)
+            && Object.getPrototypeOf(target) === FinalCutNativeAutomationAdapter.prototype
+            && Object.getOwnPropertyDescriptor(target, "enabled")?.value === false
+            && Reflect.ownKeys(target).every((key) => {
+              const descriptor = Object.getOwnPropertyDescriptor(target, key);
+              return Boolean(descriptor && "value" in descriptor);
+            })
+            && [...builtInNativeMethods].every(([key, method]) => key === "constructor" || typeof method !== "function"
+              || (!Object.getOwnPropertyDescriptor(target, key)
+                && Object.getOwnPropertyDescriptor(FinalCutNativeAutomationAdapter.prototype, key)?.value === method));
+          const untrustedProvider = !disabledPreflight;
+          let dispatched = untrustedProvider;
           try {
+            if (untrustedProvider) await reservation.markDispatchPossible();
+            if (disabledPreflight) {
+              if (property === "focusTimeline") {
+                await reservation.release();
+                return disabledNativeFocusContext();
+              }
+              throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native writes are disabled");
+            }
+            const value = Reflect.get(target, property, target) as unknown;
+            const track = Reflect.get(target, "trackNativeDispatch", target) as unknown;
+            if (typeof value !== "function") throw new Error("CAPABILITY_UNAVAILABLE: native operation is not available");
             const invoke = async () => Reflect.apply(value, target, args) as Promise<unknown>;
             const result: unknown = typeof track === "function"
               ? await Reflect.apply(track, target, [invoke, () => { dispatched = true; }])
@@ -3218,7 +3474,7 @@ function withRecoveryCheckpointGuard<T extends object>(
                 : (evidence?.status === "VERIFIED" && evidence.verification?.passed === true)
                   || (evidence?.status === "ROLLED_BACK" && restored)
               : evidence?.verification?.verified === true && (property !== "undo" || evidence.undone === true);
-            if (verified || (!dispatched && contextMethods.has(property) && prepared?.available === false)) {
+            if (!untrustedProvider && (verified || (!dispatched && contextMethods.has(property) && prepared?.available === false))) {
               await reservation.release();
             }
             return result;
@@ -3227,8 +3483,7 @@ function withRecoveryCheckpointGuard<T extends object>(
             throw error;
           }
         }
-        await recovery.assertClear();
-        return Reflect.apply(value, target, args);
+        throw new Error("CAPABILITY_UNAVAILABLE: native operation is not available");
       };
     },
   });

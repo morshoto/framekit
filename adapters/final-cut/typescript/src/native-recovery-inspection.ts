@@ -11,6 +11,7 @@ export interface NativeMaterializationRecoveryContext {
   requestedTarget: { libraryUid: string; eventUid: string; projectUid: string; sequenceUid: string };
   artifactDigest: string;
   desiredDigest: string;
+  destination?: { mode: "versioned"; projectUid: string; sequenceUid: string; projectName: string; sequenceName: string };
   executorIdentity: null;
   nativeQuiescence: "unproven";
 }
@@ -50,7 +51,7 @@ function validPublishContext(value: unknown, operation: string): value is Native
     && c.executorIdentity === null && c.nativeQuiescence === "unproven";
 }
 
-function validRecoveryContext(value: unknown, operation: string): value is NativeRecoveryContext {
+export function validRecoveryContext(value: unknown, operation: string): value is NativeMaterializationRecoveryContext | NativePublishRecoveryContext {
   return validMaterializationContext(value, operation) || validPublishContext(value, operation);
 }
 
@@ -81,6 +82,9 @@ function validMaterializationContext(value: unknown, operation: string): value i
     && Boolean(t && [t.libraryUid, t.eventUid, t.projectUid, t.sequenceUid].every((x) => typeof x === "string" && x.trim().length > 0 && x.length <= 1024))
     && typeof c.artifactDigest === "string" && /^[a-f0-9]{64}$/.test(c.artifactDigest)
     && typeof c.desiredDigest === "string" && /^[a-f0-9]{64}$/.test(c.desiredDigest)
+    && (c.destination === undefined || (c.destination.mode === "versioned" &&
+      [c.destination.projectUid, c.destination.sequenceUid, c.destination.projectName, c.destination.sequenceName]
+        .every((x) => typeof x === "string" && x.trim().length > 0 && x.length <= 1024)))
     && c.executorIdentity === null && c.nativeQuiescence === "unproven";
 }
 
@@ -91,6 +95,11 @@ export interface NativeRecoveryInspection {
   recoveryEligibility: "unavailable";
   sender: { status: "untracked" | "active-or-interrupted" | "sender-settled" | "unknown" };
   reservation?: { version: 2 | 3 | 4; reservationId: string; operation: string; jobId?: string; dispatchId?: string; jobCorrelation?: "unverified" };
+  dispatchState?: "possibly-dispatched";
+  boundaryEvidence?: "dispatch-possible-recorded" | "unknown";
+  missingEvidence?: ["receiver-terminal-quiescence", "independent-target-outcome", "legacy-writer-exclusion"];
+  safeNextActions?: ["inspect", "retain-reservation"];
+  intent?: { requestedTarget: NativeRecoveryContext["requestedTarget"]; artifactDigest: string; desiredDigest?: string; destination?: NativeMaterializationRecoveryContext["destination"] };
 }
 
 const unknown = (): NativeRecoveryInspection => ({ status: "unknown", nativeQuiescence: "unproven", recoveryEligibility: "unavailable", sender: { status: "unknown" } });
@@ -160,14 +169,26 @@ export async function inspectNativeRecoveryReadOnly(path: string): Promise<Nativ
     if (record.version === 4 && !validRecoverableContext(record.recoveryContext, record.operation)) return unknown();
     if (record.senderTracked !== undefined && typeof record.senderTracked !== "boolean") return unknown();
     const reservationId = createHash("sha256").update(contents).digest("hex");
+    const boundary = await readStable(`${path}.dispatch-${reservationId}`);
+    let boundaryEvidence: "dispatch-possible-recorded" | "unknown" = "unknown";
+    if (boundary !== undefined) {
+      try {
+        const marker = JSON.parse(boundary) as Record<string, unknown>;
+        if (marker.version === 1 && marker.reservationId === reservationId && marker.owner === record.owner) boundaryEvidence = "dispatch-possible-recorded";
+      } catch { /* A damaged marker provides no proof. */ }
+    }
     const settled = await readSettlement(path, reservationId);
     const sender = record.senderTracked !== true ? (active !== undefined || settled !== undefined ? "unknown" : "untracked")
       : active !== undefined ? (settled === undefined && markerMatches(active, reservationId) ? "active-or-interrupted" : "unknown")
         : settled !== undefined && markerMatches(settled, reservationId) ? "sender-settled" : "unknown";
     if (await exists(`${path}.lock`) || await readStable(path) !== contents || await readStable(`${path}.active`) !== active
-      || await readSettlement(path, reservationId) !== settled) return unknown();
+      || await readSettlement(path, reservationId) !== settled || await readStable(`${path}.dispatch-${reservationId}`) !== boundary) return unknown();
     const context = record.version === 3 || record.version === 4 ? record.recoveryContext as NativeRecoveryContext : undefined;
     return { status: "recovery-required", nativeQuiescence: "unproven", recoveryEligibility: "unavailable", sender: { status: sender },
+      dispatchState: "possibly-dispatched", boundaryEvidence, missingEvidence: ["receiver-terminal-quiescence", "independent-target-outcome", "legacy-writer-exclusion"],
+      safeNextActions: ["inspect", "retain-reservation"],
+      ...(context ? { intent: { requestedTarget: context.requestedTarget, artifactDigest: context.artifactDigest,
+        ...(context.kind === "materialization" ? { desiredDigest: context.desiredDigest, ...(context.destination ? { destination: context.destination } : {}) } : {}) } } : {}),
       reservation: { version: record.version as 2 | 3 | 4, reservationId, operation: record.operation,
         ...(context ? { jobId: context.jobId, dispatchId: context.dispatchId, jobCorrelation: "unverified" as const } : {}) } };
   } catch { return unknown(); }
