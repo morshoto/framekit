@@ -2317,6 +2317,8 @@ test("native Final Cut rejects wildcard Browser queries before accessing the UI"
 
   await assert.rejects(adapter.searchMedia("*"), /FINAL_CUT_NATIVE_SEARCH_WILDCARD_UNSUPPORTED/);
   await assert.rejects(adapter.searchMedia("Interview?"), /FINAL_CUT_NATIVE_SEARCH_WILDCARD_UNSUPPORTED/);
+  await assert.rejects(adapter.searchMediaForCanonicalTarget("*"), /FINAL_CUT_NATIVE_SEARCH_WILDCARD_UNSUPPORTED/);
+  await assert.rejects(adapter.searchMediaForCanonicalTarget("Interview?"), /FINAL_CUT_NATIVE_SEARCH_WILDCARD_UNSUPPORTED/);
   assert.deepEqual(scripts, []);
 });
 
