@@ -262,6 +262,27 @@ test("rejects splitting clips with fades before changing the project", async () 
   }
 });
 
+test("rejects a split when a connected occurrence cannot be safely remapped", async () => {
+  const { directory, store, initial, service } = await createService();
+  try {
+    initial.timeline.sequence.occurrences.push({
+      id: "connected", name: "Connected", track: 1, mediaId: "media-1",
+      startTime: { value: "1", timescale: "1" }, durationTime: { value: "1", timescale: "2" },
+      attachedTo: "occurrence-1",
+    });
+    await store.save(initial);
+    const split = command(initial, "unused", [{
+      type: "split-occurrence", occurrenceId: "occurrence-1",
+      splitOffsetTime: { value: "1", timescale: "2" }, newOccurrenceId: "occurrence-1-right",
+    }]);
+    await assert.rejects(service.preview(split), /attach|connect/i);
+    await assert.rejects(service.execute(split), /attach|connect/i);
+    assert.deepEqual(await store.load(), initial);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("moves and removes occurrences while preserving deterministic order", async () => {
   const { directory, initial, service } = await createService();
   try {
