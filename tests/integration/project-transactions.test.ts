@@ -283,6 +283,26 @@ test("rejects a split when a connected occurrence cannot be safely remapped", as
   }
 });
 
+test("rejects splitting an occurrence referenced by a story element", async () => {
+  const { directory, store, initial, service } = await createService();
+  try {
+    initial.timeline.sequence.storyElements.push({
+      id: "story-1", kind: "clip", occurrenceId: "occurrence-1",
+      startTime: { value: "0", timescale: "1" }, durationTime: { value: "2", timescale: "1" },
+    });
+    await store.save(initial);
+    const split = command(initial, "unused", [{
+      type: "split-occurrence", occurrenceId: "occurrence-1",
+      splitOffsetTime: { value: "1", timescale: "2" }, newOccurrenceId: "occurrence-1-right",
+    }]);
+    await assert.rejects(service.preview(split), /story element/i);
+    await assert.rejects(service.execute(split), /story element/i);
+    assert.deepEqual(await store.load(), initial);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("moves and removes occurrences while preserving deterministic order", async () => {
   const { directory, initial, service } = await createService();
   try {
