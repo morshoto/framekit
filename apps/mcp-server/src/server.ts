@@ -1,3 +1,4 @@
+import type { SessionSqliteObservationProvider } from "./headless-sessions.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -42,7 +43,6 @@ import {
   FinalCutNativeAutomationAdapter,
   disabledNativeFocusContext,
   type FileCanonicalRecoveryGuard,
-  type FinalCutSqliteInspectionProvider,
   type FinalCutVideoExporter,
   type NativeFinalCutEditor,
   type NativeFinalCutTransitionMatch,
@@ -985,7 +985,7 @@ export interface McpServerOptions {
   validationCommit?: string;
   sessionDirectory?: string;
   sessionChangeSource?: EditingSessionChangeSource;
-  sqliteObservationProvider?: Pick<FinalCutSqliteInspectionProvider, "inspect">;
+  sqliteObservationProvider?: SessionSqliteObservationProvider;
   materializationDirectory?: string;
   sessionMaterializationPublisher?: SessionMaterializationPublisher;
   headlessProjects?: HeadlessProjectWorkflow;
@@ -2788,24 +2788,26 @@ async function inspectCanonicalReadForMcp<T>(
     }
   }
 
-  const inspected = await inspectMcpEditor(runtime, options, true);
-  const capability = inspected.capabilities.families.canonicalDocument.read;
-  if (!capability.available) return capabilityErrorResult(operation, "canonicalDocument.read", capability);
-  try {
-    const result = await read();
-    if (headed && expectedTarget) {
-      const live = await runtime.inspectLiveEditor();
-      const returnedTarget = targetOf(result);
-      if (!liveTargetMatches(live, expectedTarget)
-        || (returnedTarget.projectId !== undefined && returnedTarget.projectId !== expectedTarget.projectId)
-        || (returnedTarget.sequenceId !== undefined && returnedTarget.sequenceId !== expectedTarget.sequenceId)) {
-        return mcpReadErrorResult("TARGET_MISMATCH", `${operation} result or active target changed during the headed read`, operation);
+  return runtime.withCanonicalReadScope(async () => {
+    const inspected = await inspectMcpEditor(runtime, options, true);
+    const capability = inspected.capabilities.families.canonicalDocument.read;
+    if (!capability.available) return capabilityErrorResult(operation, "canonicalDocument.read", capability);
+    try {
+      const result = await read();
+      if (headed && expectedTarget) {
+        const live = await runtime.inspectLiveEditor();
+        const returnedTarget = targetOf(result);
+        if (!liveTargetMatches(live, expectedTarget)
+          || (returnedTarget.projectId !== undefined && returnedTarget.projectId !== expectedTarget.projectId)
+          || (returnedTarget.sequenceId !== undefined && returnedTarget.sequenceId !== expectedTarget.sequenceId)) {
+          return mcpReadErrorResult("TARGET_MISMATCH", `${operation} result or active target changed during the headed read`, operation);
+        }
       }
+      return jsonResult(result);
+    } catch (error) {
+      return capabilityUnavailableErrorResult(error);
     }
-    return jsonResult(result);
-  } catch (error) {
-    return capabilityUnavailableErrorResult(error);
-  }
+  });
 }
 
 function liveTargetMatches(

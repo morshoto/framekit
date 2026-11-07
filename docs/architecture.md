@@ -58,7 +58,14 @@ permit sibling application imports or private adapter paths.
 `@framekit/final-cut` is the default adapter entrypoint. Experimental SQLite,
 shadow mutation, pasteboard, unattended-editing, and console-experiment APIs
 are available only from `@framekit/final-cut/experimental`; default CLI and MCP
-entrypoints must not reach those modules. The boundary checker also rejects
+entrypoints must not reach those modules. SQLite inspection and WAL observation
+are research-only, non-canonical evidence, not supported editor capabilities.
+The standard MCP server does not configure a SQLite provider; `session.observe`
+returns `FINAL_CUT_SQLITE_INSPECTION_UNAVAILABLE` by default. Research integrations
+must explicitly import the experimental entrypoint and inject an inspection
+provider; they must use disposable fixtures and cannot fall back to it from the
+production server. SQLite observations do not establish editor revisions or
+verify native edits. The boundary checker also rejects
 new runtime source dependency cycles. The existing Timeline IR edit/reconcile cycle
 between `editing-session.ts` and `drift-reconciliation.ts` is the only
 temporary cycle exception; removing it would require extracting shared
@@ -173,7 +180,10 @@ project and sequence until an explicit new selection succeeds. Passive MCP
 capability and routing inspection does not initiate a headed snapshot export;
 an unprobed canonical provider reports its snapshot capability unavailable.
 Validated evidence may be reused only while the live target and revision match;
-it does not authorize a later headed context or change read.
+it does not authorize a later headed context or change read. A confirmed
+canonical read shares its exported snapshot only within that request; a later
+request exports again. Matching live revisions do not prove that all timeline
+changes were observed or that a snapshot remains current after export.
 Supported FCPXML dialogue subroles are retained as `nativeAudioRole` on
 canonical clips and editing-session occurrences, including during materialization
 and publish readback comparison. Unsupported roles on audio elements fail closed.

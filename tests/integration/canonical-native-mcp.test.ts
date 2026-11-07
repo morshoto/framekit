@@ -602,9 +602,10 @@ test("canonical native provider exposes reads without selection", async () => {
 test("confirmed headed project inspection exports one canonical snapshot", async () => {
   const calls: string[] = [];
   let snapshotReads = 0;
+  let currentName = "Original";
   const runtime = createRuntime(calls, async () => {
     snapshotReads += 1;
-    return snapshot("Original");
+    return snapshot(currentName);
   });
   const { client, server } = await connect(runtime);
 
@@ -623,6 +624,14 @@ test("confirmed headed project inspection exports one canonical snapshot", async
     assert.equal(project.isError, undefined);
     assert.equal(JSON.parse(textFrom(project)).projectId, "final-cut:project:canonical-mcp");
     assert.equal(snapshotReads, 1);
+    currentName = "Changed";
+    const next = await client.callTool({ name: "project.inspect", arguments: {
+      confirmHeadedRead: true,
+      expectedTarget: { projectId: "final-cut:project:canonical-mcp", sequenceId: "final-cut:sequence:canonical-mcp" },
+    } });
+    assert.equal(next.isError, undefined);
+    assert.equal(JSON.parse(textFrom(next)).timeline.clips[0].name, "Changed");
+    assert.equal(snapshotReads, 2, "each separately confirmed request exports exactly once");
     assert.deepEqual(calls, []);
   } finally {
     await client.close();
