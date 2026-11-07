@@ -93,12 +93,15 @@ const builtInMapGet = Map.prototype.get;
 const builtInMapSet = Map.prototype.set;
 const builtInMapHas = Map.prototype.has;
 
+// Target identities are opaque: reject blank values without rewriting the
+// caller's approval before the adapter compares it with the observed target.
+const nativeImportTargetIdentity = z.string().min(1).refine((value) => value.trim().length > 0);
 const nativeImportTargetSchema = z.object({
-  libraryId: z.string().trim().min(1),
-  eventId: z.string().trim().min(1),
-  projectId: z.string().trim().min(1),
-  sequenceId: z.string().trim().min(1),
-  revision: z.string().trim().min(1),
+  libraryId: nativeImportTargetIdentity,
+  eventId: nativeImportTargetIdentity,
+  projectId: nativeImportTargetIdentity,
+  sequenceId: nativeImportTargetIdentity,
+  revision: nativeImportTargetIdentity,
 });
 
 const revisionValueSchema = z.object({
