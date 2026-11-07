@@ -421,6 +421,39 @@ test("live MCP observes checkpoints when the canonical provider is disabled", as
   }
 });
 
+test("unavailable built-in media import does not create or release a reservation", async () => {
+  for (const mode of ["file", "directory", "held"] as const) {
+    const directory = await mkdtemp(join(tmpdir(), "framekit-import-preflight-"));
+    const mediaPath = join(directory, "fixture.mov");
+    await writeFile(mediaPath, "fixture");
+    const guard = new FileCanonicalRecoveryGuard(join(directory, "state", "pending.json"));
+    let executorCalls = 0;
+    const nativeEditor = new FinalCutNativeAutomationAdapter({ enabled: true, executor: async () => { executorCalls += 1; return ""; } });
+    const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, nativeEditor });
+    try {
+      let heldId: string | undefined;
+      if (mode === "held") heldId = (await guard.beginNative("native.existing")).reservationId;
+      let result;
+      if (mode === "directory") {
+        const preview = await client.callTool({ name: "editor.native.media.directory.preview", arguments: { path: directory } });
+        const token = JSON.parse(textFrom(preview)).previewToken;
+        result = await client.callTool({ name: "editor.native.media.directory.execute", arguments: { previewToken: token, confirm: true } });
+      } else {
+        result = await client.callTool({ name: "editor.native.media.import", arguments: { path: mediaPath } });
+      }
+      assert.equal(result.isError, true, mode);
+      assert.match(textFrom(result), mode === "held" ? /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/ : /CAPABILITY_UNAVAILABLE/, mode);
+      assert.equal(executorCalls, 0, mode);
+      if (heldId) assert.equal((await guard.inspectNativeReservation())?.reservationId, heldId);
+      else await guard.assertClear();
+    } finally {
+      await client.close();
+      await server.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+});
+
 test("an unresolved checkpoint blocks direct native edits while allowing inspection", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-recovery-direct-"));
   const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
