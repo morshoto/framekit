@@ -7461,6 +7461,11 @@ function readinessStateForError(code: string): NativeFinalCutReadinessState {
   return "unavailable";
 }
 
+/** Construct the disabled focus response without invoking a native provider. */
+export function disabledNativeFocusContext(): NativeFinalCutContext {
+  return unavailableContext("CAPABILITY_UNAVAILABLE", "Final Cut native writes are disabled; set FRAMEKIT_FINAL_CUT_NATIVE_WRITES=1");
+}
+
 function unavailableContext(code: string, message: string, observed?: NativeFinalCutContext): NativeFinalCutContext {
   const state = readinessStateForError(code);
   const error = { code, message, state, retryable: state !== "unavailable" || code !== "CAPABILITY_UNAVAILABLE" };

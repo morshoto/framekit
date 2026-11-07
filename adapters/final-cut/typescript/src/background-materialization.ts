@@ -69,7 +69,7 @@ export class FinalCutBackgroundMaterializationPublisher {
   }
 
   public async publish(request: FinalCutBackgroundMaterializationRequest): Promise<FinalCutBackgroundMaterializationResult> {
-    validateRequest(request);
+    validateFinalCutBackgroundMaterializationRequest(request);
     const executor = this.options.executor ?? (this.options.command?.trim()
       ? commandExecutor(this.options.command.trim(), this.commandTimeoutMs)
       : undefined);
@@ -95,7 +95,7 @@ export class FinalCutBackgroundMaterializationPublisher {
   }
 }
 
-function validateRequest(request: FinalCutBackgroundMaterializationRequest): void {
+export function validateFinalCutBackgroundMaterializationRequest(request: FinalCutBackgroundMaterializationRequest): void {
   if (!request.jobId.trim()) throw new Error("MATERIALIZATION_REQUEST_INVALID: jobId is required");
   if (!request.artifactPath.trim() || !request.artifactDigest.trim()) {
     throw new Error("MATERIALIZATION_REQUEST_INVALID: immutable artifact path and digest are required");
