@@ -1,5 +1,22 @@
 # Changelog
 
+## [v0.2.2](https://github.com/morshoto/framekit/compare/v0.2.1...v0.2.2) - 2026-11-07
+
+### New Features
+- test: exercise isolated sender lifecycle by @morshoto in https://github.com/morshoto/framekit/pull/697
+- feat: define multilingual docs structure by @morshoto in https://github.com/morshoto/framekit/pull/694
+- docs: improve onboarding and search by @morshoto in https://github.com/morshoto/framekit/pull/705
+### Bug Fixes
+- fix: distinguish native search timeouts by @morshoto in https://github.com/morshoto/framekit/pull/669
+- fix: scope canonical snapshot reuse by @morshoto in https://github.com/morshoto/framekit/pull/701
+- fix: reject unsafe native occurrence targets by @morshoto in https://github.com/morshoto/framekit/pull/674
+- fix: retain uncertain native dispatch intent by @morshoto in https://github.com/morshoto/framekit/pull/702
+### Documentation
+- chore: isolate experimental SQLite providers by @morshoto in https://github.com/morshoto/framekit/pull/668
+### Chores
+- chore(deps): update dev dependencies by @renovate[bot] in https://github.com/morshoto/framekit/pull/700
+- chore(deps): update github actions by @renovate[bot] in https://github.com/morshoto/framekit/pull/699
+
 ## [v0.2.1](https://github.com/morshoto/framekit/compare/v0.2.0...v0.2.1) - 2026-11-04
 
 ### New Features
