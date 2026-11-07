@@ -154,6 +154,7 @@ interface NativeFinalCutMediaImportDirectoryPreviewRecord {
   directoryPath: string;
   files: NativeFinalCutMediaImportDirectoryFile[];
   fileIdentities: Map<string, NativeFinalCutMediaImportDirectoryFileIdentity>;
+  expectedImportTarget?: NativeFinalCutImportTarget;
   expiresAt: number;
 }
 
@@ -162,6 +163,7 @@ export interface NativeFinalCutMediaImportDirectoryPreview {
   directoryPath: string;
   files: NativeFinalCutMediaImportDirectoryFile[];
   command: "Import all previewed video files";
+  expectedImportTarget?: NativeFinalCutImportTarget;
   expiresAt: string;
 }
 
@@ -746,6 +748,7 @@ export interface NativeFinalCutAutomationOptions {
 
 export interface NativeFinalCutRequestOptions {
   signal?: AbortSignal;
+  expectedImportTarget?: NativeFinalCutImportTarget;
 }
 
 export interface NativeFinalCutExecutorOptions {
@@ -1270,7 +1273,13 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         stage: "pre-import-browser-discovery", elapsedMs: 0, stageElapsedMs: 0, partialImportPossible: false,
       });
     }
-    return this.withNativeUi(() => this.importMediaNative(sourcePath), options.signal);
+    const expectedTarget = normalizeNativeImportTarget(options.expectedImportTarget);
+    if (!expectedTarget) {
+      throw new NativeFinalCutMediaImportError("TARGET_MISMATCH", "an approved native import target is required", {
+        stage: "pre-import-browser-discovery", elapsedMs: 0, stageElapsedMs: 0, partialImportPossible: false,
+      });
+    }
+    return this.withNativeUi(() => this.importMediaNative(sourcePath, expectedTarget), options.signal);
   }
 
   public async previewImportMediaDirectory(directoryPath: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutMediaImportDirectoryPreview> {
@@ -1283,12 +1292,14 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (!trimmedPath) throw new Error("INVALID_OPERATION: local media directory path cannot be empty");
     const normalizedPath = resolveLocalPath(trimmedPath, this.homeDirectory);
     const snapshot = await snapshotSupportedVideoFiles(normalizedPath);
+    const expectedImportTarget = normalizeNativeImportTarget(this.requestContext.getStore()?.expectedImportTarget);
     const expiresAt = this.now() + 30_000;
     const previewToken = opaqueHandle("media-directory-preview");
     this.mediaImportDirectoryPreviews.set(previewToken, {
       directoryPath: normalizedPath,
       files: snapshot.files,
       fileIdentities: snapshot.fileIdentities,
+      ...(expectedImportTarget ? { expectedImportTarget } : {}),
       expiresAt,
     });
     return {
@@ -1296,6 +1307,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       directoryPath: normalizedPath,
       files: structuredClone(snapshot.files),
       command: "Import all previewed video files",
+      ...(expectedImportTarget ? { expectedImportTarget } : {}),
       expiresAt: new Date(expiresAt).toISOString(),
     };
   }
@@ -1306,10 +1318,13 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     options: NativeFinalCutRequestOptions = {},
   ): Promise<NativeFinalCutMediaImportDirectoryResult> {
     if (!this.importSourceObserver) return this.executeImportMediaDirectoryNative(previewToken, confirm);
+    if (!this.mediaImportDirectoryPreviews.get(previewToken)?.expectedImportTarget) {
+      throw new Error("TARGET_MISMATCH: an approved native import target must be bound to the directory preview");
+    }
     return this.withNativeUi(() => this.executeImportMediaDirectoryNative(previewToken, confirm), options.signal);
   }
 
-  private async importMediaNative(sourcePath: string): Promise<NativeFinalCutMediaImportResult> {
+  private async importMediaNative(sourcePath: string, approvedTarget: NativeFinalCutImportTarget): Promise<NativeFinalCutMediaImportResult> {
     this.assertEnabled();
     const importStartedAt = this.now();
     let stage: NativeFinalCutMediaImportStage = "pre-import-browser-discovery";
@@ -1346,6 +1361,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       if (!observer) return fail("CAPABILITY_UNAVAILABLE", "independent original source observation is unavailable", false);
       const expectedTarget = normalizeNativeImportTarget(await observer.captureTarget());
       if (!expectedTarget) return fail("CAPABILITY_UNAVAILABLE", "independent native import target observation is unavailable", false);
+      if (!sameNativeImportTarget(approvedTarget, expectedTarget)) return fail("TARGET_MISMATCH", "observed native import target does not match approval", false);
       const beforeDiscoveryDeadline = this.now() + this.mediaImportDiscoveryTimeoutMs;
       await this.ensureBrowserReady(beforeDiscoveryDeadline, "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT");
       const beforeMatches = await this.searchMediaNative(name, beforeDiscoveryDeadline, "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT");
@@ -1467,7 +1483,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const results: NativeFinalCutMediaImportDirectoryFileResult[] = [];
     for (const file of preview.files) {
       try {
-        const media = await this.importMedia(file.sourcePath);
+        const media = await this.importMedia(file.sourcePath, { expectedImportTarget: preview.expectedImportTarget });
         results.push({
           sourcePath: file.sourcePath,
           name: file.name,

@@ -16,8 +16,9 @@ import { finalCutBrowserSearchAccessibilityFixture } from "../fixtures/final-cut
 const separator = String.fromCharCode(31);
 
 // Fixture-only observer: values represent independently recorded observations.
+const fixtureImportTarget = { libraryId: "fixture-library", eventId: "fixture-event", projectId: "fixture-project", sequenceId: "fixture-sequence", revision: "fixture-revision" };
 function fixtureImportSourceObserver(paths: Record<string, string> = {}) {
-  const target = { libraryId: "fixture-library", eventId: "fixture-event", projectId: "fixture-project", sequenceId: "fixture-sequence", revision: "fixture-revision" };
+  const target = fixtureImportTarget;
   return {
     captureTarget: async () => target,
     observeImportedSource: async (sourceIdentity: string) => ({
@@ -3167,8 +3168,8 @@ test("native Final Cut imports local video and audio, waits for Browser availabi
     },
   });
 
-  const video = await adapter.importMedia(videoPath);
-  const audio = await adapter.importMedia(audioPath);
+  const video = await adapter.importMedia(videoPath, { expectedImportTarget: fixtureImportTarget });
+  const audio = await adapter.importMedia(audioPath, { expectedImportTarget: fixtureImportTarget });
   assert.equal(video.name, "interview.mov");
   assert.equal(video.kind, "video");
   assert.equal(video.sourceIdentity, "file:///imported/interview.mov");
@@ -3292,7 +3293,7 @@ test("native import rejects independently observed source and target mismatches"
         },
       };
       const adapter = new FinalCutNativeAutomationAdapter(options);
-      await assert.rejects(adapter.importMedia(sourcePath), (error: unknown) => {
+      await assert.rejects(adapter.importMedia(sourcePath, { expectedImportTarget: target }), (error: unknown) => {
         assert.ok(error instanceof NativeFinalCutMediaImportError);
         assert.equal(error.code, "FINAL_CUT_NATIVE_MEDIA_IMPORT_SOURCE_MISMATCH");
         assert.equal(error.details.partialImportPossible, true);
@@ -3372,7 +3373,7 @@ test("native Final Cut expands a user-home path before validating and importing 
 
   try {
     const requestedPath = "~/home-import.mov";
-    const imported = await adapter.importMedia(requestedPath);
+    const imported = await adapter.importMedia(requestedPath, { expectedImportTarget: fixtureImportTarget });
 
     assert.equal(imported.sourcePath, sourcePath);
     assert.equal(imported.name, "home-import.mov");
@@ -3410,7 +3411,7 @@ test("native Final Cut resolves relative paths from the process cwd", async () =
   });
 
   try {
-    const imported = await adapter.importMedia(relative(process.cwd(), sourcePath));
+    const imported = await adapter.importMedia(relative(process.cwd(), sourcePath), { expectedImportTarget: fixtureImportTarget });
 
     assert.equal(imported.sourcePath, sourcePath);
     assert.equal(imported.name, "relative-import.mov");
@@ -3628,7 +3629,7 @@ test("native Final Cut keeps an imported media handle usable after an unrelated 
     },
   });
 
-  const imported = await adapter.importMedia(sourcePath);
+  const imported = await adapter.importMedia(sourcePath, { expectedImportTarget: fixtureImportTarget });
   const unrelated = await adapter.searchMedia("other.mov");
   assert.equal(unrelated[0]?.name, "other.mov");
 
@@ -3666,7 +3667,7 @@ test("native Final Cut ignores a pre-existing same-name Browser item during impo
     },
   });
 
-  const imported = await adapter.importMedia(sourcePath);
+  const imported = await adapter.importMedia(sourcePath, { expectedImportTarget: fixtureImportTarget });
   const matches = await adapter.searchMedia("interview.mov");
   const existing = matches.find((match) => match.sourceIdentity === existingIdentity);
   const newlyImported = matches.find((match) => match.sourceIdentity === importedIdentity);
@@ -3699,7 +3700,7 @@ test("native Final Cut rejects synthetic Browser identities during import", asyn
     },
   });
 
-  await assert.rejects(adapter.importMedia(sourcePath), (error) => {
+  await assert.rejects(adapter.importMedia(sourcePath, { expectedImportTarget: fixtureImportTarget }), (error) => {
     assert.ok(error instanceof NativeFinalCutMediaImportError);
     assert.equal(error.code, "FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE");
     assert.equal(error.details.stage, "post-import-browser-discovery");
@@ -3729,7 +3730,7 @@ test("native Final Cut import reports staged Browser discovery timeout diagnosti
     },
   });
 
-  await assert.rejects(adapter.importMedia(sourcePath), (error) => {
+  await assert.rejects(adapter.importMedia(sourcePath, { expectedImportTarget: fixtureImportTarget }), (error) => {
     assert.ok(error instanceof NativeFinalCutMediaImportError);
     assert.equal(error.details.stage, "post-import-browser-discovery");
     assert.equal(error.details.elapsedMs, 20);
@@ -3771,7 +3772,7 @@ test("native Final Cut import aborts a stalled native executor at its deadline",
     },
   });
 
-  await assert.rejects(adapter.importMedia(sourcePath), (error) => {
+  await assert.rejects(adapter.importMedia(sourcePath, { expectedImportTarget: fixtureImportTarget }), (error) => {
     const message = String(error);
     assert.match(message, /FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT/);
     assert.match(message, /stage=native-import-ui/);
@@ -3792,7 +3793,7 @@ test("native Final Cut rejects an unavailable local media path before opening im
     },
   });
 
-  await assert.rejects(adapter.importMedia("/tmp/framekit-media-does-not-exist.mov"), /FINAL_CUT_NATIVE_MEDIA_PATH_UNAVAILABLE/);
+  await assert.rejects(adapter.importMedia("/tmp/framekit-media-does-not-exist.mov", { expectedImportTarget: fixtureImportTarget }), /FINAL_CUT_NATIVE_MEDIA_PATH_UNAVAILABLE/);
   assert.equal(scripts.some((script) => script.includes("FRAMEKIT_IMPORT_MEDIA")), false);
 });
 
@@ -3809,7 +3810,7 @@ test("native Final Cut expands home paths and rejects ambiguous tilde paths", as
   const homePath = join(os.homedir(), "framekit-media-does-not-exist.mov");
 
   await assert.rejects(
-    adapter.importMedia("~/framekit-media-does-not-exist.mov"),
+    adapter.importMedia("~/framekit-media-does-not-exist.mov", { expectedImportTarget: fixtureImportTarget }),
     (error: unknown) => {
       assert.match(String(error), /FINAL_CUT_NATIVE_MEDIA_PATH_UNAVAILABLE/);
       assert.match(String(error), new RegExp(homePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
@@ -3817,7 +3818,7 @@ test("native Final Cut expands home paths and rejects ambiguous tilde paths", as
     },
   );
   await assert.rejects(
-    adapter.importMedia("~other/framekit-media-does-not-exist.mov"),
+    adapter.importMedia("~other/framekit-media-does-not-exist.mov", { expectedImportTarget: fixtureImportTarget }),
     /INVALID_OPERATION: local media path must be absolute or start with ~\//,
   );
 });
@@ -3835,7 +3836,7 @@ test("native Final Cut reports directory media import guidance before opening im
   });
 
   try {
-    await assert.rejects(adapter.importMedia(directory), (error: unknown) => {
+    await assert.rejects(adapter.importMedia(directory, { expectedImportTarget: fixtureImportTarget }), (error: unknown) => {
       assert.ok(error instanceof NativeFinalCutMediaImportDirectoryError);
       assert.equal(error.code, "FINAL_CUT_NATIVE_MEDIA_DIRECTORY_INPUT");
       assert.match(error.message, /editor\.native\.media\.import accepts one readable local media file/);
