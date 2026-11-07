@@ -241,6 +241,27 @@ test("splits an occurrence without fabricating a provider binding for the new ri
   }
 });
 
+test("rejects splitting clips with fades before changing the project", async () => {
+  for (const fade of [{ fadeIn: 0.25 }, { fadeOut: 0.25 }]) {
+    const { directory, store, initial, service } = await createService();
+    try {
+      Object.assign(initial.timeline.sequence.occurrences[0]!, fade);
+      await store.save(initial);
+      const split = command(initial, "unused", [{
+        type: "split-occurrence",
+        occurrenceId: "occurrence-1",
+        splitOffsetTime: { value: "1", timescale: "2" },
+        newOccurrenceId: "occurrence-1-right",
+      }]);
+      await assert.rejects(service.preview(split), /fade/i);
+      await assert.rejects(service.execute(split), /fade/i);
+      assert.deepEqual(await store.load(), initial);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+});
+
 test("moves and removes occurrences while preserving deterministic order", async () => {
   const { directory, initial, service } = await createService();
   try {
