@@ -443,6 +443,11 @@ test("unavailable built-in media import does not create or release a reservation
       }
       assert.equal(result.isError, true, mode);
       assert.match(textFrom(result), mode === "held" ? /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/ : /CAPABILITY_UNAVAILABLE/, mode);
+      if (mode !== "held") {
+        const payload = JSON.parse(textFrom(result));
+        assert.equal(payload.details.stage, "pre-import-browser-discovery", mode);
+        assert.equal(payload.details.partialImportPossible, false, mode);
+      }
       assert.equal(executorCalls, 0, mode);
       if (heldId) assert.equal((await guard.inspectNativeReservation())?.reservationId, heldId);
       else await guard.assertClear();
@@ -451,6 +456,27 @@ test("unavailable built-in media import does not create or release a reservation
       await server.close();
       await rm(directory, { recursive: true, force: true });
     }
+  }
+});
+
+test("native import forwards the caller-approved target to file and directory preview", async () => {
+  const target = { libraryId: "library", eventId: "event", projectId: "project", sequenceId: "sequence", revision: "revision" };
+  const observed: unknown[] = [];
+  const nativeEditor = {
+    capabilities: () => ({}),
+    importMedia: async (_path: string, options: { expectedImportTarget?: unknown }) => { observed.push(options.expectedImportTarget); return { mediaHandle: "fixture" }; },
+    previewImportMediaDirectory: async (_path: string, options: { expectedImportTarget?: unknown }) => { observed.push(options.expectedImportTarget); return { previewToken: "fixture" }; },
+  } as unknown as NativeFinalCutEditor;
+  const { client, server } = await connect(createRuntime([]), { nativeEditor });
+  try {
+    const file = await client.callTool({ name: "editor.native.media.import", arguments: { path: "/fixture/clip.mov", expectedImportTarget: target } });
+    const directory = await client.callTool({ name: "editor.native.media.directory.preview", arguments: { path: "/fixture", expectedImportTarget: target } });
+    assert.equal(file.isError ?? false, false);
+    assert.equal(directory.isError ?? false, false);
+    assert.deepEqual(observed, [target, target]);
+  } finally {
+    await client.close();
+    await server.close();
   }
 });
 
