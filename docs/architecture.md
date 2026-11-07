@@ -96,10 +96,31 @@ identity. It does not treat the requested Browser identity as an observation.
 Native media targeting and canonical source-bound rename, trim, ripple-delete,
 and gain remain unavailable until that binding can be proven. Source-bound
 operations require an explicit source-observation capability and nonselecting
-discovery. The observed Browser source must also match the canonical snapshot's
+discovery. They also require an independent selected Inspector observation
+bound to the selected identity, with source path and source range matching the
+canonical snapshot. The bundled adapter does not yet supply that observation.
+The observed Browser source must also match the canonical snapshot's
 absolute local path or file URL; a matching basename alone is insufficient.
 Equal-named Browser items are distinguishable only when every candidate has an
 observed source and exactly one matches the canonical path.
+An incomplete Accessibility occurrence scan fails rather than treating its
+partial results as a complete or unique match.
+
+The current source-binding decision is **NO-GO** for the bundled adapter:
+
+| Evidence source | Direct observation | Limit for live occurrence binding |
+| --- | --- | --- |
+| [Workflow Extension timeline API](https://developer.apple.com/documentation/professional-video-applications/interacting-with-the-final-cut-pro-timeline) | Active sequence, selected time range, and playhead; [sequence details](https://developer.apple.com/documentation/professional-video-applications/fcpxsequence) include timing and container information. | The documented timeline interface does not expose an occurrence-to-original-media mapping. Timeline notifications do not establish a complete revision for exported content. |
+| Separately authorized [Final Cut FCPXML export](https://support.apple.com/guide/final-cut-pro/use-xml-to-transfer-projects-verdbd66ae/mac) | The exported document can describe project editing decisions and references to resources; an [original media representation](https://developer.apple.com/documentation/professional-video-applications/media-rep) can contain a source URL. | This is an export snapshot, not an identity for an Accessibility element. A target-bound, fresh export and an independently proven mapping would still be required; missing, remote, or proxy-only sources do not establish a local original. |
+| Read-only Accessibility scan | The adapter observes accessible timeline elements and their exposed attributes without selecting them. | The current scan does not independently expose their original source. Names, timing, ordering, and a requested Browser item are not proof of the mapping, including when occurrences repeat or names collide. |
+| Generated or imported FCPXML | A proposal or import describes intended content. | It is not native readback and cannot prove what the active timeline contains. |
+
+This decision concerns the supported observations assessed here, not a claim
+that no future public API can provide the missing evidence. Until a supported,
+fresh, target-bound observation establishes the mapping, source-bound native
+dispatch remains `CAPABILITY_UNAVAILABLE`; fixture and parser results are not
+headed Final Cut acceptance.
+
 Capability loss during target preparation prevents the edit. The
 bundled native adapter reports that capability unavailable. If a native edit has
 an uncertain outcome or Undo cannot be verified, the canonical provider blocks further previews and
