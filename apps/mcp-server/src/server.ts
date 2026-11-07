@@ -32,6 +32,7 @@ import {
 import {
   type BackgroundRenderExportProvider,
   NATIVE_MEDIA_IMPORT_DIRECTORY_ERROR_CODE,
+  NativeFinalCutMediaImportError,
   serializeFinalCutLibraryInspectionError,
   serializeNativeFinalCutMediaImportError,
   nativeMediaSearchQueryError,
@@ -91,6 +92,14 @@ const builtInNativeMethods = new Map(Reflect.ownKeys(FinalCutNativeAutomationAda
 const builtInMapGet = Map.prototype.get;
 const builtInMapSet = Map.prototype.set;
 const builtInMapHas = Map.prototype.has;
+
+const nativeImportTargetSchema = z.object({
+  libraryId: z.string().trim().min(1),
+  eventId: z.string().trim().min(1),
+  projectId: z.string().trim().min(1),
+  sequenceId: z.string().trim().min(1),
+  revision: z.string().trim().min(1),
+});
 
 const revisionValueSchema = z.object({
   id: z.string(),
@@ -992,6 +1001,9 @@ export interface McpServerOptions {
 }
 
 export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
+  // Inspect only inert descriptors before wrapping. Unknown providers remain
+  // guarded rather than being executed to determine whether dispatch is safe.
+  const builtinImportUnavailable = isBuiltinImportObservationUnavailable(options.nativeEditor);
   runtime.registerBuiltinSkills();
   if (options.requireBuildAlignment) {
     const assertAlignment = () => assertRequiredBuildAlignment(runtime, options);
@@ -1623,11 +1635,18 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
 
   server.registerTool("editor.native.media.import", {
     description: "Import one local video or audio file into the active Final Cut Browser and wait for a stable media handle.",
-    inputSchema: { path: z.string().min(1) },
-  }, async ({ path }, extra) => {
+    inputSchema: { path: z.string().min(1), expectedImportTarget: nativeImportTargetSchema.optional() },
+  }, async ({ path, expectedImportTarget }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media import is not configured");
+    if (builtinImportUnavailable) {
+      await options.canonicalRecovery?.assertClear();
+      return nativeMediaImportErrorResult(new NativeFinalCutMediaImportError(
+        "CAPABILITY_UNAVAILABLE", "native media import requires independently observed original source binding",
+        { stage: "pre-import-browser-discovery", elapsedMs: 0, stageElapsedMs: 0, partialImportPossible: false },
+      ));
+    }
     try {
-      return jsonResult(await options.nativeEditor.importMedia(path, { signal: extra.signal }));
+      return jsonResult(await options.nativeEditor.importMedia(path, { signal: extra.signal, ...(expectedImportTarget ? { expectedImportTarget } : {}) }));
     } catch (error) {
       return nativeMediaImportErrorResult(error);
     }
@@ -1635,10 +1654,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
 
   server.registerTool("editor.native.media.directory.preview", {
     description: "Enumerate supported top-level video files in a local directory without mutating Final Cut and return an expiring import preview.",
-    inputSchema: { path: z.string().trim().min(1) },
-  }, async ({ path }, extra) => {
+    inputSchema: { path: z.string().trim().min(1), expectedImportTarget: nativeImportTargetSchema.optional() },
+  }, async ({ path, expectedImportTarget }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media import is not configured");
-    return jsonResult(await options.nativeEditor.previewImportMediaDirectory(path, { signal: extra.signal }));
+    return jsonResult(await options.nativeEditor.previewImportMediaDirectory(path, { signal: extra.signal, ...(expectedImportTarget ? { expectedImportTarget } : {}) }));
   });
 
   server.registerTool("editor.native.media.directory.execute", {
@@ -1646,6 +1665,13 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { previewToken: z.string().min(1), confirm: z.literal(true) },
   }, async ({ previewToken, confirm }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media import is not configured");
+    if (builtinImportUnavailable) {
+      await options.canonicalRecovery?.assertClear();
+      return nativeMediaImportErrorResult(new NativeFinalCutMediaImportError(
+        "CAPABILITY_UNAVAILABLE", "native media import requires independently observed original source binding",
+        { stage: "pre-import-browser-discovery", elapsedMs: 0, stageElapsedMs: 0, partialImportPossible: false },
+      ));
+    }
     return jsonResult(await options.nativeEditor.executeImportMediaDirectory(previewToken, confirm, { signal: extra.signal }));
   });
 
@@ -3358,6 +3384,15 @@ function managedArtifactChanged(path: string, digest: string): boolean {
   } finally {
     if (fd !== undefined) closeSync(fd);
   }
+}
+
+function isBuiltinImportObservationUnavailable(provider: NativeFinalCutEditor | undefined): boolean {
+  if (!provider || utilTypes.isProxy(provider) || Object.getPrototypeOf(provider) !== FinalCutNativeAutomationAdapter.prototype) return false;
+  const observer = Object.getOwnPropertyDescriptor(provider, "importSourceObserver");
+  if (!observer || !("value" in observer) || observer.value !== undefined) return false;
+  return ["importMedia", "executeImportMediaDirectory", "capabilities"].every((key) =>
+    !Object.getOwnPropertyDescriptor(provider, key)
+      && Object.getOwnPropertyDescriptor(FinalCutNativeAutomationAdapter.prototype, key)?.value === builtInNativeMethods.get(key));
 }
 
 function withRecoveryCheckpointGuard<T extends object>(

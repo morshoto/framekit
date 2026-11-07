@@ -170,7 +170,7 @@ export interface NativeFinalCutMediaImportDirectoryPreview {
 export interface NativeFinalCutMediaImportDirectoryFileResult {
   sourcePath: string;
   name: string;
-  status: "imported" | "failed";
+  status: "imported" | "failed" | "not-attempted";
   media?: NativeFinalCutMediaImportResult;
   error?: { code: string; message: string; details?: NativeFinalCutMediaImportFailureDetails };
 }
@@ -182,6 +182,7 @@ export interface NativeFinalCutMediaImportDirectoryResult {
   results: NativeFinalCutMediaImportDirectoryFileResult[];
   importedCount: number;
   failedCount: number;
+  notAttemptedCount?: number;
   partial: boolean;
   status: "completed" | "partial" | "failed";
 }
@@ -1481,7 +1482,12 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     await assertMediaImportDirectoryPreviewFresh(preview);
 
     const results: NativeFinalCutMediaImportDirectoryFileResult[] = [];
+    let stopped = false;
     for (const file of preview.files) {
+      if (stopped) {
+        results.push({ sourcePath: file.sourcePath, name: file.name, status: "not-attempted" });
+        continue;
+      }
       try {
         const media = await this.importMedia(file.sourcePath, { expectedImportTarget: preview.expectedImportTarget });
         results.push({
@@ -1491,6 +1497,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
           media,
         });
       } catch (error) {
+        // A failed provider may have dispatched or scheduled work even when
+        // it did not acknowledge it. Do not start another file in this batch.
+        stopped = true;
         const serializedError = serializeNativeFinalCutMediaImportError(error);
         results.push({
           sourcePath: file.sourcePath,
@@ -1504,7 +1513,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       }
     }
     const importedCount = results.filter((result) => result.status === "imported").length;
-    const failedCount = results.length - importedCount;
+    const failedCount = results.filter((result) => result.status === "failed").length;
+    const notAttemptedCount = results.filter((result) => result.status === "not-attempted").length;
     return {
       previewToken,
       directoryPath: preview.directoryPath,
@@ -1512,6 +1522,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       results,
       importedCount,
       failedCount,
+      ...(notAttemptedCount > 0 ? { notAttemptedCount } : {}),
       partial: importedCount > 0 && failedCount > 0,
       status: failedCount === 0 ? "completed" : importedCount > 0 ? "partial" : "failed",
     };

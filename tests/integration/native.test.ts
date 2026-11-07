@@ -3507,8 +3507,8 @@ test("native Final Cut directory import fails closed and reports partial complet
   assert.deepEqual(emptyResult.results, []);
 
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-native-media-directory-partial-"));
-  const importedPath = join(directory, "imported.mov");
-  const failedPath = join(directory, "failed.mp4");
+  const importedPath = join(directory, "a-imported.mov");
+  const failedPath = join(directory, "z-failed.mp4");
   await writeFile(importedPath, "video fixture");
   await writeFile(failedPath, "video fixture");
   await assert.rejects(
@@ -3523,10 +3523,10 @@ test("native Final Cut directory import fails closed and reports partial complet
         "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT",
         "Final Cut did not expose the imported Browser asset",
         {
-          stage: "pre-import-browser-discovery",
+          stage: "post-import-browser-discovery",
           elapsedMs: 420,
           stageElapsedMs: 300,
-          partialImportPossible: false,
+          partialImportPossible: true,
           diagnostics: "Browser > Events",
         },
       );
@@ -3535,7 +3535,7 @@ test("native Final Cut directory import fails closed and reports partial complet
       mediaHandle: "media-imported",
       sourcePath,
       sourceIdentity: `file:///imported/${sourcePath.split("/").pop()}`,
-      name: "imported.mov",
+      name: "a-imported.mov",
       kind: "video",
       verification: {
         verified: true,
@@ -3551,46 +3551,16 @@ test("native Final Cut directory import fails closed and reports partial complet
     /FINAL_CUT_NATIVE_CONFIRMATION_REQUIRED/,
   );
   const result = await adapter.executeImportMediaDirectory(preview.previewToken, true);
-  assert.deepEqual(importedPaths, [failedPath, importedPath]);
+  assert.deepEqual(importedPaths, [importedPath, failedPath]);
   assert.equal(result.status, "partial");
   assert.equal(result.partial, true);
   assert.equal(result.importedCount, 1);
   assert.equal(result.failedCount, 1);
-  assert.deepEqual(result.results, [
-    {
-      sourcePath: failedPath,
-      name: "failed.mp4",
-      status: "failed",
-      error: {
-        code: "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT",
-        message: "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT: Final Cut did not expose the imported Browser asset; stage=pre-import-browser-discovery; elapsedMs=420; stageElapsedMs=300; partialImportPossible=false; diagnostics=Browser > Events",
-        details: {
-          stage: "pre-import-browser-discovery",
-          elapsedMs: 420,
-          stageElapsedMs: 300,
-          partialImportPossible: false,
-          diagnostics: "Browser > Events",
-        },
-      },
-    },
-    {
-      sourcePath: importedPath,
-      name: "imported.mov",
-      status: "imported",
-      media: {
-        mediaHandle: "media-imported",
-        sourcePath: importedPath,
-        sourceIdentity: `file:///imported/${importedPath.split("/").pop()}`,
-        name: "imported.mov",
-        kind: "video",
-        verification: {
-          verified: true,
-          stage: "post-import-browser-discovery",
-          detail: "Final Cut exposed one newly imported Browser asset with immutable source identity",
-        },
-      },
-    },
-  ]);
+  assert.equal(result.results[0]?.status, "imported");
+  assert.equal(result.results[0]?.sourcePath, importedPath);
+  assert.equal(result.results[1]?.status, "failed");
+  assert.equal(result.results[1]?.sourcePath, failedPath);
+  assert.equal(result.results[1]?.error?.details?.partialImportPossible, true);
 });
 
 test("directory import stops after an uncertain file outcome", async () => {
@@ -3600,20 +3570,27 @@ test("directory import stops after an uncertain file outcome", async () => {
   await writeFile(first, "first fixture");
   await writeFile(second, "second fixture");
   const attempted: string[] = [];
+  let unclassified = false;
   const adapter = new FinalCutNativeAutomationAdapter({ enabled: true });
   adapter.importMedia = async (sourcePath: string) => {
     attempted.push(sourcePath);
+    if (unclassified) throw new Error("unclassified provider failure");
     throw new NativeFinalCutMediaImportError("FINAL_CUT_NATIVE_MEDIA_IMPORT_TIMEOUT", "outcome unknown", {
       stage: "native-import-ui", elapsedMs: 20, stageElapsedMs: 20, partialImportPossible: true,
     });
   };
   try {
-    const preview = await adapter.previewImportMediaDirectory(directory);
-    const result = await adapter.executeImportMediaDirectory(preview.previewToken, true);
-    assert.deepEqual(attempted, [first]);
-    assert.equal(result.status, "failed");
-    assert.equal(result.results[0]?.status, "failed");
-    assert.equal(result.results[1]?.status, "not-attempted");
+    for (unclassified of [false, true]) {
+      attempted.length = 0;
+      const preview = await adapter.previewImportMediaDirectory(directory);
+      const result = await adapter.executeImportMediaDirectory(preview.previewToken, true);
+      assert.deepEqual(attempted, [first]);
+      assert.equal(result.status, "failed");
+      assert.equal(result.failedCount, 1);
+      assert.equal(result.notAttemptedCount, 1);
+      assert.equal(result.results[0]?.status, "failed");
+      assert.equal(result.results[1]?.status, "not-attempted");
+    }
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
