@@ -183,8 +183,8 @@ importers:
         version: 4.6.7
     devDependencies:
       '@babel/parser':
-        specifier: 7.29.12
-        version: 7.29.12
+        specifier: 7.29.13
+        version: 7.29.13
       '@openai/codex':
         specifier: 0.166.0
         version: 0.166.0
@@ -496,6 +496,11 @@ packages:
 
   '@babel/parser@7.29.12':
     resolution: {integrity: sha512-WJ7JBp/Q4+z/ImydtI7jS6NVco5++632ExBemSX+Ysb+G1lCwQ5BVo3SY+jGGOcZXI4ZccbZSUSJLNBW6eEpJg==}
+    engines: {node: '>=6.0.0'}
+    hasBin: true
+
+  '@babel/parser@7.29.13':
+    resolution: {integrity: sha512-fJM50YYjlTiBhgdkGmC1tBpv+FMAyo4annf2X6Aks+0yRlaiVkYW/3f07xAfVVkYIoZ9fFZp+mEThUFnuybhkQ==}
     engines: {node: '>=6.0.0'}
     hasBin: true
 
@@ -4315,6 +4320,10 @@ snapshots:
       '@babel/types': 7.29.11
 
   '@babel/parser@7.29.12':
+    dependencies:
+      '@babel/types': 7.29.11
+
+  '@babel/parser@7.29.13':
     dependencies:
       '@babel/types': 7.29.11
 
