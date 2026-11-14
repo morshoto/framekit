@@ -3,7 +3,7 @@ import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { CommandSpeechAnalyzer } from "@framekit/final-cut";
+import { CommandAudioAnalyzer, CommandSpeechAnalyzer } from "@framekit/final-cut";
 import { AgentVideoRuntime, type AnalysisInput } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 
@@ -223,4 +223,42 @@ test("command speech analyzer fails closed for missing executables and malformed
     new CommandSpeechAnalyzer({ command: invalidWrapper }).analyze(input),
     /ANALYZER_INVALID_OUTPUT: speech analyzer returned invalid JSON or schema/,
   );
+});
+
+
+test("command speech identity changes with effective model configuration", () => {
+  const first = new CommandSpeechAnalyzer({ command: "/providers/speech", environment: { FRAMEKIT_WHISPER_MODEL: "model-a" } });
+  const second = new CommandSpeechAnalyzer({ command: "/providers/speech", environment: { FRAMEKIT_WHISPER_MODEL: "model-b" } });
+  assert.notEqual(first.descriptor.configurationDigest, second.descriptor.configurationDigest);
+  assert.equal(first.descriptor.model, "model-a");
+  assert.equal(second.descriptor.model, "model-b");
+});
+
+test("command audio identity distinguishes executable and provider version", () => {
+  const descriptor = (command: string, providerVersion: string) =>
+    new CommandAudioAnalyzer({ command, providerVersion, environment: {} }).descriptor;
+  assert.notEqual(descriptor("/providers/audio-a", "1").configurationDigest, descriptor("/providers/audio-b", "1").configurationDigest);
+  assert.notEqual(descriptor("/providers/audio-a", "1").configurationDigest, descriptor("/providers/audio-a", "2").configurationDigest);
+  assert.equal(descriptor("/providers/audio-a", "2").version, "2");
+});
+
+test("command provider executes the environment bound to its analysis identity", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-provider-config-"));
+  const mediaPath = join(directory, "source.wav");
+  await writeFile(mediaPath, "media");
+  const command = join(directory, "configured-speech.mjs");
+  await writeFile(command, [
+    "#!/usr/bin/env node",
+    'for await (const chunk of process.stdin) {}',
+    'process.stdout.write(JSON.stringify({words:[{text:process.env.MODEL_SETTING ?? "missing",start:0,end:1,confidence:1}]}));',
+  ].join("\n"));
+  await chmod(command, 0o755);
+  const environment = { ...process.env, MODEL_SETTING: "configured-value" };
+  const analyzer = new CommandSpeechAnalyzer({ command, environment });
+  const configuredIdentity = structuredClone(analyzer.descriptor);
+  environment.MODEL_SETTING = "different-value";
+  const result = await analyzer.analyze(createInput(mediaPath));
+  assert.equal(result.words[0]?.text, "configured-value");
+  assert.deepEqual(result.provider, configuredIdentity);
+  assert.doesNotMatch(JSON.stringify(result.provider), /configured-value|different-value/);
 });
