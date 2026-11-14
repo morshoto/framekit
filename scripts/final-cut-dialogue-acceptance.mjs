@@ -155,3 +155,5 @@ function signal(m, state, target, reference, policy) {
     signal: { ...pick(p, ["scope", "origin", "effectScope", "requestId", "projectId", "sequenceId", "canonicalDigest", "gainDb", "outputDigest", "sampleRate", "sampleCount", "meterVersion"]),
       sequenceRange: reference.sequenceRange, exporter: descriptor(p.exporter) } };
 }
+
+export { signal as validateDialogueSignalObservation };

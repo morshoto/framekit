@@ -10,6 +10,7 @@ const hash = (value: unknown) => createHash("sha256").update(typeof value === "s
 function fixture(): any {
   const filler: any = fillerNativeEvidence(); const candidate = filler.environment.gitCommit;
   const dialogue: any = dialogueNativeFixture(candidate);
+  filler.environment = structuredClone(dialogue.environment); filler.editor = structuredClone(dialogue.editor);
   const target = dialogue.acceptance.scenarios[0].target;
   const sourceDigest = dialogue.acceptance.scenarios[0].reference.sourceDigest;
   for (const s of filler.acceptance.scenarios) {
@@ -49,9 +50,10 @@ function fixture(): any {
       preCutPreview: { tokenDigest: hash(`${id}:old-token`), revision: f.before.revision, canonicalDigest: f.before.digest,
         requestId: `${id}:old-audio`, sourceDigest, mediaId: target.mediaId, occurrenceId: f.target.occurrenceId,
         sourceRange: { start: 0, end: 4 }, sequenceRange: { start: 0, end: 4 } },
-      oldTokenRejection: { code: "STALE_CONTEXT", revision: f.after.revision, digest: f.after.digest, writes: 0 },
-      oldMappingRejection: { code: "OCCURRENCE_NOT_FOUND", revision: f.after.revision, digest: f.after.digest, writes: 0 },
-      oldMeasurementRejection: { code: "ANALYSIS_INVALID", revision: f.after.revision, digest: f.after.digest, writes: 0 },
+      refreshedPreviewTokenDigest: n.approval.previewTokenDigest,
+      oldTokenRejection: { tokenDigest: hash(`${id}:old-token`), code: "STALE_CONTEXT", revision: f.after.revision, digest: f.after.digest, writes: 0 },
+      oldMappingRejection: { occurrenceId: f.target.occurrenceId, code: "OCCURRENCE_NOT_FOUND", revision: f.after.revision, digest: f.after.digest, writes: 0 },
+      oldMeasurementRejection: { requestId: `${id}:old-audio`, code: "ANALYSIS_INVALID", revision: f.after.revision, digest: f.after.digest, writes: 0 },
       mapping: [ { occurrenceId: "remapped-left", sourceRange: { start: 0, end: start }, sequenceRange: { start: 0, end: start } },
         { occurrenceId: target.occurrenceId, sourceRange: n.reference.sourceRange, sequenceRange: n.reference.sequenceRange } ],
       refreshedMeasurement: refresh, unrelatedBeforeDigest: n.reference.unrelatedDigest, unrelatedRestoredDigest: n.reference.unrelatedDigest };
@@ -77,6 +79,8 @@ test("combined gate returns NO_GO for missing, diagnostic, stale or disconnected
     i => { delete i.filler; }, i => { i.dialogue.passed = false; }, i => { i.combined.cases.pop(); },
     i => { i.dialogue.environment.gitCommit = "a".repeat(40); },
     i => { i.combined.cases[0].oldTokenRejection.writes = 1; },
+    i => { i.combined.cases[0].oldTokenRejection.tokenDigest = hash("another token"); },
+    i => { i.combined.cases[0].refreshedPreviewTokenDigest = hash("another preview"); },
     i => { i.combined.cases[0].oldTokenRejection.digest = hash("changed"); },
     i => { i.combined.cases[0].oldMappingRejection.code = "NO_ERROR"; },
     i => { i.combined.cases[0].oldMeasurementRejection.code = "NO_ERROR"; },
@@ -88,4 +92,16 @@ test("combined gate returns NO_GO for missing, diagnostic, stale or disconnected
     i => { i.dialogue.acceptance.components[0].artifactDigest = hash("different package"); },
   ];
   for (const change of changes) { const input = fixture(); change(input); const result = assessSpeechCleanup(input); assert.equal(result.passed, false); assert.equal(result.outcome, "NO_GO"); assert.ok(result.blockers.length); }
+});
+
+test("combined gate CLI fails closed without complete input files", async () => {
+  const { execFile } = await import("node:child_process"); const { promisify } = await import("node:util");
+  try {
+    await promisify(execFile)(process.execPath, ["scripts/final-cut-speech-cleanup-gate.mjs"]);
+    assert.fail("missing receipts must not pass");
+  } catch (error) {
+    const result = error as { code?: number; stdout?: string };
+    assert.equal(result.code, 1);
+    const report = JSON.parse(result.stdout!); assert.equal(report.outcome, "NO_GO"); assert.equal(report.passed, false);
+  }
 });

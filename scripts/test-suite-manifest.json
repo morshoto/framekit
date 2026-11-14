@@ -1645,6 +1645,14 @@
       "requires": []
     },
     {
+      "path": "tests/release-gate/speech-cleanup.test.ts",
+      "owner": "shared",
+      "tags": [
+        "release-gate"
+      ],
+      "requires": []
+    },
+    {
       "path": "tests/release-gate/v0112-acceptance.test.ts",
       "owner": "shared",
       "tags": [

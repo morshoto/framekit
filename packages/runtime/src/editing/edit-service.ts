@@ -408,7 +408,7 @@ export class EditService {
     await this.adapter.restore(before, expectedRevision);
     const restored = await this.project.inspectProject();
     this.assertRestored(before, restored);
-    if (sameRevision(restored.revision, expectedRevision)) {
+    if (restored.revision.id === expectedRevision.id || restored.revision.sequence <= expectedRevision.sequence) {
       throw new Error("ROLLBACK_FAILED: restoration did not advance the canonical revision");
     }
     const artifactDigest = await this.readArtifactDigest(target);

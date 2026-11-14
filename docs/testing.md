@@ -252,6 +252,35 @@ Synthetic validator fixtures test rejection logic only. The native suite
 collector, edited-signal acquisition and authorized execution remain outstanding;
 schema validation does not authenticate how an external observation was acquired.
 
+For v0.2.4, compose complete filler and dialogue acceptance with the observed
+combined-run receipt. This gate reads evidence only; it does not execute native
+operations or authorize a target:
+
+```sh
+pnpm run release-gate:speech-cleanup --candidate-commit "$FRAMEKIT_FINAL_CUT_E2E_CANDIDATE_COMMIT" --filler artifacts/final-cut-headed/filler-removal.json --dialogue artifacts/final-cut-headed/dialogue-normalization.json --combined artifacts/final-cut-headed/speech-cleanup.json
+```
+
+The combined schema-v1 receipt identifies `success` and
+`normalization-failure` cases by their distinct scenario IDs in both complete
+suites. Each case records the pre-cut preview token digest and measurement
+request, non-mutating rejection of that old token/mapping/measurement, refreshed
+source-preserving occurrence mappings, and the measurement attached to the new
+approved normalization preview. The gate checks mapping ranges against the
+approved frame cuts, loaded-component/candidate agreement, post-filler baseline
+continuity and chronological Undo: normalization returns to the post-filler
+state before filler Undo restores the original state. The failure case must
+restore only the normalization stage and preserve the filler edit. Source and
+unrelated-project integrity must remain bound across the sequence.
+
+Missing suites, diagnostics, stale measurements, mismatched targets or incomplete
+restoration produce `NO_GO` and exit status 1. Complete consistent receipts
+produce `PASS`; receipt consistency does not authenticate native acquisition.
+The native combined collector and separately authorized execution remain
+required. The older versioned native-editing manifest alone does not establish
+this combined v0.2.4 acceptance. Deterministic cleanup tests use controlled
+speech/export providers and actual PCM metering; the remap test uses controlled
+source-preserving provider readback, not a native split or speech observation.
+
 The headed candidate must be a full lowercase commit SHA; every headed record
 must match it. Missing, mismatched, or incomplete headed evidence makes the
 command fail. This compares declared identities and does not authenticate files.

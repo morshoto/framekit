@@ -44,6 +44,7 @@
     "benchmark:filler-removal": "tsx scripts/run-filler-removal-benchmark.ts",
     "test:golden": "tsx --test tests/golden/*.test.ts",
     "test:release-gate": "node scripts/run-tests-with-isolated-home.mjs release-gate",
+    "release-gate:speech-cleanup": "node scripts/final-cut-speech-cleanup-gate.mjs",
     "release-gate": "tsx scripts/release/run-release-gate.ts",
     "acceptance:v0112": "tsx scripts/run-v0112-acceptance.ts",
     "release-report": "tsx scripts/generate-release-report.ts",
