@@ -163,3 +163,41 @@ test("source range translation rejects conflicting exact evidence coordinates", 
     /AMBIGUOUS_MAPPING/,
   );
 });
+
+test("speech mapping retains the declared source clock at fractional frame offsets", () => {
+  const frame = { value: "1001", timescale: "24000" };
+  const seconds = (frames: number) => frames * 1001 / 24000;
+  const fractional = {
+    ...analysis,
+    sourceTimebase: { value: "1", timescale: "24000" },
+    words: [{ text: "exact", start: seconds(12), end: seconds(14), confidence: 1 }],
+    vadSegments: undefined,
+  };
+  const mapped = mapSpeechAnalysisToOccurrence(fractional, {
+    occurrenceId: "trimmed-fractional", mediaId: "media-1", revision,
+    sourceRange: {
+      start: seconds(8), end: seconds(24),
+      startTime: { value: "8008", timescale: "24000" },
+      durationTime: { value: "16016", timescale: "24000" },
+    },
+    sequenceRange: {
+      start: 0, end: seconds(16),
+      startTime: { value: "0", timescale: "24000" },
+      durationTime: { value: "16016", timescale: "24000" },
+    },
+  }, { sequenceFrameDuration: frame });
+  assert.deepEqual(mapped.words[0]?.sequenceRange.startTime, { value: "1001", timescale: "6000" });
+  assert.deepEqual(mapped.words[0]?.sequenceRange.durationTime, { value: "1001", timescale: "12000" });
+  assert.deepEqual(mapped.words[0]?.frameAlignedRange.startTime, { value: "1001", timescale: "6000" });
+  assert.deepEqual(mapped.words[0]?.frameAlignedRange.durationTime, { value: "1001", timescale: "12000" });
+});
+
+test("speech mapping rejects evidence outside its declared source clock", () => {
+  assert.throws(() => mapSpeechAnalysisToOccurrence({
+    ...analysis,
+    sourceTimebase: { value: "1", timescale: "1000" },
+    words: [{ text: "off-grid", start: 10.25001, end: 10.35001, confidence: 1 }],
+    vadSegments: undefined,
+  }, occurrence(30), { sequenceFrameDuration: { value: "1", timescale: "10" } }),
+  /AMBIGUOUS_MAPPING.*source clock/);
+});
