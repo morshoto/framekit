@@ -140,6 +140,9 @@ test("responsive themes and enlarged text stay readable and accessible", async (
       await expect(
         page.getByRole("link", { name: /^Get started/ }),
       ).toBeVisible();
+      const figureWidth = await page.getByRole('figure').evaluate(element => element.getBoundingClientRect().width);
+      const heroWidth = await page.locator('section[aria-labelledby="hero-title"]').evaluate(element => element.getBoundingClientRect().width);
+      expect(Math.abs(figureWidth - heroWidth), 'demo uses the available content width').toBeLessThan(2);
       if ([375, 1440].includes(width)) {
         expect((await new AxeBuilder({ page }).analyze()).violations).toEqual(
           [],
