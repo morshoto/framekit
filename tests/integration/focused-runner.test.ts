@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import test from "node:test";
 import { promisify } from "node:util";
 const exec = promisify(execFile);
+const childEnvironment = Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== "NODE_TEST_CONTEXT"));
 
 // #733 cycles: execute the public runner in a controlled checkout. Prove selection,
 // isolation, prerequisites, failure propagation and watch cleanup before changing it.
@@ -27,13 +28,13 @@ async function checkout(t: test.TestContext) {
     test('unwanted', () => { throw Error('UNWANTED'); });`);
   await writeFile(join(root, files[1]!), "throw Error('WRONG_FILE');");
   await writeFile(join(root, files[2]!), "import test from 'node:test'; test('docs', () => console.log('DOCS')); ");
-  const manifest = { schemaVersion: 1, tests: files.map(path => ({ path, owner: "scripts/testing", tags: ["unit"],
+  const manifest = { schemaVersion: 2, tests: files.map(path => ({ path, owner: "scripts/testing", tags: ["unit"],
     reviewed: true, evidence: "process", dependsOn: ["scripts"], platforms: ["any"], network: "none",
     requires: path.includes('other') ? ["framekit-missing-tool"] : [] })) };
   const save = () => writeFile(join(root, "scripts/test-suite-manifest.json"), JSON.stringify(manifest));
   await save();
   const run = (args: string[]) => exec(process.execPath, ["scripts/run-tests-with-isolated-home.mjs", ...args], {
-    cwd: root, timeout: 15_000, env: { ...process.env, HOME: process.env.FRAMEKIT_TEST_ORIGINAL_HOME ?? process.env.HOME,
+    cwd: root, timeout: 15_000, env: { ...childEnvironment, HOME: process.env.FRAMEKIT_TEST_ORIGINAL_HOME ?? process.env.HOME,
       FRAMEKIT_TEST_REPORT_DIR: "", FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "1", FRAMEKIT_FINAL_CUT_HEADLESS: "0", FRAMEKIT_AUTO_CONNECT: "1" },
   });
   return { root, manifest, save, run, files };
@@ -68,7 +69,7 @@ test("unknown flags, empty matches, unregistered files and failure status fail c
     await assert.rejects(run(args), /TEST_ARGUMENT|TEST_SUITE_UNKNOWN|TEST_FILE_UNKNOWN/);
   }
   await assert.rejects(run(["--file", files[0]!, "--test-name-pattern", "no-match"]), /TEST_NAME_NO_MATCH/);
-  await assert.rejects(run(["--file", files[0]!]), /UNWANTED/);
+  await assert.rejects(run(["--file", files[0]!]), (error: any) => error.code === 1 && /UNWANTED/.test(error.stdout));
   const { env } = JSON.parse(await readFile(join(root, "observed.json"), "utf8"));
   assert.equal(existsSync(env.FRAMEKIT_TEST_STATE_DIR), false);
   assert.match((await run(["--file", files[2]!])).stdout, /DOCS/);
@@ -77,7 +78,7 @@ test("unknown flags, empty matches, unregistered files and failure status fail c
 test("watch reruns the selected test and cleans isolated state on termination", { timeout: 20_000 }, async t => {
   const { root, files } = await checkout(t);
   const child = spawn(process.execPath, ["scripts/run-tests-with-isolated-home.mjs", "--watch", "--file", files[0]!, "--test-name-pattern", "^wanted$"], {
-    cwd: root, env: { ...process.env, HOME: process.env.FRAMEKIT_TEST_ORIGINAL_HOME ?? process.env.HOME, FRAMEKIT_TEST_REPORT_DIR: "" }, stdio: ['ignore', 'pipe', 'pipe'],
+    cwd: root, env: { ...childEnvironment, HOME: process.env.FRAMEKIT_TEST_ORIGINAL_HOME ?? process.env.HOME, FRAMEKIT_TEST_REPORT_DIR: "" }, stdio: ['ignore', 'pipe', 'pipe'],
   });
   const closed = new Promise(resolve => child.once('close', resolve));
   t.after(async () => { child.kill('SIGTERM'); await closed; });

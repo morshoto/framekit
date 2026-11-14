@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const manifestPath = "scripts/test-suite-manifest.json";
-const excludedDirectories = new Set([".git", "coverage", "dist", "node_modules"]);
+const excludedDirectories = new Set([".git", ".codex", "coverage", "dist", "dist-package", "node_modules"]);
 const fastIntegrationTests = new Set([
   "tests/integration/basic-editing-mvp.test.ts",
   "tests/integration/canonical-provider-readiness.test.ts",
@@ -22,6 +22,7 @@ const fastIntegrationTests = new Set([
 ]);
 
 export const TEST_SUITE_DEFINITIONS = Object.freeze({
+  documentation: { tags: ["documentation"], executables: [] },
   all: { tags: [], executables: ["ffmpeg", "ffprobe", "npm"] },
   fast: {
     tags: ["unit", "contract", "fast-integration"],
@@ -48,8 +49,22 @@ export async function discoverTestFiles(rootDir = repositoryRoot) {
 
 export async function loadTestSuiteManifest(rootDir = repositoryRoot) {
   const manifest = JSON.parse(await readFile(resolve(rootDir, manifestPath), "utf8"));
-  if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.tests)) {
-    throw new Error("TEST_SUITE_MANIFEST_INVALID: expected schemaVersion 1 and a tests array");
+  if (manifest.schemaVersion !== 2 || !Array.isArray(manifest.tests)) {
+    throw new Error("TEST_SUITE_MANIFEST_INVALID: expected schemaVersion 2 and a tests array");
+  }
+  const paths = new Set();
+  for (const entry of manifest.tests) {
+    if (!entry.reviewed) throw new Error(`TEST_METADATA_UNREVIEWED: ${entry.path}; review owner, evidence, dependencies and requirements`);
+    if (paths.has(entry.path) || !entry.owner || entry.owner === 'shared'
+      || !['unit', 'fixture', 'process', 'static', 'sdk'].includes(entry.evidence)
+      || !['none', 'registry'].includes(entry.network)
+      || !Array.isArray(entry.tags) || !entry.tags.length
+      || !Array.isArray(entry.requires) || !Array.isArray(entry.dependsOn) || !entry.dependsOn.length
+      || !Array.isArray(entry.platforms) || !entry.platforms.length
+      || entry.platforms.some(platform => !['any', 'darwin', 'linux', 'win32'].includes(platform))) {
+      throw new Error(`TEST_METADATA_INVALID: ${entry.path}`);
+    }
+    paths.add(entry.path);
   }
   return manifest;
 }
@@ -78,14 +93,19 @@ export function evaluateSuitePrerequisites(suiteName, options = {}) {
   const definition = TEST_SUITE_DEFINITIONS[suiteName];
   if (!definition) throw new Error(`TEST_SUITE_UNKNOWN: ${suiteName}`);
   const available = options.availableExecutables ?? new Set();
-  const selectedPaths = options.manifest ? new Set(selectTestFiles(options.manifest, suiteName)) : new Set();
+  const selectedPaths = new Set(options.selectedFiles ?? (options.manifest ? selectTestFiles(options.manifest, suiteName) : []));
   const selected = options.manifest ? options.manifest.tests.filter((entry) => selectedPaths.has(entry.path)) : [];
   const executables = new Set([
-    ...definition.executables,
+    ...(options.manifest ? [] : definition.executables),
     ...selected.flatMap((entry) => entry.requires ?? []),
   ]);
   const nodeMajor = Number.parseInt((options.nodeVersion ?? process.versions.node).split(".")[0] ?? "0", 10);
   const missing = [...executables].filter((executable) => !available.has(executable));
+  for (const entry of selected) {
+    const platform = options.platform ?? process.platform;
+    if (!entry.platforms.includes('any') && !entry.platforms.includes(platform)) missing.push(`platform ${entry.platforms.join('/')} for ${entry.path} (current ${platform})`);
+    if (options.offline && entry.network !== 'none') missing.push(`network ${entry.network} for ${entry.path}`);
+  }
   if (!Number.isFinite(nodeMajor) || nodeMajor < 20) missing.unshift("Node.js 20 or newer");
   return {
     ready: missing.length === 0,
@@ -94,23 +114,17 @@ export function evaluateSuitePrerequisites(suiteName, options = {}) {
 }
 
 export async function updateTestSuiteManifest(rootDir = repositoryRoot) {
-  const tests = (await discoverTestFiles(rootDir)).map((path) => ({
-    path,
-    owner: ownerForTest(path),
-    tags: tagsForTest(path),
-    requires: prerequisitesForTest(path, tagsForTest(path)),
-  }));
-  const manifest = { schemaVersion: 1, tests };
+  let previous = { tests: [] };
+  try { previous = JSON.parse(await readFile(resolve(rootDir, manifestPath), 'utf8')); }
+  catch (error) { if (error.code !== 'ENOENT') throw error; }
+  const byPath = new Map(previous.tests.map(entry => [entry.path, entry]));
+  const tests = (await discoverTestFiles(rootDir)).map(path => byPath.get(path) ?? {
+    path, owner: 'unreviewed', reviewed: false, tags: tagsForTest(path),
+    evidence: 'fixture', dependsOn: [], requires: [], platforms: ['any'], network: 'none',
+  });
+  const manifest = { ...previous, schemaVersion: 2, tests };
   await writeFile(resolve(rootDir, manifestPath), `${JSON.stringify(manifest, null, 2)}\n`);
   return manifest;
-}
-
-function ownerForTest(file) {
-  const [root, packageName, ...rest] = file.split("/");
-  if (["packages", "apps", "adapters"].includes(root) && rest.some((part) => part === "test" || part === "tests")) {
-    return `${root}/${packageName}`;
-  }
-  return "shared";
 }
 
 if (process.argv.includes("--update-inventory")) {
@@ -127,9 +141,10 @@ async function walk(directory, rootDir, files) {
     throw error;
   }
   for (const entry of entries) {
+    if (relative(rootDir, join(directory, entry.name)).split(sep).join("/") === "apps/docs") continue;
     if (entry.isDirectory() && !excludedDirectories.has(entry.name)) {
       await walk(join(directory, entry.name), rootDir, files);
-    } else if (entry.isFile() && entry.name.endsWith(".test.ts")) {
+    } else if (entry.isFile() && (entry.name.endsWith(".test.ts") || (relative(rootDir, directory).split(sep).join("/") === "tests/documentation" && entry.name.endsWith(".test.mjs")))) {
       files.push(relative(rootDir, join(directory, entry.name)).split(sep).join("/"));
     }
   }
@@ -137,6 +152,7 @@ async function walk(directory, rootDir, files) {
 
 function tagsForTest(file) {
   const tags = new Set();
+  if (file.startsWith("tests/documentation/")) { tags.add("documentation"); tags.add("unit"); }
   if (fastIntegrationTests.has(file)) tags.add("fast-integration");
   if (file.startsWith("packages/") || file.startsWith("apps/") || file.startsWith("adapters/")) tags.add("unit");
   if (file.startsWith("tests/integration/")) {

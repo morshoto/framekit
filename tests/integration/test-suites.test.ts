@@ -52,7 +52,7 @@ test("test suites report unavailable prerequisites before execution", async () =
   const manifest = await loadTestSuiteManifest(repository);
   const status = evaluateSuitePrerequisites("headless", {
     platform: "linux",
-    availableExecutables: new Set(["node"]),
+    availableExecutables: new Set(["node", "git"]),
     manifest,
   });
 
@@ -63,12 +63,12 @@ test("test suites report unavailable prerequisites before execution", async () =
 
   const contractStatus = evaluateSuitePrerequisites("contract", {
     platform: "linux",
-    availableExecutables: new Set(["node"]),
+    availableExecutables: new Set(["node", "git"]),
     manifest,
   });
-  assert.deepEqual(contractStatus, { ready: false, missing: ["ffmpeg", "ffprobe"] });
+  assert.deepEqual(contractStatus, { ready: true, missing: [] });
   assert.deepEqual(evaluateSuitePrerequisites("unit", {
-    availableExecutables: new Set(["node"]),
+    availableExecutables: new Set(["node", "git"]),
     nodeVersion: "18.19.0",
   }), { ready: false, missing: ["Node.js 20 or newer"] });
 });

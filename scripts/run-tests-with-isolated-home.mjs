@@ -13,7 +13,14 @@ import {
 } from "./test-suites.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const suiteName = process.argv[2]?.startsWith("--") ? "all" : (process.argv[2] ?? "all");
+let selection;
+try { selection = parseArguments(process.argv.slice(2)); }
+catch (error) { process.stderr.write(`${error.message}\n`); process.exit(64); }
+if (selection.help) {
+  process.stdout.write('Usage: pnpm test [suite] [--file path.test.ts|path.test.mjs] [--test-name-pattern regex] [--watch] [--check-only]\n');
+  process.exit(0);
+}
+const suiteName = selection.suite;
 const manifest = await loadTestSuiteManifest(repositoryRoot);
 const discoveredFiles = await discoverTestFiles(repositoryRoot);
 const inventory = compareTestInventory(manifest.tests.map(({ path: file }) => file), discoveredFiles);
@@ -27,22 +34,29 @@ if (inventory.missing.length || inventory.unregistered.length) {
   ].join("\n"));
   process.exit(1);
 }
+const suiteFiles = selectTestFiles(manifest, suiteName);
+for (const file of selection.files) {
+  if (!suiteFiles.includes(file)) { process.stderr.write(`TEST_FILE_UNKNOWN: ${file} is outside the reviewed ${suiteName} suite\n`); process.exit(64); }
+}
+const testFiles = selection.files.length ? [...new Set(selection.files)].sort() : suiteFiles;
+if (!testFiles.length) { process.stderr.write('TEST_SELECTION_EMPTY\n'); process.exit(64); }
 const prerequisites = evaluateSuitePrerequisites(suiteName, {
-  availableExecutables: new Set(["node", ...["ffmpeg", "ffprobe", "npm"].filter(executableAvailable)]),
+  availableExecutables: new Set(["node", ...[...new Set(manifest.tests.filter(entry => testFiles.includes(entry.path)).flatMap(entry => entry.requires))].filter(executableAvailable)]),
   manifest,
+  selectedFiles: testFiles,
+  offline: process.env.FRAMEKIT_TEST_OFFLINE === "1",
   nodeVersion: process.versions.node,
 });
 if (!prerequisites.ready) {
   process.stderr.write(`TEST_SUITE_BLOCKED: ${suiteName} requires ${prerequisites.missing.join(" and ")}; install the listed toolchain and retry.\n`);
   process.exit(2);
 }
-if (process.argv.includes("--check-only")) {
+if (selection.checkOnly) {
   process.stdout.write(`TEST_SUITE_PREREQUISITES_READY: ${suiteName}\n`);
   process.exit(0);
 }
-const testFiles = selectTestFiles(manifest, suiteName);
 process.stdout.write(`TEST_SUITE_SELECTED: ${suiteName} (${testFiles.length} files)\n`);
-const reportDirectory = process.env.FRAMEKIT_TEST_REPORT_DIR ? path.resolve(process.env.FRAMEKIT_TEST_REPORT_DIR) : undefined;
+let reportDirectory = process.env.FRAMEKIT_TEST_REPORT_DIR ? path.resolve(process.env.FRAMEKIT_TEST_REPORT_DIR) : undefined;
 const testedSha = reportDirectory ? spawnSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).stdout.trim() : undefined;
 const originalHome = process.env.HOME ?? os.homedir();
 const temporaryRoot = process.platform === "win32" ? os.tmpdir() : "/tmp";
@@ -50,6 +64,7 @@ if (isWithin(originalHome, temporaryRoot)) {
   throw new Error("TEST_TEMP_DIRECTORY_INSIDE_CONTRIBUTOR_HOME");
 }
 const stateRoot = await mkdtemp(path.join(temporaryRoot, "framekit-test-run-"));
+reportDirectory ??= path.join(stateRoot, "reports");
 const isolatedHome = path.join(stateRoot, "home");
 const isolatedBin = path.join(stateRoot, "bin");
 const writableDirectories = {
@@ -100,26 +115,24 @@ const environment = {
   FRAMEKIT_TEST_STATE_DIR: stateRoot,
   FRAMEKIT_TEST_ORIGINAL_HOME: originalHome,
   FRAMEKIT_COMMIT_VALIDATION: "1",
+  FRAMEKIT_EDITOR: "fixture",
+  FRAMEKIT_FINAL_CUT_HEADLESS: "1",
+  FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
+  FRAMEKIT_AUTO_CONNECT: "0",
   PATH: [isolatedPnpmPath ? isolatedBin : undefined, process.env.PATH]
     .filter((entry) => Boolean(entry))
     .join(path.delimiter),
 };
 
 try {
-  if (suiteName === "all" || suiteName === "fast") {
-    const documentationTestFiles = (await readdir(path.join(repositoryRoot, "tests/documentation")))
-      .filter((file) => file.endsWith(".test.mjs"))
-      .map((file) => path.join("tests/documentation", file)).sort();
-    if (documentationTestFiles.length > 0) {
-      const documentationExitCode = await runCommand(process.execPath, ["--test", ...documentationTestFiles], environment);
-      if (documentationExitCode !== 0) throw new Error(`Documentation tests failed with exit code ${documentationExitCode}`);
-    } else {
-      throw new Error("TEST_INVENTORY_DRIFT: documentation test files are missing");
-    }
-  }
-
-  const exitCode = await runCommand(process.execPath, ["--import", "tsx", "--test", ...testFiles], environment);
+  const flags = [selection.watch ? '--watch' : undefined,
+    ...(selection.pattern === undefined ? [] : ['--test-name-pattern', selection.pattern])].filter(Boolean);
+  const exitCode = await runCommand(process.execPath, ["--import", "tsx", "--test", ...flags, ...testFiles], environment);
   process.exitCode = exitCode;
+  if (selection.pattern !== undefined && !selection.watch && exitCode === 0) {
+    const summary = JSON.parse(await (await import('node:fs/promises')).readFile(path.join(reportDirectory, `${suiteName}.json`), 'utf8'));
+    if (!summary.matchedTests) { process.stderr.write('TEST_NAME_NO_MATCH: no tests matched the name filter\n'); process.exitCode = 1; }
+  }
 } finally {
   try {
     if (reportDirectory) await writeTestSummary(reportDirectory, process.env.GITHUB_STEP_SUMMARY);
@@ -145,9 +158,18 @@ async function runCommand(command, args, environment) {
     args = [...reporters, ...args];
   }
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd: repositoryRoot, env: environment, stdio: "inherit" });
-    child.once("error", reject);
-    child.once("close", (code) => resolve(code ?? 1));
+    // The runner owns reporter destinations, including under the commit hook's
+    // NODE_OPTIONS reporter. Preserve all unrelated Node options.
+    const childEnvironment = { ...environment, NODE_OPTIONS: (environment.NODE_OPTIONS ?? '').replace(/--test-reporter(?:-destination)?=(?:"[^"]*"|'[^']*'|\S+)/g, '').trim() };
+    const child = spawn(command, args, { cwd: repositoryRoot, env: childEnvironment, stdio: "inherit" });
+    const forward = signal => child.kill(signal);
+    const interrupt = () => forward('SIGINT');
+    const terminate = () => forward('SIGTERM');
+    process.on('SIGINT', interrupt);
+    process.on('SIGTERM', terminate);
+    const cleanup = () => { process.off('SIGINT', interrupt); process.off('SIGTERM', terminate); };
+    child.once("error", error => { cleanup(); reject(error); });
+    child.once("close", (code) => { cleanup(); resolve(code ?? 1); });
   });
 }
 
@@ -155,4 +177,27 @@ function isWithin(parent, candidate) {
   const relativePath = path.relative(path.resolve(parent), path.resolve(candidate));
   return relativePath === ""
     || (!relativePath.startsWith(`..${path.sep}`) && relativePath !== ".." && !path.isAbsolute(relativePath));
+}
+
+function parseArguments(args) {
+  const result = { suite: 'all', files: [], watch: false, checkOnly: false };
+  let suiteSeen = false;
+  for (let i = 0; i < args.length; i++) {
+    const argument = args[i];
+    if (argument === '--') continue;
+    if (argument === '--watch') result.watch = true;
+    else if (argument === '--check-only') result.checkOnly = true;
+    else if (argument === '--help' || argument === '-h') result.help = true;
+    else if (argument === '--file' || argument === '--test-name-pattern' || argument.startsWith('--test-name-pattern=')) {
+      const value = argument.includes('=') ? argument.slice(argument.indexOf('=') + 1) : args[++i];
+      if (!value || value.startsWith('--')) throw new Error(`TEST_ARGUMENT: ${argument} requires a value`);
+      if (argument === '--file') result.files.push(value.replace(/^\.\//, ''));
+      else { try { new RegExp(value); } catch { throw new Error('TEST_ARGUMENT: invalid test-name pattern'); } result.pattern = value; }
+    } else if (argument.startsWith('-')) throw new Error(`TEST_ARGUMENT: unknown option ${argument}`);
+    else if (/\.test\.(ts|mjs)$/.test(argument)) result.files.push(argument.replace(/^\.\//, ''));
+    else if (!suiteSeen) { result.suite = argument; suiteSeen = true; }
+    else throw new Error(`TEST_ARGUMENT: unexpected argument ${argument}`);
+  }
+  if (result.watch && result.checkOnly) throw new Error('TEST_ARGUMENT: --watch and --check-only cannot be combined');
+  return result;
 }

@@ -1,12 +1,17 @@
 export interface TestSuiteManifestEntry {
   path: string;
   owner: string;
+  reviewed: boolean;
+  evidence: "unit" | "fixture" | "process" | "static" | "sdk";
+  dependsOn: string[];
+  platforms: string[];
+  network: "none" | "registry";
   tags: string[];
   requires: string[];
 }
 
 export interface TestSuiteManifest {
-  schemaVersion: 1;
+  schemaVersion: 2;
   tests: TestSuiteManifestEntry[];
 }
 
@@ -31,6 +36,8 @@ export function evaluateSuitePrerequisites(
     nodeVersion?: string;
     availableExecutables?: Set<string>;
     manifest?: TestSuiteManifest;
+    selectedFiles?: string[];
+    offline?: boolean;
   },
 ): { ready: boolean; missing: string[] };
 export function updateTestSuiteManifest(rootDir?: string): Promise<TestSuiteManifest>;
