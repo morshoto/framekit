@@ -543,26 +543,31 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     );
     const committed = await transaction.execute(prepared.command);
     const executionId = `rough-cut-${randomUUID()}`;
-    await this.saveRoughCutExecution({
-      schemaVersion: 1,
-      executionId,
-      approved: true,
-      projectId: request.projectId,
-      sequenceId: request.sequenceId,
-      sourceRevision: structuredClone(request.plan.revision),
-      canonicalRevision: structuredClone(committed.after.timeline.revision),
-      plan: structuredClone(request.plan),
-      operations: structuredClone(request.operations ?? []),
-      outputIntent: structuredClone(prepared.outputIntent),
-      planDigest: approval.planDigest,
-      inputDigest: prepared.inputDigest,
-      renderId,
-      artifactPath: resolve(fcpxmlArtifact.path),
-      artifactDigest: fcpxmlArtifact.digest,
-      artifactBytes: fcpxmlArtifact.bytes,
-      fcpxml: selectFcpxmlMetadata(fcpxml),
-      provenance: structuredClone(prepared.provenance),
-    });
+    try {
+      await this.saveRoughCutExecution({
+        schemaVersion: 1,
+        executionId,
+        approved: true,
+        projectId: request.projectId,
+        sequenceId: request.sequenceId,
+        sourceRevision: structuredClone(request.plan.revision),
+        canonicalRevision: structuredClone(committed.after.timeline.revision),
+        plan: structuredClone(request.plan),
+        operations: structuredClone(request.operations ?? []),
+        outputIntent: structuredClone(prepared.outputIntent),
+        planDigest: approval.planDigest,
+        inputDigest: prepared.inputDigest,
+        renderId,
+        artifactPath: resolve(fcpxmlArtifact.path),
+        artifactDigest: fcpxmlArtifact.digest,
+        artifactBytes: fcpxmlArtifact.bytes,
+        fcpxml: selectFcpxmlMetadata(fcpxml),
+        provenance: structuredClone(prepared.provenance),
+      });
+    } catch (error) {
+      const details = { projectId: request.projectId, sequenceId: request.sequenceId, executionId, committedRevision: committed.after.timeline.revision };
+      throw new Error(`HEADLESS_ROUGH_CUT_HISTORY_UNCONFIRMED: project already committed; no execution or publish proof was returned; reinspect project before retry: ${JSON.stringify(details)}`, { cause: error });
+    }
     return {
       ...preview,
       after: committed.after,
