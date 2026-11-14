@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { readdir, readFile, rename, writeFile, mkdir } from "node:fs/promises";
+import { readdir, readFile, rename, writeFile, mkdir, link, unlink } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import {
   FramekitProjectStore,
@@ -65,6 +65,7 @@ export interface HeadlessProjectWorkflow {
     sequenceId: string,
   ): Promise<ProjectEditResult & { undoId: string }>;
   undoEdit(projectId: string, sequenceId: string, undoId: string, expectedRevision: ContextRevision): Promise<HeadlessUndoResult>;
+  exportFcpxml(projectId: string, sequenceId: string, expectedRevision: ContextRevision, outputPath: string, target: TimelineIrToFcpxmlTarget): Promise<{ artifact: { path: string; digest: string; bytes: number; verified: true }; provenance: TimelineIrToFcpxmlResult["provenance"]; coverage: TimelineIrToFcpxmlResult["coverage"] }>;
   previewRoughCut(request: HeadlessRoughCutRequest): Promise<HeadlessRoughCutPreview>;
   executeRoughCut(request: HeadlessRoughCutExecutionRequest): Promise<HeadlessRoughCutExecution>;
   verifyPublishableRoughCut(
@@ -397,6 +398,16 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       throw new Error("HEADLESS_UNDO_UNVERIFIED: restored project could not be independently verified");
     }
     return { project: observed, verification: { verified: true, expectedDigest: record.beforeDigest, observedDigest } };
+  }
+
+  public async exportFcpxml(projectId: string, sequenceId: string, expectedRevision: ContextRevision, outputPath: string, target: TimelineIrToFcpxmlTarget) {
+    const project = await this.open(projectId);
+    if (project.timeline.sequence.id !== sequenceId || !sameRevision(project.timeline.revision, expectedRevision)) {
+      throw new Error("HEADLESS_FCPXML_STALE: project target or revision does not match the requested export");
+    }
+    const compiled = compileTimelineIrToFcpxml(project.timeline, { target });
+    const artifact = await writeVerifiedFcpxml(resolve(outputPath), compiled.xml, compiled.digest, false);
+    return { artifact, provenance: compiled.provenance, coverage: compiled.coverage };
   }
 
   public async previewRoughCut(request: HeadlessRoughCutRequest): Promise<HeadlessRoughCutPreview> {
@@ -1076,7 +1087,12 @@ async function writeVerifiedFcpxml(path: string, xml: string, digest: string, ov
   }
   const temporary = `${path}.${randomUUID()}.tmp`;
   await writeFile(temporary, xml, { encoding: "utf8", flag: "wx" });
-  await rename(temporary, path);
+  try {
+    if (overwrite) await rename(temporary, path);
+    else await link(temporary, path);
+  } finally {
+    if (!overwrite) await unlink(temporary).catch(() => {});
+  }
   const persisted = await readFile(path, "utf8");
   const persistedDigest = createHash("sha256").update(persisted).digest("hex");
   if (persistedDigest !== digest) throw new Error("HEADLESS_ROUGH_CUT_FCPXML_VERIFY_FAILED: persisted XML digest differs from the compiled artifact");
