@@ -195,7 +195,8 @@ function parseArguments(args) {
       const value = argument.includes('=') ? argument.slice(argument.indexOf('=') + 1) : args[++i];
       if (!value || value.startsWith('--')) throw new Error(`TEST_ARGUMENT: ${argument} requires a value`);
       if (argument === '--file') result.files.push(value.replace(/^\.\//, ''));
-      else { try { new RegExp(value); } catch { throw new Error('TEST_ARGUMENT: invalid test-name pattern'); } result.pattern = value; }
+      // Node owns validation/execution of its explicit regex filtering option.
+      else result.pattern = value;
     } else if (argument.startsWith('-')) throw new Error(`TEST_ARGUMENT: unknown option ${argument}`);
     else if (/\.test\.(ts|mjs)$/.test(argument)) result.files.push(argument.replace(/^\.\//, ''));
     else if (!suiteSeen) { result.suite = argument; suiteSeen = true; }
