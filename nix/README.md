@@ -41,3 +41,10 @@ bash nix/check-xcode.sh
 The manifest currently targets Xcode 16.4 / macOS SDK 15.5 and records the
 machine's observed Command Line Tools state separately. Update the manifest in
 the same change as any Xcode or SDK compatibility decision.
+
+The separate `ci` profile pins hosted shim validation to Xcode 26.6 (17F113)
+with the macOS 26.5 SDK on `macos-26`. CI explicitly selects that installation
+and runs `bash nix/check-xcode.sh --ci`. This checks project metadata and the
+Swift source against the checked-in shim; it does not build the extension or
+establish headed Final Cut compatibility. The default check continues to use
+the local native target above.

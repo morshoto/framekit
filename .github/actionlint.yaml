@@ -1,0 +1,9 @@
+self-hosted-runner:
+  labels:
+    - framekit-release
+paths:
+  .github/workflows/security.yml:
+    ignore:
+      # GitHub supports concurrency.queue; actionlint 1.7.12 does not yet parse it.
+      # https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idconcurrency
+      - 'unexpected key "queue" for "concurrency" section'
