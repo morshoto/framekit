@@ -34,6 +34,7 @@ export class FinalCutPublishSemanticMismatchError extends Error {
 }
 
 type SourceMediaDigest = Readonly<{ source: string; sha256: string }>;
+type SourceBinding = string | { source: string; sourceRange: { start: string; duration: string } };
 
 type PublishReadbackOptions = Readonly<{
   expectedSourceMediaDigests: readonly SourceMediaDigest[];
@@ -90,9 +91,12 @@ function publishTimelineSignature(
     }
     return `sha256:${sha256}`;
   };
-  const sourceByMediaId = new Map(referencedMedia.map(({ mediaId, source }) => [mediaId, sourceIdentity(source)]));
+  const sourceByMediaId = new Map<string, SourceBinding>(referencedMedia.map(({ mediaId, source, sourceRange }) => {
+    const identity = sourceIdentity(source);
+    return [mediaId, sourceRange === undefined ? identity : { source: identity, sourceRange: sourceRangeSignature(sourceRange) }];
+  }));
   const audioMediaIds = new Set(referencedMedia.filter(({ mediaKind }) => mediaKind === "audio").map(({ mediaId }) => mediaId));
-  const mediaSource = (mediaId: string | undefined): string | undefined => {
+  const mediaSource = (mediaId: string | undefined): SourceBinding | undefined => {
     if (mediaId === undefined) return undefined;
     return sourceByMediaId.get(mediaId) ?? `unresolved-media:${mediaId}`;
   };
@@ -147,7 +151,7 @@ function publishTimelineSignature(
 
 function clipSignature(
   clip: Clip,
-  mediaSource: (mediaId: string | undefined) => string | undefined,
+  mediaSource: (mediaId: string | undefined) => SourceBinding | undefined,
   audioMediaIds: Set<string>,
 ) {
   return {
@@ -175,7 +179,7 @@ function clipSignature(
 
 function storyElementSignature(
   element: StoryElement,
-  mediaSource: (mediaId: string | undefined) => string | undefined,
+  mediaSource: (mediaId: string | undefined) => SourceBinding | undefined,
   audioMediaIds: Set<string>,
 ) {
   const audio = element.kind === "audio" || audioMediaIds.has(element.mediaId ?? "");
