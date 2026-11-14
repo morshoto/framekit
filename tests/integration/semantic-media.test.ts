@@ -710,3 +710,58 @@ test("semantic media index invalidates when analyzer provenance changes", async 
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("semantic cache requires content identity before reusing source analysis", async () => {
+  const fixture = semanticFixture();
+  fixture.adapter.replaceMedia({ sourceDigest: undefined });
+  const delegate = new FixtureSpeechAnalyzer();
+  let calls = 0;
+  const analyzer = {
+    descriptor: delegate.descriptor,
+    analyze: async (...args: Parameters<FixtureSpeechAnalyzer["analyze"]>) => {
+      calls += 1;
+      return delegate.analyze(...args);
+    },
+  };
+  const store = new InMemorySemanticMediaIndexStore();
+  await new AgentVideoRuntime(fixture.adapter, { speechAnalyzer: analyzer, semanticMediaIndexStore: store })
+    .understandMedia("media-semantic-1");
+  await new AgentVideoRuntime(fixture.adapter, { speechAnalyzer: analyzer, semanticMediaIndexStore: store })
+    .understandMedia("media-semantic-1");
+  assert.equal(calls, 2, "a path and revision alone cannot prove unchanged content");
+});
+
+test("semantic cache cannot relabel partial source analysis as whole-source evidence", async () => {
+  const fixture = semanticFixture();
+  const delegate = new FixtureSpeechAnalyzer();
+  let calls = 0;
+  const analyzer = {
+    descriptor: delegate.descriptor,
+    analyze: async (...args: Parameters<FixtureSpeechAnalyzer["analyze"]>) => {
+      calls += 1;
+      return delegate.analyze(...args);
+    },
+  };
+  const store = new InMemorySemanticMediaIndexStore();
+  const first = await new AgentVideoRuntime(fixture.adapter, { speechAnalyzer: analyzer, semanticMediaIndexStore: store })
+    .understandMedia("media-semantic-1");
+  first.speech!.requestedRange = { start: 0, end: 6 };
+  first.speech!.observedRange = { start: 0, end: 6 };
+  await store.save(first);
+  const result = await new AgentVideoRuntime(fixture.adapter, { speechAnalyzer: analyzer, semanticMediaIndexStore: store })
+    .understandMedia("media-semantic-1");
+  assert.equal(calls, 2);
+  assert.deepEqual(result.speech?.requestedRange, { start: 0, end: 12 });
+});
+
+test("semantic cache does not preserve analysis from a removed provider", async () => {
+  const fixture = semanticFixture();
+  const store = new InMemorySemanticMediaIndexStore();
+  await new AgentVideoRuntime(fixture.adapter, {
+    speechAnalyzer: new FixtureSpeechAnalyzer(), semanticMediaIndexStore: store,
+  }).understandMedia("media-semantic-1");
+  const result = await new AgentVideoRuntime(fixture.adapter, { semanticMediaIndexStore: store })
+    .understandMedia("media-semantic-1");
+  assert.equal(result.speech, undefined);
+  assert.equal(result.analysis.find((status) => status.capability === "speech")?.status, "unavailable");
+});
