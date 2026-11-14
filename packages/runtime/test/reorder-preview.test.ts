@@ -68,6 +68,17 @@ test("reorder preview rejects unsupported destination values", () => {
   assert.throws(() => previewPrimaryStorylineReorder(fixture(), "b", null as never), /REORDER_INVALID.*destination/);
 });
 
+test("reorder preview rejects negative source starts on every occurrence", () => {
+  for (const index of [0, 1, 2]) {
+    const input = fixture();
+    input.timeline.clips[index]!.sourceStartTime = { value: "-1", timescale: "24000" };
+    assert.throws(() => previewPrimaryStorylineReorder(input, "b", { kind: "after", occurrenceId: "a" }), /REORDER_INVALID.*source.*negative/i, `occurrence ${index}`);
+  }
+  const zero = fixture();
+  zero.timeline.clips[0]!.sourceStartTime = { value: "0", timescale: "24000" };
+  assert.doesNotThrow(() => previewPrimaryStorylineReorder(zero, "a", { kind: "end" }));
+});
+
 test("reorder preview rejects an unaccounted primary story element", () => {
   const input = fixture();
   input.timeline.storyElements.push({ id: "unaccounted", kind: "asset-clip", mediaId: "one", start: 5, duration: 1, startTime: { value: "5", timescale: "1" }, durationTime: { value: "1", timescale: "1" } });
