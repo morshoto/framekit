@@ -70,15 +70,6 @@ jobs:
                   GITHUB_EVENT_PATH: ${{ github.event_path }}
                   GITHUB_API_URL: ${{ github.api_url }}
 
-    assign-author:
-        if: ${{ (github.event_name == 'pull_request' || (github.event_name == 'issues' && github.event.action == 'opened')) && ! contains(fromJson('["renovate[bot]", "dependabot[bot]"]'), github.actor) }}
-        permissions:
-            issues: write
-            pull-requests: write
-        runs-on: ubuntu-latest
-        steps:
-            - uses: technote-space/assign-author@9558557c5c4816f38bd06176fbc324ba14bb3160 # v1
-
     sync-project-status:
         if: ${{ github.event_name == 'issues' || github.event_name == 'workflow_dispatch' }}
         permissions:
@@ -92,14 +83,14 @@ jobs:
             - name: Check project token
               id: token
               run: |
-                  if [ -z "$FRAMEKIT_PROJECT_TOKEN" ]; then
+                  if [ -z "$GH_TOKEN_FRAMEKIT_PRJ" ]; then
                     echo "ready=false" >> "$GITHUB_OUTPUT"
-                    echo "::warning::Set the FRAMEKIT_PROJECT_TOKEN repository secret to enable project status sync."
+                    echo "::warning::Set the GH_TOKEN_FRAMEKIT_PRJ repository secret to enable project status sync."
                   else
                     echo "ready=true" >> "$GITHUB_OUTPUT"
                   fi
               env:
-                  FRAMEKIT_PROJECT_TOKEN: ${{ secrets.FRAMEKIT_PROJECT_TOKEN }}
+                  GH_TOKEN_FRAMEKIT_PRJ: ${{ secrets.GH_TOKEN_FRAMEKIT_PRJ }}
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
               if: steps.token.outputs.ready == 'true'
               with:
@@ -114,7 +105,17 @@ jobs:
               env:
                   FRAMEKIT_PROJECT_OWNER: morshoto
                   FRAMEKIT_PROJECT_NUMBER: '3'
-                  FRAMEKIT_PROJECT_TOKEN: ${{ secrets.FRAMEKIT_PROJECT_TOKEN }}
+                  GH_TOKEN_FRAMEKIT_PRJ: ${{ secrets.GH_TOKEN_FRAMEKIT_PRJ }}
                   GITHUB_API_URL: ${{ github.api_url }}
                   GITHUB_EVENT_PATH: ${{ github.event_path }}
                   GITHUB_REPOSITORY: ${{ github.repository }}
+
+    assign-author:
+        if: ${{ (github.event_name == 'pull_request' || (github.event_name == 'issues' && github.event.action == 'opened')) && ! contains(fromJson('["renovate[bot]", "dependabot[bot]"]'), github.actor) }}
+        permissions:
+            issues: write
+            pull-requests: write
+        runs-on: ubuntu-latest
+        steps:
+            - uses: technote-space/assign-author@9558557c5c4816f38bd06176fbc324ba14bb3160 # v1
+
