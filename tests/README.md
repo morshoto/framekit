@@ -59,7 +59,7 @@ Place a shared test by its primary assertion target:
 - `mcp/{tools,sessions,transport}`: MCP tool and transport contracts.
 - `adapters/{final-cut,headless}`: editor/renderer adapter contracts.
 - `cli/` and `distribution/`: CLI behavior, launcher, package contents, clean installs.
-- `workflows/{basic-editing,filler-removal,rough-cut,golden,evaluation}`: scenarios crossing components.
+- `workflows/{basic-editing,filler-removal,dialogue-normalization,rough-cut,golden,evaluation}`: scenarios crossing components.
 - `release/{gate,report,acceptance}`: orchestration/provenance, report generation,
   and historical versioned acceptance respectively.
 - `tooling/{ci,git,validation,docs,skills}`: repository automation and policies.
