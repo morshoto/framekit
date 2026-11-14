@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -13,7 +14,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
 import { compileTimelineIrToFcpxml } from "../../adapters/final-cut/typescript/src/timeline-ir-fcpxml.js";
 import { HeadlessProjectService } from "@framekit/headless-application";
-import { type TimelineIr } from "@framekit/runtime";
+import { timelineIrDigest, type TimelineIr } from "@framekit/runtime";
 import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer } from "../../adapters/headless/typescript/src/index.js";
 
 const execFileAsync = promisify(execFile);
@@ -57,6 +58,12 @@ test("headless edit Undo survives MCP restart and verifies the restored project"
     const history = await readFile(historyPath, "utf8");
     const damaged = JSON.parse(history);
     damaged.before.timeline.sequence.markers.push({ id: "forged", name: "Forged", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } });
+    damaged.beforeDigest = timelineIrDigest(damaged.before.timeline);
+    const { checksum: _checksum, ...content } = damaged;
+    const canonical = (value: any): string => value === null || typeof value !== "object" ? JSON.stringify(value)
+      : Array.isArray(value) ? `[${value.map(canonical).join(",")}]`
+      : `{${Object.entries(value).filter(([, child]) => child !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => `${JSON.stringify(key)}:${canonical(child)}`).join(",")}}`;
+    damaged.checksum = createHash("sha256").update(canonical(content)).digest("hex");
     await writeFile(historyPath, JSON.stringify(damaged));
     const corrupt = await client.callTool({ name: "headless.edit.undo", arguments: undoArgs });
     assert.match(toolErrorText(corrupt), /HEADLESS_UNDO_INVALID/);
