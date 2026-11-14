@@ -4418,3 +4418,45 @@ test("native media insertion never retries an uncertain focus failure after disp
   assert.equal(insertionCalls, 1);
   await assert.rejects(adapter.executeInsertMedia(preview.previewToken), /PREVIEW_STALE/);
 });
+
+test("native placement refuses changed post-dispatch targets without undoing them", async () => {
+  for (const changed of ["project", "sequence"] as const) {
+    let projectId = "project-1";
+    let sequenceId = "sequence-1";
+    let revision = 1;
+    let duration = "10";
+    let undoCalls = 0;
+    const adapter = new FinalCutNativeAutomationAdapter({
+      enabled: true,
+      liveState: async () => ({
+        project: { id: projectId, name: "Edit" },
+        sequence: { id: sequenceId, name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+        playheadTime: { value: "4", timescale: "1" },
+        sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" } },
+        revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(0).toISOString() },
+      }),
+      executor: async (script) => {
+        if (script.includes('keystroke "e"')) {
+          if (changed === "project") projectId = "project-2"; else sequenceId = "sequence-2";
+          revision = 2;
+          duration = "15";
+        }
+        if (script.includes('click menu item "Undo Append"')) undoCalls++;
+        if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${String.fromCharCode(30)}`;
+        return script.includes('set frontWindow to window "Final Cut Pro"') ? context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1, revision === 2 ? "Undo Append" : "Undo") : "";
+      },
+    });
+    const [media] = await adapter.searchMedia("Interview");
+    await adapter.selectMedia(media.handle);
+    const preview = await adapter.previewAppendMedia(media.handle);
+    let operationId = "";
+    await assert.rejects(adapter.executeAppendMedia(preview.previewToken), (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /FINAL_CUT_NATIVE_PARTIAL_MUTATION/);
+      operationId = (error as Error & { details: { operationId: string } }).details.operationId;
+      return true;
+    });
+    await assert.rejects(adapter.undo(operationId), /FINAL_CUT_NATIVE_UNDO_.*(TARGET|SCOPE)/);
+    assert.equal(undoCalls, 0, `${changed} switch must not undo the new target`);
+  }
+});
