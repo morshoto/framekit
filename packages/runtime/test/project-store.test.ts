@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import test from "node:test";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -210,14 +210,80 @@ test("concurrent creates and saves fail closed instead of overwriting", async ()
   }
 });
 
-test("a stale lock left by a dead process is recovered after restart", async () => {
+test("a lock left by a dead process remains reserved after restart", async () => {
   const root = await directory();
   const path = join(root, "project.json");
   try {
     await writeFile(`${path}.lock`, `${Number.MAX_SAFE_INTEGER}\n`);
     const expected = project();
-    await new FramekitProjectStore(path).create(expected);
-    assert.deepEqual(await new FramekitProjectStore(path).load(), expected);
+    await assert.rejects(new FramekitProjectStore(path).create(expected), /PROJECT_SAVE_FAILED/);
+    assert.equal(await readFile(`${path}.lock`, "utf8"), `${Number.MAX_SAFE_INTEGER}\n`);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("an empty lock being initialized cannot be stolen by a concurrent writer", async () => {
+  const root = await directory();
+  const path = join(root, "project.json");
+  let resume!: () => void;
+  const resumed = new Promise<void>((resolve) => { resume = resolve; });
+  let opened!: () => void;
+  const lockOpened = new Promise<void>((resolve) => { opened = resolve; });
+  try {
+    const first = project();
+    await new FramekitProjectStore(path).create(first);
+    const a = structuredClone(first);
+    const b = structuredClone(first);
+    a.timeline.project.name = "Writer A";
+    b.timeline.project.name = "Writer B";
+    a.timeline.revision = { ...first.timeline.revision, id: "a", sequence: 8 };
+    b.timeline.revision = { ...first.timeline.revision, id: "b", sequence: 8 };
+    const pausedFileSystem: ProjectStoreFileSystem = {
+      mkdir: async (p, options) => { await mkdir(p, options); },
+      readFile: async (p, encoding) => readFile(p, encoding),
+      writeFile: async (p, data, options) => {
+        if (p !== `${path}.lock`) return writeFile(p, data, options);
+        const handle = await open(p, "wx");
+        try { opened(); await resumed; await handle.writeFile(data); } finally { await handle.close(); }
+      },
+      rename,
+      unlink: async (p) => rm(p, { force: true }),
+    };
+    const firstWrite = new FramekitProjectStore(path, pausedFileSystem).save(a, first.timeline.revision);
+    await lockOpened;
+    const secondWrite = await Promise.allSettled([new FramekitProjectStore(path).save(b, first.timeline.revision)]);
+    resume();
+    const firstResult = await firstWrite;
+    assert.equal(secondWrite[0]!.status, "rejected");
+    assert.equal(firstResult.timeline.project.name, "Writer A");
+    assert.deepEqual(await new FramekitProjectStore(path).load(), a);
+  } finally {
+    resume();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a failed lock initialization retains its reservation", async () => {
+  const root = await directory();
+  const path = join(root, "project.json");
+  try {
+    const interrupted: ProjectStoreFileSystem = {
+      mkdir: async (p, options) => { await mkdir(p, options); },
+      readFile: async (p, encoding) => readFile(p, encoding),
+      writeFile: async (p, data, options) => {
+        if (p !== `${path}.lock`) return writeFile(p, data, options);
+        const handle = await open(p, "wx");
+        await handle.close();
+        throw new Error("injected failure after lock creation");
+      },
+      rename,
+      unlink: async (p) => rm(p, { force: true }),
+    };
+    await assert.rejects(new FramekitProjectStore(path, interrupted).create(project()), /PROJECT_SAVE_FAILED/);
+    assert.equal(await readFile(`${path}.lock`, "utf8"), "");
+    await assert.rejects(new FramekitProjectStore(path).create(project()), /PROJECT_SAVE_FAILED/);
+    assert.equal(await readFile(`${path}.lock`, "utf8"), "");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
