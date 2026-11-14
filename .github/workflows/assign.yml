@@ -6,7 +6,8 @@ on:
     # pull_request_target:
     #     types: [opened, synchronize, reopened, edited]
     issues:
-        types: [opened]
+        types: [opened, reopened, closed, labeled, unlabeled]
+    workflow_dispatch:
 
 jobs:
     assign-label:
@@ -31,7 +32,7 @@ jobs:
                   configuration-path: .github/labels/labeling-files.yaml
 
     sync-labels:
-        if: ${{ github.event_name != 'pull_request_target' }}
+        if: ${{ github.event_name == 'pull_request' || (github.event_name == 'issues' && github.event.action == 'opened') }}
         permissions:
             issues: write
             contents: read
@@ -70,10 +71,50 @@ jobs:
                   GITHUB_API_URL: ${{ github.api_url }}
 
     assign-author:
-        if: ${{ github.event_name != 'pull_request_target' && ! contains(fromJson('["renovate[bot]", "dependabot[bot]"]'), github.actor) }}
+        if: ${{ (github.event_name == 'pull_request' || (github.event_name == 'issues' && github.event.action == 'opened')) && ! contains(fromJson('["renovate[bot]", "dependabot[bot]"]'), github.actor) }}
         permissions:
             issues: write
             pull-requests: write
         runs-on: ubuntu-latest
         steps:
             - uses: technote-space/assign-author@9558557c5c4816f38bd06176fbc324ba14bb3160 # v1
+
+    sync-project-status:
+        if: ${{ github.event_name == 'issues' || github.event_name == 'workflow_dispatch' }}
+        permissions:
+            contents: read
+        concurrency:
+            group: project-status-${{ github.event.issue.number || github.run_id }}
+            cancel-in-progress: false
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        steps:
+            - name: Check project token
+              id: token
+              run: |
+                  if [ -z "$FRAMEKIT_PROJECT_TOKEN" ]; then
+                    echo "ready=false" >> "$GITHUB_OUTPUT"
+                    echo "::warning::Set the FRAMEKIT_PROJECT_TOKEN repository secret to enable project status sync."
+                  else
+                    echo "ready=true" >> "$GITHUB_OUTPUT"
+                  fi
+              env:
+                  FRAMEKIT_PROJECT_TOKEN: ${{ secrets.FRAMEKIT_PROJECT_TOKEN }}
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              if: steps.token.outputs.ready == 'true'
+              with:
+                  persist-credentials: false
+            - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+              if: steps.token.outputs.ready == 'true'
+              with:
+                  node-version: '24.22.2'
+            - name: Sync project status
+              if: steps.token.outputs.ready == 'true'
+              run: node scripts/sync-project-status.mjs
+              env:
+                  FRAMEKIT_PROJECT_OWNER: morshoto
+                  FRAMEKIT_PROJECT_NUMBER: '3'
+                  FRAMEKIT_PROJECT_TOKEN: ${{ secrets.FRAMEKIT_PROJECT_TOKEN }}
+                  GITHUB_API_URL: ${{ github.api_url }}
+                  GITHUB_EVENT_PATH: ${{ github.event_path }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}

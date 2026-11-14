@@ -226,9 +226,13 @@ test('backfill seeds matching project issues without importing PRs or other repo
 });
 
 test('workflow uses the dedicated project token and supports event sync plus backfill', async () => {
-	const workflow = await readRepositoryFile('.github/workflows/project-status-sync.yml');
+	const workflow = await readRepositoryFile('.github/workflows/assign.yml');
 	assert.match(workflow, /^\s*issues:\s*$/m);
 	assert.match(workflow, /^\s*workflow_dispatch:\s*$/m);
+	assert.match(workflow, /types:\s*\[opened, reopened, closed, labeled, unlabeled\]/);
+	assert.match(workflow, /sync-project-status:/);
+	assert.match(workflow, /github\.event_name == 'issues' \|\| github\.event_name == 'workflow_dispatch'/);
+	assert.match(workflow, /github\.event\.action == 'opened'/);
 	assert.match(workflow, /secrets\.FRAMEKIT_PROJECT_TOKEN/);
 	assert.match(workflow, /node scripts\/sync-project-status\.mjs/);
 	assert.match(workflow, /cancel-in-progress:\s+false/);
