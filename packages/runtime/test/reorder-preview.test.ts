@@ -121,3 +121,16 @@ test("reorder readback checks every occurrence and outside-span state", () => {
     assert.throws(() => verifyPrimaryStorylineReorder(preview, before, observed), /REORDER_READBACK_FAILED/, change);
   }
 });
+
+test("reorder preview rejects invalid baseline revisions and numeric timing", () => {
+  for (const change of ["missing-revision", "nan-revision", "fractional-revision", "numeric-start", "numeric-duration", "infinite-property"] as const) {
+    const input = fixture();
+    if (change === "missing-revision") input.revision.id = "";
+    if (change === "nan-revision") input.revision.sequence = Number.NaN;
+    if (change === "fractional-revision") input.revision.sequence = 1.5;
+    if (change === "numeric-start") input.timeline.clips[2]!.start = 123;
+    if (change === "numeric-duration") input.timeline.clips[1]!.duration = 123;
+    if (change === "infinite-property") input.timeline.clips[1]!.gainDb = Number.POSITIVE_INFINITY;
+    assert.throws(() => previewPrimaryStorylineReorder(input, "a", { kind: "end" }), /REORDER_INVALID/, change);
+  }
+});
