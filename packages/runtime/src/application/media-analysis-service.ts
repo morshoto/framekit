@@ -272,7 +272,7 @@ export class MediaAnalysisService {
     if (!clip.mediaId) return unavailableTimelineOccurrence(clip.id, "timeline occurrence has no media binding");
     const media = project.media.find((candidate) => candidate.mediaId === clip.mediaId);
     if (!media) return unavailableTimelineOccurrence(clip.id, `media binding is unavailable: ${clip.mediaId}`, clip.mediaId);
-    const sourceStart = clip.sourceStart ?? (clip.sourceStartTime ? rationalSeconds(clip.sourceStartTime) : 0);
+    const sourceStart = clip.sourceStartTime ? rationalSeconds(clip.sourceStartTime) : clip.sourceStart ?? 0;
     const sourceDuration = clip.durationTime ? rationalSeconds(clip.durationTime) : clip.duration;
     const sourceRange: TimeRange = {
       start: sourceStart,
