@@ -672,7 +672,10 @@ export function sanitizeFillerRemovalEvidence(run, environment) {
 
 export function sanitizeFillerRemovalDiagnostic(run, environment) {
   const summary = summarizeFillerMutation(run, environment);
+  const sourceMediaIntegrity = verifyCanonicalSourceIntegrity(run.before, run.sourceIntegrity);
+  verifyCanonicalSourceIntegrity(run.before, { before: run.sourceIntegrity.before, restored: run.sourceIntegrity.after });
   return { ...summary, evidenceType: "headed-native-filler-removal-diagnostic", passed: false,
+    sourceMediaIntegrity,
     outcome: "NO_GO", missing: ["complete-scenario-suite", "independent-edited-speech-evidence"],
     removal: { ...summary.removal, continuityVerified: false, runtimeContinuityCheckPassed: run.removal.continuityVerified === true } };
 }

@@ -108,6 +108,8 @@ try {
   }
 
   const rawEvidence = {
+    before,
+    sourceIntegrity: { before: sourceHashesBefore, after: sourceHashesAfter, restored: sourceHashesRestored },
     schemaVersion: 1,
     evidenceType: "headed-native-filler-removal",
     passed: true,
