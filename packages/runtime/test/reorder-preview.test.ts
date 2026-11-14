@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ProjectSnapshot } from "../src/domain/project.js";
-import { previewPrimaryStorylineReorder } from "../src/timeline/reorder-preview.js";
+import { assertReorderPreviewCurrent, previewPrimaryStorylineReorder } from "../src/timeline/reorder-preview.js";
 
 function fixture(): ProjectSnapshot {
   const frame = (n: number) => ({ value: String(n * 1001), timescale: "24000" });
@@ -72,4 +72,22 @@ test("reorder preview rejects an unaccounted primary story element", () => {
   const input = fixture();
   input.timeline.storyElements.push({ id: "unaccounted", kind: "asset-clip", mediaId: "one", start: 5, duration: 1, startTime: { value: "5", timescale: "1" }, durationTime: { value: "1", timescale: "1" } });
   assert.throws(() => previewPrimaryStorylineReorder(input, "a", { kind: "end" }), /REORDER_(INVALID|UNSUPPORTED).*story/i);
+});
+
+
+test("reorder preview rejects stale target, revision, source and outside-span edits", () => {
+  const original = fixture();
+  const preview = previewPrimaryStorylineReorder(original, "b", { kind: "before", occurrenceId: "a" });
+  assert.doesNotThrow(() => assertReorderPreviewCurrent(preview, structuredClone(original)));
+  for (const change of ["project", "revision", "source", "outside"] as const) {
+    const current = structuredClone(original);
+    if (change === "project") current.projectId = "other";
+    if (change === "revision") current.revision.sequence++;
+    if (change === "source") current.media[0]!.source = "/other.mov";
+    if (change === "outside") current.timeline.clips[2]!.name = "changed";
+    assert.throws(() => assertReorderPreviewCurrent(preview, current), /REORDER_PREVIEW_STALE/, change);
+  }
+  const tampered = structuredClone(preview);
+  tampered.after[0]!.startTime.value = "0";
+  assert.throws(() => assertReorderPreviewCurrent(tampered, original), /REORDER_PREVIEW_STALE/);
 });
