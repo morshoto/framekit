@@ -323,6 +323,9 @@ jobs:
             - name: Validate MCP server version
               run: node scripts/validate-mcp-server-version.mjs
 
+            - name: Verify artifact-first headless workflows
+              run: pnpm run test:headless
+
             - name: Run v0.1.6 native-editing release gate
               run: pnpm run release-gate --output-dir artifacts/release-gate/${{ github.run_id }}
 

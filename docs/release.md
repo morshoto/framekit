@@ -79,11 +79,15 @@ Before a release pull request is merged, run the standard checks in
 pnpm run build:package
 node scripts/validate-mcp-server-version.mjs
 npm pack --dry-run
+pnpm run test:headless
 pnpm run release-gate --output-dir artifacts/release-gate/local-run
 ```
 
-The release workflow runs `node scripts/validate-mcp-server-version.mjs`
-after building the package and before `npm publish`.
+The release workflow runs `node scripts/validate-mcp-server-version.mjs` and
+the headless suite after building the package and before `npm publish`. The
+headless suite includes the production MCP artifact-first editing, verified
+Undo, FCPXML readback, and rendered-output test. Its result does not verify a
+manual handoff or any native Final Cut operation; record those separately.
 
 The hosted workflow owns OIDC publication and public registry verification;
 these local commands do not prove a published release. If a publish fails,
