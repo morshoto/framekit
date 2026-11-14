@@ -63,6 +63,23 @@ test("video asset clips retain dialogue subroles without becoming audio-only", a
   assert.equal(clip?.nativeAudioRole, "dialogue.dialogue-1");
 });
 
+test("video asset clips retain the plain dialogue role from Final Cut exports", async () => {
+  const xml = documentWithOperations.replace(
+    '<asset-clip id="clip-a" ref="video-a" offset="0s" start="1s" duration="4s" />',
+    '<asset-clip id="clip-a" ref="video-a" offset="0s" start="1s" duration="4s" audioRole="dialogue"><conform-rate srcFrameRate="24"/><adjust-volume amount="-12dB"/></asset-clip>',
+  );
+  const { adapter } = await artifact(xml);
+  const snapshot = await adapter.readProject();
+  const clip = snapshot.timeline.clips.find((item) => item.id === "clip-a");
+  assert.equal(clip?.role, undefined);
+  assert.equal(clip?.nativeAudioRole, "dialogue");
+  assert.equal(clip?.gainDb, -12);
+  assert.equal(snapshot.media.find((item) => item.mediaId === clip?.mediaId)?.mediaKind, "video");
+  const ir = createTimelineIrFromProjectSnapshot(snapshot);
+  assert.equal(ir.sequence.occurrences.find((item) => item.id === "clip-a")?.nativeAudioRole, "dialogue");
+  assert.equal(ir.resources.find((item) => item.id === clip?.mediaId)?.mediaKind, "video");
+});
+
 test("FCPXML rejects unsupported asset clip audio roles", async () => {
   const xml = documentWithOperations.replace(
     '<asset-clip id="clip-a" ref="video-a" offset="0s" start="1s" duration="4s" />',
