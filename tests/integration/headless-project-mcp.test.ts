@@ -302,7 +302,8 @@ test("headless edits and rough cuts stay bound to the validated snapshot", async
   const oldProject = { schemaVersion: 1 as const, metadata, timeline: older };
   const newProject = { schemaVersion: 1 as const, metadata, timeline: newer };
   let loadCount = 0;
-  t.mock.method(FramekitProjectStore.prototype, "load", async () => ++loadCount === 1 ? oldProject : newProject);
+  let latestProject = newProject;
+  t.mock.method(FramekitProjectStore.prototype, "load", async () => ++loadCount === 1 ? oldProject : latestProject);
   let saves = 0;
   t.mock.method(FramekitProjectStore.prototype, "save", async (project: FramekitProjectDocument) => { saves++; return project; });
   const service = new HeadlessProjectService({ directory });
@@ -312,6 +313,12 @@ test("headless edits and rough cuts stay bound to the validated snapshot", async
     loadCount = 0;
     await assert.rejects(service.executeEdit(older.project.id, command, older.sequence.id), /STALE/);
     assert.equal(saves, 0);
+    loadCount = 0;
+    await assert.rejects(service.previewEdit(older.project.id, { ...command, expectedRevision: older.revision }, older.sequence.id), /STALE/);
+    loadCount = 0;
+    latestProject = { ...oldProject, timeline: { ...older, project: { ...older.project, name: "changed with same revision" } } };
+    await assert.rejects(service.previewEdit(older.project.id, { ...command, expectedRevision: older.revision }, older.sequence.id), /STALE/);
+    latestProject = newProject;
     loadCount = 0;
     const request = {
       projectId: older.project.id, sequenceId: older.sequence.id,

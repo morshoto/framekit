@@ -729,7 +729,14 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     const store = this.store(projectId);
     return {
       create: (value) => store.create(value),
-      load: async () => structuredClone(project),
+      load: async () => {
+        const current = await store.load();
+        if (!sameRevision(current.timeline.revision, project.timeline.revision)
+          || timelineIrDigest(current.timeline) !== timelineIrDigest(project.timeline)) {
+          throw new Error("HEADLESS_PROJECT_STALE: project changed after media validation");
+        }
+        return current;
+      },
       save: (value, expectedRevision) => store.save(value, expectedRevision),
     };
   }
