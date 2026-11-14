@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ProjectSnapshot } from "../src/domain/project.js";
-import { assertReorderPreviewCurrent, previewPrimaryStorylineReorder } from "../src/timeline/reorder-preview.js";
+import { assertReorderPreviewCurrent, previewPrimaryStorylineReorder, verifyPrimaryStorylineReorder } from "../src/timeline/reorder-preview.js";
 
 function fixture(): ProjectSnapshot {
   const frame = (n: number) => ({ value: String(n * 1001), timescale: "24000" });
@@ -90,4 +90,32 @@ test("reorder preview rejects stale target, revision, source and outside-span ed
   const tampered = structuredClone(preview);
   tampered.after[0]!.startTime.value = "0";
   assert.throws(() => assertReorderPreviewCurrent(tampered, original), /REORDER_PREVIEW_STALE/);
+});
+
+
+test("reorder readback checks every occurrence and outside-span state", () => {
+  const before = fixture();
+  const preview = previewPrimaryStorylineReorder(before, "b", { kind: "before", occurrenceId: "a" });
+  const after = structuredClone(before);
+  after.revision = { id: "rev-2", sequence: 2, timestamp: "2026-01-01T00:00:01Z" };
+  const [a, b, c] = after.timeline.clips;
+  b!.startTime = { value: "100100", timescale: "24000" }; b!.start = 100100 / 24000;
+  a!.startTime = { value: "104104", timescale: "24000" }; a!.start = 104104 / 24000;
+  after.timeline.clips = [b!, a!, c!];
+  const [storyA, storyB, storyC] = after.timeline.storyElements;
+  storyB!.startTime = b!.startTime; storyB!.start = b!.start;
+  storyA!.startTime = a!.startTime; storyA!.start = a!.start;
+  after.timeline.storyElements = [storyB!, storyA!, storyC!];
+  assert.doesNotThrow(() => verifyPrimaryStorylineReorder(preview, before, after));
+  for (const change of ["revision", "source", "range", "outside", "duplicate", "story", "target"] as const) {
+    const observed = structuredClone(after);
+    if (change === "revision") observed.revision = structuredClone(before.revision);
+    if (change === "source") observed.media[0]!.source = "/other.mov";
+    if (change === "range") observed.timeline.clips[0]!.sourceStartTime = { value: "0", timescale: "1" };
+    if (change === "outside") observed.timeline.clips[2]!.name = "unexpected";
+    if (change === "duplicate") observed.timeline.clips.push(structuredClone(observed.timeline.clips[0]!));
+    if (change === "story") observed.timeline.storyElements[0]!.mediaId = "one";
+    if (change === "target") observed.timeline.id = "other";
+    assert.throws(() => verifyPrimaryStorylineReorder(preview, before, observed), /REORDER_READBACK_FAILED/, change);
+  }
 });
