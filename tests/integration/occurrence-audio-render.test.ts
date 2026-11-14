@@ -238,3 +238,27 @@ test("runtime rejects stale exported-signal provenance instead of rebinding it",
       mediaId: "source", occurrenceId: "quiet", baseRevision: f.input().project.revision }), /ANALYSIS_INVALID.*signal provenance/, field);
   }
 });
+
+test("deadline during final canonical readback cannot return successful measurement", async (t) => {
+  const f = await fixture(t);
+  let signal: AbortSignal | undefined;
+  const original = f.exporter.export;
+  f.exporter.export = request => {
+    signal = request.signal;
+    return original(request);
+  };
+  let reads = 0;
+  const meter = new FinalCutOccurrenceAudioAnalyzer({ exporter: f.exporter, temporaryRoot: f.root, timeoutMs: 5000,
+    readSnapshot: async () => {
+      reads++;
+      if (reads === 3) {
+        assert.ok(signal && !signal.aborted, "meter reached final readback before its deadline");
+        await new Promise<void>(resolve => signal!.addEventListener("abort", () => resolve(), { once: true }));
+      }
+      return f.input().project;
+    },
+  });
+  await assert.rejects(meter.analyze(f.input()), /OCCURRENCE_SIGNAL_TIMEOUT/);
+  assert.equal(reads, 3);
+  assert.deepEqual(await readdir(f.root), ["source.wav"]);
+});
