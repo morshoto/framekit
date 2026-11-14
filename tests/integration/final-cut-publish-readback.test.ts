@@ -84,6 +84,20 @@ test("native publish readback rejects changed audio subroles", () => {
   assert.throws(() => verifyFinalCutPublishReadback(expected, actual), /FINAL_CUT_PUBLISH_SEMANTIC_MISMATCH/);
 });
 
+test("publish readback compares explicit source bounds and rejects lost evidence", () => {
+  const expected = makeSnapshot("approved", { a: "a", b: "b", c: "c", music: "music" });
+  const actual = makeSnapshot("native", { a: "a", b: "b", c: "c", music: "music" });
+  expected.media[0]!.sourceRange = { start: { value: "10", timescale: "1" }, duration: { value: "24", timescale: "1" } };
+  actual.media[0]!.sourceRange = { start: { value: "20", timescale: "2" }, duration: { value: "48", timescale: "2" } };
+  assert.equal(verifyFinalCutPublishReadback(expected, actual).verified, true);
+  const missing = structuredClone(actual);
+  delete missing.media[0]!.sourceRange;
+  assert.throws(() => verifyFinalCutPublishReadback(expected, missing), /FINAL_CUT_PUBLISH_SEMANTIC_MISMATCH:.*source-media-bindings/);
+  const changed = structuredClone(actual);
+  changed.media[0]!.sourceRange!.start.value = "22";
+  assert.throws(() => verifyFinalCutPublishReadback(expected, changed), /FINAL_CUT_PUBLISH_SEMANTIC_MISMATCH:.*source-media-bindings/);
+});
+
 test("native publish readback binds same-named sources by verified content", () => {
   const approved = makeSnapshot("approved", { a: "r1", b: "r2", c: "r3", music: "r4" });
   const native = makeSnapshot("native", { a: "asset-8", b: "asset-3", c: "asset-9", music: "asset-6" });
