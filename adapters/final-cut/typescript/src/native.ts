@@ -1485,6 +1485,13 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       if (explicitFailure.startsWith("FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE")) {
         throw new Error(explicitFailure);
       }
+      if (explicitFailure && (!explicitFailure.endsWith(String.fromCharCode(30))
+        || explicitFailure.slice(0, -1).split(String.fromCharCode(30)).some((record) => {
+          const fields = record.split(String.fromCharCode(31));
+          return fields.length !== 4 || !fields[0]?.trim() || !fields[1]?.trim();
+        }))) {
+        throw new Error("FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: malformed Browser media scan output");
+      }
       const rawMatches = parseMediaMatches(output);
       const normalizedQuery = query.toLocaleLowerCase();
       if (rawMatches.some((match) => !browserMediaIdentity(match) && match.name.toLocaleLowerCase().includes(normalizedQuery))) {
