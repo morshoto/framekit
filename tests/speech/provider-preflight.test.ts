@@ -40,7 +40,9 @@ function speech(vad = false): SpeechAnalyzer {
 
 const audio: AudioAnalyzer = {
   descriptor: { id: "fixture.audio", provider: "fixture", version: "1" },
-  analyze: async () => ({ integratedLufs: -18, truePeakDb: -1, silenceMs: 0, signalScope: "source" }),
+  analyze: async (_input, range) => ({ integratedLufs: -18, truePeakDb: -1, silenceMs: 0, signalScope: "source",
+    sourceTimebase: { value: "1", timescale: "48000" }, signalFormat: { sampleRate: 48000, channels: 1 },
+    measuredRange: range }),
 };
 
 test("provider preflight preserves transcription while required VAD and audio stay blocked", async (t) => {
@@ -65,6 +67,9 @@ test("ready provider preflight does not claim native acceptance", async (t) => {
   for (const asset of report.assets) {
     assert.equal(asset.vad.status, "available");
     assert.equal(asset.audio.signalScope, "source");
+    assert.deepEqual(asset.audio.sourceTimebase, { value: "1", timescale: "48000" });
+    assert.deepEqual(asset.audio.signalFormat, { sampleRate: 48000, channels: 1 });
+    assert.deepEqual(asset.audio.measuredRange, asset.requestedRange);
   }
 });
 
