@@ -320,6 +320,19 @@
       "requires": []
     },
     {
+      "path": "tests/integration/dialogue-export-render.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "headless",
+        "integration"
+      ],
+      "requires": [
+        "ffmpeg",
+        "ffprobe"
+      ]
+    },
+    {
       "path": "tests/integration/dialogue-normalization-skill.test.ts",
       "owner": "shared",
       "tags": [
