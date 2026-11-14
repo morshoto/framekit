@@ -98,16 +98,52 @@ test("pre-commit hook is executable and shell-valid", async () => {
   await exec("bash", ["-n", hookPath]);
 });
 
-test("pre-commit hook presents grouped validation stages and failure diagnostics", async () => {
-  const hook = await readFile(join(repository, ".githooks", "pre-commit"), "utf8");
-  assert.match(hook, /run_step\(\)/);
-  assert.match(hook, /#%d \[%d\/%d\]/);
-  assert.match(hook, /run_step "git configuration" node scripts\/check-git-config\.mjs/);
-  assert.match(hook, /run_step "sanitize staged content" node scripts\/check-staged-content\.mjs/);
-  assert.match(hook, /--test-reporter=dot/);
-  assert.match(hook, /mktemp -d/);
-  assert.match(hook, /cat \"\$log_file\" >&2/);
-  assert.doesNotMatch(hook, /corepack pnpm/);
+async function executeHook(t: test.TestContext, fail = '') {
+  const root = await mkdtemp(join(os.tmpdir(), 'framekit-hook-execution-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, '.githooks'));
+  await mkdir(join(root, 'bin'));
+  await writeFile(join(root, '.githooks/pre-commit'), await readFile(join(repository, '.githooks/pre-commit')));
+  await writeFile(join(root, 'package.json'), await readFile(join(repository, 'package.json')));
+  await git(root, ['init', '--quiet']);
+  const tool = `#!${process.execPath}
+import { appendFileSync, readFileSync } from 'node:fs';
+const args = process.argv.slice(2);
+const version = JSON.parse(readFileSync('package.json', 'utf8')).packageManager.slice(5);
+if (args[0] === '-p') console.log(args[1] === 'process.versions.node' ? process.versions.node : version);
+else if (args[0] === '--version') console.log(version);
+else if (args[0] === 'scripts/staged-native-changes.mjs') console.log('false');
+else {
+  const command = (process.argv[1].endsWith('/pnpm') ? 'pnpm' : 'node') + ' ' + args.join(' ');
+  const safety = Object.fromEntries(['FRAMEKIT_EDITOR', 'FRAMEKIT_COMMIT_VALIDATION', 'FRAMEKIT_FINAL_CUT_HEADLESS', 'FRAMEKIT_FINAL_CUT_NATIVE_WRITES', 'FRAMEKIT_AUTO_CONNECT'].map(key => [key, process.env[key]]));
+  appendFileSync('commands.jsonl', JSON.stringify({command, safety}) + '\\n');
+  if (command === process.env.FAIL_STEP) { console.error('CONTROLLED_FAILURE'); process.exitCode = 17; }
+}
+`;
+  for (const name of ['node', 'pnpm']) { await writeFile(join(root, 'bin', name), tool); await chmod(join(root, 'bin', name), 0o755); }
+  // The temporary package must use ESM for the controlled executable tools.
+  const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
+  await writeFile(join(root, 'package.json'), JSON.stringify({ ...manifest, type: 'module' }));
+  let result: { stdout: string; stderr: string; code?: number };
+  try { result = await exec('/bin/bash', ['.githooks/pre-commit'], { cwd: root, env: { ...cleanGitEnvironment,
+    PATH: join(root, 'bin') + ':' + process.env.PATH, NO_COLOR: '1', TERM: 'xterm', FAIL_STEP: fail,
+    FRAMEKIT_EDITOR: 'final-cut-live', FRAMEKIT_FINAL_CUT_NATIVE_WRITES: '1', FRAMEKIT_FINAL_CUT_HEADLESS: '0', FRAMEKIT_AUTO_CONNECT: '1' } }); }
+  catch (error) { result = error as any; }
+  const commands = (await readFile(join(root, 'commands.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+  return { result, commands };
+}
+
+test("pre-commit hook presents grouped validation stages and failure diagnostics", async t => {
+  const { result, commands } = await executeHook(t);
+  assert.equal(result.code, undefined);
+  assert.deepEqual(commands.map(entry => entry.command), ['node scripts/check-git-config.mjs', 'node scripts/check-staged-content.mjs', 'pnpm run build', 'pnpm run test', 'pnpm run check:boundaries']);
+  assert.match(result.stdout, /#1 \[1\/5\]/);
+  assert.match(result.stdout, /Framekit pre-commit checks passed/);
+  assert.doesNotMatch(result.stdout + result.stderr, /\u001b\[/, "NO_COLOR disables terminal escapes");
+  const failure = await executeHook(t, 'pnpm run build');
+  assert.equal(failure.result.code, 17);
+  assert.match(failure.result.stderr, /build failed[\s\S]*CONTROLLED_FAILURE/);
+  assert.equal(failure.commands.some(entry => entry.command === 'pnpm run test'), false);
 });
 
 test("Git configuration guard is available as a developer command", async () => {
@@ -138,13 +174,11 @@ test("pinned pnpm self-management is already recorded in the lockfile", async ()
   assert.match(lockfile, new RegExp(`[\'\"]@pnpm/exe(?:\\.[^\'\"]+)?@${escapedVersion}[\'\"]`));
 });
 
-test("pre-commit hook forces headless fixture validation", async () => {
-  const hook = await readFile(join(repository, ".githooks", "pre-commit"), "utf8");
-  assert.match(hook, /export FRAMEKIT_EDITOR=fixture/);
-  assert.match(hook, /export FRAMEKIT_COMMIT_VALIDATION=1/);
-  assert.match(hook, /export FRAMEKIT_FINAL_CUT_HEADLESS=1/);
-  assert.match(hook, /export FRAMEKIT_FINAL_CUT_NATIVE_WRITES=0/);
-  assert.match(hook, /export FRAMEKIT_AUTO_CONNECT=0/);
+test("pre-commit hook forces headless fixture validation", async t => {
+  const { commands } = await executeHook(t);
+  for (const entry of commands) assert.deepEqual(entry.safety, {
+    FRAMEKIT_EDITOR: 'fixture', FRAMEKIT_COMMIT_VALIDATION: '1', FRAMEKIT_FINAL_CUT_HEADLESS: '1', FRAMEKIT_FINAL_CUT_NATIVE_WRITES: '0', FRAMEKIT_AUTO_CONNECT: '0',
+  });
 
   const environment = finalCutMcpEnvironment({
     FRAMEKIT_COMMIT_VALIDATION: "1",

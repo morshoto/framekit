@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
@@ -12,11 +12,34 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 const exec = promisify(execFile);
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
-test("development checkout launcher prefers source over a stale dist package", async () => {
-  const launcher = await readFile(join(repository, "bin", "framekit.mjs"), "utf8");
-
-  assert.match(launcher, /const development = existsSync\(developmentEntrypoint\);/);
-  assert.match(launcher, /const packaged = !development && existsSync\(packagedEntrypoint\);/);
+test("development checkout launcher prefers source over a stale dist package", async t => {
+  const root = await mkdtemp(join(os.tmpdir(), 'framekit-launcher-contract-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, 'bin'));
+  await mkdir(join(root, 'apps/cli/src'), { recursive: true });
+  await mkdir(join(root, 'dist-package/apps/cli/src'), { recursive: true });
+  await writeFile(join(root, 'package.json'), '{"type":"module"}');
+  await symlink(join(repository, 'node_modules'), join(root, 'node_modules'), 'dir');
+  const launcher = join(root, 'bin/framekit.mjs');
+  await copyFile(join(repository, 'bin/framekit.mjs'), launcher);
+  const source = join(root, 'apps/cli/src/main.ts');
+  const packaged = join(root, 'dist-package/apps/cli/src/main.js');
+  await writeFile(source, `console.log('SOURCE:' + JSON.stringify(process.argv.slice(2))); process.exitCode = Number(process.env.CLI_EXIT ?? 0);`);
+  await writeFile(packaged, `console.log('PACKAGED:' + JSON.stringify(process.argv.slice(2))); process.exitCode = Number(process.env.CLI_EXIT ?? 0);`);
+  const run = () => exec(process.execPath, [launcher, 'help', 'argument with spaces'], { cwd: root, env: { ...process.env, CLI_EXIT: '0' } });
+  const assertSource = async () => assert.equal((await run()).stdout.trim(), 'SOURCE:["help","argument with spaces"]');
+  await assertSource();
+  await assert.rejects(exec(process.execPath, [launcher], { cwd: root, env: { ...process.env, CLI_EXIT: '23' } }), (error: any) => error.code === 23);
+  // Kill a precedence mutant using the same observable assertion.
+  const correct = await readFile(launcher, 'utf8');
+  await writeFile(launcher, correct.replace('const development = existsSync(developmentEntrypoint);', 'const development = false;'));
+  await assert.rejects(assertSource(), /PACKAGED/);
+  await writeFile(launcher, correct);
+  await rm(source);
+  assert.equal((await run()).stdout.trim(), 'PACKAGED:["help","argument with spaces"]');
+  await assert.rejects(exec(process.execPath, [launcher], { cwd: root, env: { ...process.env, CLI_EXIT: '24' } }), (error: any) => error.code === 24);
+  await rm(packaged);
+  await assert.rejects(run(), (error: any) => error.code !== 0 && /ERR_MODULE_NOT_FOUND/.test(error.stderr));
 });
 
 test("published package contains the runnable Framekit CLI and MCP sources", async () => {
