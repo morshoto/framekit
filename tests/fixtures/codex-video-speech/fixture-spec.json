@@ -16,6 +16,7 @@
   "clips": [
     {
       "id": "A",
+      "expectedTokens": ["alpha", "synthetic"],
       "filename": "clip-a.mp4",
       "color": "0x234caa",
       "durationSeconds": 24,
@@ -25,6 +26,7 @@
     },
     {
       "id": "B",
+      "expectedTokens": ["bravo", "synthetic"],
       "filename": "clip-b.mp4",
       "color": "0x187b52",
       "durationSeconds": 15,
@@ -34,6 +36,7 @@
     },
     {
       "id": "C",
+      "expectedTokens": ["charlie", "synthetic"],
       "filename": "clip-c.mp4",
       "color": "0xa64b20",
       "durationSeconds": 14,
