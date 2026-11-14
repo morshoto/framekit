@@ -18,6 +18,51 @@ import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer 
 
 const execFileAsync = promisify(execFile);
 
+test("headless media search returns both registered same-name sources through production MCP", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headless-media-search-"));
+  const here = dirname(fileURLToPath(import.meta.url));
+  const environment: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    FRAMEKIT_EDITOR: "final-cut-live",
+    FRAMEKIT_AUTO_CONNECT: "0",
+    FRAMEKIT_FINAL_CUT_HEADLESS: "1",
+    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
+    FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing-final-cut.sock"),
+    FRAMEKIT_STATE_DIR: join(directory, "state"),
+  };
+  let client: Client | undefined;
+  let transport: StdioClientTransport | undefined;
+  try {
+    const reservationPath = join(directory, "state", "canonical-recovery", "pending.json");
+    const reservation = JSON.stringify({ version: 2, kind: "native-operation", owner: "00000000-0000-4000-8000-000000000001", operation: "native.searchmedia" }) + "\n";
+    await mkdir(dirname(reservationPath), { recursive: true });
+    await writeFile(reservationPath, reservation);
+    const paths = [join(directory, "a", "same.mp4"), join(directory, "b", "same.mp4")];
+    await mkdir(dirname(paths[0]!), { recursive: true });
+    await mkdir(dirname(paths[1]!), { recursive: true });
+    await generateSegmentedSource(paths[0]!, [{ color: "red", duration: 1 }], 440);
+    await generateSegmentedSource(paths[1]!, [{ color: "blue", duration: 1 }], 660);
+    ({ client, transport } = await connectProductionClient(here, environment));
+    const created = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: emptyTimeline() } }));
+    const projectId = created.timeline.project.id;
+    const first = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: paths[0], expectedRevision: created.timeline.revision } }));
+    const second = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: paths[1], expectedRevision: first.project.timeline.revision } }));
+    const found = payload(await client.callTool({ name: "headless.media.search", arguments: { projectId, query: "same.mp4" } }));
+    assert.deepEqual(found.revision, second.project.timeline.revision);
+    assert.deepEqual(found.media.map((item: any) => item.id).sort(), [first.resource.id, second.resource.id].sort());
+    assert.deepEqual(found.media.map((item: any) => item.source).sort(), paths.sort());
+    const exact = payload(await client.callTool({ name: "headless.media.search", arguments: { projectId, query: first.resource.id } }));
+    assert.deepEqual(exact.media.map((item: any) => item.id), [first.resource.id]);
+    const absent = payload(await client.callTool({ name: "headless.media.search", arguments: { projectId, query: "not-present" } }));
+    assert.deepEqual(absent.media, []);
+    assert.equal(await readFile(reservationPath, "utf8"), reservation);
+  } finally {
+    await client?.close();
+    await transport?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("headless project list includes valid project IDs that resemble render records", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-headless-project-list-"));
   try {
