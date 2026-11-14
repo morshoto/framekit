@@ -845,6 +845,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     selectionMode: "handle" | "selected";
     beforeDuration: RationalTime;
     insertionTime: RationalTime;
+    projectId: string;
     sequenceId?: string;
     revision: string;
     expiresAt: number;
@@ -2660,6 +2661,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const context = await this.requireTimelineContext();
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
     const live = await this.requireLiveState();
+    if (!live.project?.id) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project identity is required for media insertion");
     const sequenceStart = live.sequenceTimeRange?.start ?? live.sequence?.startTime;
     const beforeDuration = live.sequenceTimeRange?.duration ?? live.sequence?.duration;
     if (!sequenceStart || !beforeDuration) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut sequence duration is unavailable");
@@ -2675,6 +2677,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       selectionMode,
       beforeDuration,
       insertionTime,
+      projectId: live.project.id,
       sequenceId: live.sequence?.id,
       revision: live.revision.id,
       expiresAt,
@@ -2970,9 +2973,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   }
 
   private validateMediaInsertionBinding(
-    preview: { sequenceId?: string; revision: string; beforeDuration: RationalTime; insertionTime: RationalTime; operation: NativeFinalCutMediaInsertionOperation },
+    preview: { projectId: string; sequenceId?: string; revision: string; beforeDuration: RationalTime; insertionTime: RationalTime; operation: NativeFinalCutMediaInsertionOperation },
     live: EditorLiveState,
   ): void {
+    if (live.project?.id !== preview.projectId) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: active project changed");
     if (preview.sequenceId && live.sequence?.id !== preview.sequenceId) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: active sequence changed");
     if (live.revision.id !== preview.revision) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: playhead or timeline revision changed");
     const currentDuration = live.sequenceTimeRange?.duration ?? live.sequence?.duration;
