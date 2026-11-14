@@ -63,7 +63,8 @@ export interface HeadlessProjectWorkflow {
     projectId: string,
     command: HeadlessProjectEditCommand,
     sequenceId: string,
-  ): ReturnType<ProjectTransactionService["execute"]>;
+  ): Promise<ProjectEditResult & { undoId: string }>;
+  undoEdit(projectId: string, sequenceId: string, undoId: string, expectedRevision: ContextRevision): Promise<HeadlessUndoResult>;
   previewRoughCut(request: HeadlessRoughCutRequest): Promise<HeadlessRoughCutPreview>;
   executeRoughCut(request: HeadlessRoughCutExecutionRequest): Promise<HeadlessRoughCutExecution>;
   verifyPublishableRoughCut(
@@ -90,6 +91,23 @@ export interface HeadlessProjectSummary {
   sequenceName: string;
   revision: ContextRevision;
   path: string;
+}
+
+export interface HeadlessUndoResult {
+  project: FramekitProjectDocument;
+  verification: { verified: true; expectedDigest: string; observedDigest: string };
+}
+
+interface HeadlessUndoRecord {
+  version: 1;
+  undoId: string;
+  projectId: string;
+  sequenceId: string;
+  before: FramekitProjectDocument;
+  beforeDigest: string;
+  afterDigest: string;
+  afterRevision: ContextRevision;
+  checksum: string;
 }
 
 export interface HeadlessRenderRecord {
@@ -322,11 +340,63 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
 
   public async executeEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string) {
     await this.open(projectId);
-    const transaction = new ProjectTransactionService(this.store(projectId), { clock: this.clock });
-    return transaction.execute({
+    const timestamp = this.clock();
+    const transaction = new ProjectTransactionService(this.store(projectId), { clock: () => timestamp });
+    const editCommand = {
       ...command,
       target: command.target ?? { projectId, sequenceId },
-    });
+    };
+    const preview = await transaction.preview(editCommand);
+    const undoId = `undo-${randomUUID()}`;
+    const afterDigest = timelineIrDigest(preview.after.timeline);
+    const record = {
+      version: 1 as const, undoId, projectId, sequenceId,
+      before: preview.before,
+      beforeDigest: timelineIrDigest(preview.before.timeline),
+      afterDigest,
+      afterRevision: { id: `ir:${afterDigest}`, sequence: preview.before.timeline.revision.sequence + 1, timestamp },
+    };
+    const directory = join(this.directory, "undo");
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, `${undoId}.json`), JSON.stringify({ ...record, checksum: hash(stableJson(record)) }), { encoding: "utf8", flag: "wx" });
+    const result = await transaction.execute(editCommand);
+    if (!sameRevision(result.after.timeline.revision, record.afterRevision) || timelineIrDigest(result.after.timeline) !== afterDigest) {
+      throw new Error("HEADLESS_EDIT_UNCERTAIN: committed edit differs from the recorded Undo state");
+    }
+    return { ...result, undoId };
+  }
+
+  public async undoEdit(projectId: string, sequenceId: string, undoId: string, expectedRevision: ContextRevision): Promise<HeadlessUndoResult> {
+    if (!/^undo-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(undoId)) {
+      throw new Error("HEADLESS_UNDO_INVALID: invalid Undo identifier");
+    }
+    let record: HeadlessUndoRecord;
+    try {
+      record = JSON.parse(await readFile(join(this.directory, "undo", `${undoId}.json`), "utf8")) as HeadlessUndoRecord;
+      const { checksum, ...content } = record;
+      if (record.version !== 1 || record.undoId !== undoId || checksum !== hash(stableJson(content))
+        || record.projectId !== projectId || record.sequenceId !== sequenceId
+        || record.before.timeline.project.id !== projectId || record.before.timeline.sequence.id !== sequenceId
+        || timelineIrDigest(record.before.timeline) !== record.beforeDigest) throw new Error("invalid record");
+    } catch {
+      throw new Error("HEADLESS_UNDO_INVALID: Undo record is missing or invalid");
+    }
+    const current = await this.open(projectId);
+    if (current.timeline.sequence.id !== sequenceId || !sameRevision(current.timeline.revision, expectedRevision)
+      || !sameRevision(current.timeline.revision, record.afterRevision) || timelineIrDigest(current.timeline) !== record.afterDigest) {
+      throw new Error("HEADLESS_UNDO_STALE: current target or revision differs from the recorded edit");
+    }
+    const restored = structuredClone(record.before);
+    const timestamp = this.clock();
+    restored.metadata.updatedAt = timestamp;
+    restored.timeline.revision = { id: `ir:${record.beforeDigest}`, sequence: current.timeline.revision.sequence + 1, timestamp };
+    await this.store(projectId).save(restored, current.timeline.revision);
+    const observed = await this.open(projectId);
+    const observedDigest = timelineIrDigest(observed.timeline);
+    if (!sameRevision(observed.timeline.revision, restored.timeline.revision) || observedDigest !== record.beforeDigest) {
+      throw new Error("HEADLESS_UNDO_UNVERIFIED: restored project could not be independently verified");
+    }
+    return { project: observed, verification: { verified: true, expectedDigest: record.beforeDigest, observedDigest } };
   }
 
   public async previewRoughCut(request: HeadlessRoughCutRequest): Promise<HeadlessRoughCutPreview> {

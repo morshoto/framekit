@@ -9,6 +9,8 @@ The headless path works without a running Final Cut Pro session. Framekit owns t
 3. Register media against the expected revision. Use `headless.media.search` with the project ID to find registered sources by ID, name or path; same-name results remain separate. Then preview an edit before executing it.
 4. Reopen and inspect the exact project revision before rendering. Verify the resulting output independently.
 
+`headless.edit.execute` returns an `undoId`. To restore that edit, call `headless.edit.undo` with the project, sequence, Undo ID and exact current revision. Undo writes a new revision and reloads the project to verify its timeline digest. A later edit, missing or corrupt Undo record, or changed local media causes Undo to fail closed. This restores a Framekit-owned project; it does not undo an operation in Final Cut Pro.
+
 A stale revision or unavailable provider requires a fresh inspection or a structured failure. Framekit does not silently substitute a native operation or external renderer. The [video production runbook](https://github.com/morshoto/framekit/blob/main/plugins/framekit/references/tests/codex-video-production-e2e.md) shows a detailed workflow and its evidence boundaries.
 
 See [Projects & Timeline IR](/en/docs/projects-and-timeline/) and [Revisions & Safety](/en/docs/revisions-and-safety/).

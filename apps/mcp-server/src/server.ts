@@ -1443,6 +1443,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     operations: operations as TimelineIrEditOperation[],
   }, sequenceId)));
 
+  server.registerTool("headless.edit.undo", {
+    description: "Restore the prior Framekit-owned timeline at the expected revision and independently verify the persisted result.",
+    inputSchema: { projectId: z.string().min(1), sequenceId: z.string().min(1), undoId: z.string().min(1), expectedRevision: revisionValueSchema },
+  }, async ({ projectId, sequenceId, undoId, expectedRevision }) => sessionResult(() => requireHeadlessProjects().undoEdit(projectId, sequenceId, undoId, expectedRevision)));
+
   const headlessRenderParametersSchema = z.object({
     outputPath: z.string().min(1),
     format: z.enum(["mp4", "mov"]),
