@@ -125,3 +125,41 @@ test("speech mapping fails closed for stale, ambiguous, and unsupported targets"
     /AMBIGUOUS_MAPPING/,
   );
 });
+
+test("speech occurrence mapping refuses unobserved source coverage", () => {
+  const partial = {
+    ...analysis,
+    requestedRange: { start: 10, end: 12 },
+    observedRange: { start: 10, end: 11 },
+    words: [analysis.words[1]!],
+  };
+  assert.throws(
+    () => mapSpeechAnalysisToOccurrence(partial, occurrence(30), {
+      sequenceFrameDuration: { value: "1", timescale: "10" },
+    }),
+    /AMBIGUOUS_MAPPING.*observed/,
+  );
+});
+
+for (const [label, range] of [
+  ["source occurrence start", { start: 10, end: 12, startTime: { value: "100", timescale: "1" } }],
+  ["source occurrence duration", { start: 10, end: 12, durationTime: { value: "3", timescale: "1" } }],
+  ["source occurrence clock", { start: 10, end: 12, startTime: { value: "10", timescale: "0" } }],
+] as const) {
+  test(`speech mapping rejects contradictory ${label} timing`, () => {
+    const target = { ...occurrence(30), sourceRange: range };
+    assert.throws(
+      () => mapSpeechAnalysisToOccurrence(analysis, target, { sequenceFrameDuration: { value: "1", timescale: "10" } }),
+      /AMBIGUOUS_MAPPING|ANALYSIS_INVALID/,
+    );
+  });
+}
+
+test("source range translation rejects conflicting exact evidence coordinates", () => {
+  assert.throws(
+    () => mapSourceRangeToSequenceRange({
+      start: 10.25, end: 10.35, startTime: { value: "11", timescale: "1" },
+    }, occurrence(30)),
+    /AMBIGUOUS_MAPPING/,
+  );
+});
