@@ -171,3 +171,39 @@ test("Final Cut XML keeps nested title text and audio-only media identity", asyn
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("FCPXML comparison requires explicit exports and fails on changed source content", async () => {
+  const { execFileSync, spawnSync } = await import("node:child_process");
+  const { pathToFileURL } = await import("node:url");
+  const { mkdir } = await import("node:fs/promises");
+  const directory = await mkdtemp(join(tmpdir(), "framekit-fcpxml-compare-"));
+  try {
+    const expectedDir = join(directory, "expected");
+    const actualDir = join(directory, "actual");
+    await mkdir(expectedDir);
+    await mkdir(actualDir);
+    const expectedMedia = join(expectedDir, "clip.mp4");
+    const actualMedia = join(actualDir, "clip.mp4");
+    await writeFile(expectedMedia, "expected source");
+    await writeFile(actualMedia, "expected source");
+    const xml = (source: string) => `<?xml version="1.0"?><fcpxml version="1.11"><resources><format id="r1" frameDuration="1/24s"/><asset id="r2" name="clip.mp4" duration="2s" hasVideo="1"><media-rep kind="original-media" src="${pathToFileURL(source).href}"/></asset></resources><library><event><project name="Example"><sequence format="r1" duration="2s"><spine><asset-clip ref="r2" name="clip.mp4" offset="0s" start="0s" duration="2s"/></spine></sequence></project></event></library></fcpxml>`;
+    const expected = join(expectedDir, "expected.fcpxml");
+    const actual = join(actualDir, "actual.fcpxml");
+    await writeFile(expected, xml(expectedMedia));
+    await writeFile(actual, xml(actualMedia));
+    const script = "scripts/compare-fcpxml-export.ts";
+    const args = ["--import", "tsx", script];
+    assert.notEqual(spawnSync(process.execPath, args).status, 0);
+    const output = execFileSync(process.execPath, [...args, expected, actual], { encoding: "utf8" });
+    assert.match(output, /artifact semantics match/);
+    assert.match(output, /target identity and freshness are not verified/);
+    await writeFile(actualMedia, "different source");
+    const mismatch = spawnSync(process.execPath, [...args, expected, actual], { encoding: "utf8" });
+    assert.notEqual(mismatch.status, 0);
+    assert.match(mismatch.stderr, /FINAL_CUT_PUBLISH_SEMANTIC_MISMATCH/);
+    await rm(actualMedia);
+    assert.notEqual(spawnSync(process.execPath, [...args, expected, actual]).status, 0);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
