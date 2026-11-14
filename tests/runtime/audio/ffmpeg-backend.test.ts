@@ -69,6 +69,9 @@ test("FFmpeg source backend quantizes requested bounds inward to actual sample c
   assert.equal(audio.measuredRange.start, 1 / 48000);
   assert.equal(audio.measuredRange.end, 2);
   assert.equal(audio.analyzedDurationSeconds, 95999 / 48000);
+  const near = await backend(t, { range: { start: 0.100000000000001, end: 2 } });
+  assert.equal(near.code, 0, near.stderr);
+  assert.equal(JSON.parse(near.stdout).measuredRange.start, 4801 / 48000);
 });
 
 test("FFmpeg source backend rejects occurrence requests before invoking media tools", async (t) => {
