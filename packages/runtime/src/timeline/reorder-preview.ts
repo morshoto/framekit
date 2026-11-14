@@ -13,6 +13,8 @@ export interface PrimaryStorylineReorderPreview {
   sequenceId: string;
   revision: ContextRevision;
   occurrenceId: string;
+  moving: Clip;
+  source: string;
   destination: PrimaryStorylineDestination;
   noOp: boolean;
   before: Clip[];
@@ -60,7 +62,9 @@ export function previewPrimaryStorylineReorder(
   if ((destination.kind === "before" || destination.kind === "after") && !ids.has(destination.occurrenceId)) {
     throw new Error("REORDER_TARGET_NOT_FOUND: destination occurrence is missing");
   }
-  const result: PrimaryStorylineReorderPreview = { projectId: snapshot.projectId, sequenceId: snapshot.timeline.id, revision: structuredClone(snapshot.revision), occurrenceId, destination: structuredClone(destination), noOp: true, before: [], after: [] };
+  const selected = clips[oldIndex]!;
+  const source = snapshot.media.find((media) => media.mediaId === selected.mediaId)!.source;
+  const result: PrimaryStorylineReorderPreview = { projectId: snapshot.projectId, sequenceId: snapshot.timeline.id, revision: structuredClone(snapshot.revision), occurrenceId, moving: structuredClone(selected), source, destination: structuredClone(destination), noOp: true, before: [], after: [] };
   if ((destination.kind === "before" || destination.kind === "after") && destination.occurrenceId === occurrenceId) return result;
   const reordered = [...clips];
   const [moving] = reordered.splice(oldIndex, 1);
