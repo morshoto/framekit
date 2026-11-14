@@ -778,6 +778,17 @@ test("production MCP rejects malformed audio while transcription stays available
       ["negative silence", { ...base, silenceMs: -1 }],
       ["nonfinite duration", { ...base, analyzedDurationSeconds: NaN }],
       ["fractional sample count", { ...base, audibleSamples: 1.5 }],
+      ["invalid source clock", { ...base, sourceTimebase: { value: "1", timescale: "0" } }],
+      ["nonpositive source clock", { ...base, sourceTimebase: { value: "0", timescale: "48000" } }],
+      ["contradictory measured start", { ...base, measuredRange: {
+        start: 2, end: 5, startTime: { value: "200", timescale: "1" },
+      } }],
+      ["contradictory measured duration", { ...base, measuredRange: {
+        start: 2, end: 5, durationTime: { value: "4", timescale: "1" },
+      } }],
+      ["zero channels", { ...base, signalFormat: { sampleRate: 48000, channels: 0 } }],
+      ["nonfinite sample rate", { ...base, signalFormat: { sampleRate: Infinity, channels: 2 } }],
+      ["malformed channel layout", { ...base, signalFormat: { sampleRate: 48000, channels: 2, channelLayout: "" } }],
       ["invalid validity flag", { ...base, valid: "false" }],
       ["invalid dialogue flag", { ...base, dialoguePresent: "yes" }],
       ["invalid diagnostic type", { ...base, invalidReason: 12 }],
@@ -826,4 +837,30 @@ test("media understanding does not publish provider-rejected audio as analyzed e
   assert.equal(audio?.status, "unavailable");
   assert.match(audio?.reason ?? "", /provider could not measure/);
   assert.equal(result.analysis.find((entry) => entry.capability === "speech")?.status, "analyzed");
+});
+
+test("audio occurrence measurement retains declared source clock and signal format", async () => {
+  const fixture = semanticFixture();
+  const format = { sampleRate: 48000, channels: 2, channelLayout: "stereo" };
+  const clock = { value: "1", timescale: "48000" };
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    audioAnalyzer: { analyze: async ({ occurrenceId }) => ({
+      signalScope: "occurrence" as const, occurrenceId,
+      integratedLufs: -20, truePeakDb: -6, silenceMs: 0, dialoguePresent: true,
+      signalFormat: format, sourceTimebase: clock,
+    }) },
+  });
+  const before = await runtime.inspectProject();
+  const preview = await runtime.previewDialogueNormalization({
+    ...DIALOGUE_NORMALIZATION_DEFAULTS,
+    mediaId: "media-semantic-1", occurrenceId: "clip-semantic-1", baseRevision: before.revision,
+  });
+  assert.deepEqual((preview.measurement as unknown as { signalFormat: unknown }).signalFormat, format);
+  assert.deepEqual((preview.measurement as unknown as { sourceTimebase: unknown }).sourceTimebase, clock);
+  assert.equal(preview.plan.decision, "APPLY");
+  format.channels = 9;
+  clock.timescale = "1";
+  assert.equal((preview.measurement as unknown as { signalFormat: { channels: number } }).signalFormat.channels, 2);
+  assert.equal((preview.measurement as unknown as { sourceTimebase: { timescale: string } }).sourceTimebase.timescale, "48000");
+  assert.deepEqual(await fixture.adapter.readProject(), before);
 });
