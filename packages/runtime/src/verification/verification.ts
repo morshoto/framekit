@@ -202,16 +202,20 @@ export class DefaultVerificationEngine implements VerificationEngine {
         const media = transaction.before.media.find((candidate) => candidate.mediaId === clip.mediaId);
         return Boolean(media?.speech);
       });
-      const continuity = beforeSpeechClips.every((beforeClip) => {
-        const occurrences = speechContinuityOccurrences(transaction, beforeClip);
-        if (!occurrences) return false;
-        const media = transaction.attemptedAfter.media.find((candidate) => candidate.mediaId === beforeClip.mediaId);
-        return !media?.speech || media.speech.words.every((word) => speechWordFitsOccurrences(word, occurrences));
-      });
+      const mappings = beforeSpeechClips.map(beforeClip => ({ beforeClip, occurrences: speechContinuityOccurrences(transaction, beforeClip) }));
+      const mappedIds = new Set(mappings.flatMap(mapping => mapping.occurrences?.map(clip => clip.id) ?? []));
+      const speechMediaIds = new Set(beforeSpeechClips.map(clip => clip.mediaId));
+      const continuity = transaction.attemptedAfter.timeline.clips
+        .filter(clip => speechMediaIds.has(clip.mediaId)).every(clip => mappedIds.has(clip.id))
+        && mappings.every(({ beforeClip, occurrences }) => {
+          if (!occurrences) return false;
+          const media = transaction.attemptedAfter.media.find((candidate) => candidate.mediaId === beforeClip.mediaId);
+          return !media?.speech || media.speech.words.every((word) => speechWordFitsOccurrences(word, occurrences));
+        });
       checks.push({
         name: "speech-continuity",
         passed: continuity,
-        detail: continuity ? "speech words remain inside their clip bounds" : "a speech word would be clipped",
+        detail: continuity ? "speech words remain inside their clip bounds" : "speech bounds or retained occurrence mapping could not be verified",
       });
     }
 
