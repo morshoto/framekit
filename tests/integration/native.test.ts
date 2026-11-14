@@ -4352,3 +4352,48 @@ test("native media placement rechecks project after Browser reselection", async 
   await assert.rejects(adapter.executeInsertMedia(preview.previewToken), /FINAL_CUT_NATIVE_PREVIEW_STALE.*project/);
   assert.equal(dispatched, false);
 });
+
+test("native placement preview requires a sequence identity", async () => {
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => ({
+      project: { id: "project-1", name: "Edit" },
+      sequence: { id: "", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: "10", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+      playheadTime: { value: "4", timescale: "1" },
+      sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "10", timescale: "1" } },
+      revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
+    }),
+    executor: async (script) => script.includes("AXBrowserMedia")
+      ? `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${String.fromCharCode(30)}`
+      : script.includes('set frontWindow to window "Final Cut Pro"') ? context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1, "Undo") : "",
+  });
+  const [media] = await adapter.searchMedia("Interview");
+  await adapter.selectMedia(media.handle);
+  await assert.rejects(adapter.previewAppendMedia(media.handle), /CAPABILITY_UNAVAILABLE.*sequence identity/);
+});
+
+test("native append rejects a changed sequence start before dispatch", async () => {
+  let sequenceStart = "0";
+  let dispatched = false;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => ({
+      project: { id: "project-1", name: "Edit" },
+      sequence: { id: "sequence-1", name: "Edit", startTime: { value: sequenceStart, timescale: "1" }, duration: { value: "10", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+      playheadTime: { value: "4", timescale: "1" },
+      sequenceTimeRange: { start: { value: sequenceStart, timescale: "1" }, duration: { value: "10", timescale: "1" } },
+      revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
+    }),
+    executor: async (script) => {
+      if (script.includes('keystroke "e"')) { dispatched = true; throw new Error("unexpected append dispatch"); }
+      if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${String.fromCharCode(30)}`;
+      return script.includes('set frontWindow to window "Final Cut Pro"') ? context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1, "Undo") : "";
+    },
+  });
+  const [media] = await adapter.searchMedia("Interview");
+  await adapter.selectMedia(media.handle);
+  const preview = await adapter.previewAppendMedia(media.handle);
+  sequenceStart = "1";
+  await assert.rejects(adapter.executeAppendMedia(preview.previewToken), /FINAL_CUT_NATIVE_PREVIEW_STALE.*insertion/);
+  assert.equal(dispatched, false);
+});
