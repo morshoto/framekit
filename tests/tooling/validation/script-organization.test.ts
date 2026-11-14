@@ -27,10 +27,13 @@ test("reports missing package commands, workflow commands, links, and executable
     await mkdir(join(root, ".github/action/fixture"), { recursive: true });
     await mkdir(join(root, "docs"), { recursive: true });
     await mkdir(join(root, "tests"), { recursive: true });
+    await mkdir(join(root, 'scripts'));
+    await writeFile(join(root, 'scripts/runner.mjs'), '');
     await writeFile(join(root, "package.json"), JSON.stringify({
       scripts: {
         broken: "node scripts/missing-command.mjs",
         direct: "./scripts/missing-direct-command.sh",
+        focused: "node scripts/runner.mjs --file tests/missing.test.ts",
       },
       bin: { framekit: "./bin/missing-executable.mjs" },
     }));
@@ -50,6 +53,7 @@ test("reports missing package commands, workflow commands, links, and executable
       "package.json bin.framekit points to missing executable bin/missing-executable.mjs",
       "package.json scripts.broken runs missing script scripts/missing-command.mjs",
       "package.json scripts.direct runs missing script scripts/missing-direct-command.sh",
+      "package.json scripts.focused runs missing script tests/missing.test.ts",
       "tests/README.md runs missing script scripts/missing-test-command.mjs",
     ]);
   } finally {

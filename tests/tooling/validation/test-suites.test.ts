@@ -115,7 +115,7 @@ test("fast CI and post-merge validation preserve reviewed test coverage", async 
     assert.equal(packageJson.scripts?.[script], `node scripts/run-tests-with-isolated-home.mjs ${suite}`);
     assert.match(documentation, new RegExp(`pnpm run ${script.replace(":", "\\:")}`));
   }
-  assert.match(packageJson.scripts?.["test:package"] ?? "", /build:package/);
+  assert.equal(packageJson.scripts?.["test:package"], "node scripts/run-tests-with-isolated-home.mjs package");
   assert.match(documentation, /ffmpeg.*ffprobe/i);
   assert.match(documentation, /does not launch Final Cut/i);
 });
@@ -204,4 +204,14 @@ test("platform-only prerequisites block SDK tests only in their execution enviro
   const options = { manifest, availableExecutables: new Set(['node']) };
   assert.deepEqual(evaluateSuitePrerequisites('native', { ...options, platform: 'linux' }), { ready: true, missing: [] });
   assert.deepEqual(evaluateSuitePrerequisites('native', { ...options, platform: 'darwin' }), { ready: false, missing: ['xcrun'] });
+});
+
+
+test("golden and filler aliases use the same isolated runner and reviewed selection", async () => {
+  const manifest = await loadTestSuiteManifest(repository);
+  const packageJson = JSON.parse(await readFile(resolve(repository, 'package.json'), 'utf8'));
+  for (const [script, suite, prefix] of [['test:golden', 'golden', 'tests/workflows/golden/'], ['test:filler-removal', 'filler-removal', 'tests/workflows/filler-removal/']]) {
+    assert.equal(packageJson.scripts[script], `node scripts/run-tests-with-isolated-home.mjs ${suite}`);
+    assert.deepEqual(selectTestFiles(manifest, suite), manifest.tests.filter(entry => entry.path.startsWith(prefix)).map(entry => entry.path).sort());
+  }
 });
