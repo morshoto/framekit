@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { evaluateRequiredChecks } from '../../scripts/ci/check-required-checks.mjs';
+import { evaluateRequiredChecks } from '../../../scripts/ci/check-required-checks.mjs';
 
 const contexts = ['Lint / static checks', 'Unit / integration tests', 'Swift type-check', 'CodeQL PR policy', 'CI passed'];
 function ruleset() {

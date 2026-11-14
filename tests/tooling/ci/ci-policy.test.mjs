@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { evaluateResults } from '../../scripts/ci/check-results.mjs';
+import { evaluateResults } from '../../../scripts/ci/check-results.mjs';
 
 function results(changed = 'true') {
   return Object.fromEntries(['lint', 'test', 'nix-fixture', 'consumer-runtime', 'swift', 'docs-changes', 'docs-foundation', 'docs-export'].map(id => [id, {

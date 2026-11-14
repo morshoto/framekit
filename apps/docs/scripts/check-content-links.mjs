@@ -63,7 +63,7 @@ export async function checkContentLinks(contentRoot, publicRoot, registeredSlugs
   return errors;
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const root = fileURLToPath(new URL('../', import.meta.url));
+  const root = fileURLToPath(new URL('..', import.meta.url));
   const { documents } = await import('../src/lib/docs/source.ts');
   const errors = await checkContentLinks(join(root, 'content/docs'), join(root, 'public'), documents);
   if (errors.length) { console.error(errors.join('\n')); process.exitCode = 1; } else console.log('Mock content links and anchors resolve.');

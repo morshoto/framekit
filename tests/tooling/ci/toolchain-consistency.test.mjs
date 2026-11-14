@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { checkToolchain } from '../../scripts/check-toolchain.mjs';
+import { checkToolchain } from '../../../scripts/check-toolchain.mjs';
 
 const consistent = {
   packageManager: 'pnpm@12.14.0', consumerNode: '>=20', contributorNode: '22.14.0',

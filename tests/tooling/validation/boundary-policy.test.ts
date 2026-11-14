@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { analyzeWorkspaceBoundaries } from "../../scripts/boundary-policy.mjs";
+import { analyzeWorkspaceBoundaries } from "../../../scripts/boundary-policy.mjs";
 
 const packages = [
   { id: "runtime", name: "@fixture/runtime", root: "packages/runtime", manifest: "packages/runtime/package.json" },
@@ -296,7 +296,7 @@ test("rejects experimental native modules in default production reachability", a
 });
 
 test("keeps the package-boundary gate in pull request CI", async () => {
-  const action = await readFile(new URL("../../.github/action/lint-static/action.yml", import.meta.url), "utf8");
+  const action = await readFile(new URL("../../../.github/action/lint-static/action.yml", import.meta.url), "utf8");
   assert.match(action, /Package boundary checks[\s\S]*?run: pnpm run check:boundaries/);
 });
 
@@ -348,7 +348,7 @@ function packageManifest(name: string, dependencies: Record<string, string>): st
 }
 
 test("production entrypoints cannot reach SQLite research providers", async () => {
-  const { FRAMEKIT_PACKAGES, FRAMEKIT_BOUNDARY_POLICY } = await import("../../scripts/boundary-policy.mjs");
+  const { FRAMEKIT_PACKAGES, FRAMEKIT_BOUNDARY_POLICY } = await import("../../../scripts/boundary-policy.mjs");
   for (const name of ["sqlite-inspection.ts", "sqlite-wal-observation.ts"]) {
     assert.ok(FRAMEKIT_BOUNDARY_POLICY.experimentalModules.includes(`adapters/final-cut/typescript/src/${name}`));
   }

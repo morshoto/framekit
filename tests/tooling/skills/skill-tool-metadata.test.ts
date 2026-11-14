@@ -5,9 +5,9 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { AgentVideoRuntime } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
-import { buildSkillToolCatalog } from "../../apps/mcp-server/src/tools/skills/catalog.js";
-import { SKILL_TOOL_METADATA } from "../../apps/mcp-server/src/tools/skills/metadata.js";
-import { registerSkillTools } from "../../apps/mcp-server/src/tools/skills/register.js";
+import { buildSkillToolCatalog } from "../../../apps/mcp-server/src/tools/skills/catalog.js";
+import { SKILL_TOOL_METADATA } from "../../../apps/mcp-server/src/tools/skills/metadata.js";
+import { registerSkillTools } from "../../../apps/mcp-server/src/tools/skills/register.js";
 
 async function listSkillTools() {
   const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({

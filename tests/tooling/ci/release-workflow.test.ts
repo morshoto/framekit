@@ -3,9 +3,9 @@ import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { validateReleaseContract } from '../../scripts/validate-release-contract.mjs';
+import { validateReleaseContract } from '../../../scripts/validate-release-contract.mjs';
 
-const repository = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const repository = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const releaseConfigPath = resolve(repository, '.github/release.yml');
 
 const expectedReleaseCategories = [

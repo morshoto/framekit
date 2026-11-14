@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
-import { assessBuildAlignment } from "../../apps/mcp-server/src/build-alignment.js";
+import { assessBuildAlignment } from "../../../apps/mcp-server/src/build-alignment.js";
 
-const repository = resolve(import.meta.dirname, "../..");
+const repository = resolve(import.meta.dirname, "../../..");
 
 const runtime = { version: "0.1.11", commit: "runtime-commit" };
 

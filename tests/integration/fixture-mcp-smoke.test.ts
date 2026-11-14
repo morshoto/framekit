@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import test from "node:test";
 
-const repositoryRoot = new URL("../../", import.meta.url).pathname;
+const repositoryRoot = new URL("../..", import.meta.url).pathname;
 
 test("fixture MCP smoke completes stdio handshake and status call", () => {
   const result = spawnSync(process.execPath, ["scripts/fixture-mcp-smoke.mjs"], {

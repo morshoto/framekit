@@ -4,7 +4,7 @@ import test from "node:test";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
+const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 const contractPath = join(repositoryRoot, "docs/architecture.md");
 const domainPath = join(repositoryRoot, "packages/runtime/src/domain");
 

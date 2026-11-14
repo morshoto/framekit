@@ -9,7 +9,7 @@
     ],
     "extensions": [
       ".test.ts",
-      "tests/documentation/*.test.mjs"
+      ".test.mjs"
     ],
     "exclusions": {
       "apps/docs": "Vitest owns src/**/*.test.tsx and src/**/*.spec.ts; node export runner owns test/*.test.mjs; Playwright owns e2e/*.spec.mjs",
@@ -17,7 +17,8 @@
       "node_modules": "dependencies",
       "dist": "build output",
       "dist-package": "package output",
-      "coverage": "generated reports"
+      "coverage": "generated reports",
+      "tests/research": "explicit opt-in research only"
     },
     "headedAcceptance": "scripts/final-cut-*-headed-e2e.mjs; explicit target and separate authorization required"
   },
@@ -57,133 +58,64 @@
       "network": "none"
     },
     {
-      "path": "tests/documentation/check-docs.test.mjs",
+      "path": "tests/distribution/clean-mcp-clients.test.ts",
+      "owner": "packages/runtime",
       "tags": [
-        "documentation",
-        "unit"
+        "fixture-e2e",
+        "integration",
+        "package"
       ],
-      "owner": "scripts/ci",
-      "reviewed": true,
-      "evidence": "static",
-      "dependsOn": [
-        "apps/mcp-server",
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none",
-      "requires": []
-    },
-    {
-      "path": "tests/documentation/ci-policy.test.mjs",
-      "tags": [
-        "documentation",
-        "unit"
-      ],
-      "owner": "scripts/ci",
+      "requires": [],
       "reviewed": true,
       "evidence": "fixture",
       "dependsOn": [
+        "packages/runtime",
         "scripts"
       ],
       "platforms": [
         "any"
       ],
-      "network": "none",
-      "requires": []
+      "network": "none"
     },
     {
-      "path": "tests/documentation/ci-reporting.test.mjs",
+      "path": "tests/distribution/package-build-identity.test.ts",
+      "owner": "scripts/release",
       "tags": [
-        "documentation",
-        "unit"
+        "package",
+        "release-gate"
       ],
-      "owner": "scripts/ci",
-      "reviewed": true,
-      "evidence": "process",
-      "dependsOn": [
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none",
-      "requires": []
-    },
-    {
-      "path": "tests/documentation/ci-ruleset.test.mjs",
-      "tags": [
-        "documentation",
-        "unit"
-      ],
-      "owner": "scripts/ci",
+      "requires": [],
       "reviewed": true,
       "evidence": "fixture",
       "dependsOn": [
-        "scripts"
+        "apps/mcp-server"
       ],
       "platforms": [
         "any"
       ],
-      "network": "none",
-      "requires": []
+      "network": "none"
     },
     {
-      "path": "tests/documentation/ci-toolchain.test.mjs",
+      "path": "tests/distribution/package-distribution.test.ts",
+      "owner": "apps/mcp-server",
       "tags": [
-        "documentation",
-        "unit"
+        "fixture-e2e",
+        "integration",
+        "package"
       ],
-      "owner": "scripts/ci",
-      "reviewed": true,
-      "evidence": "process",
-      "dependsOn": [
-        "packages/runtime"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none",
       "requires": [
-        "bash"
-      ]
-    },
-    {
-      "path": "tests/documentation/ci-workflow.test.mjs",
-      "tags": [
-        "documentation",
-        "unit"
+        "npm"
       ],
-      "owner": "scripts/ci",
       "reviewed": true,
-      "evidence": "static",
+      "evidence": "process",
       "dependsOn": [
-        "scripts"
+        "apps/cli",
+        "apps/mcp-server"
       ],
       "platforms": [
         "any"
       ],
-      "network": "none",
-      "requires": []
-    },
-    {
-      "path": "tests/documentation/toolchain-consistency.test.mjs",
-      "tags": [
-        "documentation",
-        "unit"
-      ],
-      "owner": "scripts/ci",
-      "reviewed": true,
-      "evidence": "fixture",
-      "dependsOn": [
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none",
-      "requires": []
+      "network": "registry"
     },
     {
       "path": "tests/evaluation/mcp-evaluation.test.ts",
@@ -248,24 +180,6 @@
       "requires": [],
       "reviewed": true,
       "evidence": "fixture",
-      "dependsOn": [
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/agents-playbooks.test.ts",
-      "owner": "scripts",
-      "tags": [
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "static",
       "dependsOn": [
         "scripts"
       ],
@@ -348,25 +262,6 @@
         "apps/mcp-server",
         "packages/runtime",
         "packages/testkit"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/boundary-policy.test.ts",
-      "owner": "adapters/final-cut/typescript",
-      "tags": [
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "fixture",
-      "dependsOn": [
-        "adapters/final-cut/typescript",
-        "scripts"
       ],
       "platforms": [
         "any"
@@ -617,26 +512,6 @@
       "network": "none"
     },
     {
-      "path": "tests/integration/clean-mcp-clients.test.ts",
-      "owner": "packages/runtime",
-      "tags": [
-        "fixture-e2e",
-        "integration",
-        "package"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "fixture",
-      "dependsOn": [
-        "packages/runtime",
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
       "path": "tests/integration/cli-dev-doctor.test.ts",
       "owner": "apps/cli",
       "tags": [
@@ -713,46 +588,6 @@
         "packages/headless-application",
         "packages/runtime",
         "packages/testkit"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/codeql-workflow.test.ts",
-      "owner": "scripts",
-      "tags": [
-        "fast-integration",
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": [
-        "bash"
-      ],
-      "reviewed": true,
-      "evidence": "process",
-      "dependsOn": [
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/codex-plugin.test.ts",
-      "owner": "scripts",
-      "tags": [
-        "fixture-e2e",
-        "integration",
-        "package"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "static",
-      "dependsOn": [
-        "scripts"
       ],
       "platforms": [
         "any"
@@ -1138,24 +973,6 @@
       "network": "none"
     },
     {
-      "path": "tests/integration/filler-removal-ci.test.ts",
-      "owner": "scripts",
-      "tags": [
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "static",
-      "dependsOn": [
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
       "path": "tests/integration/filler-removal-evidence.test.ts",
       "owner": "scripts",
       "tags": [
@@ -1521,23 +1338,6 @@
       "network": "none"
     },
     {
-      "path": "tests/integration/focused-runner.test.ts",
-      "tags": [
-        "unit"
-      ],
-      "owner": "scripts/testing",
-      "reviewed": true,
-      "evidence": "process",
-      "dependsOn": [
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none",
-      "requires": []
-    },
-    {
       "path": "tests/integration/frame-capture.test.ts",
       "owner": "packages/runtime",
       "tags": [
@@ -1557,66 +1357,6 @@
       "network": "none"
     },
     {
-      "path": "tests/integration/git-config.test.ts",
-      "owner": "scripts",
-      "tags": [
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": [
-        "git"
-      ],
-      "reviewed": true,
-      "evidence": "process",
-      "dependsOn": [
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/git-hooks.test.ts",
-      "owner": "scripts/testing",
-      "tags": [
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": [
-        "bash",
-        "git"
-      ],
-      "reviewed": true,
-      "evidence": "process",
-      "dependsOn": [
-        "apps/mcp-server",
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/golden-corpus-ci.test.ts",
-      "owner": "scripts",
-      "tags": [
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "static",
-      "dependsOn": [
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
       "path": "tests/integration/headed-native-evidence.test.ts",
       "owner": "scripts",
       "tags": [
@@ -1629,25 +1369,6 @@
       "evidence": "static",
       "dependsOn": [
         "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/headless-core-boundaries.test.ts",
-      "owner": "packages/runtime",
-      "tags": [
-        "fixture-e2e",
-        "headless",
-        "integration"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "fixture",
-      "dependsOn": [
-        "packages/runtime"
       ],
       "platforms": [
         "any"
@@ -1861,25 +1582,6 @@
       "evidence": "fixture",
       "dependsOn": [
         "packages/runtime"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/local-validation.test.ts",
-      "owner": "scripts/testing",
-      "tags": [
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "static",
-      "dependsOn": [
-        "apps/cli",
-        "apps/mcp-server"
       ],
       "platforms": [
         "any"
@@ -2224,28 +1926,6 @@
       "network": "none"
     },
     {
-      "path": "tests/integration/package-distribution.test.ts",
-      "owner": "apps/mcp-server",
-      "tags": [
-        "fixture-e2e",
-        "integration",
-        "package"
-      ],
-      "requires": [
-        "npm"
-      ],
-      "reviewed": true,
-      "evidence": "process",
-      "dependsOn": [
-        "apps/cli",
-        "apps/mcp-server"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "registry"
-    },
-    {
       "path": "tests/integration/pasteboard-snapshot.test.ts",
       "owner": "adapters/final-cut/typescript",
       "tags": [
@@ -2335,24 +2015,6 @@
         "apps/mcp-server",
         "packages/runtime",
         "packages/testkit"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/pr-milestone-sync.test.ts",
-      "owner": "scripts",
-      "tags": [
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "static",
-      "dependsOn": [
-        "scripts"
       ],
       "platforms": [
         "any"
@@ -2456,24 +2118,6 @@
       "network": "none"
     },
     {
-      "path": "tests/integration/project-status-sync.test.ts",
-      "owner": "scripts",
-      "tags": [
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "static",
-      "dependsOn": [
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
       "path": "tests/integration/project-transactions.test.ts",
       "owner": "packages/runtime",
       "tags": [
@@ -2551,62 +2195,6 @@
       "network": "none"
     },
     {
-      "path": "tests/integration/release-gate-ci.test.ts",
-      "owner": "scripts",
-      "tags": [
-        "fixture-e2e",
-        "integration",
-        "release-gate"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "static",
-      "dependsOn": [
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/release-gate-docs.test.ts",
-      "owner": "scripts",
-      "tags": [
-        "fixture-e2e",
-        "integration",
-        "release-gate"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "static",
-      "dependsOn": [
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/release-notes-format.test.ts",
-      "owner": "scripts",
-      "tags": [
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "static",
-      "dependsOn": [
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
       "path": "tests/integration/release-runner.test.ts",
       "owner": "scripts",
       "tags": [
@@ -2616,25 +2204,6 @@
       "requires": [],
       "reviewed": true,
       "evidence": "process",
-      "dependsOn": [
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/release-workflow.test.ts",
-      "owner": "scripts",
-      "tags": [
-        "fast-integration",
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "static",
       "dependsOn": [
         "scripts"
       ],
@@ -2680,24 +2249,6 @@
       "evidence": "fixture",
       "dependsOn": [
         "packages/runtime"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/renovate-labeling.test.ts",
-      "owner": "scripts",
-      "tags": [
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "static",
-      "dependsOn": [
-        "scripts"
       ],
       "platforms": [
         "any"
@@ -2820,24 +2371,6 @@
       "dependsOn": [
         "packages/runtime",
         "packages/testkit"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/script-organization.test.ts",
-      "owner": "scripts",
-      "tags": [
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "process",
-      "dependsOn": [
-        "scripts"
       ],
       "platforms": [
         "any"
@@ -2976,84 +2509,6 @@
       "dependsOn": [
         "packages/runtime",
         "packages/testkit"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/skill-tool-metadata.test.ts",
-      "owner": "apps/mcp-server",
-      "tags": [
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "fixture",
-      "dependsOn": [
-        "apps/mcp-server",
-        "packages/runtime",
-        "packages/testkit"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/staged-content.test.ts",
-      "owner": "scripts",
-      "tags": [
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": [
-        "git"
-      ],
-      "reviewed": true,
-      "evidence": "process",
-      "dependsOn": [
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/test-state-isolation.test.ts",
-      "owner": "scripts/testing",
-      "tags": [
-        "fast-integration",
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "fixture",
-      "dependsOn": [
-        "packages/runtime"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/test-suites.test.ts",
-      "owner": "scripts/testing",
-      "tags": [
-        "fixture-e2e",
-        "integration",
-        "unit"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "static",
-      "dependsOn": [
-        "scripts"
       ],
       "platforms": [
         "any"
@@ -3272,23 +2727,6 @@
       "network": "none"
     },
     {
-      "path": "tests/release-gate/documentation-intent.test.ts",
-      "owner": "scripts/release",
-      "tags": [
-        "release-gate"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "static",
-      "dependsOn": [
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
       "path": "tests/release-gate/mcp-skill.test.ts",
       "owner": "scripts/release",
       "tags": [
@@ -3320,24 +2758,6 @@
       "evidence": "static",
       "dependsOn": [
         "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/release-gate/package-build-identity.test.ts",
-      "owner": "scripts/release",
-      "tags": [
-        "package",
-        "release-gate"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "fixture",
-      "dependsOn": [
-        "apps/mcp-server"
       ],
       "platforms": [
         "any"
@@ -3723,6 +3143,607 @@
       ],
       "reviewed": true,
       "evidence": "process",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/tooling/ci/ci-policy.test.mjs",
+      "tags": [
+        "documentation",
+        "unit"
+      ],
+      "owner": "scripts/ci",
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none",
+      "requires": []
+    },
+    {
+      "path": "tests/tooling/ci/ci-reporting.test.mjs",
+      "tags": [
+        "documentation",
+        "unit"
+      ],
+      "owner": "scripts/ci",
+      "reviewed": true,
+      "evidence": "process",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none",
+      "requires": []
+    },
+    {
+      "path": "tests/tooling/ci/ci-ruleset.test.mjs",
+      "tags": [
+        "documentation",
+        "unit"
+      ],
+      "owner": "scripts/ci",
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none",
+      "requires": []
+    },
+    {
+      "path": "tests/tooling/ci/ci-toolchain.test.mjs",
+      "tags": [
+        "documentation",
+        "unit"
+      ],
+      "owner": "scripts/ci",
+      "reviewed": true,
+      "evidence": "process",
+      "dependsOn": [
+        "packages/runtime"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none",
+      "requires": [
+        "bash"
+      ]
+    },
+    {
+      "path": "tests/tooling/ci/ci-workflow.test.mjs",
+      "tags": [
+        "documentation",
+        "unit"
+      ],
+      "owner": "scripts/ci",
+      "reviewed": true,
+      "evidence": "static",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none",
+      "requires": []
+    },
+    {
+      "path": "tests/tooling/ci/codeql-workflow.test.ts",
+      "owner": "scripts",
+      "tags": [
+        "fast-integration",
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": [
+        "bash"
+      ],
+      "reviewed": true,
+      "evidence": "process",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/tooling/ci/filler-removal-ci.test.ts",
+      "owner": "scripts",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "static",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/tooling/ci/golden-corpus-ci.test.ts",
+      "owner": "scripts",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "static",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/tooling/ci/pr-milestone-sync.test.ts",
+      "owner": "scripts",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "static",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/tooling/ci/project-status-sync.test.ts",
+      "owner": "scripts",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "static",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/tooling/ci/release-gate-ci.test.ts",
+      "owner": "scripts",
+      "tags": [
+        "fixture-e2e",
+        "integration",
+        "release-gate"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "static",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/tooling/ci/release-notes-format.test.ts",
+      "owner": "scripts",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "static",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/tooling/ci/release-workflow.test.ts",
+      "owner": "scripts",
+      "tags": [
+        "fast-integration",
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "static",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/tooling/ci/renovate-labeling.test.ts",
+      "owner": "scripts",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "static",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/tooling/ci/toolchain-consistency.test.mjs",
+      "tags": [
+        "documentation",
+        "unit"
+      ],
+      "owner": "scripts/ci",
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none",
+      "requires": []
+    },
+    {
+      "path": "tests/tooling/docs/check-docs.test.mjs",
+      "tags": [
+        "documentation",
+        "unit"
+      ],
+      "owner": "scripts/ci",
+      "reviewed": true,
+      "evidence": "static",
+      "dependsOn": [
+        "apps/mcp-server",
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none",
+      "requires": []
+    },
+    {
+      "path": "tests/tooling/docs/documentation-intent.test.ts",
+      "owner": "scripts/release",
+      "tags": [
+        "release-gate"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "static",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/tooling/docs/release-gate-docs.test.ts",
+      "owner": "scripts",
+      "tags": [
+        "fixture-e2e",
+        "integration",
+        "release-gate"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "static",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/tooling/git/git-config.test.ts",
+      "owner": "scripts",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": [
+        "git"
+      ],
+      "reviewed": true,
+      "evidence": "process",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/tooling/git/git-hooks.test.ts",
+      "owner": "scripts/testing",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": [
+        "bash",
+        "git"
+      ],
+      "reviewed": true,
+      "evidence": "process",
+      "dependsOn": [
+        "apps/mcp-server",
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/tooling/git/staged-content.test.ts",
+      "owner": "scripts",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": [
+        "git"
+      ],
+      "reviewed": true,
+      "evidence": "process",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/tooling/git/staged-rename.test.ts",
+      "owner": "scripts",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": [
+        "git"
+      ],
+      "reviewed": true,
+      "evidence": "process",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/tooling/skills/agents-playbooks.test.ts",
+      "owner": "scripts",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "static",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/tooling/skills/codex-plugin.test.ts",
+      "owner": "scripts",
+      "tags": [
+        "fixture-e2e",
+        "integration",
+        "package"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "static",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/tooling/skills/skill-tool-metadata.test.ts",
+      "owner": "apps/mcp-server",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "apps/mcp-server",
+        "packages/runtime",
+        "packages/testkit"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/tooling/validation/boundary-policy.test.ts",
+      "owner": "adapters/final-cut/typescript",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "adapters/final-cut/typescript",
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/tooling/validation/focused-runner.test.ts",
+      "tags": [
+        "unit"
+      ],
+      "owner": "scripts/testing",
+      "reviewed": true,
+      "evidence": "process",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none",
+      "requires": []
+    },
+    {
+      "path": "tests/tooling/validation/headless-core-boundaries.test.ts",
+      "owner": "packages/runtime",
+      "tags": [
+        "fixture-e2e",
+        "headless",
+        "integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "packages/runtime"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/tooling/validation/local-validation.test.ts",
+      "owner": "scripts/testing",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "static",
+      "dependsOn": [
+        "apps/cli",
+        "apps/mcp-server"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/tooling/validation/script-organization.test.ts",
+      "owner": "scripts",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "process",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/tooling/validation/test-state-isolation.test.ts",
+      "owner": "scripts/testing",
+      "tags": [
+        "fast-integration",
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "packages/runtime"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/tooling/validation/test-suites.test.ts",
+      "owner": "scripts/testing",
+      "tags": [
+        "fixture-e2e",
+        "integration",
+        "unit"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "static",
       "dependsOn": [
         "scripts"
       ],

@@ -5,7 +5,7 @@ import {
 	extractIssueReferences,
 	resolvePullRequestMilestone,
 	syncPullRequestMilestone,
-} from '../../scripts/sync-pr-milestone.mjs';
+} from '../../../scripts/sync-pr-milestone.mjs';
 
 test('extracts unique GitHub issue references from a PR body', () => {
 	assert.deepEqual(extractIssueReferences('Refs #123, see also #456 and #123.'), [123, 456]);
@@ -182,7 +182,7 @@ test('ignores body references that GitHub has not linked to the PR', async () =>
 });
 
 test('rechecks same-repository PR body edits with write permission for milestones', async () => {
-	const workflow = await readFile(new URL('../../.github/workflows/assign.yml', import.meta.url), 'utf8');
+	const workflow = await readFile(new URL('../../../.github/workflows/assign.yml', import.meta.url), 'utf8');
 	const activeWorkflow = workflow.replace(/^[ \t]*#.*$/gm, '');
 	assert.match(activeWorkflow, /pull_request:\s*\n\s+types:\s*\[[^\]]*edited/);
 	assert.doesNotMatch(activeWorkflow, /^[ \t]+pull_request_target:/m);

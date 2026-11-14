@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { requiredJobs, docsJobs } from '../../scripts/ci/check-results.mjs';
+import { requiredJobs, docsJobs } from '../../../scripts/ci/check-results.mjs';
 
 const workflow = readFileSync('.github/workflows/ci.yml', 'utf8');
 const jobs = '\n' + workflow.split('\njobs:\n')[1];

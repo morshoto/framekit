@@ -6,10 +6,10 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { scanStagedContent, scanText } from "../../scripts/check-staged-content.mjs";
+import { scanStagedContent, scanText } from "../../../scripts/check-staged-content.mjs";
 
 const exec = promisify(execFile);
-const scanner = fileURLToPath(new URL("../../scripts/check-staged-content.mjs", import.meta.url));
+const scanner = fileURLToPath(new URL("../../../scripts/check-staged-content.mjs", import.meta.url));
 
 test("staged-content sanitization permits explanatory prose", () => {
   const findings = scanText([

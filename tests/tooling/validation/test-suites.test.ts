@@ -9,7 +9,7 @@ import {
   loadTestSuiteManifest,
   selectTestFiles,
   updateTestSuiteManifest,
-} from "../../scripts/test-suites.mjs";
+} from "../../../scripts/test-suites.mjs";
 
 const repository = resolve(process.cwd());
 
@@ -21,7 +21,7 @@ test("test inventory retains every baseline test and detects uncollected files",
 
   assert.equal(inventory.size, manifest.tests.length);
   assert.ok(inventory.has("packages/runtime/test/project-store.test.ts"));
-  assert.ok(inventory.has("tests/integration/test-suites.test.ts"));
+  assert.ok(inventory.has("tests/tooling/validation/test-suites.test.ts"));
   assert.equal(projectStoreTest?.owner, "packages/runtime");
   assert.ok(projectStoreTest?.tags.includes("unit"));
   assert.deepEqual(compareTestInventory([...inventory], discovered), { missing: [], unregistered: [] });
@@ -97,7 +97,7 @@ test("fast CI and post-merge validation preserve reviewed test coverage", async 
     }
   }
   for (const file of deepOnly) assert.ok(selectTestFiles(manifest, "all").includes(file), file);
-  for (const file of ["tests/integration/basic-editing-mvp.test.ts", "tests/integration/runtime.test.ts", "tests/integration/codeql-workflow.test.ts"]) {
+  for (const file of ["tests/integration/basic-editing-mvp.test.ts", "tests/integration/runtime.test.ts", "tests/tooling/ci/codeql-workflow.test.ts"]) {
     assert.ok(fast.includes(file), file);
   }
   assert.ok(selectTestFiles(manifest, "all").length > fast.length);

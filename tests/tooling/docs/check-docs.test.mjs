@@ -7,7 +7,7 @@ import {
   CANONICAL_DOCS,
   findBrokenMarkdownLinks,
   findNonCanonicalDocs,
-} from "../../scripts/check-docs.mjs";
+} from "../../../scripts/check-docs.mjs";
 
 test("the docs allowlist contains the five canonical documents", () => {
   assert.deepEqual(CANONICAL_DOCS, [

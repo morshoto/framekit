@@ -6,7 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { collectDevDoctorReport } from "../../apps/cli/src/dev-doctor.js";
 
-const repositoryRoot = new URL("../../", import.meta.url).pathname;
+const repositoryRoot = new URL("../..", import.meta.url).pathname;
 const homeDirectory = join(tmpdir(), "framekit-dev-doctor-home");
 
 function checkNamed(report: Awaited<ReturnType<typeof collectDevDoctorReport>>, name: string) {

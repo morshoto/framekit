@@ -7,9 +7,9 @@ import {
 	collectDocumentationPaths,
 	fetchPullRequestSnapshot,
 	validateDocumentationIntent,
-} from '../../scripts/check-documentation-intent.mjs';
+} from '../../../scripts/check-documentation-intent.mjs';
 
-const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 test('does not require a declaration when a PR changes no documentation', () => {
 	assert.deepEqual(collectDocumentationPaths(['src/app.ts', 'package.json']), []);

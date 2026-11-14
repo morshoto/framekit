@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
-import { checkScriptReferences } from "../../scripts/check-script-references.mjs";
+import { checkScriptReferences } from "../../../scripts/check-script-references.mjs";
 
 const repository = resolve(process.cwd());
 
@@ -88,7 +88,7 @@ test("speech analyzers belong to the MCP app and ship in the clean package", asy
   const wrapper = await readFile(resolve(repository, "scripts/speech-analyzer-wrapper.mjs"), "utf8");
   const backend = await readFile(resolve(repository, "scripts/whisper-speech-backend.py"), "utf8");
   const packageCopy = await readFile(resolve(repository, "scripts/build/copy-package-runtime-assets.mjs"), "utf8");
-  const distributionTest = await readFile(resolve(repository, "tests/integration/package-distribution.test.ts"), "utf8");
+  const distributionTest = await readFile(resolve(repository, "tests/distribution/package-distribution.test.ts"), "utf8");
 
   assert.match(wrapper, /apps\/mcp-server\/runtime\/speech-analyzer-wrapper\.mjs/);
   assert.match(backend, /"apps" \/ "mcp-server" \/ "runtime" \/ "whisper-speech-backend\.py"/);

@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
 test("Renovate branches receive the chore label", async () => {
   const branchLabels = await readFile(resolve(repository, ".github/labels/labeling-branch.yaml"), "utf8");

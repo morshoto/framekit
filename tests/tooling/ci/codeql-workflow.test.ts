@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-const repository = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const repository = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 async function readRepositoryFile(relativePath: string): Promise<string> {
 	return readFile(resolve(repository, relativePath), 'utf8');
@@ -100,7 +100,7 @@ test('PRs run JavaScript only while full security events include Swift', async (
 	assert.match(swiftJob, /needs\.detect-changes\.outputs\.swift == 'true'/);
 	assert.match(swiftJob, /category: \/language:swift/);
 
-	const detector = await import(new URL('../../.github/codeql/detect-changes.mjs', import.meta.url).href) as {
+	const detector = await import(new URL('../../../.github/codeql/detect-changes.mjs', import.meta.url).href) as {
 		selectScans: (options: { eventName: string; draft?: boolean; paths?: string[] | null }) => {
 			runCodeQL: boolean; swift: boolean;
 		};
@@ -161,7 +161,7 @@ test('the pull request CodeQL job does not execute its policy from PR code', asy
 
 test('trusted policy reports failures on head and merge commits', async () => {
 	const { evaluatePullRequest } = await import(
-		new URL('../../.github/codeql/post-codeql-policy-check.mjs', import.meta.url).href
+		new URL('../../../.github/codeql/post-codeql-policy-check.mjs', import.meta.url).href
 	) as { evaluatePullRequest: (input: Record<string, unknown>) => Promise<void> };
 	const head = 'a'.repeat(40);
 	const merge = 'b'.repeat(40);
@@ -195,7 +195,7 @@ test('trusted policy reports failures on head and merge commits', async () => {
 
 test('trusted policy reports success only after current analysis is verified', async () => {
 	const { evaluatePullRequest } = await import(
-		new URL('../../.github/codeql/post-codeql-policy-check.mjs', import.meta.url).href
+		new URL('../../../.github/codeql/post-codeql-policy-check.mjs', import.meta.url).href
 	) as { evaluatePullRequest: (input: Record<string, unknown>) => Promise<void> };
 	const head = 'a'.repeat(40), merge = 'b'.repeat(40), base = 'c'.repeat(40);
 	const pull = { state: 'open', draft: false, base: { ref: 'feat/551-canonical-rebind-qa', sha: base }, head: { sha: head }, merge_commit_sha: merge };
@@ -235,7 +235,7 @@ test('trusted policy reports success only after current analysis is verified', a
 
 test('the trusted policy gate accepts only current CodeQL pull request runs', async () => {
 	const { pullRequestsForCodeQLRun } = await import(
-		new URL('../../.github/codeql/post-codeql-policy-check.mjs', import.meta.url).href
+		new URL('../../../.github/codeql/post-codeql-policy-check.mjs', import.meta.url).href
 	) as { pullRequestsForCodeQLRun: (run: Record<string, unknown>) => Array<{ number: number; headSha: string }> };
 	const run = {
 		event: 'pull_request', path: '.github/workflows/codeql.yml', head_sha: 'head-sha',
@@ -249,7 +249,7 @@ test('the trusted policy gate accepts only current CodeQL pull request runs', as
 
 test('a Swift-only finding does not block the JavaScript PR policy', async () => {
 	const { evaluateCodeQLPolicy } = await import(
-		new URL('../../.github/codeql/verify-policy.mjs', import.meta.url).href
+		new URL('../../../.github/codeql/verify-policy.mjs', import.meta.url).href
 	) as { evaluateCodeQLPolicy: (input: Record<string, unknown>) => { pass: boolean; reasons: string[] } };
 	const result = evaluateCodeQLPolicy({
 		workflowHeadSha: 'head-sha', pullRequestHeadSha: 'head-sha', pullRequestNumber: 7,
@@ -263,7 +263,7 @@ test('a Swift-only finding does not block the JavaScript PR policy', async () =>
 
 test('the JavaScript policy blocks a new current high-severity finding', async () => {
 	const { evaluateCodeQLPolicy } = await import(
-		new URL('../../.github/codeql/verify-policy.mjs', import.meta.url).href
+		new URL('../../../.github/codeql/verify-policy.mjs', import.meta.url).href
 	) as { evaluateCodeQLPolicy: (input: Record<string, unknown>) => { pass: boolean; reasons: string[] } };
 	const result = evaluateCodeQLPolicy({
 		workflowHeadSha: 'head-sha', pullRequestHeadSha: 'head-sha', pullRequestNumber: 7,
@@ -278,7 +278,7 @@ test('the JavaScript policy blocks a new current high-severity finding', async (
 
 test('the JavaScript policy requires current base analysis and handles fixed alerts on PRs', async () => {
 	const { evaluateCodeQLPolicy } = await import(
-		new URL('../../.github/codeql/verify-policy.mjs', import.meta.url).href
+		new URL('../../../.github/codeql/verify-policy.mjs', import.meta.url).href
 	) as { evaluateCodeQLPolicy: (input: Record<string, unknown>) => { pass: boolean; reasons: string[] } };
 	const analysis = { ref: 'refs/pull/7/merge', commit_sha: 'merge-sha', category: '/language:javascript-typescript', error: '', rules_count: 87, tool: { name: 'CodeQL' } };
 	const baseline = { ...analysis, ref: 'refs/heads/main', commit_sha: 'base-sha' };
@@ -298,7 +298,7 @@ test('the JavaScript policy requires current base analysis and handles fixed ale
 
 test('release policy requires current Swift analysis and blocks open serious findings', async () => {
 	const { evaluateSwiftReleasePolicy } = await import(
-		new URL('../../.github/codeql/verify-release-policy.mjs', import.meta.url).href
+		new URL('../../../.github/codeql/verify-release-policy.mjs', import.meta.url).href
 	) as { evaluateSwiftReleasePolicy: (input: Record<string, unknown>) => { pass: boolean; reasons: string[] } };
 	const analysis = { ref: 'refs/tags/v1.2.3', commit_sha: 'release-sha', category: '/language:swift', error: '', rules_count: 27, tool: { name: 'CodeQL' } };
 	const finding = { number: 11, state: 'open', rule: { severity: 'warning', security_severity_level: 'high' }, most_recent_instance: { ref: 'refs/tags/v1.2.3', commit_sha: 'release-sha', category: '/language:swift', state: 'open' } };
@@ -315,7 +315,7 @@ test('release policy requires current Swift analysis and blocks open serious fin
 
 test('release analysis must map every SARIF finding to a GitHub alert', async () => {
 	const { extractCodeQLAlertNumbers } = await import(
-		new URL('../../.github/codeql/sarif-evidence.mjs', import.meta.url).href
+		new URL('../../../.github/codeql/sarif-evidence.mjs', import.meta.url).href
 	) as { extractCodeQLAlertNumbers: (sarif: unknown, resultsCount: number) => number[] };
 	const sarif = { runs: [{ tool: { driver: { name: 'CodeQL' } }, results: [{ properties: { 'github/alertNumber': 6 } }] }] };
 	assert.deepEqual(extractCodeQLAlertNumbers(sarif, 1), [6]);
@@ -344,7 +344,7 @@ test('post-merge security calls reusable CodeQL and release publishing requires 
 
 test('security failure reporting identifies repeated attempts without duplicating comments', async () => {
 	const { failureReport, hasReportedAttempt, isReportingIssue } = await import(
-		new URL('../../.github/codeql/report-security-failure.mjs', import.meta.url).href
+		new URL('../../../.github/codeql/report-security-failure.mjs', import.meta.url).href
 	) as {
 		failureReport: (input: Record<string, string>) => string;
 		hasReportedAttempt: (comments: Array<{ body?: string; user?: { login?: string } }>, runId: string, attempt: string) => boolean;
@@ -363,7 +363,7 @@ test('security failure reporting identifies repeated attempts without duplicatin
 
 test('CodeQL policy accepts a current JavaScript scan when Swift is unchanged', async () => {
 	const { evaluateCodeQLPolicy } = await import(
-		new URL('../../.github/codeql/verify-policy.mjs', import.meta.url).href
+		new URL('../../../.github/codeql/verify-policy.mjs', import.meta.url).href
 	) as {
 		evaluateCodeQLPolicy: (input: {
 			workflowHeadSha: string;
@@ -397,7 +397,7 @@ test('CodeQL policy accepts a current JavaScript scan when Swift is unchanged', 
 
 test('CodeQL policy rejects stale scans and newly introduced blocking alerts', async () => {
 	const { evaluateCodeQLPolicy } = await import(
-		new URL('../../.github/codeql/verify-policy.mjs', import.meta.url).href
+		new URL('../../../.github/codeql/verify-policy.mjs', import.meta.url).href
 	) as {
 		evaluateCodeQLPolicy: (input: {
 			workflowHeadSha: string;
@@ -475,7 +475,7 @@ test('CodeQL policy rejects stale scans and newly introduced blocking alerts', a
 
 test('CodeQL policy rejects invalid pull request identity', async () => {
 	const { evaluateCodeQLPolicy } = await import(
-		new URL('../../.github/codeql/verify-policy.mjs', import.meta.url).href
+		new URL('../../../.github/codeql/verify-policy.mjs', import.meta.url).href
 	) as {
 		evaluateCodeQLPolicy: (input: {
 			workflowHeadSha: string;
@@ -503,7 +503,7 @@ test('CodeQL policy rejects invalid pull request identity', async () => {
 
 test('CodeQL policy ignores inherited alerts below current thresholds', async () => {
 	const { evaluateCodeQLPolicy } = await import(
-		new URL('../../.github/codeql/verify-policy.mjs', import.meta.url).href
+		new URL('../../../.github/codeql/verify-policy.mjs', import.meta.url).href
 	) as {
 		evaluateCodeQLPolicy: (input: {
 			workflowHeadSha: string;
@@ -745,7 +745,7 @@ test('stacked PR baseline scans are available and fail closed', async () => {
 	assert.match(getJob(security, 'deep-validation')!, /github\.ref == 'refs\/heads\/main'/);
 	const codeql = await readRepositoryFile('.github/workflows/codeql.yml');
 	assert.match(getJob(codeql, 'analyze-swift')!, /github\.ref == 'refs\/heads\/main'/);
-	const { evaluateCodeQLPolicy } = await import(new URL('../../.github/codeql/verify-policy.mjs', import.meta.url).href);
+	const { evaluateCodeQLPolicy } = await import(new URL('../../../.github/codeql/verify-policy.mjs', import.meta.url).href);
 	const scan = { category: '/language:javascript-typescript', error: '', rules_count: 87, tool: { name: 'CodeQL' } };
 	const baseline = { ...scan, ref: 'refs/heads/feat/551-canonical-rebind-qa', commit_sha: 'base' };
 	const input = { workflowHeadSha: 'head', pullRequestHeadSha: 'head', pullRequestNumber: 7, mergeSha: 'merge', analyses: [{ ...scan, ref: 'refs/pull/7/merge', commit_sha: 'merge' }], pullRequestAlerts: [], baseAlerts: [], baseSha: 'base', baseRef: baseline.ref, baseAnalyses: [baseline] };
@@ -756,7 +756,7 @@ test('stacked PR baseline scans are available and fail closed', async () => {
 });
 
 test('trusted policy skips draft and stale stacked pull requests', async () => {
-	const { evaluatePullRequest } = await import(new URL('../../.github/codeql/post-codeql-policy-check.mjs', import.meta.url).href);
+	const { evaluatePullRequest } = await import(new URL('../../../.github/codeql/post-codeql-policy-check.mjs', import.meta.url).href);
 	const originalFetch = globalThis.fetch;
 	const head = 'a'.repeat(40);
 	try {

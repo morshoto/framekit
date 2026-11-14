@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import test from "node:test";
-import { installHooks } from "../../scripts/install-git-hooks.mjs";
-import { assertRepositoryConfig, repositoryConfigPaths } from "../../scripts/check-git-config.mjs";
+import { installHooks } from "../../../scripts/install-git-hooks.mjs";
+import { assertRepositoryConfig, repositoryConfigPaths } from "../../../scripts/check-git-config.mjs";
 
 const exec = promisify(execFile);
 const cleanGitEnvironment = Object.fromEntries(

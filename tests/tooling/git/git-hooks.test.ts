@@ -8,12 +8,12 @@ import { promisify } from "node:util";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { basename, dirname, resolve } from "node:path";
-import { hasNativeChanges, isNativePath } from "../../scripts/staged-native-changes.mjs";
-import { installHooks } from "../../scripts/install-git-hooks.mjs";
-import { finalCutMcpEnvironment } from "./final-cut-test-env.js";
+import { hasNativeChanges, isNativePath } from "../../../scripts/staged-native-changes.mjs";
+import { installHooks } from "../../../scripts/install-git-hooks.mjs";
+import { finalCutMcpEnvironment } from "../../integration/final-cut-test-env.js";
 
 const exec = promisify(execFile);
-const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const cleanGitEnvironment = Object.fromEntries(
   Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
 );

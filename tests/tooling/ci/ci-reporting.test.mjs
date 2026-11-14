@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
-import { prepareTestReport, writeTestSummary } from '../../scripts/ci/test-reports.mjs';
+import { prepareTestReport, writeTestSummary } from '../../../scripts/ci/test-reports.mjs';
 
 for (const failing of [false, true]) {
   test(`retains totals, JUnit and provenance for ${failing ? 'failing' : 'passing'} tests`, async () => {
@@ -64,7 +64,7 @@ test('keeps all phase rows together before commit provenance', async () => {
 });
 
 test('summarizes actual Docs totals and failure status', async () => {
-  const { writeVitestSummary } = await import('../../scripts/ci/test-reports.mjs');
+  const { writeVitestSummary } = await import('../../../scripts/ci/test-reports.mjs');
   const dir = await mkdtemp(join(tmpdir(), 'ci-reports-'));
   try {
     const report = join(dir, 'docs.json');

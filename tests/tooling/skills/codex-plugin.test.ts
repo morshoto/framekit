@@ -4,7 +4,7 @@ import { dirname, relative, resolve, sep } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
 async function readJson(relativePath: string): Promise<unknown> {
   return JSON.parse(await readFile(resolve(repository, relativePath), "utf8"));

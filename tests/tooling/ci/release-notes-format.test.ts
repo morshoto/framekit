@@ -7,9 +7,9 @@ import {
 	collapseMaintenanceReleaseNotes,
 	formatReleaseNotes,
 	MAINTENANCE_RELEASE_SUMMARY,
-} from '../../scripts/format-release-notes.mjs';
+} from '../../../scripts/format-release-notes.mjs';
 
-const repository = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const repository = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 test('collapses maintenance release notes without hiding user-facing sections', () => {
 	const source = `## What's Changed

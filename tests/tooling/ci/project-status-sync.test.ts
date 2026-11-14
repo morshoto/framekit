@@ -12,9 +12,9 @@ import {
 	statusLabelChanges,
 	backfillProject,
 	syncIssueEvent,
-} from '../../scripts/sync-project-status.mjs';
+} from '../../../scripts/sync-project-status.mjs';
 
-const repository = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const repository = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 async function readRepositoryFile(relativePath: string): Promise<string> {
 	return readFile(resolve(repository, relativePath), 'utf8');
