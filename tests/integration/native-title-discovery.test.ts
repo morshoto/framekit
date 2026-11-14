@@ -106,7 +106,6 @@ test("native title discovery fails closed without browser identities or frontmos
 
   const background = new FinalCutNativeAutomationAdapter({
     enabled: true,
-    nativePreflightTimeoutMs: 1,
     sleep: async () => {},
     executor: async (script) => script.includes("titleBrowserPreflightResult") ? browserContext(false) : "",
   });
