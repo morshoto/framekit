@@ -387,6 +387,14 @@ function validateCanonicalSnapshot(snapshot: ProjectSnapshot): void {
     requireNonEmpty(media.mediaId, "media id");
     requireNonEmpty(media.source, `media ${media.mediaId} source`);
     if (media.duration !== undefined) requireFiniteNonNegative(media.duration, `media ${media.mediaId} duration`);
+    if (media.sourceRange !== undefined) {
+      requireRecord(media.sourceRange, `media ${media.mediaId} source range`);
+      requireRational(media.sourceRange.start, `media ${media.mediaId} source range start`);
+      requireRational(media.sourceRange.duration, `media ${media.mediaId} source range duration`);
+      if (BigInt(media.sourceRange.duration.value) <= 0n) {
+        protocolError(`media ${media.mediaId} source range duration must be positive`);
+      }
+    }
   }
   const mediaIds = uniqueIds(snapshot.media, ({ mediaId }) => mediaId, "media");
   uniqueIds(snapshot.timeline.markers, ({ id }) => id, "marker");
