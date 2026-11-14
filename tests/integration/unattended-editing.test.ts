@@ -8,7 +8,7 @@ import {
 import {
   parseFinalCutSqliteInspectionResponse,
   type FinalCutSqliteObservation,
-} from "@framekit/final-cut";
+} from "@framekit/final-cut/experimental";
 import type { TimelineIr } from "@framekit/runtime";
 
 function timeline(): TimelineIr {

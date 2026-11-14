@@ -1000,7 +1000,8 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     const audioRole = kind === "audio" || roleAttribute !== undefined
       ? audioRoleFromXml(node, roleAttributeName ?? "role")
       : undefined;
-    const role = kind === "asset-clip" && roleAttribute?.startsWith("dialogue.") ? undefined : audioRole;
+    const isDialogue = roleAttribute === "dialogue" || roleAttribute?.startsWith("dialogue.");
+    const role = kind === "asset-clip" && isDialogue ? undefined : audioRole;
     const sourceStartValue = attribute(node, "start");
     const sourceStartTime = sourceStartValue === undefined ? undefined : parseRational(sourceStartValue);
     const sourceStart = sourceStartTime === undefined ? undefined : rationalSeconds(sourceStartTime);
@@ -1014,7 +1015,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
       ...(sourceStart !== undefined ? { sourceStart, sourceStartTime } : {}),
       track: Number(attribute(node, "lane") ?? 0),
       ...(role !== undefined ? { role } : {}),
-      ...(roleAttribute?.startsWith("dialogue.") ? { nativeAudioRole: roleAttribute } : {}),
+      ...(isDialogue ? { nativeAudioRole: roleAttribute } : {}),
       ...(attribute(node, "framekit-attached-to") !== undefined ? { attachedTo: String(attribute(node, "framekit-attached-to")) } : {}),
       startTime,
       durationTime,
@@ -1096,12 +1097,11 @@ export class FcpxmlDocumentAdapter implements EditorPort {
         const originalMedia = storyEntries(node).find(({ kind, node: representation }) =>
           kind === "media-rep" && attribute(representation, "kind") === "original-media",
         )?.node;
+        const rawSource = attribute(node, "src") ?? (originalMedia && attribute(originalMedia, "src"));
+        const source = rawSource === undefined ? "" : String(rawSource);
         return {
           mediaId: String(attribute(node, "id") ?? ""),
-          source: resolveMediaSource(
-            String(attribute(node, "src") ?? (originalMedia && attribute(originalMedia, "src")) ?? attribute(node, "name") ?? attribute(node, "id") ?? ""),
-            this.filePath,
-          ),
+          source: source.trim() ? resolveMediaSource(source, this.filePath) : "",
           ...(mediaKind ? { mediaKind } : {}),
           ...(durationValue !== undefined ? { duration: parseSeconds(durationValue) } : {}),
         };
@@ -1122,6 +1122,7 @@ export function resolveMediaSource(source: string, documentPath: string): string
       return source;
     }
   }
+  if (/^[a-z][a-z0-9+.-]*:/i.test(source)) return source;
   if (isAbsolute(source)) return source;
   return resolve(dirname(documentPath), source);
 }
@@ -1210,7 +1211,7 @@ function audioFadeProperties(node: XmlNode): { fadeIn?: number; fadeOut?: number
 function audioRoleFromXml(node: XmlNode, attributeName = "role"): "audio" | "music" {
   const value = attribute(node, attributeName);
   const role = value === undefined ? undefined : String(value);
-  if (role === undefined || role === "audio" || /^dialogue\.[^.]+$/.test(role)) return "audio";
+  if (role === undefined || role === "audio" || /^dialogue(?:\.[^.]+)?$/.test(role)) return "audio";
   if (role === "music") return "music";
   throw new Error(`FCPXML_UNSUPPORTED_AUDIO_ROLE: ${role}`);
 }

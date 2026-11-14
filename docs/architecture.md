@@ -58,7 +58,14 @@ permit sibling application imports or private adapter paths.
 `@framekit/final-cut` is the default adapter entrypoint. Experimental SQLite,
 shadow mutation, pasteboard, unattended-editing, and console-experiment APIs
 are available only from `@framekit/final-cut/experimental`; default CLI and MCP
-entrypoints must not reach those modules. The boundary checker also rejects
+entrypoints must not reach those modules. SQLite inspection and WAL observation
+are research-only, non-canonical evidence, not supported editor capabilities.
+The standard MCP server does not configure a SQLite provider; `session.observe`
+returns `FINAL_CUT_SQLITE_INSPECTION_UNAVAILABLE` by default. Research integrations
+must explicitly import the experimental entrypoint and inject an inspection
+provider; they must use disposable fixtures and cannot fall back to it from the
+production server. SQLite observations do not establish editor revisions or
+verify native edits. The boundary checker also rejects
 new runtime source dependency cycles. The existing Timeline IR edit/reconcile cycle
 between `editing-session.ts` and `drift-reconciliation.ts` is the only
 temporary cycle exception; removing it would require extracting shared
@@ -89,10 +96,31 @@ identity. It does not treat the requested Browser identity as an observation.
 Native media targeting and canonical source-bound rename, trim, ripple-delete,
 and gain remain unavailable until that binding can be proven. Source-bound
 operations require an explicit source-observation capability and nonselecting
-discovery. The observed Browser source must also match the canonical snapshot's
+discovery. They also require an independent selected Inspector observation
+bound to the selected identity, with source path and source range matching the
+canonical snapshot. The bundled adapter does not yet supply that observation.
+The observed Browser source must also match the canonical snapshot's
 absolute local path or file URL; a matching basename alone is insufficient.
 Equal-named Browser items are distinguishable only when every candidate has an
 observed source and exactly one matches the canonical path.
+An incomplete Accessibility occurrence scan fails rather than treating its
+partial results as a complete or unique match.
+
+The current source-binding decision is **NO-GO** for the bundled adapter:
+
+| Evidence source | Direct observation | Limit for live occurrence binding |
+| --- | --- | --- |
+| [Workflow Extension timeline API](https://developer.apple.com/documentation/professional-video-applications/interacting-with-the-final-cut-pro-timeline) | Active sequence, selected time range, and playhead; [sequence details](https://developer.apple.com/documentation/professional-video-applications/fcpxsequence) include timing and container information. | The documented timeline interface does not expose an occurrence-to-original-media mapping. Timeline notifications do not establish a complete revision for exported content. |
+| Separately authorized [Final Cut FCPXML export](https://support.apple.com/guide/final-cut-pro/use-xml-to-transfer-projects-verdbd66ae/mac) | The exported document can describe project editing decisions and references to resources; an [original media representation](https://developer.apple.com/documentation/professional-video-applications/media-rep) can contain a source URL. | This is an export snapshot, not an identity for an Accessibility element. A target-bound, fresh export and an independently proven mapping would still be required; missing, remote, or proxy-only sources do not establish a local original. |
+| Read-only Accessibility scan | The adapter observes accessible timeline elements and their exposed attributes without selecting them. | The current scan does not independently expose their original source. Names, timing, ordering, and a requested Browser item are not proof of the mapping, including when occurrences repeat or names collide. |
+| Generated or imported FCPXML | A proposal or import describes intended content. | It is not native readback and cannot prove what the active timeline contains. |
+
+This decision concerns the supported observations assessed here, not a claim
+that no future public API can provide the missing evidence. Until a supported,
+fresh, target-bound observation establishes the mapping, source-bound native
+dispatch remains `CAPABILITY_UNAVAILABLE`; fixture and parser results are not
+headed Final Cut acceptance.
+
 Capability loss during target preparation prevents the edit. The
 bundled native adapter reports that capability unavailable. If a native edit has
 an uncertain outcome or Undo cannot be verified, the canonical provider blocks further previews and
@@ -122,9 +150,15 @@ therefore leaves subsequent guarded operations blocked. Configured session
 materialization reserves the checkpoint at the provider boundary; if acquisition
 fails, it records that the provider was not called. Before invoking the provider,
 the job persists a `dispatch-intent` phase; this is not proof the call occurred.
-A provider that proves it
-did not dispatch can release the reservation and retain a safe retry. After a
-dispatch or an unknown outcome, the reservation remains and automatic retry is
+The reservation can be released when local code positively establishes that
+neither the provider nor its tracking wrapper was invoked. Once a publish or materialization provider is invoked, a
+missing dispatch callback is not evidence that no dispatch occurred. The
+disabled built-in publisher, missing inert live-state or readback configuration,
+and an unconfigured built-in background materializer are checked locally before
+provider invocation. Staged materialization requests also undergo the same pure
+validation used by the built-in provider before reservation. A retry is offered
+only when the preflight result permits it. Other invoked-provider outcomes remain
+conservatively reserved. The reservation remains and automatic retry is
 disabled even if canonical readback matches, until native quiescence can be
 established. Other direct operations and
 background jobs still use entry checks, so shared exclusion
@@ -140,10 +174,20 @@ v2, v3 and v4 reservation identity and any durable sender evidence without
 creating a transaction lock. It reports a point-in-time observation, unavailable
 recovery eligibility, and unproven native quiescence. Job and dispatch IDs are
 recorded reservation fields; no independent job or receiver correlation is
-verified. Missing, malformed,
+verified. New materialization reservations record the requested target,
+versioned destination, artifact and desired digests and a locally generated
+dispatch ID. Publish jobs with an explicit library path record that requested
+path, artifact digest and local dispatch ID. Other publish requests retain the
+legacy reservation format. Intent fields do not verify the actual target or
+dispatch. Retained-reservation diagnostics report possible dispatch, missing
+evidence and the safe actions of inspection and retention. Missing, malformed,
 conflicting or concurrently changing evidence is unknown; an active marker
-may instead reflect an interrupted sender. No observation authorizes release,
-dispatch or recovery. Old writers do not participate in the newer lock protocol,
+may instead reflect an interrupted sender. Direct native calls retain their
+reservations after invoking an enabled provider, even if it reports success;
+its return does not prove that no deferred native action remains. An unmodified
+disabled built-in adapter's operations can be rejected without invoking it. Disposable
+native jobs similarly retain reservations after entering their tracker or workflow.
+No observation authorizes release, dispatch or recovery. Old writers do not participate in the newer lock protocol,
 so inspection cannot establish a globally consistent view or exclude a later
 write. `editor.native.recovery.preview` requires the inspected
 checkpoint ID, matching target IDs, and explicit headed-read confirmation; it

@@ -2317,6 +2317,8 @@ test("native Final Cut rejects wildcard Browser queries before accessing the UI"
 
   await assert.rejects(adapter.searchMedia("*"), /FINAL_CUT_NATIVE_SEARCH_WILDCARD_UNSUPPORTED/);
   await assert.rejects(adapter.searchMedia("Interview?"), /FINAL_CUT_NATIVE_SEARCH_WILDCARD_UNSUPPORTED/);
+  await assert.rejects(adapter.searchMediaForCanonicalTarget("*"), /FINAL_CUT_NATIVE_SEARCH_WILDCARD_UNSUPPORTED/);
+  await assert.rejects(adapter.searchMediaForCanonicalTarget("Interview?"), /FINAL_CUT_NATIVE_SEARCH_WILDCARD_UNSUPPORTED/);
   assert.deepEqual(scripts, []);
 });
 
@@ -4240,6 +4242,34 @@ test("native target lookup rejects an occurrence with unobserved source identity
     },
   });
   await assert.rejects(adapter.targetMedia("Interview.mov"), /FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE.*source/i);
+});
+
+test("incomplete occurrence scans fail before a candidate can be selected", async () => {
+  const separator = String.fromCharCode(31);
+  const recordSeparator = String.fromCharCode(30);
+  let mouseCalls = 0;
+  let discoveryScript = "";
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    nativeMouseExecutor: async () => { mouseCalls += 1; },
+    executor: async (script) => {
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview", 1, true);
+      if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${recordSeparator}`;
+      if (script.includes("collectTimelineClipMatches")) {
+        discoveryScript = script;
+        throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_SCAN_INCOMPLETE: a timeline node could not be inspected");
+      }
+      return "";
+    },
+  });
+  Object.defineProperty(adapter, "canDriveNativeMouse", { value: true });
+  const [match] = await adapter.searchMedia("Interview");
+  await assert.rejects(adapter.locateOccurrence(match.handle), /FINAL_CUT_NATIVE_OCCURRENCE_SCAN_INCOMPLETE/);
+  assert.equal(mouseCalls, 0);
+  assert.match(discoveryScript, /on error[^\n]*\n\s*error "FINAL_CUT_NATIVE_OCCURRENCE_SCAN_INCOMPLETE/);
+  assert.match(discoveryScript, /if depth > 12 then error/);
+  assert.match(discoveryScript, /if candidateRole is "AXLayoutItem" and candidateDescription is "" then error/);
+  assert.match(discoveryScript, /if candidateStart is "" or candidateDuration is "" then error/);
 });
 
 

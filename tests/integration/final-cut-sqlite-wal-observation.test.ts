@@ -8,7 +8,7 @@ import {
   buildFinalCutSqliteInspectionQuery,
   diffFinalCutSqliteWalObservations,
   normalizeFinalCutSqliteWalObservation,
-} from "@framekit/final-cut";
+} from "@framekit/final-cut/experimental";
 
 const target = { projectId: "project-1", sequenceId: "sequence-1" };
 const provenance = {

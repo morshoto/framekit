@@ -699,7 +699,7 @@ test("a running disposable native job excludes canonical checkpoints after submi
     await assert.rejects(other.begin({ projectId: "project-1", sequenceId: "sequence-1", baseRevision: "revision-1", beforeDigest: "a".repeat(64), operation: "rename-clip" }), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
     finish();
     await eventually(() => session.status(accepted.jobId).state === "completed", "job did not complete");
-    await guard.assertClear();
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
   } finally {
     finish();
     await eventually(() => ["completed", "failed", "rolled_back"].includes(session.status(accepted.jobId).state), "job did not settle");
@@ -707,7 +707,7 @@ test("a running disposable native job excludes canonical checkpoints after submi
   }
 });
 
-test("disposable job reservations distinguish validation from uncertain mutation", async () => {
+test("disposable job reservations retain uncertainty after invoking a tracker", async () => {
   for (const outcome of ["before-dispatch", "after-mutation"] as const) {
     const directory = await mkdtemp(join(tmpdir(), "framekit-job-failure-"));
     const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
@@ -727,10 +727,28 @@ test("disposable job reservations distinguish validation from uncertain mutation
     try {
       const job = await session.submit({ operation: "disposable.rename-clip", previewToken: preview.previewToken, projectId: preview.projectId, sequenceId: preview.sequenceId, targetIdentity: preview.targetIdentity, baseRevision: preview.baseRevision, idempotencyKey: outcome });
       await eventually(() => session.status(job.jobId).state === "failed", "job did not fail");
-      if (outcome === "before-dispatch") await guard.assertClear();
-      else assert.equal((await guard.inspectNativeReservation())?.operation, "native.job.disposable-rename");
+      assert.equal((await guard.inspectNativeReservation())?.operation, "native.job.disposable-rename");
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
+  }
+});
+
+test("a disposable job tracker cannot defer work and release its reservation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-job-deferred-tracker-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const state = createDisposableState();
+  const workflow = createDisposableWorkflow(state);
+  const preview = await workflow.preview({ clipId: "clip-1", name: "Interview Clean" });
+  let deferred: (() => Promise<unknown>) | undefined;
+  state.native.trackNativeDispatch = async (operation) => { deferred = operation; throw new Error("tracker failed after deferring"); };
+  const session = createDisposableNativeOperationSession({ workflow, native: state.native, recoveryGuard: guard });
+  try {
+    const job = await session.submit({ operation: "disposable.rename-clip", previewToken: preview.previewToken, projectId: preview.projectId, sequenceId: preview.sequenceId, targetIdentity: preview.targetIdentity, baseRevision: preview.baseRevision, idempotencyKey: "deferred-tracker" });
+    await eventually(() => session.status(job.jobId).state === "failed", "job did not fail");
+    assert.ok(deferred);
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
   }
 });
