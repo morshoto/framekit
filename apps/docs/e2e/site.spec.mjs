@@ -7,7 +7,7 @@ test('landing and localized articles load with healthy assets', async ({ page, s
   page.on('response', response => { if (response.url().startsWith(site + '/') && response.status() >= 400) failures.push(`${response.status()} ${response.url()}`); });
   await page.goto(`${site}/`, { waitUntil: 'networkidle' });
   await expect(page.getByRole('main')).toHaveCount(1);
-  await expect(page.getByRole('link', { name: 'Explore the documentation' })).toBeVisible();
+  await expect(page.getByRole('link', { name: /View on GitHub/ })).toBeVisible();
   for (const locale of ['en', 'ja']) {
     await page.goto(`${site}/${locale}/docs/introduction/`, { waitUntil: 'networkidle' });
     await expect(page.locator('html')).toHaveAttribute('lang', locale);
@@ -53,7 +53,7 @@ test('navigation drawer and search dialog have no axe violations', async ({ page
   expect((await new AxeBuilder({ page }).include('[role=dialog]').analyze()).violations).toEqual([]);
   await page.keyboard.press('Escape');
   await expect(trigger).toBeFocused();
-  await page.getByRole('button', { name: 'Search docs' }).click();
+  await page.getByRole('button', { name: /^Search docs/ }).click();
   const dialog = page.getByRole('dialog', { name: 'Search documentation' });
   await expect(dialog).toBeVisible();
   expect((await new AxeBuilder({ page }).include('[role=dialog]').analyze()).violations).toEqual([]);
@@ -101,7 +101,7 @@ test('theme persists and reduced motion is respected', async ({ page, site }) =>
 test('blocked search assets leave static navigation usable', async ({ page, site }) => {
   await page.route('**/pagefind/**', route => route.abort());
   await page.goto(`${site}/en/docs/introduction/`);
-  await page.getByRole('button', { name: 'Search docs' }).click();
+  await page.getByRole('button', { name: /^Search docs/ }).click();
   const dialog = page.getByRole('dialog', { name: 'Search documentation' });
   await dialog.getByRole('combobox').fill('local-first');
   await expect(dialog.getByRole('link', { name: 'Browse docs' })).toBeVisible();
@@ -119,7 +119,7 @@ test('capture representative layouts for visual review', async ({ page, site }, 
   await page.setViewportSize({ width: 375, height: 800 }); await capture('article-mobile');
   await page.getByRole('button', { name: 'Open navigation' }).click(); await capture('mobile-navigation');
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'Search docs' }).click(); await capture('search-open');
+  await page.getByRole('button', { name: /^Search docs/ }).click(); await capture('search-open');
   await page.getByRole('combobox').fill('local-first'); await expect(page.getByRole('option').first()).toBeVisible(); await capture('search-results');
   await page.getByRole('combobox').fill('unlikely-fixture-query-zzzz'); await expect(page.getByText('No results found')).toBeVisible(); await capture('search-empty');
   await page.keyboard.press('Escape'); await page.emulateMedia({ colorScheme: 'dark' }); await capture('dark-mode');
@@ -144,7 +144,7 @@ test('mobile drawer closes by button, backdrop, and navigation', async ({ page, 
 test('search results open the correct localized articles', async ({ page, site }) => {
   for (const [locale, query] of [['en', 'local-first']]) {
     await page.goto(`${site}/${locale}/`);
-    const trigger = page.getByRole('button', { name: 'Search docs' });
+    const trigger = page.getByRole('button', { name: /^Search docs/ });
     await trigger.click();
     const dialog = page.getByRole('dialog', { name: 'Search documentation' });
     await dialog.getByRole('combobox').fill(query);
@@ -163,7 +163,7 @@ test('representative pages have no axe violations', async ({ page, site }) => {
 test('mobile controls meet minimum touch size and article assets load', async ({ page, site }) => {
   await page.setViewportSize({ width: 375, height: 800 });
   await page.goto(`${site}/en/docs/introduction/`, { waitUntil: 'networkidle' });
-  for (const name of ['Open navigation', 'Search docs']) {
+  for (const name of ['Open navigation', /^Search docs/]) {
     const box = await page.getByRole('button', { name }).boundingBox();
     expect(box, `${name} must be visible`).not.toBeNull();
     expect(box.width, `${name} width`).toBeGreaterThanOrEqual(44);
@@ -176,7 +176,7 @@ test('mobile controls meet minimum touch size and article assets load', async ({
 
 test('keyboard search traps focus and returns it to the trigger', async ({ page, site }) => {
   await page.goto(`${site}/en/docs/introduction/`);
-  const trigger = page.getByRole('button', { name: 'Search docs' });
+  const trigger = page.getByRole('button', { name: /^Search docs/ });
   await trigger.focus();
   await page.keyboard.press('ControlOrMeta+k');
   const dialog = page.getByRole('dialog', { name: 'Search documentation' });
@@ -195,7 +195,7 @@ test('keyboard search traps focus and returns it to the trigger', async ({ page,
 test('landing offers distinct paths and unfinished Japanese pages offer English', async ({ page, site }) => {
   await page.goto(`${site}/`);
   await expect(page.getByRole('link', { name: 'Get started' })).toHaveAttribute('href', /\/en\/docs\/installation\/$/);
-  for (const text of ['Edit without Final Cut', 'Connect to Final Cut Pro', 'Build Framekit']) await expect(page.getByRole('link', { name: new RegExp(text) })).toBeVisible();
+  for (const text of ['Work with a Framekit project', 'Set up the integration', 'Contributor guide']) await expect(page.getByRole('link', { name: new RegExp(text) })).toBeVisible();
   await page.goto(`${site}/en/docs/quick-start/`);
   await expect(page.getByText('Use Framekit to check the connection status', { exact: false })).toBeVisible();
   await page.getByRole('link', { name: '日本語' }).click();
@@ -211,6 +211,6 @@ test('landing paths remain readable on narrow screens', async ({ page, site }) =
     await page.goto(`${site}/`, { waitUntil: 'networkidle' });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `landing overflow at ${width}px`).toBe(true);
     await expect(page.getByRole('link', { name: 'Get started' })).toBeVisible();
-    await expect(page.getByRole('link', { name: /Edit without Final Cut/ })).toBeVisible();
+    await expect(page.getByRole('link', { name: /Work with a Framekit project/ })).toBeVisible();
   }
 });
