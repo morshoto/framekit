@@ -119,6 +119,10 @@ Equal-named Browser items are distinguishable only when every candidate has an
 observed source and exactly one matches the canonical path.
 An incomplete Accessibility occurrence scan fails rather than treating its
 partial results as a complete or unique match.
+Direct Blade execution checks the previewed project, sequence, revision,
+selected UI identity, frame timing and playhead again before dispatch. An
+uncertain command failure is reported without automatically retrying Blade.
+These checks do not establish canonical source binding or verified split/Undo.
 
 The current source-binding decision is **NO-GO** for the bundled adapter:
 

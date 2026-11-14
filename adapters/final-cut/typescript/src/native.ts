@@ -821,7 +821,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly occurrenceHandles = new Map<string, NativeFinalCutOccurrence>();
   private readonly ambiguousMediaHandles = new Set<string>();
   private readonly mediaImportDirectoryPreviews = new Map<string, NativeFinalCutMediaImportDirectoryPreviewRecord>();
-  private readonly bladePreviews = new Map<string, { occurrence: NativeFinalCutOccurrence; expiresAt: number }>();
+  private readonly bladePreviews = new Map<string, { occurrence: NativeFinalCutOccurrence; context: NativeFinalCutContext; live?: EditorLiveState; expiresAt: number }>();
   private readonly maskPreviews = new Map<string, {
     occurrence: NativeFinalCutOccurrence;
     mask: NativeFinalCutMaskConfiguration;
@@ -1788,9 +1788,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     }
     await this.validateOccurrenceBinding(occurrence);
     if (!context.bladeAvailable) throw new Error("FINAL_CUT_NATIVE_PLAYHEAD_OUTSIDE_OCCURRENCE: Final Cut has disabled Blade for the current selection/playhead");
+    const live = await this.readLiveState();
     const expiresAtMs = this.now() + 30_000;
     const previewToken = opaqueHandle("blade-preview");
-    this.bladePreviews.set(previewToken, { occurrence, expiresAt: expiresAtMs });
+    this.bladePreviews.set(previewToken, { occurrence: structuredClone(occurrence), context: structuredClone(context), ...(live ? { live: structuredClone(live) } : {}), expiresAt: expiresAtMs });
     return {
       previewToken,
       occurrence,
@@ -1962,16 +1963,32 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (before.target.name && before.target.name !== preview.occurrence.name) {
       throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: selected timeline occurrence changed");
     }
+    const original = preview.live;
+    const originalScope = preview.context.target;
+    const currentScope = before.target;
+    if (!original?.project?.id || !original.sequence?.id || !original.playheadTime
+      || !beforeLive?.project?.id || !beforeLive.sequence?.id || !beforeLive.playheadTime
+      || !preview.context.playheadTime || !before.playheadTime
+      || !originalScope.identity || currentScope.identity !== originalScope.identity
+      || originalScope.projectId !== original.project.id || originalScope.sequenceId !== original.sequence.id
+      || originalScope.revision?.id !== original.revision.id || originalScope.revision?.sequence !== original.revision.sequence
+      || currentScope.projectId !== beforeLive.project.id || currentScope.sequenceId !== beforeLive.sequence.id
+      || currentScope.revision?.id !== beforeLive.revision.id || currentScope.revision?.sequence !== beforeLive.revision.sequence
+      || original.project.id !== beforeLive.project.id || original.sequence.id !== beforeLive.sequence.id
+      || original.revision.id !== beforeLive.revision.id || original.revision.sequence !== beforeLive.revision.sequence
+      || compareRational(parseRationalString(preview.context.playheadTime, "preview playhead"), original.playheadTime) !== 0
+      || compareRational(parseRationalString(before.playheadTime, "current playhead"), beforeLive.playheadTime) !== 0
+      || compareRational(original.playheadTime, beforeLive.playheadTime) !== 0
+      || compareRational(original.sequence.startTime, beforeLive.sequence.startTime) !== 0
+      || compareRational(original.sequence.frameDuration, beforeLive.sequence.frameDuration) !== 0) {
+      throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: Blade target, frame grid, revision, or playhead changed or is unavailable");
+    }
     await this.validateOccurrenceBinding(preview.occurrence);
     if (!before.bladeAvailable) throw new Error("FINAL_CUT_NATIVE_PLAYHEAD_OUTSIDE_OCCURRENCE: Final Cut has disabled Blade for the current selection/playhead");
     try {
-      await this.executeNativeCommand(bladeScript(), async (recovered) => {
-        this.assertRetryContext(before, recovered, true);
-        await this.validateOccurrenceBinding(preview.occurrence);
-        if (!recovered.bladeAvailable) throw new Error("FINAL_CUT_NATIVE_PLAYHEAD_OUTSIDE_OCCURRENCE: Final Cut has disabled Blade for the current selection/playhead");
-      });
+      await this.executeNativeScript(bladeScript());
     } catch (error) {
-      throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
+      throw new Error(`FINAL_CUT_NATIVE_BLADE_OUTCOME_UNCERTAIN: Blade may have been applied; do not retry without recovery: ${String(error)}`);
     }
     const after = await this.requireTimelineContext();
     if (!after.frontmost) throw new Error("FINAL_CUT_NATIVE_VERIFICATION_FAILED: Final Cut changed focus during Blade");

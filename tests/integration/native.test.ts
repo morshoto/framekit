@@ -3142,7 +3142,7 @@ test("native Blade never retries an uncertain dispatched command", async () => {
   const occurrence = { handle: "occurrence-1", mediaHandle: "media-1", name: "Interview" };
   (adapter as unknown as { occurrenceHandles: Map<string, unknown> }).occurrenceHandles.set(occurrence.handle, occurrence);
   const preview = await adapter.previewBlade(occurrence.handle);
-  await assert.rejects(adapter.executeBlade(preview.previewToken), /-1719/);
+  await assert.rejects(adapter.executeBlade(preview.previewToken), /BLADE_OUTCOME_UNCERTAIN.*do not retry.*-1719/);
   assert.equal(bladeCalls, 1);
   await assert.rejects(adapter.executeBlade(preview.previewToken), /PREVIEW_STALE/);
 });
