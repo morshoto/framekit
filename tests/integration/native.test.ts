@@ -4296,3 +4296,22 @@ test("canonical occurrence discovery does not retry a failed scan", async () => 
   await assert.rejects(adapter.locateOccurrenceForCanonicalTarget(match.handle), /scan interrupted/);
   assert.equal(scans, 1);
 });
+
+test("native Browser search rejects incomplete scans instead of reporting empty or partial matches", async () => {
+  const recordSeparator = String.fromCharCode(30);
+  for (const prefix of ["", `Interview${separator}AXBrowserMedia${separator}browser-1${separator}source-1${recordSeparator}`]) {
+    let searchScript = "";
+    const adapter = new FinalCutNativeAutomationAdapter({
+      enabled: true,
+      executor: async (script) => {
+        if (script.includes("set value of searchField to searchQuery")) {
+          searchScript = script;
+          return `${prefix}__FRAMEKIT_BROWSER_SCAN_INCOMPLETE__${recordSeparator}`;
+        }
+        return script.includes('set frontWindow to window "Final Cut Pro"') ? context(true, "Final Cut Pro", "", 0, true) : "";
+      },
+    });
+    await assert.rejects(adapter.searchMedia("Interview"), /FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE.*incomplete/i);
+    assert.match(searchScript, /__FRAMEKIT_BROWSER_SCAN_INCOMPLETE__/);
+  }
+});
