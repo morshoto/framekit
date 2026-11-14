@@ -136,6 +136,7 @@ const mediaIndexQuerySchema = z.object({
   capabilities: z.array(z.enum(["metadata", "speech", "audio", "noise", "visual"])).optional(),
 });
 const timelineSemanticContextQuerySchema = z.object({
+  includeSpeechMappings: z.boolean().optional(),
   query: z.string().optional(),
   occurrenceIds: z.array(z.string().min(1)).optional(),
   confirmHeadedRead: z.boolean().optional(),

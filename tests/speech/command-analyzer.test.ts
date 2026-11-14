@@ -352,3 +352,27 @@ for (const kind of ["speech", "audio"] as const) {
     assert.match(status?.reason ?? "", /ANALYZER_SOURCE_CHANGED/);
   });
 }
+
+for (const [label, payload] of [
+  ["overflowing JSON number", '{"integratedLufs":1e999,"truePeakDb":-1,"silenceMs":0}'],
+  ["negative silence", '{"integratedLufs":-18,"truePeakDb":-1,"silenceMs":-1}'],
+  ["fractional sample count", '{"integratedLufs":-18,"truePeakDb":-1,"silenceMs":0,"audibleSamples":1.5}'],
+  ["invalid boolean flag", '{"integratedLufs":-18,"truePeakDb":-1,"silenceMs":0,"valid":"false"}'],
+] as const) {
+  test(`command audio rejects invalid ${label}`, async (t) => {
+    const directory = await mkdtemp(join(os.tmpdir(), "framekit-audio-schema-"));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const source = join(directory, "source.wav");
+    await writeFile(source, "media");
+    const command = join(directory, "audio-wrapper.mjs");
+    await writeFile(command, [
+      "#!/usr/bin/env node",
+      "for await (const chunk of process.stdin) {}",
+      "process.stdout.write(" + JSON.stringify(payload) + ");",
+    ].join("\n"));
+    await chmod(command, 0o755);
+    await assert.rejects(new CommandAudioAnalyzer({ command }).analyze(createInput(source)),
+      /ANALYZER_INVALID_OUTPUT.*audio/);
+    assert.equal(await readFile(source, "utf8"), "media");
+  });
+}

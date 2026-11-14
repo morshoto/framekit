@@ -44,7 +44,7 @@ cycle checks follow runtime edges.
 | Source layer | Allowed workspace dependencies | External packages |
 | --- | --- | --- |
 | `packages/runtime` (domain and application) | None | Node built-ins only. |
-| `packages/headless-application` | Runtime and Final Cut document adapter | Node built-ins only. |
+| `packages/headless-application` | Runtime and FCPXML document entrypoint | Node built-ins only. |
 | `packages/testkit` | `packages/runtime` | Node built-ins only. |
 | TypeScript adapters | `packages/runtime` | `adapters/final-cut/typescript`: `fast-xml-parser`; headless adapter: Node built-ins only. |
 | `apps/mcp-server` | Runtime, headless application, and both TypeScript adapters | `@modelcontextprotocol/sdk`, `zod`, and Node built-ins. |
@@ -437,3 +437,48 @@ independent unavailable reasons. Occurrence loudness is not a source-cache
 entry. A provider without a physical-source validator still relies on its
 current canonical source-identity contract; this does not supply missing
 native occurrence/source observation.
+
+Speech occurrence mapping requires observed source coverage for the complete
+occurrence and rejects conflicting numeric/rational source coordinates. It
+represents speech boundaries on the provider's declared source clock before
+sequence-frame alignment, preserving exact fractional offsets instead of
+rounding them to microseconds. Off-clock evidence is explicitly ambiguous.
+The restart/cache matrix verifies trim, reorder, split and repeated-source
+mapping against independently stated rational positions in deterministic
+snapshots; native acceptance remains separate.
+
+`timeline.semantic.inspect` accepts `includeSpeechMappings: true` to return a
+`speechMapping` for each available occurrence, including source, sequence and
+frame-aligned word/activity ranges. This read-only path validates stored source,
+provider and revision provenance before rebinding source evidence to the current
+canonical revision. It requires declared speech clock/coverage and exact
+occurrence timing; the canonical zero-source-start default remains supported.
+Missing, conflicting, off-clock or boundary-crossing evidence makes that
+occurrence unavailable with a reason. The option does not run an analyzer or
+authorize an edit. Omitting it retains the source-range semantic response.
+
+The shared runtime audio payload gate validates metrics, counters, flags,
+declared source clocks, rational source ranges and signal-format metadata for
+both command adapters and application provider ports. This prevents nonfinite
+values from becoming successful JSON null measurements. Provider-rejected
+audio is unavailable in semantic understanding without disabling successful
+transcription. Source/occurrence results retain declared clock and sample
+format, while missing metadata remains unknown; shape validation alone does
+not verify a provider's physical measurements.
+
+Cached audio passes the same payload gate before understanding, indexing or
+timeline context can reuse it. Provider-rejected measurements and conflicting
+nested media, source, provider or revision identities are excluded before
+rebinding cached evidence to the current snapshot.
+
+### FCPXML document interchange
+
+Headless project workflows import `@framekit/final-cut/fcpxml`, which exposes
+`FcpxmlDocumentAdapter`, `resolveMediaSource`, and the existing Timeline IR
+compiler and its types. Installed npm consumers use `@morshoto/framekit/fcpxml`.
+These document APIs read, validate, edit, and compile selected FCPXML artifacts
+without a Final Cut process or native provider. Existing adapter exports remain
+compatible. The import-graph check restricts this entrypoint and headless
+application workflows to document modules within the Final Cut adapter,
+including transitive and type-only imports. Artifact round trips establish
+document compatibility; native acceptance still requires separate evidence.

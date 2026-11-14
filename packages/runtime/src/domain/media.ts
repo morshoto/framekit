@@ -189,7 +189,37 @@ export interface RoughCutPlan {
   warnings: string[];
 }
 
+export interface MappedSpeechWord {
+  word: SpeechWord;
+  sourceRange: TimeRange;
+  sequenceRange: TimeRange;
+  frameAlignedRange: TimeRange;
+}
+
+export interface MappedSpeechSegment {
+  segment: SpeechSegment;
+  sourceRange: TimeRange;
+  sequenceRange: TimeRange;
+  frameAlignedRange: TimeRange;
+}
+
+export interface SpeechOccurrenceMapping {
+  occurrenceId: string;
+  mediaId: string;
+  revision: ContextRevision;
+  sourceRange: TimeRange;
+  sequenceRange: TimeRange;
+  sourceTimebase: RationalTime;
+  sequenceFrameDuration: RationalTime;
+  capability: RevisionBoundSpeechAnalysis["capability"];
+  words: MappedSpeechWord[];
+  vadSegments?: MappedSpeechSegment[];
+  silenceSegments?: MappedSpeechSegment[];
+  protectedSegments?: MappedSpeechSegment[];
+}
+
 export interface TimelineSemanticContextQuery {
+  includeSpeechMappings?: boolean;
   query?: string;
   occurrenceIds?: string[];
 }
@@ -204,6 +234,7 @@ export interface TimelineSemanticObservation {
 }
 
 export interface TimelineSemanticOccurrenceContext {
+  speechMapping?: SpeechOccurrenceMapping;
   occurrenceId: string;
   status: "available" | "unavailable";
   mediaId?: string;
@@ -253,9 +284,19 @@ export interface RevisionBoundSpeechAnalysis extends SpeechAnalysis {
   capability: SpeechAnalysisCapability;
 }
 
+export interface AudioSignalFormat {
+  sampleRate: number;
+  channels: number;
+  channelLayout?: string;
+}
+
 export interface AudioAnalysis {
   /** Actual exported signal provenance; never planner-predicted gain arithmetic. */
   signalProvenance?: OccurrenceAudioSignalProvenance;
+  /** Declared source reference clock; absent means unavailable, never inferred. */
+  sourceTimebase?: RationalTime;
+  /** Format of the measured signal, interpreted with signalScope. */
+  signalFormat?: AudioSignalFormat;
   /** Omitted legacy scope means source-file audio, never post-edit output. */
   signalScope?: "source" | "occurrence";
   /** Required when signalScope is occurrence; echoes an explicit measurement request. */
@@ -301,6 +342,8 @@ export interface NoiseMeasurement extends NoiseAnalysis {
 /** Revision-bound audio evidence for one complete timeline occurrence. */
 export interface AudioMeasurement {
   signalProvenance?: OccurrenceAudioSignalProvenance;
+  sourceTimebase?: RationalTime;
+  signalFormat?: AudioSignalFormat;
   signalScope: "source" | "occurrence";
   sourceIdentity?: MediaSourceIdentity;
   mediaId: string;

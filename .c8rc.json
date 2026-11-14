@@ -1,0 +1,10 @@
+{
+  "all": true,
+  "extension": [".ts"],
+  "src": [
+    "packages/runtime/src", "packages/headless-application/src", "packages/testkit/src",
+    "adapters/final-cut/typescript/src", "adapters/headless/typescript/src", "apps/cli/src", "apps/mcp-server/src"
+  ],
+  "include": ["packages/*/src/**", "adapters/*/typescript/src/**", "apps/cli/src/**", "apps/mcp-server/src/**"],
+  "exclude": ["**/*.d.ts", "**/*.test.*", "**/node_modules/**"]
+}
