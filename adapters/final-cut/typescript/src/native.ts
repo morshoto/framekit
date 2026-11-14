@@ -1477,7 +1477,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's Browser must be frontmost");
     try {
       const searchDeadline = deadline ?? this.now() + this.mediaImportDiscoveryTimeoutMs;
-      const output = await this.executeNativeScript(searchMediaScript(query), searchDeadline, timeoutCode);
+      const response = await this.executeNativeScript(searchMediaScript(query), searchDeadline, timeoutCode);
+      if (!response.trim()) throw new Error("FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: missing Browser media scan output");
+      const output = response.trim() === "__FRAMEKIT_BROWSER_SCAN_EMPTY__" ? "" : response;
       if (output.split(String.fromCharCode(30)).some((record) => record === "__FRAMEKIT_BROWSER_SCAN_INCOMPLETE__")) {
         throw new Error("FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser media scan was incomplete");
       }
@@ -4915,6 +4917,7 @@ function searchMediaScript(query: string): string {
     key code 36
     delay 0.5
     set output to my collectBrowserMedia(browserRoot, 0, searchQuery, origin, browserRootContext, {}, "root")
+    if output is "" then return "__FRAMEKIT_BROWSER_SCAN_EMPTY__"
     return output
   end tell
 end tell`;
