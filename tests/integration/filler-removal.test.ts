@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { AgentVideoRuntime, canonicalSnapshotDigest, planFillerRemoval, type SpeechAnalyzer } from "@framekit/runtime";
+import { AgentVideoRuntime, canonicalSnapshotDigest, planFillerRemoval, type EditorPort, type SpeechAnalyzer } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
@@ -40,6 +40,44 @@ function textFrom(result: unknown): string {
   assert.equal(typeof first?.text, "string");
   return first.text as string;
 }
+
+test("filler preview requires declared batch support and both transaction methods before analysis", async () => {
+  for (const unavailable of ["capability", "previewTransaction", "applyTransaction"] as const) {
+    let analyses = 0;
+    const { adapter, runtime } = createFillerRuntime({ analyze: async ({ media }) => { analyses += 1; return structuredClone(media.speech!); } });
+    const before = await runtime.inspectProject();
+    if (unavailable === "capability") {
+      const getCapabilities = adapter.getCapabilities.bind(adapter);
+      adapter.getCapabilities = async () => {
+        const capabilities = await getCapabilities();
+        return { ...capabilities, editor: { ...capabilities.editor, compositeTransactions: false, singleOperationTransactions: true } };
+      };
+    } else {
+      (adapter as Partial<EditorPort>)[unavailable] = undefined;
+    }
+    await assert.rejects(runtime.previewFillerRemoval({ baseRevision: before.revision, range: { start: 10, end: 13 } }), /CAPABILITY_UNAVAILABLE.*composite/, unavailable);
+    assert.equal(analyses, 0, unavailable);
+    assert.deepEqual(await runtime.inspectProject(), before);
+  }
+});
+
+test("filler execute rechecks batch support and consumes the rejected approval", async () => {
+  const { adapter, runtime } = createFillerRuntime({ analyze: async ({ media }) => structuredClone(media.speech!) });
+  const before = await runtime.inspectProject();
+  const preview = await runtime.previewFillerRemoval({ baseRevision: before.revision, range: { start: 10, end: 13 } });
+  const getCapabilities = adapter.getCapabilities.bind(adapter);
+  adapter.getCapabilities = async () => {
+    const capabilities = await getCapabilities();
+    return { ...capabilities, editor: { ...capabilities.editor, compositeTransactions: false } };
+  };
+  let writes = 0;
+  adapter.apply = async () => { writes += 1; throw new Error("unexpected single write"); };
+  adapter.applyTransaction = async () => { writes += 1; throw new Error("unexpected batch"); };
+  await assert.rejects(runtime.executeFillerRemoval(preview.previewToken), /CAPABILITY_UNAVAILABLE.*composite/);
+  await assert.rejects(runtime.executeFillerRemoval(preview.previewToken), /PREVIEW_TOKEN_INVALID/);
+  assert.equal(writes, 0);
+  assert.deepEqual(await runtime.inspectProject(), before);
+});
 
 test("filler planning selects high-confidence words and preserves a short pause", () => {
   const candidates = planFillerRemoval([
@@ -123,6 +161,13 @@ test("filler execution translates adjacent speech across multiple removals", asy
     }],
   });
   const runtime = new AgentVideoRuntime(adapter, { speechAnalyzer: analyzer });
+  const applyTransaction = adapter.applyTransaction.bind(adapter);
+  const submitted: unknown[] = [];
+  adapter.applyTransaction = async (operations, revision) => {
+    submitted.push({ operations: structuredClone(operations), revision: structuredClone(revision) });
+    await applyTransaction(operations, revision);
+  };
+  adapter.apply = async () => { throw new Error("filler cuts must use one approved transaction"); };
   const before = await runtime.inspectProject();
   const preview = await runtime.previewFillerRemoval({
     baseRevision: before.revision,
@@ -131,6 +176,7 @@ test("filler execution translates adjacent speech across multiple removals", asy
 
   const transaction = await runtime.executeFillerRemoval(preview.previewToken);
 
+  assert.deepEqual(submitted, [{ operations: preview.operations, revision: before.revision }]);
   assert.equal(transaction.status, "VERIFIED");
   assert.equal(transaction.verification?.checks.some((check) => check.name === "filler-speech-continuity" && check.passed), true);
   assert.equal(calls, 2);
