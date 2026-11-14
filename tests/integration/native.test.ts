@@ -3147,6 +3147,32 @@ test("native Blade never retries an uncertain dispatched command", async () => {
   await assert.rejects(adapter.executeBlade(preview.previewToken), /PREVIEW_STALE/);
 });
 
+test("native Blade rechecks the playhead after occurrence validation", async () => {
+  let executing = false;
+  let executionReads = 0;
+  let bladeCalls = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => {
+      const state = boundNativeLiveState();
+      state.playheadTime = { value: executing && ++executionReads >= 4 ? "2" : "1", timescale: "1" };
+      return state;
+    },
+    executor: async (script) => {
+      if (script.includes('click menu item "Blade"')) bladeCalls++;
+      return script.includes('set frontWindow to window "Final Cut Pro"')
+        ? context(true, "Final Cut Pro", "Interview", 1, true)
+        : "";
+    },
+  });
+  const occurrence = { handle: "occurrence-1", mediaHandle: "media-1", name: "Interview", revision: "rev-1", sequenceId: "sequence-1", start: "0/1", duration: "10/1" };
+  (adapter as unknown as { occurrenceHandles: Map<string, unknown> }).occurrenceHandles.set(occurrence.handle, occurrence);
+  const preview = await adapter.previewBlade(occurrence.handle);
+  executing = true;
+  await assert.rejects(adapter.executeBlade(preview.previewToken), /FINAL_CUT_NATIVE_PREVIEW_STALE/);
+  assert.equal(bladeCalls, 0);
+});
+
 test("native Final Cut media selection refocuses Final Cut without closing the extension window", async () => {
   const scripts: string[] = [];
   const adapter = new FinalCutNativeAutomationAdapter({
