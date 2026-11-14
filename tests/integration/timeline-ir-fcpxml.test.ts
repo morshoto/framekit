@@ -78,6 +78,28 @@ const target: TimelineIrToFcpxmlTarget = {
   eventName: "Framekit Event",
 };
 
+test("materialization round trips plain dialogue on a video occurrence", async () => {
+  const value = timeline();
+  value.sequence.markers = [];
+  value.sequence.captions = [];
+  value.sequence.occurrences[0]!.role = "video";
+  value.sequence.occurrences[0]!.nativeAudioRole = "dialogue";
+  const result = compileTimelineIrToFcpxml(value, { target });
+  assert.match(result.xml, /<asset-clip [^>]*audioRole="dialogue"/);
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-dialogue-video-"));
+  const path = join(directory, "dialogue.fcpxml");
+  try {
+    await writeFile(path, result.xml);
+    const snapshot = await new FcpxmlDocumentAdapter(path).readProject();
+    const clip = snapshot.timeline.clips[0]!;
+    assert.equal(clip.nativeAudioRole, "dialogue");
+    assert.notEqual(clip.role, "audio");
+    assert.equal(snapshot.media.find(({ mediaId }) => mediaId === clip.mediaId)?.mediaKind, "video");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("materialization retains native dialogue subroles", async () => {
   const value = timeline();
   value.sequence.markers = [];

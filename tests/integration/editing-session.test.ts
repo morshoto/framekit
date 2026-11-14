@@ -62,7 +62,7 @@ test("editing sessions retain native audio subroles across serialization", () =>
 });
 
 test("editing sessions reject invalid native audio subroles", () => {
-  for (const nativeAudioRole of ["", "dialogue.", "custom.role"]) {
+  for (const nativeAudioRole of ["", "dialogue.", "dialogue.voice.extra", "custom.role"]) {
     const base = baseTimeline();
     base.sequence.occurrences[0]!.nativeAudioRole = nativeAudioRole;
     assert.throws(() => EditingSession.create({ base }), /TIMELINE_IR_INVALID:.*nativeAudioRole/);
