@@ -81,6 +81,11 @@ FCPXML sequence `tcStart` is retained as `timecodeStart` in snapshots and
 Timeline IR; absence remains unknown. Explicit nonzero timecode origins cannot
 yet be compiled or rendered from Timeline IR because their handling is not established. This
 artifact value is not proof of the live sequence origin or target freshness.
+Timeline targets can bind a provider-supplied `frameGridOrigin` in sequence
+coordinates; resolution and readback reject a changed origin or frame duration.
+Snapshots without that field retain the existing zero-origin targeting policy,
+which is not evidence of a live Final Cut frame grid. FCPXML `tcStart` is not
+automatically treated as `frameGridOrigin`.
 `playheadTime` describes the editor playhead; it is not a substitute for a
 stable target or timeline revision. Read-after-write verifies a mutation
 against the same target and revision contract. Canonical native rename, trim,

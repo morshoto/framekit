@@ -59,7 +59,7 @@ export function createTimelineTarget(
     projectId: snapshot.projectId,
     sequenceId: snapshot.timeline.id,
     revision: structuredClone(snapshot.revision),
-    timelineStartTime: { value: "0", timescale: "1" },
+    timelineStartTime: structuredClone(snapshot.timeline.frameGridOrigin ?? { value: "0", timescale: "1" }),
     frameDuration: structuredClone(frameDuration),
     ...(selection.mediaId !== undefined ? { mediaId: selection.mediaId } : {}),
     ...(selection.range ? { range: structuredClone(selection.range) } : {}),
@@ -101,6 +101,7 @@ export function resolveTimelineTarget(
   if (!sameRational(target.frameDuration, snapshot.timeline.frameDuration)) {
     throw new Error("FRAME_ALIGNMENT_REQUIRED: target frame duration does not match current timeline");
   }
+  assertMatchingFrameGridOrigin(snapshot, target);
 
   validateTargetCoordinates(snapshot, target);
   const occurrence = target.occurrence
@@ -130,6 +131,10 @@ export function assertTimelineTargetReadAfterWrite(
   if (after.projectId !== target.projectId || after.timeline.id !== target.sequenceId) {
     throw new Error("TARGET_MISMATCH: read-after-write snapshot changed the addressed timeline");
   }
+  if (!after.timeline.frameDuration || !sameRational(target.frameDuration, after.timeline.frameDuration)) {
+    throw new Error("FRAME_ALIGNMENT_REQUIRED: read-after-write frame duration changed or is unavailable");
+  }
+  assertMatchingFrameGridOrigin(after, target);
 
   if (!target.occurrence) return;
   const matches = findOccurrences(after, target.occurrence.id);
@@ -142,6 +147,13 @@ export function assertTimelineTargetReadAfterWrite(
   }
   if (target.mediaId !== undefined && matches[0]!.mediaId !== target.mediaId) {
     throw new Error(`TARGET_MISMATCH: read-after-write changed media for occurrence ${target.occurrence.id}`);
+  }
+}
+
+function assertMatchingFrameGridOrigin(snapshot: ProjectSnapshot, target: TimelineTarget): void {
+  const origin = snapshot.timeline.frameGridOrigin ?? { value: "0", timescale: "1" };
+  if (!sameRational(target.timelineStartTime, origin)) {
+    throw new Error("FRAME_ALIGNMENT_REQUIRED: target frame-grid origin does not match current timeline");
   }
 }
 

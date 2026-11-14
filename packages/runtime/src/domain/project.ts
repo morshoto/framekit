@@ -95,6 +95,8 @@ export interface ProjectSnapshot {
     durationTime?: RationalTime;
     /** Explicit source timecode origin, when independently present in the artifact. */
     timecodeStart?: RationalTime;
+    /** Sequence-coordinate frame-grid origin, when supplied by the snapshot provider. */
+    frameGridOrigin?: RationalTime;
     frameDuration?: RationalTime;
     clips: Clip[];
     storyElements: StoryElement[];

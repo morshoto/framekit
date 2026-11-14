@@ -155,6 +155,9 @@ test("stable targets bind an explicit fractional frame-grid origin", () => {
   }), /FRAME_ALIGNMENT_REQUIRED/);
   const shifted = { ...target, timelineStartTime: { value: "1001", timescale: "24000" } };
   assert.throws(() => resolveTimelineTarget(project, shifted), /FRAME_ALIGNMENT_REQUIRED.*origin/i);
+  const changed = structuredClone(project);
+  changed.timeline.frameGridOrigin = { value: "1001", timescale: "24000" };
+  assert.throws(() => assertTimelineTargetReadAfterWrite(target, project, changed), /FRAME_ALIGNMENT_REQUIRED.*origin/i);
 });
 
 test("stable targets reject a caller-supplied origin that shifts the grid", () => {
