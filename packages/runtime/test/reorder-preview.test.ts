@@ -49,3 +49,20 @@ test("no-op preview identifies the exact source and range", () => {
   assert.deepEqual(preview.moving.sourceStartTime, { value: "5005", timescale: "24000" });
   assert.deepEqual(preview.moving.durationTime, { value: "4004", timescale: "24000" });
 });
+
+test("moving later preserves the full affected order and source bindings", () => {
+  const input = fixture();
+  const preview = previewPrimaryStorylineReorder(input, "a", { kind: "end" });
+  assert.deepEqual(preview.before.map(({ id }) => id), ["a", "b", "c"]);
+  assert.deepEqual(preview.after.map(({ id }) => id), ["b", "c", "a"]);
+  assert.deepEqual(preview.after.map(({ mediaId }) => mediaId), ["two", "one", "one"]);
+  assert.deepEqual(preview.after.map(({ startTime }) => startTime), [
+    { value: "100100", timescale: "24000" }, { value: "13013", timescale: "3000" }, { value: "11011", timescale: "2400" },
+  ]);
+  assert.deepEqual(preview.after.map(({ durationTime }) => durationTime), [input.timeline.clips[1]!.durationTime, input.timeline.clips[2]!.durationTime, input.timeline.clips[0]!.durationTime]);
+});
+
+test("reorder preview rejects unsupported destination values", () => {
+  assert.throws(() => previewPrimaryStorylineReorder(fixture(), "b", { kind: "unknown", occurrenceId: "a" } as never), /REORDER_INVALID.*destination/);
+  assert.throws(() => previewPrimaryStorylineReorder(fixture(), "b", null as never), /REORDER_INVALID.*destination/);
+});
