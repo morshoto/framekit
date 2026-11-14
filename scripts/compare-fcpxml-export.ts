@@ -72,6 +72,12 @@ async function rejectUnsupportedStructure(path: string): Promise<void> {
         if (!allowed.has(attribute)) throw new Error(`Unsupported asset-clip attribute: ${attribute}`);
       }
     }
+    if ("title" in node && node[":@"] && typeof node[":@"] === "object") {
+      const allowed = new Set(["@_ref", "@_name", "@_offset", "@_start", "@_duration", "@_lane"]);
+      for (const attribute of Object.keys(node[":@"] as object)) {
+        if (!allowed.has(attribute)) throw new Error(`Unsupported title attribute: ${attribute}`);
+      }
+    }
     for (const [key, child] of Object.entries(value)) {
       if (key !== ":@" && !supported.has(key)) throw new Error(`Unsupported FCPXML structure: ${key}`);
       if (key === "project") projects++;

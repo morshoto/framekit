@@ -235,6 +235,16 @@ test("FCPXML comparison requires explicit exports and fails on changed source co
     assert.match(changedTrim.stderr, /SEMANTIC_MISMATCH/);
     await writeFile(actual, xml(actualMedia).replace('duration="2s"', 'duration="48/24s"'));
     assert.equal(spawnSync(process.execPath, [...args, expected, actual]).status, 0, "equivalent rational times compare equally");
+    const title = (source: string) => xml(source)
+      .replace('</resources>', '<effect id="title-effect" name="Basic Title" uid="basic-title"/></resources>')
+      .replace('</spine>', '<title ref="title-effect" name="title" offset="0s" duration="1s"><text>Example</text></title></spine>');
+    await writeFile(expected, title(expectedMedia));
+    await writeFile(actual, title(actualMedia));
+    assert.equal(spawnSync(process.execPath, [...args, expected, actual]).status, 0, "supported title still compares");
+    await writeFile(actual, title(actualMedia).replace('<title ', '<title enabled="0" '));
+    const disabledTitle = spawnSync(process.execPath, [...args, expected, actual], { encoding: "utf8" });
+    assert.notEqual(disabledTitle.status, 0, "disabled titles must not compare as visible titles");
+    assert.match(disabledTitle.stderr, /unsupported/i);
     const duplicateExpected = join(expectedDir, "other.mp4");
     const duplicateActual = join(actualDir, "other.mp4");
     await writeFile(duplicateExpected, "expected source");
