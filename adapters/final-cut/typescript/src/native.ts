@@ -1478,6 +1478,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     try {
       const searchDeadline = deadline ?? this.now() + this.mediaImportDiscoveryTimeoutMs;
       const output = await this.executeNativeScript(searchMediaScript(query), searchDeadline, timeoutCode);
+      if (output.split(String.fromCharCode(30)).some((record) => record === "__FRAMEKIT_BROWSER_SCAN_INCOMPLETE__")) {
+        throw new Error("FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser media scan was incomplete");
+      }
       const explicitFailure = output.trim();
       if (explicitFailure.startsWith("FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE")) {
         throw new Error(explicitFailure);
@@ -5422,7 +5425,8 @@ function browserMediaTraversalScript(): string {
               end if
               set output to output & my collectBrowserMedia(candidate, depth + 1, searchQuery, origin, candidateMediaContext, seenIdentities, candidatePath)
             on error
-              -- Ignore inaccessible descendants and continue enumerating Browser results.
+              -- Preserve incomplete-scan evidence rather than reporting an empty result.
+              set output to output & "__FRAMEKIT_BROWSER_SCAN_INCOMPLETE__" & (ASCII character 30)
             end try
           end repeat
         on error
