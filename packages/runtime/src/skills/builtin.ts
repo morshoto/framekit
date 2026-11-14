@@ -1,3 +1,6 @@
+import { isDeepStrictEqual } from "node:util";
+import type { ProjectSnapshot } from "../domain/project.js";
+import type { SkillPlan } from "../domain/skills.js";
 import type { SkillDefinition, SkillPlanningContext, SkillVerificationContext } from "../domain/skills.js";
 import type { RationalTime, TimeRange } from "../domain/primitives.js";
 import type { AudioMeasurement, SpeechWord } from "../domain/media.js";
@@ -457,7 +460,10 @@ function dialogueNormalizationSkill(): SkillDefinition {
           },
           { type: "editor", capability: "readAfterWrite" },
           { type: "editor", capability: "rollback" },
-          { type: "editor", capability: "compositeTransactions" },
+          { type: "anyOf", requirements: [
+            { type: "editor", capability: "compositeTransactions" },
+            { type: "editor", capability: "singleOperationTransactions" },
+          ] },
           { type: "analyzer", capability: "audioLoudness" },
           { type: "operation", operation: "set-gain" },
         ],
@@ -467,6 +473,7 @@ function dialogueNormalizationSkill(): SkillDefinition {
       normalize: (input) => ({ ...DIALOGUE_NORMALIZATION_DEFAULTS, ...(input as Record<string, unknown>) }),
       plan: async (context, input) => planDialogueSkill(context, input),
       verify: (context) => verifyDialogueSkill(context),
+      verifyNoOp: (context) => verifyDialogueMeasurement(context.plan, context.project, context.measureAudio),
     },
   };
 }
@@ -674,11 +681,19 @@ async function planDialogueSkill(context: SkillPlanningContext, input: Record<st
 }
 
 async function verifyDialogueSkill(context: SkillVerificationContext): Promise<import("../domain/verification.js").VerificationCheck[]> {
-  const details = context.plan.details;
+  return verifyDialogueMeasurement(context.plan, context.transaction.attemptedAfter, context.measureAudio);
+}
+
+async function verifyDialogueMeasurement(
+  plan: SkillPlan,
+  expectedProject: ProjectSnapshot,
+  measureAudio: SkillVerificationContext["measureAudio"],
+): Promise<import("../domain/verification.js").VerificationCheck[]> {
+  const details = plan.details;
   const mediaId = typeof details?.mediaId === "string" ? details.mediaId : undefined;
   const occurrenceId = typeof details?.occurrenceId === "string" ? details.occurrenceId : undefined;
-  const input = context.plan.normalizedInput as unknown as DialogueNormalizationRequest;
-  if (!mediaId || !occurrenceId || !context.measureAudio) {
+  const input = plan.normalizedInput as unknown as DialogueNormalizationRequest;
+  if (!mediaId || !occurrenceId || !measureAudio) {
     return [{
       name: "dialogue-measurement",
       passed: false,
@@ -690,7 +705,7 @@ async function verifyDialogueSkill(context: SkillVerificationContext): Promise<i
 
   let measurement: AudioMeasurement;
   try {
-    measurement = await context.measureAudio(mediaId, occurrenceId);
+    measurement = await measureAudio(mediaId, occurrenceId);
   } catch (error) {
     return [{
       name: "dialogue-measurement",
@@ -701,18 +716,29 @@ async function verifyDialogueSkill(context: SkillVerificationContext): Promise<i
     }];
   }
 
-  const occurrence = context.transaction.attemptedAfter.timeline.clips.find((clip) => clip.id === occurrenceId);
-  const expectedRange = occurrence
-    ? { start: occurrence.sourceStart ?? 0, end: (occurrence.sourceStart ?? 0) + occurrence.duration }
-    : undefined;
+  const occurrence = expectedProject.timeline.clips.find((clip) => clip.id === occurrenceId);
+  const sourceStart = occurrence?.sourceStartTime
+    ? Number(occurrence.sourceStartTime.value) / Number(occurrence.sourceStartTime.timescale)
+    : occurrence?.sourceStart ?? 0;
+  const duration = occurrence ? Number(occurrence.durationTime.value) / Number(occurrence.durationTime.timescale) : 0;
+  const expectedRange = occurrence ? { start: sourceStart, end: sourceStart + duration } : undefined;
+  const before = details?.measurement as AudioMeasurement | undefined;
+  const originalSignal = before?.signalProvenance;
+  const signal = measurement.signalProvenance;
+  const freshSignal = !originalSignal || Boolean(signal
+    && signal.requestId !== originalSignal.requestId
+    && isDeepStrictEqual(signal.exporter, originalSignal.exporter)
+    && signal.meterVersion === originalSignal.meterVersion);
+  const consistentProvider = !before || (isDeepStrictEqual(measurement.provider, before.provider)
+    && isDeepStrictEqual(measurement.sourceIdentity, before.sourceIdentity));
   const targetBound = measurement.mediaId === mediaId
     && measurement.occurrenceId === occurrenceId
-    && sameRevision(measurement.revision, context.transaction.attemptedAfter.revision)
+    && sameRevision(measurement.revision, expectedProject.revision)
     && Boolean(expectedRange
       && sameRange(measurement.requestedRange, expectedRange)
       && sameRange(measurement.measuredRange, expectedRange))
     && Boolean(measurement.provider?.id && measurement.provider.provider);
-  const measurementPassed = measurement.valid && targetBound;
+  const measurementPassed = measurement.valid && targetBound && freshSignal && consistentProvider;
   const measurementCheck = {
     name: "dialogue-measurement",
     passed: measurementPassed,
@@ -720,11 +746,12 @@ async function verifyDialogueSkill(context: SkillVerificationContext): Promise<i
     expected: {
       mediaId,
       occurrenceId,
-      revision: context.transaction.attemptedAfter.revision,
+      revision: expectedProject.revision,
       requestedRange: expectedRange,
     },
     observed: measurement,
-    ...(measurementPassed ? {} : { reason: measurement.valid ? "MEASUREMENT_TARGET_MISMATCH" : "MEASUREMENT_INVALID" }),
+    ...(measurementPassed ? {} : { reason: !freshSignal || !consistentProvider ? "MEASUREMENT_EVIDENCE_CHANGED"
+      : measurement.valid ? "MEASUREMENT_TARGET_MISMATCH" : "MEASUREMENT_INVALID" }),
     detail: measurementPassed
       ? "post-write dialogue measurement is valid and bound to the selected occurrence"
       : "post-write dialogue measurement is invalid or not bound to the selected occurrence",

@@ -2850,7 +2850,13 @@ test("canonical single-edit readiness never advertises recoverable batches throu
     for (const skill of ["filler-removal", "dialogue-normalization"]) {
       const result = JSON.parse(textFrom(await client.callTool({ name: "skill.inspect", arguments: { skill } })));
       assert.equal(result.availability.available, false);
-      assert.ok(result.availability.missingRequirements.some((missing: { name: string }) => missing.name === "compositeTransactions"));
+      const missing = result.availability.missingRequirements.map((item: { name: string }) => item.name);
+      if (skill === "filler-removal") assert.ok(missing.includes("compositeTransactions"));
+      else {
+        assert.ok(missing.includes("audioLoudness"));
+        assert.ok(missing.includes("set-gain"));
+        assert.ok(!missing.includes("singleOperationTransactions"));
+      }
     }
     const before = await provider.readProject();
     const operation = { type: "rename-clip" as const, clipId: before.timeline.clips[0]!.id, name: "Renamed" };

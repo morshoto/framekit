@@ -31,6 +31,7 @@ export const SKILL_EDITOR_CAPABILITIES = [
   "projectCatalogRead",
   "projectSelection",
   "compositeTransactions",
+  "singleOperationTransactions",
   "videoExport",
   "mediaImport",
   "mediaPlacement",

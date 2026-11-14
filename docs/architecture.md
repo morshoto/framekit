@@ -88,8 +88,9 @@ preview, readback, and restoration prerequisites are ready; it reports
 `compositeTransactions: false`. Native Undo currently retains only the latest
 edit, so a snapshot cannot establish recoverable multi-operation execution.
 Single-operation editor previews retain their revision, semantic-operation,
-readback, and rollback gates. Filler and dialogue Skills continue to require
-composite support and remain unavailable on this provider.
+readback, and rollback gates. The filler Skill still requires composite support.
+The dialogue Skill accepts guarded single-operation support for its one absolute
+gain edit; it also requires an independently measured occurrence signal.
 A provider advertising
 `markerIdentityMode: "editor-assigned"` may return a different ID for a uniquely
 added marker; verification still checks its semantics and all other changes. Canonical Final Cut reads reject
@@ -396,6 +397,18 @@ coverage, and runs FFmpeg's EBU R128 scanner with true-peak measurement. It does
 not apply gain to source audio or substitute predicted levels. Measurements
 retain the exported-signal provenance through runtime binding; inconsistent
 target or gain evidence is rejected.
+
+Production Final Cut MCP enables `requireExportedAudioSignal` for occurrence
+measurements. Source analysis or a bare `signalScope: "occurrence"` assertion
+cannot satisfy normalization. The dialogue Skill verifies fresh exported
+evidence after the write, including a different request identity and unchanged
+source, analyzer, exporter and meter identities. It checks measured LUFS and
+true peak against the approved policy and rolls back failed verification through
+the guarded edit transaction. A verified NO_OP also requires fresh measurement
+at execution; peak-unsafe targets are skipped even when loudness is in tolerance.
+Fixture runtimes may still use simulated analyzers without claiming native
+acceptance. The native exporter, set-gain readback/recovery and disposable native
+QA remain required before production normalization can be accepted.
 
 The bundled Share exporter does not provide this isolated-output contract, so
 the analyzer is not enabled in the production MCP and has no source fallback.

@@ -92,6 +92,9 @@ export function planDialogueGain(
     return { ...base, decision: "SKIP", reasonCodes: ["DIALOGUE_TOO_SHORT"] };
   }
   if (Math.abs(measurement.integratedLufs - options.targetLufs) <= options.toleranceDb) {
+    if (measurement.truePeakDb > options.maxTruePeakDb) {
+      return { ...base, decision: "SKIP", reasonCodes: ["PEAK_RISK"] };
+    }
     return {
       ...base,
       decision: "NO_OP",

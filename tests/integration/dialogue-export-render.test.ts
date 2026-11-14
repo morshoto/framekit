@@ -7,6 +7,9 @@ import { join } from "node:path";
 import { FinalCutOccurrenceAudioAnalyzer, type OccurrenceAudioExporter } from "@framekit/final-cut";
 import { AgentVideoRuntime, canonicalSnapshotDigest, type AudioAnalyzer } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 // Explicit rendered reference levels, not the planner's arithmetic. This port
 // simulates native output; these tests do not establish Final Cut export proof.
@@ -96,7 +99,7 @@ test("strict normalization rejects unproven occurrence measurements before previ
 });
 
 test("missing, reused or changed post-write evidence restores the original gain", async t => {
-  for (const mode of ["missing", "reused-request", "exporter", "meter-version"] as const) {
+  for (const mode of ["missing", "reused-request", "exporter", "meter-version", "provider", "stale-revision", "range"] as const) {
     const f = await fixture(t);
     let requestId = "";
     let count = 0;
@@ -106,6 +109,9 @@ test("missing, reused or changed post-write evidence restores the original gain"
       else if (mode === "missing") delete measured.signalProvenance;
       else if (mode === "reused-request") measured.signalProvenance!.requestId = requestId;
       else if (mode === "exporter") measured.signalProvenance!.exporter.version = "changed";
+      else if (mode === "provider") measured.provider!.version = "changed";
+      else if (mode === "stale-revision") measured.revision!.id = "stale";
+      else if (mode === "range") measured.measuredRange!.end -= 0.5;
       else measured.signalProvenance!.meterVersion = "different meter build";
       return measured;
     };
@@ -162,4 +168,60 @@ test("an occurrence already at target but above the peak limit is skipped", asyn
   assert.equal(preview.plan.decision, "SKIP");
   assert.ok(preview.plan.warnings.includes("PEAK_RISK"));
   assert.equal((await f.runtime.executeSkill(preview.previewToken)).status, "SKIPPED");
+});
+
+test("stale preview and withdrawn single-operation readiness cannot mutate", async t => {
+  for (const mode of ["stale", "readiness"]) {
+    const f = await fixture(t, true);
+    const preview = await f.preview();
+    if (mode === "stale") {
+      const revision = (await f.adapter.readProject()).revision;
+      await f.adapter.apply({ type: "rename-clip", clipId: "duplicate", name: "External change",
+        baseRevision: revision }, revision);
+    } else {
+      const capabilities = f.adapter.getCapabilities.bind(f.adapter);
+      f.adapter.getCapabilities = async () => {
+        const value = await capabilities();
+        return { ...value, editor: { ...value.editor, singleOperationTransactions: false } };
+      };
+    }
+    const before = await f.adapter.readProject();
+    await assert.rejects(f.runtime.executeSkill(preview.previewToken), /STALE_CONTEXT|SKILL_REQUIREMENTS_UNMET/);
+    assert.equal(canonicalSnapshotDigest(await f.adapter.readProject()), canonicalSnapshotDigest(before));
+    assert.equal(f.exports(), 1);
+  }
+});
+
+test("MCP Skill preview and execute preserve exported measurement evidence", async t => {
+  const f = await fixture(t, true);
+  const server = createMcpServer(f.runtime);
+  const client = new Client({ name: "exported-normalization-contract", version: "1" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const parse = (value: unknown) => {
+    const result = value as { isError?: boolean; content: Array<{ text: string }> };
+    assert.notEqual(result.isError, true, JSON.stringify(value));
+    return JSON.parse(result.content[0]!.text);
+  };
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const before = await f.adapter.readProject();
+    const preview = parse(await client.callTool({ name: "skill.preview", arguments: {
+      skill: "dialogue-normalization", arguments: { mediaId: "source", occurrenceId: "selected",
+        targetLufs: -20, toleranceDb: 0.2, baseRevision: before.revision },
+    } }));
+    assert.equal(preview.plan.details.measurement.signalProvenance.origin, "editor-export");
+    const result = parse(await client.callTool({ name: "skill.execute", arguments: {
+      skill: "dialogue-normalization", previewToken: preview.previewToken,
+    } }));
+    assert.equal(result.status, "VERIFIED");
+    const observed = result.verification.checks.find((check: { name: string }) => check.name === "dialogue-measurement").observed;
+    assert.notEqual(observed.signalProvenance.requestId, preview.plan.details.measurement.signalProvenance.requestId);
+    assert.equal(observed.signalProvenance.gainDb, 5);
+    await f.runtime.undo(result.transactionIds[0]);
+    assert.equal(canonicalSnapshotDigest(await f.adapter.readProject()), canonicalSnapshotDigest(before));
+  } finally {
+    await client.close();
+    await server.close();
+  }
 });

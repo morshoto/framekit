@@ -220,6 +220,7 @@ const analyzers = liveMode
 
 const runtime = new AgentVideoRuntime(editor, {
   ...analyzers,
+  requireExportedAudioSignal: liveMode,
   semanticMediaIndexStore: new JsonSemanticMediaIndexStore(join(framekitStateDirectory, "semantic-media-index.json")),
 });
 const headlessProjects = new HeadlessProjectService({
