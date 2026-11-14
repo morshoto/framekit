@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, open, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import test from "node:test";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -144,6 +144,7 @@ test("an interrupted atomic write preserves the previous valid project", async (
       mkdir: async (directoryPath, options) => { await mkdir(directoryPath, options); },
       readFile: async (filePath, encoding) => readFile(filePath, encoding),
       writeFile: async (filePath, data, options) => writeFile(filePath, data, options),
+      link,
       rename: async (from, to) => {
         if (to === path) throw new Error("injected interruption before commit");
         return rename(from, to);
@@ -152,6 +153,29 @@ test("an interrupted atomic write preserves the previous valid project", async (
     };
     await assert.rejects(new FramekitProjectStore(path, failingFileSystem).save(second), /PROJECT_SAVE_FAILED/);
     assert.deepEqual(await new FramekitProjectStore(path).load(), first);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("project creation cannot replace a record published after its absence check", async () => {
+  const root = await directory();
+  const path = join(root, "project.json");
+  const competing = '{"record":"other writer"}\n';
+  try {
+    const interleaved: ProjectStoreFileSystem = {
+      mkdir: async (p, options) => { await mkdir(p, options); },
+      readFile: async (p, encoding) => readFile(p, encoding),
+      writeFile: async (p, data, options) => {
+        await writeFile(p, data, options);
+        if (p.endsWith(".tmp")) await writeFile(path, competing, { encoding: "utf8", flag: "wx" });
+      },
+      link,
+      rename,
+      unlink: async (p) => rm(p, { force: true }),
+    };
+    await assert.rejects(new FramekitProjectStore(path, interleaved).create(project()), /PROJECT_ALREADY_EXISTS/);
+    assert.equal(await readFile(path, "utf8"), competing);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -247,6 +271,7 @@ test("an empty lock being initialized cannot be stolen by a concurrent writer", 
         const handle = await open(p, "wx");
         try { opened(); await resumed; await handle.writeFile(data); } finally { await handle.close(); }
       },
+      link,
       rename,
       unlink: async (p) => rm(p, { force: true }),
     };
@@ -277,6 +302,7 @@ test("a failed lock initialization retains its reservation", async () => {
         await handle.close();
         throw new Error("injected failure after lock creation");
       },
+      link,
       rename,
       unlink: async (p) => rm(p, { force: true }),
     };
@@ -316,6 +342,7 @@ test("a legacy writer removing an initializing lock can bypass upgraded writer e
         return contents;
       },
       writeFile: async (p, data, options) => { await writeFile(p, data, options); },
+      link,
       rename,
       unlink: async (p) => rm(p, { force: true }),
     };

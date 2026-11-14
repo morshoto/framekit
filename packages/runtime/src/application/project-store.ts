@@ -1,4 +1,4 @@
-import { mkdir as nodeMkdir, readFile as nodeReadFile, rename as nodeRename, unlink as nodeUnlink, writeFile as nodeWriteFile } from "node:fs/promises";
+import { link as nodeLink, mkdir as nodeMkdir, readFile as nodeReadFile, rename as nodeRename, unlink as nodeUnlink, writeFile as nodeWriteFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { ContextRevision } from "../domain/primitives.js";
@@ -28,6 +28,7 @@ export interface ProjectStoreFileSystem {
   mkdir(path: string, options: { recursive: true }): Promise<void>;
   readFile(path: string, encoding: "utf8"): Promise<string>;
   writeFile(path: string, data: string, options: { encoding: "utf8"; flag: "wx" }): Promise<void>;
+  link(from: string, to: string): Promise<void>;
   rename(from: string, to: string): Promise<void>;
   unlink(path: string): Promise<void>;
 }
@@ -68,6 +69,7 @@ const fileSystem: ProjectStoreFileSystem = {
   mkdir: async (path, options) => { await nodeMkdir(path, options); },
   readFile: async (path, encoding) => nodeReadFile(path, encoding),
   writeFile: async (path, data, options) => { await nodeWriteFile(path, data, options); },
+  link: async (from, to) => { await nodeLink(from, to); },
   rename: async (from, to) => { await nodeRename(from, to); },
   unlink: async (path) => { await nodeUnlink(path); },
 };
@@ -87,7 +89,7 @@ export class FramekitProjectStore implements ProjectStore {
         if (error instanceof ProjectPersistenceError) throw error;
         if (!isMissingFile(error)) throw error;
       }
-      return this.saveUnlocked(project);
+      return this.saveUnlocked(project, undefined, true);
     });
   }
 
@@ -120,6 +122,7 @@ export class FramekitProjectStore implements ProjectStore {
   private async saveUnlocked(
     project: FramekitProjectDocument,
     expectedRevision?: ContextRevision,
+    createOnly = false,
   ): Promise<FramekitProjectDocument> {
     try {
       validateFramekitProject(project);
@@ -142,9 +145,13 @@ export class FramekitProjectStore implements ProjectStore {
     try {
       await this.fs.mkdir(dirname(this.path), { recursive: true });
       await this.fs.writeFile(temporary, `${encodeFramekitProject(project)}\n`, { encoding: "utf8", flag: "wx" });
-      await this.fs.rename(temporary, this.path);
+      if (createOnly) await this.fs.link(temporary, this.path);
+      else await this.fs.rename(temporary, this.path);
       return structuredClone(project);
     } catch (error) {
+      if (createOnly && isAlreadyExists(error)) {
+        throw new ProjectPersistenceError("PROJECT_ALREADY_EXISTS", `project file already exists: ${this.path}`, { path: this.path }, { cause: error });
+      }
       throw new ProjectPersistenceError("PROJECT_SAVE_FAILED", `atomic project write failed: ${this.path}`, { path: this.path }, { cause: error });
     } finally {
       await this.removeTemporaryFile(temporary);
