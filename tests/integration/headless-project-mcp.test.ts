@@ -670,6 +670,7 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     assert.deepEqual(await service.open(collisionId), collision);
     await rm(collisionPath);
     assert.equal((await service.previewRoughCut(request)).planDigest, preview.planDigest);
+    assert.equal((await service.previewRoughCut(request)).planDigest, preview.planDigest);
     assert.equal(preview.before.timeline.sequence.occurrences.length, 0);
     assert.deepEqual(preview.after.timeline.sequence.occurrences[0]?.sourceStartTime, { value: "4", timescale: "15" });
     assert.equal(preview.after.timeline.sequence.occurrences[0]?.durationTime.value, "1");

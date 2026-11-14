@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, open, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import test from "node:test";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -144,6 +144,7 @@ test("an interrupted atomic write preserves the previous valid project", async (
       mkdir: async (directoryPath, options) => { await mkdir(directoryPath, options); },
       readFile: async (filePath, encoding) => readFile(filePath, encoding),
       writeFile: async (filePath, data, options) => writeFile(filePath, data, options),
+      link,
       rename: async (from, to) => {
         if (to === path) throw new Error("injected interruption before commit");
         return rename(from, to);
@@ -169,6 +170,7 @@ test("project creation cannot replace a record published after its absence check
         await writeFile(p, data, options);
         if (p.endsWith(".tmp")) await writeFile(path, competing, { encoding: "utf8", flag: "wx" });
       },
+      link,
       rename,
       unlink: async (p) => rm(p, { force: true }),
     };
@@ -269,6 +271,7 @@ test("an empty lock being initialized cannot be stolen by a concurrent writer", 
         const handle = await open(p, "wx");
         try { opened(); await resumed; await handle.writeFile(data); } finally { await handle.close(); }
       },
+      link,
       rename,
       unlink: async (p) => rm(p, { force: true }),
     };
@@ -299,6 +302,7 @@ test("a failed lock initialization retains its reservation", async () => {
         await handle.close();
         throw new Error("injected failure after lock creation");
       },
+      link,
       rename,
       unlink: async (p) => rm(p, { force: true }),
     };
@@ -338,6 +342,7 @@ test("a legacy writer removing an initializing lock can bypass upgraded writer e
         return contents;
       },
       writeFile: async (p, data, options) => { await writeFile(p, data, options); },
+      link,
       rename,
       unlink: async (p) => rm(p, { force: true }),
     };
