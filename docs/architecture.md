@@ -167,7 +167,10 @@ retry the insertion command after an error because dispatch may have occurred.
 A placement Undo is also attempted at most once per in-process operation handle;
 after invocation, an error or inconclusive readback does not permit replay.
 A duration and revision change alone does not verify the inserted source or its
-canonical placement. Native
+canonical placement, so direct insertion results remain unverified and require
+recovery. Inconclusive post-dispatch readback does not trigger automatic Undo.
+Placement Undo also remains unverified without canonical restoration and source
+integrity evidence. Native
 focus, search, selection, and preview calls also reserve it while they can change
 UI state; their previews do not write the timeline. Native
 media imports also reserve it; an incomplete or partial import keeps the

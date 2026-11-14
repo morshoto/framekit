@@ -2816,29 +2816,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       after = await this.requireTimelineContext();
       afterLive = await this.waitForMediaInsertion(preview.beforeDuration, beforeLive.revision.id);
     } catch (error) {
-      const observedContext = after ?? await this.inspectRawNative();
-      const observedLive = afterLive ?? await this.readLiveState();
-      if (observedLive && mediaInsertionMutationObserved(beforeLive, observedLive) && observedContext.undoCommand) {
-        this.rememberOperation(operationId, {
-          kind: "media-insertion",
-          before,
-          after: observedContext,
-          beforeLive,
-          afterLive: observedLive,
-          beforeDuration: preview.beforeDuration,
-          undoCommand: observedContext.undoCommand,
-        });
-        try {
-          await this.undo(operationId);
-        } catch (rollbackError) {
-          throw new Error(`${nativeErrorCode(error)}: ${String(error)}; operationId=${operationId}; native rollback failed: ${String(rollbackError)}`);
-        }
-        throw new Error(`${nativeErrorCode(error)}: ${String(error)}; insertion was rolled back`);
-      }
-      throw new Error(`${nativeErrorCode(error)}: ${String(error)}; post-command state was not safely recoverable, so no Undo handle was retained`);
+      throw new Error(`${nativeErrorCode(error)}: ${String(error)}; placement may have been applied and recovery is required before retry`);
     }
     const afterDuration = afterLive.sequenceTimeRange?.duration ?? afterLive.sequence?.duration;
-    const verification = mediaInsertionVerificationDetail(afterDuration, preview.beforeDuration, afterLive.revision.id, beforeLive.revision.id);
+    const observation = mediaInsertionVerificationDetail(afterDuration, preview.beforeDuration, afterLive.revision.id, beforeLive.revision.id);
     const operation = {
       kind: "media-insertion",
       before,
@@ -2848,17 +2829,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       beforeDuration: preview.beforeDuration,
       undoCommand: after.undoCommand,
     } satisfies NativeOperationRecord;
-    if (!verification.verified) {
-      if (mediaInsertionMutationObserved(beforeLive, afterLive) && after.undoAvailable && after.undoCommand) {
-        this.rememberOperation(operationId, operation);
-        try {
-          await this.undo(operationId);
-        } catch (rollbackError) {
-          throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}; operationId=${operationId}; native rollback failed: ${String(rollbackError)}`);
-        }
-        throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}; insertion was rolled back`);
-      }
-      throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${verification.detail}`);
+    if (!observation.verified) {
+      throw new Error(`FINAL_CUT_NATIVE_VERIFICATION_FAILED: ${observation.detail}; placement may have been applied and recovery is required before retry`);
     }
     this.rememberOperation(operationId, operation);
     this.assertNativeRollbackReady(operationId, `${preview.operation} media insertion`, operation);
@@ -2873,7 +2845,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       afterDuration: afterDuration!,
       beforeRevision: beforeLive.revision,
       afterRevision: afterLive.revision,
-      verification,
+      verification: { verified: false, detail: `${observation.detail}; canonical source and placement are unverified; recovery is required` },
       undoAvailable: after.undoAvailable,
       ...(after.undoCommand ? { undoCommand: after.undoCommand } : {}),
     };
@@ -3738,6 +3710,7 @@ function verifyNativeUndo(
     if (!expectedProject || !expectedSequence || afterLive?.project?.id !== expectedProject || afterLive?.sequence?.id !== expectedSequence) {
       return { verified: false, detail: "project or sequence target changed during Undo" };
     }
+    return { verified: false, detail: "canonical restoration and source integrity are unavailable; recovery is required" };
   }
   const liveRevisionAdvanced = Boolean(
     operation.afterLive
@@ -7451,12 +7424,6 @@ function mediaInsertionVerificationDetail(
   }
   if (revision === previousRevision) return { verified: false, detail: "Final Cut did not expose a new revision after media insertion" };
   return { verified: true, detail: `Final Cut exposed resulting duration ${actual.value}/${actual.timescale} at revision ${revision}` };
-}
-
-function mediaInsertionMutationObserved(before: EditorLiveState, after: EditorLiveState): boolean {
-  const beforeDuration = before.sequenceTimeRange?.duration ?? before.sequence?.duration;
-  const afterDuration = after.sequenceTimeRange?.duration ?? after.sequence?.duration;
-  return Boolean(beforeDuration && afterDuration && compareRational(afterDuration, beforeDuration) > 0);
 }
 
 function readinessForContext(context: {

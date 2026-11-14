@@ -16,13 +16,13 @@
         let
           pkgs = import nixpkgs { inherit system; };
           pnpmShim = pkgs.writeShellScriptBin "pnpm" ''
-            exec ${pkgs.nodejs_22}/bin/corepack pnpm "$@"
+            exec ${pkgs.nodejs_24}/bin/corepack pnpm "$@"
           '';
         in pkgs.mkShell {
           packages = with pkgs; [
             bash
             git
-            nodejs_22
+            nodejs_24
             pnpmShim
             ffmpeg
             sqlite
