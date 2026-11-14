@@ -73,6 +73,9 @@ test('Docs and package smoke retain failure diagnostics', () => {
   assert.match(foundation, /--reporter=junit/);
   assert.match(foundation, /if:.*always\(\)[\s\S]*actions\/upload-artifact@/);
   assert.match(job('docs-export'), /if:.*failure\(\)[\s\S]*actions\/upload-artifact@/);
+  assert.match(job('docs-export'), /shell: bash/);
+  assert.match(job('docs-export'), /tee.*docs-build.log/);
+  assert.match(job('docs-export'), /tee.*docs-export.log/);
   const consumer = readFileSync('.github/action/consumer-runtime/action.yml', 'utf8');
   assert.match(consumer, /tee.*consumer-runtime.log/);
   assert.match(consumer, /if:.*always\(\)[\s\S]*actions\/upload-artifact@/);
