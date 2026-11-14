@@ -5,7 +5,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import test from "node:test";
+import test, { after } from "node:test";
+import { createMediaFixturePool } from "../../support/headless/media-fixtures.js";
 import {
   createFramekitRenderPlan,
   createFramekitRenderRequest,
@@ -15,15 +16,14 @@ import {
 import { FfmpegRenderVerifier, FfmpegTimelineRenderer } from "../../../adapters/headless/typescript/src/index.js";
 
 const execFileAsync = promisify(execFile);
+const mediaFixtures = createMediaFixturePool();
+after(() => mediaFixtures.dispose());
 const repositoryRoot = process.cwd();
 
 test("FFmpeg renderer preserves apostrophes in title text", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-renderer-apostrophe-"));
   try {
-    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], {
-      cwd: repositoryRoot,
-      env: process.env,
-    });
+    await mediaFixtures.copyTo(directory);
     const sourceWithApostrophe = await timeline(
       join(directory, "fixture-red-440hz.mp4"),
       join(directory, "fixture-blue-880hz.mp4"),
@@ -62,10 +62,7 @@ test("FFmpeg renderer preserves apostrophes in title text", async () => {
 test("FFmpeg renderer keeps title text separate from drawtext options", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-renderer-title-textfile-"));
   try {
-    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], {
-      cwd: repositoryRoot,
-      env: process.env,
-    });
+    await mediaFixtures.copyTo(directory);
     const source = await timeline(
       join(directory, "fixture-red-440hz.mp4"),
       join(directory, "fixture-blue-880hz.mp4"),
@@ -118,10 +115,7 @@ writeFileSync(args.at(-1), "fake render output");
 test("FFmpeg Timeline IR renderer honors explicit output frame rate without mutating sources", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-renderer-"));
   try {
-    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], {
-      cwd: repositoryRoot,
-      env: process.env,
-    });
+    await mediaFixtures.copyTo(directory);
     const redPath = join(directory, "fixture-red-440hz.mp4");
     const bluePath = join(directory, "fixture-blue-880hz.mp4");
     const redBefore = createHash("sha256").update(await readFile(redPath)).digest("hex");
@@ -249,10 +243,7 @@ test("FFmpeg Timeline IR renderer honors explicit output frame rate without muta
 test("FFmpeg renderer fills a trailing video gap with black while music continues", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-renderer-tail-"));
   try {
-    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], {
-      cwd: repositoryRoot,
-      env: process.env,
-    });
+    await mediaFixtures.copyTo(directory);
     const musicPath = join(directory, "music-tail.wav");
     await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", [
       "-hide_banner", "-loglevel", "error", "-f", "lavfi",
@@ -317,10 +308,7 @@ test("FFmpeg renderer fills a trailing video gap with black while music continue
 test("FFmpeg renders a title during a cross-dissolve", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-transition-title-"));
   try {
-    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], {
-      cwd: repositoryRoot,
-      env: process.env,
-    });
+    await mediaFixtures.copyTo(directory);
     const source = await timeline(join(directory, "fixture-red-440hz.mp4"), join(directory, "fixture-blue-880hz.mp4"));
     source.sequence.titles = [{
       id: "transition-title",
@@ -380,10 +368,7 @@ test("FFmpeg renders a title during a cross-dissolve", async () => {
 test("FFmpeg mixes independent music with source audio at the requested gain", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-music-mix-"));
   try {
-    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], {
-      cwd: repositoryRoot,
-      env: process.env,
-    });
+    await mediaFixtures.copyTo(directory);
     const musicPath = join(directory, "music-1760hz.wav");
     await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", [
       "-hide_banner", "-loglevel", "error", "-f", "lavfi",
@@ -438,10 +423,7 @@ test("FFmpeg mixes independent music with source audio at the requested gain", a
 test("FFmpeg renders both occurrences that reuse one music resource", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-reused-music-"));
   try {
-    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], {
-      cwd: repositoryRoot,
-      env: process.env,
-    });
+    await mediaFixtures.copyTo(directory);
     const musicPath = join(directory, "reused-music.wav");
     await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", [
       "-hide_banner", "-loglevel", "error", "-f", "lavfi",
@@ -514,7 +496,7 @@ test("FFmpeg renderer reports unsupported required semantics before rendering", 
 test("FFmpeg renderer commits no-clobber output atomically", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-renderer-output-race-"));
   try {
-    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], { cwd: repositoryRoot, env: process.env });
+    await mediaFixtures.copyTo(directory);
     const sourcePath = join(directory, "fixture-red-440hz.mp4");
     const outputPath = join(directory, "race.mp4");
     const wrapperPath = join(directory, "race-ffmpeg.mjs");
@@ -549,7 +531,7 @@ test("FFmpeg renderer commits no-clobber output atomically", async () => {
 test("FFmpeg renderer rejects media changed during rendering", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-renderer-source-race-"));
   try {
-    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], { cwd: repositoryRoot, env: process.env });
+    await mediaFixtures.copyTo(directory);
     const sourcePath = join(directory, "fixture-red-440hz.mp4");
     const outputPath = join(directory, "changed.mp4");
     const wrapperPath = join(directory, "mutate-ffmpeg.mjs");

@@ -6,7 +6,8 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
-import test from "node:test";
+import test, { after } from "node:test";
+import { createMediaFixturePool } from "../../support/headless/media-fixtures.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import {
@@ -24,6 +25,8 @@ import { createMcpServer } from "../../../apps/mcp-server/src/server.js";
 import { HeadlessProjectService } from "@framekit/headless-application";
 
 const execFileAsync = promisify(execFile);
+const mediaFixtures = createMediaFixturePool();
+after(() => mediaFixtures.dispose());
 
 test("v0.1.17 semantic media workflow runs from local MP4 to verified MP4 and editable FCPXML", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-v017-semantic-qa-"));
@@ -31,10 +34,7 @@ test("v0.1.17 semantic media workflow runs from local MP4 to verified MP4 and ed
   let server: ReturnType<typeof createMcpServer> | undefined;
   try {
     const here = dirname(fileURLToPath(import.meta.url));
-    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], {
-      cwd: process.cwd(),
-      env: process.env,
-    });
+    await mediaFixtures.copyTo(directory);
     const sourcePath = join(directory, "fixture-red-440hz.mp4");
     const sourceDigest = createHash("sha256").update(await readFile(sourcePath)).digest("hex");
     const metadata = await new FfmpegMediaMetadataProbe().probe(sourcePath);

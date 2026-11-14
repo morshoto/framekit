@@ -134,7 +134,9 @@ Failures print the seed and operation prefix into retained diagnostics. Reduce
 any discovered failure to its necessary operations and retain that regression
 beside the domain test before changing the seed set. Existing fault-injection
 tests and representative real subprocess/deadline tests remain required.
-Launcher behavioral tests also check that an intentional precedence regression
+Render consumers reuse worker-local immutable generated media through independent
+copies; source-mutation/race cases retain separate writable inputs. The fixture
+generator still has its own direct contract test. Launcher behavioral tests also check that an intentional precedence regression
 is detected.
 
 Fixture contracts, macOS SDK checks, extension builds, and headed Final Cut

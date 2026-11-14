@@ -1109,6 +1109,23 @@
       "network": "none"
     },
     {
+      "path": "tests/adapters/headless/media-fixture-pool.test.ts",
+      "owner": "adapters/headless/typescript",
+      "tags": [
+        "unit"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "unit",
+      "dependsOn": [
+        "tests/support/headless"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
       "path": "tests/cli/cli-dev-doctor.test.ts",
       "owner": "apps/cli",
       "tags": [
