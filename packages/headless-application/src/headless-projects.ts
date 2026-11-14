@@ -296,12 +296,33 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     await mkdir(this.directory, { recursive: true });
     const entries = await readdir(this.directory, { withFileTypes: true });
     const summaries: HeadlessProjectSummary[] = [];
-    for (const entry of entries.filter((candidate) => candidate.isFile() && candidate.name.endsWith(".json") && !candidate.name.startsWith("render-"))) {
+    for (const entry of entries.filter((candidate) => candidate.isFile() && candidate.name.endsWith(".json"))) {
       const projectId = entry.name.slice(0, -".json".length);
+      if (await this.isInternalRecord(entry.name)) continue;
       const project = await this.store(projectId).load();
       summaries.push(toSummary(project, this.projectPath(projectId)));
     }
     return summaries.sort((left, right) => left.projectId.localeCompare(right.projectId));
+  }
+
+  private async isInternalRecord(name: string): Promise<boolean> {
+    let value: unknown;
+    try {
+      value = JSON.parse(await readFile(join(this.directory, name), "utf8"));
+    } catch {
+      return false;
+    }
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    const record = value as Record<string, unknown>;
+    // A document-shaped file remains a project even when its ID resembles an
+    // internal record. Unknown or corrupt files still fail through the store.
+    if ("timeline" in record || "metadata" in record) return false;
+    const render = /^(render-[0-9a-f-]{36})\.json$/.exec(name);
+    if (render && record.renderId === render[1]) return true;
+    const execution = /^(rough-cut-[0-9a-f-]{36})\.json$/.exec(name);
+    if (execution && record.schemaVersion === 1 && record.executionId === execution[1]) return true;
+    const approval = /^([0-9a-f]{64})\.approval\.json$/.exec(name);
+    return Boolean(approval && record.schemaVersion === 1 && record.planDigest === approval[1]);
   }
 
   public async open(projectId: string): Promise<FramekitProjectDocument> {
