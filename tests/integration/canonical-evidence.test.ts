@@ -177,6 +177,12 @@ test("canonical headed evidence keeps mutation proof while omitting private snap
   assert.equal(serialized.includes("transaction-secret"), false);
 });
 
+test("evidence and runtime digests agree when exact source bounds are supplied", () => {
+  const snapshot = structuredClone(rawRun.before);
+  Object.assign(snapshot.media[0]!, { sourceRange: { start: { value: "10", timescale: "1" }, duration: { value: "20", timescale: "1" } } });
+  assert.equal(canonicalEvidenceDigest(snapshot), canonicalSnapshotDigest(snapshot as never));
+});
+
 test("canonical headed evidence requires an exact full Git commit", () => {
   assert.throws(
     () => sanitizeCanonicalEvidence(rawRun, {
