@@ -3085,7 +3085,14 @@
       "\"headless project list includes valid project IDs that resemble render records\"",
       "\"headless project list rejects a project whose stored ID differs from its filename\"",
       "\"rough-cut history failure reports the committed revision without execution proof\"",
-      "\"render and rough-cut execution history cannot replace projects with matching IDs\""
+      "\"render and rough-cut execution history cannot replace projects with matching IDs\"",
+      "\"headless export checks the revision of the media-validated snapshot\"",
+      "\"headless edits and rough cuts stay bound to the validated snapshot\"",
+      "\"production MCP exports an edited headless project as FCPXML without a rough-cut plan\"",
+      "\"headless edit Undo survives MCP restart and verifies the restored project\"",
+      "\"headless Undo rejects changed or missing media and a validation race\"",
+      "\"headless Undo reports save and independent readback failures without verified success\"",
+      "\"concurrent headless Undo attempts cannot both restore the same revision\""
     ],
     "tests/integration/project-status-sync.test.ts": [
       "'PR creation starts progress; submitted review comments select review'",
@@ -3165,5 +3172,25 @@
         "\"rejects splitting an attached occurrence without remapping its parent\""
       ]
     }
-  }
+  },
+  "upstreamIntegrations": [
+    {
+      "commit": "7dc138dc27aaaf103d234e86fb076444f59c761c",
+      "pullRequests": [
+        728,
+        729
+      ],
+      "addedTestNames": {
+        "tests/integration/headless-project-mcp.test.ts": [
+          "\"headless export checks the revision of the media-validated snapshot\"",
+          "\"headless edits and rough cuts stay bound to the validated snapshot\"",
+          "\"production MCP exports an edited headless project as FCPXML without a rough-cut plan\"",
+          "\"headless edit Undo survives MCP restart and verifies the restored project\"",
+          "\"headless Undo rejects changed or missing media and a validation race\"",
+          "\"headless Undo reports save and independent readback failures without verified success\"",
+          "\"concurrent headless Undo attempts cannot both restore the same revision\""
+        ]
+      }
+    }
+  ]
 }
