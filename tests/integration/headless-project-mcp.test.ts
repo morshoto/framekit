@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { chmod, link, mkdir, open, readFile, mkdtemp, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
+import { chmod, link, mkdir, open, readFile, mkdtemp, rename, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { dirname } from "node:path";
 import { tmpdir } from "node:os";
@@ -32,6 +32,23 @@ test("headless project list includes valid project IDs that resemble render reco
     assert.deepEqual((await service.list()).map((project) => project.projectId).sort(), ids.sort());
     await writeFile(join(directory, "corrupt.json"), "not-json");
     await assert.rejects(service.list(), /PROJECT_CORRUPT/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("headless project list rejects a project whose stored ID differs from its filename", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headless-project-id-"));
+  try {
+    const service = new HeadlessProjectService({ directory });
+    const timeline = emptyTimeline();
+    timeline.project.id = "actual";
+    await service.create(timeline);
+    const original = await readFile(join(directory, "actual.json"), "utf8");
+    await writeFile(join(directory, "different.json"), original);
+    await assert.rejects(service.list(), /PROJECT.*(IDENTITY|MISMATCH|CORRUPT)/);
+    assert.equal(await readFile(join(directory, "actual.json"), "utf8"), original);
+    assert.equal(await readFile(join(directory, "different.json"), "utf8"), original);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -1049,6 +1066,11 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     otherTimeline.project.id = "other-project";
     const other = await service.create(otherTimeline);
     await service.registerMedia(other.timeline.project.id, otherSource, other.timeline.revision);
+    // A valid project record may itself be a static symlink in the store.
+    const otherProjectPath = join(directory, "projects", `${other.timeline.project.id}.json`);
+    const relocatedProject = join(directory, "other-project-record.json");
+    await rename(otherProjectPath, relocatedProject);
+    await symlink(relocatedProject, otherProjectPath);
     const otherSourceLink = join(directory, "other-project-source-link.mp4");
     await link(otherSource, otherSourceLink);
     for (const path of [otherSource, otherSourceLink]) {
