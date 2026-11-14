@@ -4316,6 +4316,25 @@ test("native Browser search rejects incomplete scans instead of reporting empty 
   }
 });
 
+test("native Browser search rejects malformed and truncated scan records", async () => {
+  const recordSeparator = String.fromCharCode(30);
+  const valid = `Interview${separator}AXBrowserMedia${separator}browser-1${separator}source-1${recordSeparator}`;
+  for (const output of [
+    "unexpected executor output",
+    `unrelated${separator}AXRow${separator}id${recordSeparator}`,
+    `${valid}Interview${separator}AXRow${separator}id`,
+    `Interview${separator}AXRow${separator}id${separator}source${separator}extra${recordSeparator}`,
+  ]) {
+    const adapter = new FinalCutNativeAutomationAdapter({
+      enabled: true,
+      executor: async (script) => script.includes("set value of searchField to searchQuery")
+        ? output
+        : script.includes('set frontWindow to window "Final Cut Pro"') ? context(true, "Final Cut Pro", "", 0, true) : "",
+    });
+    await assert.rejects(adapter.searchMedia("Interview"), /FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE.*malformed/i);
+  }
+});
+
 test("native Browser search marks unscanned descendants at its traversal limit", async () => {
   let searchScript = "";
   const adapter = new FinalCutNativeAutomationAdapter({
