@@ -6,6 +6,8 @@ const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const manifestPath = "scripts/test-suite-manifest.json";
 const excludedDirectories = new Set([".git", ".codex", "coverage", "dist", "dist-package", "node_modules"]);
 export const TEST_SUITE_DEFINITIONS = Object.freeze({
+  golden: { tags: ["golden"], executables: [] },
+  "filler-removal": { tags: ["filler-removal"], executables: [] },
   documentation: { tags: ["documentation"], executables: [] },
   all: { tags: [], executables: ["ffmpeg", "ffprobe", "npm"] },
   fast: {
@@ -38,19 +40,38 @@ export async function loadTestSuiteManifest(rootDir = repositoryRoot) {
   }
   const paths = new Set();
   for (const entry of manifest.tests) {
-    if (!entry.reviewed) throw new Error(`TEST_METADATA_UNREVIEWED: ${entry.path}; review owner, evidence, dependencies and requirements`);
-    if (paths.has(entry.path) || !entry.owner || entry.owner === 'shared'
+    if (!entry || typeof entry !== 'object') throw new Error('TEST_METADATA_INVALID: expected a test entry');
+    if (entry.reviewed === false || entry.reviewed === undefined) throw new Error(`TEST_METADATA_UNREVIEWED: ${entry.path}; review owner, evidence, dependencies and requirements`);
+    if (entry.reviewed !== true || !validTestPath(entry.path) || paths.has(entry.path)
+      || typeof entry.owner !== 'string' || !entry.owner.trim() || ['shared', 'unreviewed'].includes(entry.owner)
       || !['unit', 'fixture', 'process', 'static', 'sdk'].includes(entry.evidence)
       || !['none', 'registry'].includes(entry.network)
-      || !Array.isArray(entry.tags) || !entry.tags.length
-      || !Array.isArray(entry.requires) || !Array.isArray(entry.dependsOn) || !entry.dependsOn.length
-      || !Array.isArray(entry.platforms) || !entry.platforms.length
-      || entry.platforms.some(platform => !['any', 'darwin', 'linux', 'win32'].includes(platform))) {
+      || !validStrings(entry.tags, true) || !validStrings(entry.requires)
+      || !validStrings(entry.dependsOn, true) || !validPlatforms(entry.platforms)
+      || (entry.conditionalRequires !== undefined && (!Array.isArray(entry.conditionalRequires)
+        || entry.conditionalRequires.some(rule => !rule || !['darwin', 'linux', 'win32'].includes(rule.platform) || !validStrings(rule.executables, true))))
+      || (entry.expectedSkips !== undefined && (!Array.isArray(entry.expectedSkips)
+        || entry.expectedSkips.some(rule => !rule || typeof rule.name !== 'string' || !rule.name.trim()
+          || typeof rule.reason !== 'string' || !rule.reason.trim() || !validPlatforms(rule.platforms)
+          || (rule.kind !== undefined && !['platform', 'opt-in'].includes(rule.kind)))))) {
       throw new Error(`TEST_METADATA_INVALID: ${entry.path}`);
     }
     paths.add(entry.path);
   }
   return manifest;
+}
+
+function validStrings(values, required = false) {
+  return Array.isArray(values) && (!required || values.length > 0)
+    && values.every(value => typeof value === 'string' && value.trim()) && new Set(values).size === values.length;
+}
+function validPlatforms(values) {
+  return validStrings(values, true) && values.every(value => ['any', 'darwin', 'linux', 'win32'].includes(value))
+    && (!values.includes('any') || values.length === 1);
+}
+function validTestPath(file) {
+  return typeof file === 'string' && /^(tests|packages|apps|adapters)\//.test(file) && /\.test\.(ts|mjs)$/.test(file)
+    && !file.includes('\\') && !file.split('/').some(part => ['', '.', '..'].includes(part));
 }
 
 export function compareTestInventory(expectedFiles, discoveredFiles) {

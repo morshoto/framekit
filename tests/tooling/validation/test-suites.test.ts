@@ -116,7 +116,7 @@ test("fast CI and post-merge validation preserve reviewed test coverage", async 
     assert.match(documentation, new RegExp(`pnpm run ${script.replace(":", "\\:")}`));
   }
   assert.equal(packageJson.scripts?.["test:package"], "node scripts/run-tests-with-isolated-home.mjs package");
-  assert.match(documentation, /ffmpeg.*ffprobe/i);
+  assert.match(documentation.replace(/\s+/g, " "), /ffmpeg.*ffprobe/i);
   assert.match(documentation, /does not launch Final Cut/i);
 });
 

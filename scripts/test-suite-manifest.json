@@ -20,7 +20,10 @@
       "coverage": "generated reports",
       "tests/research": "explicit opt-in research only"
     },
-    "headedAcceptance": "scripts/final-cut-*-headed-e2e.mjs; explicit target and separate authorization required"
+    "headedAcceptance": "scripts/final-cut-*-headed-e2e.mjs; explicit target and separate authorization required",
+    "outsideRoots": {
+      "scripts/*.test.mjs": "tool-owned tests such as docs-ci-paths run explicitly in their CI jobs"
+    }
   },
   "tests": [
     {
@@ -1235,7 +1238,8 @@
         "package"
       ],
       "requires": [
-        "npm"
+        "npm",
+        "pnpm"
       ],
       "reviewed": true,
       "evidence": "process",
@@ -1244,7 +1248,8 @@
         "apps/mcp-server"
       ],
       "platforms": [
-        "any"
+        "darwin",
+        "linux"
       ],
       "network": "registry"
     },
@@ -3223,7 +3228,8 @@
         "scripts"
       ],
       "platforms": [
-        "any"
+        "darwin",
+        "linux"
       ],
       "network": "none",
       "expectedSkips": [
@@ -3364,7 +3370,8 @@
         "scripts"
       ],
       "platforms": [
-        "any"
+        "darwin",
+        "linux"
       ],
       "network": "none",
       "requires": []
@@ -3651,6 +3658,7 @@
       "path": "tests/workflows/filler-removal/benchmark.test.ts",
       "owner": "packages/runtime",
       "tags": [
+        "filler-removal",
         "fixture-e2e",
         "unit"
       ],
@@ -3669,6 +3677,7 @@
       "path": "tests/workflows/filler-removal/cli.test.ts",
       "owner": "scripts",
       "tags": [
+        "filler-removal",
         "fixture-e2e",
         "unit"
       ],
@@ -3687,6 +3696,7 @@
       "path": "tests/workflows/filler-removal/filler-removal-evidence.test.ts",
       "owner": "scripts",
       "tags": [
+        "filler-removal",
         "fixture-e2e",
         "integration"
       ],
@@ -3705,6 +3715,7 @@
       "path": "tests/workflows/filler-removal/filler-removal-skill.test.ts",
       "owner": "packages/runtime",
       "tags": [
+        "filler-removal",
         "fixture-e2e",
         "integration"
       ],
@@ -3724,6 +3735,7 @@
       "path": "tests/workflows/filler-removal/filler-removal.test.ts",
       "owner": "apps/mcp-server",
       "tags": [
+        "filler-removal",
         "fixture-e2e",
         "integration"
       ],
@@ -3744,7 +3756,8 @@
       "path": "tests/workflows/golden/workflow-corpus.test.ts",
       "owner": "scripts",
       "tags": [
-        "fixture-e2e"
+        "fixture-e2e",
+        "golden"
       ],
       "requires": [],
       "reviewed": true,
