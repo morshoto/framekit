@@ -34,6 +34,11 @@ export function previewPrimaryStorylineReorder(
   occurrenceId: string,
   destination: PrimaryStorylineDestination,
 ): PrimaryStorylineReorderPreview {
+  if (!destination || typeof destination !== "object"
+    || !["start", "end", "before", "after"].includes(destination.kind)
+    || ((destination.kind === "before" || destination.kind === "after") && (typeof destination.occurrenceId !== "string" || !destination.occurrenceId))) {
+    throw new Error("REORDER_INVALID: destination is invalid");
+  }
   if (!snapshot.projectId || !snapshot.timeline.id || !snapshot.revision.id) throw new Error("REORDER_INVALID: target and revision are required");
   if (snapshot.timeline.markers.length || snapshot.timeline.captions.length
     || snapshot.timeline.storyElements.some((item) => item.kind !== "asset-clip")) {
