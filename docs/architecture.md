@@ -238,6 +238,16 @@ evidence.
 If standalone Browser search automation exceeds its deadline, it reports
 `FINAL_CUT_NATIVE_SEARCH_TIMEOUT`; import discovery retains its separate timeout.
 
+The bundled native adapter cannot independently observe the original source of a
+Browser asset. It reports native media import unavailable and rejects file and
+directory execution before dispatch; directory preview remains non-mutating.
+An explicitly injected source observer must bind the Browser identity and
+original local path to the approved library, event, project, sequence, and
+revision. The import target is supplied as `expectedImportTarget`; directory
+preview binds it into the preview token. Fixture observers do not establish a
+supported live Final Cut capability, complete timeline integrity, or native
+acceptance. Existing recovery reservations remain authoritative.
+
 MCP Skills use the generic `skill.list`, `skill.inspect`, `skill.preview`, and
 `skill.execute` lifecycle. An execution must use the selected candidate and
 the exact preview target and revision; verification and rollback status remain
