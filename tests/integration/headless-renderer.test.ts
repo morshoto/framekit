@@ -17,6 +17,17 @@ import { FfmpegRenderVerifier, FfmpegTimelineRenderer } from "../../adapters/hea
 const execFileAsync = promisify(execFile);
 const repositoryRoot = process.cwd();
 
+test("FFmpeg renderer refuses an unimplemented nonzero source origin", async () => {
+  const source = timelineWithoutMedia();
+  source.resources[0]!.metadata!.durationTime = { value: "20", timescale: "1" };
+  Object.assign(source.resources[0]!, { sourceRange: { start: { value: "10", timescale: "1" }, duration: { value: "20", timescale: "1" } } });
+  source.sequence.occurrences[0]!.sourceStartTime = { value: "10", timescale: "1" };
+  const renderer = new FfmpegTimelineRenderer();
+  const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters("/tmp/framekit-test-output.mp4") });
+  const plan = createFramekitRenderPlan(request, renderer.capabilities(request));
+  await assert.rejects(renderer.render(plan), /HEADLESS_RENDER_UNSUPPORTED.*source.*origin/i);
+});
+
 test("FFmpeg renderer preserves apostrophes in title text", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-renderer-apostrophe-"));
   try {
