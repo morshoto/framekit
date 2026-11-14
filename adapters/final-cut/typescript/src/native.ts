@@ -2722,6 +2722,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       // currently has selected after another UI interaction.
       if (preview.selectionMode === "handle") await this.selectMediaNative(preview.mediaHandle);
       await this.focusTimelineForMediaInsertion();
+      this.validateMediaInsertionBinding(preview, await this.requireLiveState());
       await this.executeNativeCommand(mediaInsertionScript(preview.operation), async (recovered) => {
         this.assertRetryContext(before, recovered, preview.operation === "insert");
         if (preview.selectionMode === "handle") await this.selectMediaNative(preview.mediaHandle);
