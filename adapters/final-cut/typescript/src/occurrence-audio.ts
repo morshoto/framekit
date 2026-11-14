@@ -102,6 +102,7 @@ export class FinalCutOccurrenceAudioAnalyzer implements AudioAnalyzer {
       await assertOutput(outputPath, this.maxOutputBytes, receipt.outputDigest);
       await assertSource(binding.sourceIdentity);
       await this.assertCurrent(binding);
+      assertNotAborted(controller.signal);
       const duration = binding.sourceRange.end - binding.sourceRange.start;
       if (Math.abs(measured.duration - duration) > 1 / measured.sampleRate + 1e-9) {
         throw new Error("AUDIO_OUTPUT_INVALID: exported sample duration differs from the full occurrence");
