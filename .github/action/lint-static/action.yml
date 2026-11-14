@@ -30,7 +30,7 @@ runs:
     - name: Toolchain consistency
       shell: bash
       run: |
-        node --test tests/documentation/toolchain-consistency.test.mjs
+        pnpm test --file tests/tooling/ci/toolchain-consistency.test.mjs
         node scripts/check-toolchain.mjs
 
     - name: Documentation structure and links

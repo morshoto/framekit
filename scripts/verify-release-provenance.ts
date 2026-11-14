@@ -17,7 +17,7 @@ import { assessReleaseCandidate } from "./release-candidate-evidence.mjs";
 import {
   assessReleaseProvenance,
   type ReleaseProvenanceInput,
-} from "../tests/release-gate/native-editing.js";
+} from "./release/gate/native-editing.js";
 import { FRAMEKIT_VERSION } from "../apps/mcp-server/src/version.js";
 
 const exec = promisify(execFile);
