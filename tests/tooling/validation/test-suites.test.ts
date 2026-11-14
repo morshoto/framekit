@@ -215,3 +215,18 @@ test("golden and filler aliases use the same isolated runner and reviewed select
     assert.deepEqual(selectTestFiles(manifest, suite), manifest.tests.filter(entry => entry.path.startsWith(prefix)).map(entry => entry.path).sort());
   }
 });
+
+
+test("reviewed metadata rejects malformed evidence and execution requirements", async t => {
+  const root = await mkdtemp('/tmp/framekit-invalid-metadata-');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, 'scripts'));
+  const manifest = await loadTestSuiteManifest(repository);
+  const base = manifest.tests[0]!;
+  for (const patch of [{ reviewed: 'yes' }, { requires: [1] }, { dependsOn: [''] }, { tags: ['unit', 'unit'] },
+    { path: '../outside.test.ts' }, { conditionalRequires: [{ platform: 'unknown', executables: ['tool'] }] },
+    { expectedSkips: [{ name: 'case', reason: '', platforms: ['any'] }] }]) {
+    await writeFile(join(root, 'scripts/test-suite-manifest.json'), JSON.stringify({ schemaVersion: 2, tests: [{ ...base, ...patch }] }));
+    await assert.rejects(loadTestSuiteManifest(root), /TEST_METADATA_(?:INVALID|UNREVIEWED)/, JSON.stringify(patch));
+  }
+});
