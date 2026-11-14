@@ -86,7 +86,7 @@ test("materialization round trips plain dialogue on a video occurrence", async (
   value.sequence.occurrences[0]!.nativeAudioRole = "dialogue";
   const result = compileTimelineIrToFcpxml(value, { target });
   assert.match(result.xml, /<asset-clip [^>]*audioRole="dialogue"/);
-  const directory = await mkdtemp(join(tmpdir(), "framekit-dialogue-video-"));
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-dialogue-video-"));
   const path = join(directory, "dialogue.fcpxml");
   try {
     await writeFile(path, result.xml);

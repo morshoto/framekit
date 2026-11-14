@@ -81,12 +81,14 @@ test("video asset clips retain the plain dialogue role from Final Cut exports", 
 });
 
 test("FCPXML rejects unsupported asset clip audio roles", async () => {
-  const xml = documentWithOperations.replace(
-    '<asset-clip id="clip-a" ref="video-a" offset="0s" start="1s" duration="4s" />',
-    '<asset-clip id="clip-a" ref="video-a" offset="0s" start="1s" duration="4s" audioRole="custom.role" />',
-  );
-  const { adapter } = await artifact(xml);
-  await assert.rejects(adapter.readProject(), /FCPXML_UNSUPPORTED_AUDIO_ROLE: custom.role/);
+  for (const role of ["custom.role", "dialogue.", "dialogue.voice.extra"]) {
+    const xml = documentWithOperations.replace(
+      '<asset-clip id="clip-a" ref="video-a" offset="0s" start="1s" duration="4s" />',
+      `<asset-clip id="clip-a" ref="video-a" offset="0s" start="1s" duration="4s" audioRole="${role}" />`,
+    );
+    const { adapter } = await artifact(xml);
+    await assert.rejects(adapter.readProject(), /FCPXML_UNSUPPORTED_AUDIO_ROLE/);
+  }
 });
 
 test("FCPXML capabilities advertise only the documented safe operation matrix", async () => {
