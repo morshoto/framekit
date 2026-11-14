@@ -252,6 +252,15 @@ test("FCPXML comparison requires explicit exports and fails on changed source co
     const multipleOriginals = spawnSync(process.execPath, [...args, expected, actual], { encoding: "utf8" });
     assert.notEqual(multipleOriginals.status, 0, "multiple original representations must be ambiguous");
     assert.match(multipleOriginals.stderr, /ambiguous/i);
+    const repeated = (source: string, offset: string) => xml(source).replace('</spine>', `<asset-clip ref="r2" name="clip.mp4" offset="${offset}" start="0s" duration="2s"/></spine>`);
+    await writeFile(expected, repeated(expectedMedia, "2s"));
+    await writeFile(actual, repeated(actualMedia, "2s"));
+    assert.equal(spawnSync(process.execPath, [...args, expected, actual]).status, 0, "distinct repeated occurrences remain comparable");
+    await writeFile(expected, repeated(expectedMedia, "0s"));
+    await writeFile(actual, repeated(actualMedia, "0/24s"));
+    const overlap = spawnSync(process.execPath, [...args, expected, actual], { encoding: "utf8" });
+    assert.notEqual(overlap.status, 0, "indistinguishable repeated occurrences must be rejected");
+    assert.match(overlap.stderr, /ambiguous/i);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
