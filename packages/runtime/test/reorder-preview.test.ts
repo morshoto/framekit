@@ -107,9 +107,11 @@ test("reorder readback checks every occurrence and outside-span state", () => {
   storyA!.startTime = a!.startTime; storyA!.start = a!.start;
   after.timeline.storyElements = [storyB!, storyA!, storyC!];
   assert.doesNotThrow(() => verifyPrimaryStorylineReorder(preview, before, after));
-  for (const change of ["revision", "source", "range", "outside", "duplicate", "story", "target"] as const) {
+  for (const change of ["revision", "empty-revision", "invalid-sequence", "source", "range", "outside", "duplicate", "story", "target"] as const) {
     const observed = structuredClone(after);
     if (change === "revision") observed.revision = structuredClone(before.revision);
+    if (change === "empty-revision") observed.revision.id = "";
+    if (change === "invalid-sequence") observed.revision.sequence = Number.NaN;
     if (change === "source") observed.media[0]!.source = "/other.mov";
     if (change === "range") observed.timeline.clips[0]!.sourceStartTime = { value: "0", timescale: "1" };
     if (change === "outside") observed.timeline.clips[2]!.name = "unexpected";
