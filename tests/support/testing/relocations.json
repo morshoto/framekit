@@ -3138,7 +3138,8 @@
       "\"semantic cache reuses unchanged source evidence after a timeline-only revision\"",
       "`semantic cache invalidates when provider ${changedField} changes`",
       "\"semantic cache cannot rebind occurrence loudness as reusable source analysis\"",
-      "\"cached audio payloads cannot bypass analysis validation\""
+      "\"cached audio payloads cannot bypass analysis validation\"",
+      "\"audio requests reject contradictory rational ranges before provider dispatch\""
     ],
     "tests/speech/command-analyzer.test.ts": [
       "`${kind} rejects replaced source bytes before starting the provider`",
@@ -3344,6 +3345,17 @@
       "addedTestNames": {
         "tests/integration/semantic-media.test.ts": [
           "\"cached audio payloads cannot bypass analysis validation\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        738
+      ],
+      "reason": "Validate direct runtime rational audio requests before provider dispatch; no baseline identities removed.",
+      "addedTestNames": {
+        "tests/integration/semantic-media.test.ts": [
+          "\"audio requests reject contradictory rational ranges before provider dispatch\""
         ]
       }
     }

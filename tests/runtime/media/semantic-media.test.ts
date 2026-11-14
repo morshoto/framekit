@@ -201,6 +201,44 @@ test("audio analysis rejects a requested range outside the source duration", asy
   );
 });
 
+test("audio requests reject contradictory rational ranges before provider dispatch", async (t) => {
+  const cases = [
+    { label: "contradictory start", startTime: { value: "2", timescale: "1" } },
+    { label: "contradictory duration", durationTime: { value: "3", timescale: "1" } },
+    { label: "invalid denominator", startTime: { value: "1", timescale: "0" } },
+    { label: "negative start", startTime: { value: "-1", timescale: "1" } },
+  ];
+  for (const { label, ...coordinates } of cases) {
+    await t.test(label, async () => {
+      const fixture = semanticFixture();
+      const before = await fixture.adapter.readProject();
+      let calls = 0;
+      const runtime = new AgentVideoRuntime(fixture.adapter, {
+        audioAnalyzer: { analyze: async () => {
+          calls++;
+          return { integratedLufs: -18, truePeakDb: -1, silenceMs: 0 };
+        } },
+      });
+      await assert.rejects(
+        runtime.analyzeAudio("media-semantic-1", { start: 1, end: 3, ...coordinates }),
+        /ANALYSIS_INVALID/,
+      );
+      assert.equal(calls, 0);
+      assert.deepEqual(await fixture.adapter.readProject(), before);
+    });
+  }
+  const fixture = semanticFixture();
+  const range = {
+    start: 1, end: 3,
+    startTime: { value: "24000", timescale: "24000" },
+    durationTime: { value: "48000", timescale: "24000" },
+  };
+  const runtime = new AgentVideoRuntime(fixture.adapter, { audioAnalyzer: new FixtureAudioAnalyzer() });
+  const result = await runtime.analyzeAudio("media-semantic-1", range);
+  assert.deepEqual(result.requestedRange, range);
+  assert.deepEqual(result.measuredRange, range);
+});
+
 test("post-write audio reanalysis rejects stale revisions before verification", async () => {
   const fixture = semanticFixture();
   const runtime = new AgentVideoRuntime(fixture.adapter, {

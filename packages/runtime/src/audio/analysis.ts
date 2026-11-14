@@ -36,7 +36,7 @@ export function validateAudioAnalysisPayload(value: unknown): void {
   }
   if (analysis.sourceTimebase !== undefined) rationalSeconds(analysis.sourceTimebase, "sourceTimebase");
   for (const field of ["requestedRange", "measuredRange"]) {
-    if (analysis[field] !== undefined) validateRange(analysis[field], field);
+    if (analysis[field] !== undefined) validateAudioAnalysisRange(analysis[field], field);
   }
   if (analysis.signalFormat !== undefined) {
     const format = analysis.signalFormat;
@@ -70,7 +70,7 @@ function rationalSeconds(value: unknown, label: string, allowZero = false): numb
   return seconds;
 }
 
-function validateRange(value: unknown, label: string): void {
+export function validateAudioAnalysisRange(value: unknown, label: string): void {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`ANALYSIS_INVALID: audio ${label} must be a range`);
   }

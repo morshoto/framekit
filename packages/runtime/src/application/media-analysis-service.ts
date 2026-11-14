@@ -33,7 +33,7 @@ import type { RuntimeOptions } from "./runtime-options.js";
 import { CapabilityUnavailableError } from "../domain/capabilities.js";
 import { planRoughCut } from "../planning/rough-cut.js";
 import { bindSpeechAnalysis } from "../speech/analysis.js";
-import { validateAudioAnalysisPayload } from "../audio/analysis.js";
+import { validateAudioAnalysisPayload, validateAudioAnalysisRange } from "../audio/analysis.js";
 import { parseRational } from "../timeline/rational-time.js";
 
 export interface PostWriteAnalysisRequirements {
@@ -1085,6 +1085,7 @@ function validateRequestedAudioRange(range: TimeRange | undefined, duration: num
     || (duration !== undefined && range.end > duration)) {
     throw new Error(`ANALYSIS_INVALID: ${label} must be finite, positive, and inside the source duration`);
   }
+  validateAudioAnalysisRange(range, label);
 }
 
 function sameContextRevision(left: { id: string; sequence: number; timestamp: string }, right: { id: string; sequence: number; timestamp: string }): boolean {
