@@ -18,6 +18,24 @@ import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer 
 
 const execFileAsync = promisify(execFile);
 
+test("headless project list includes valid project IDs that resemble render records", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headless-project-list-"));
+  try {
+    const service = new HeadlessProjectService({ directory });
+    const ids = ["render-example", "render-00000000-0000-4000-8000-000000000001", "rough-cut-00000000-0000-4000-8000-000000000002", `${"a".repeat(64)}.approval`];
+    for (const id of ids) {
+      const timeline = emptyTimeline();
+      timeline.project.id = id;
+      await service.create(timeline);
+    }
+    assert.deepEqual((await service.list()).map((project) => project.projectId).sort(), ids.sort());
+    await writeFile(join(directory, "corrupt.json"), "not-json");
+    await assert.rejects(service.list(), /PROJECT_CORRUPT/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("headless export checks the revision of the media-validated snapshot", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-headless-export-snapshot-"));
   const oldTimeline = emptyTimeline();

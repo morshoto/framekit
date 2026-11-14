@@ -698,27 +698,21 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
   private async saveRender(record: HeadlessRenderRecord): Promise<void> {
     await mkdir(this.directory, { recursive: true });
     const path = join(this.directory, `${record.renderId}.json`);
-    const temporary = `${path}.${randomUUID()}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(record)}\n`, { encoding: "utf8", flag: "wx" });
-    await rename(temporary, path);
+    await publishHistory(path, `${JSON.stringify(record)}\n`);
   }
 
   private async saveRoughCutExecution(record: Omit<HeadlessRoughCutExecutionRecord, "evidenceDigest">): Promise<void> {
     await mkdir(this.directory, { recursive: true });
     const execution = { ...record, evidenceDigest: hash(stableJson(record)) };
     const path = this.executionPath(record.executionId);
-    const temporary = `${path}.${randomUUID()}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(execution)}\n`, { encoding: "utf8", flag: "wx" });
-    await rename(temporary, path);
+    await publishHistory(path, `${JSON.stringify(execution)}\n`);
   }
 
   private async saveRoughCutApproval(record: Omit<HeadlessRoughCutApprovalRecord, "evidenceDigest">): Promise<void> {
     await mkdir(this.directory, { recursive: true });
     const approval = { ...record, evidenceDigest: hash(stableJson(record)) };
     const path = this.approvalPath(record.planDigest);
-    const temporary = `${path}.${randomUUID()}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(approval)}\n`, { encoding: "utf8", flag: "wx" });
-    await rename(temporary, path);
+    await publishHistory(path, `${JSON.stringify(approval)}\n`, true);
   }
 
   private async readRoughCutApproval(planDigest: string): Promise<HeadlessRoughCutApprovalRecord> {
@@ -834,6 +828,25 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     };
     const fcpxml = compileTimelineIrToFcpxml(canonicalTimeline, { target: request.fcpxml.target });
     return { preview, fcpxml };
+  }
+}
+
+async function publishHistory(path: string, contents: string, allowIdentical = false): Promise<void> {
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, contents, { encoding: "utf8", flag: "wx" });
+    try {
+      // Linking a fully written file fails atomically if the destination exists.
+      await link(temporary, path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if (allowIdentical && await readFile(path, "utf8") === contents) return;
+      throw new Error("HEADLESS_HISTORY_COLLISION: history destination already exists", { cause: error });
+    }
+  } finally {
+    try { await unlink(temporary); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
   }
 }
 
