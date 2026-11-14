@@ -46,8 +46,24 @@ test("headless edit Undo survives MCP restart and verifies the restored project"
     await client.close();
     await transport.close();
     ({ client, transport } = await connectProductionClient(here, environment));
+    const undoArgs = { projectId, sequenceId, undoId: edit.undoId, expectedRevision: edit.after.timeline.revision };
+    const wrongTarget = await client.callTool({ name: "headless.edit.undo", arguments: { ...undoArgs, sequenceId: "wrong-sequence" } });
+    assert.match(toolErrorText(wrongTarget), /HEADLESS_UNDO_INVALID|MISMATCH/);
+    const wrongRevision = await client.callTool({ name: "headless.edit.undo", arguments: { ...undoArgs, expectedRevision: initial.timeline.revision } });
+    assert.match(toolErrorText(wrongRevision), /HEADLESS_UNDO_STALE/);
+    const missing = await client.callTool({ name: "headless.edit.undo", arguments: { ...undoArgs, undoId: "undo-00000000-0000-4000-8000-000000000001" } });
+    assert.match(toolErrorText(missing), /HEADLESS_UNDO_INVALID/);
+    const historyPath = join(directory, "state", "projects", "undo", `${edit.undoId}.json`);
+    const history = await readFile(historyPath, "utf8");
+    const damaged = JSON.parse(history);
+    damaged.before.timeline.sequence.markers.push({ id: "forged", name: "Forged", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } });
+    await writeFile(historyPath, JSON.stringify(damaged));
+    const corrupt = await client.callTool({ name: "headless.edit.undo", arguments: undoArgs });
+    assert.match(toolErrorText(corrupt), /HEADLESS_UNDO_INVALID/);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, edit.after.timeline);
+    await writeFile(historyPath, history);
     const restored = payload(await client.callTool({ name: "headless.edit.undo", arguments: {
-      projectId, sequenceId, undoId: edit.undoId, expectedRevision: edit.after.timeline.revision,
+      ...undoArgs,
     } }));
     assert.equal(restored.verification.verified, true);
     const inspected = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
@@ -60,6 +76,19 @@ test("headless edit Undo survives MCP restart and verifies the restored project"
     } });
     assert.match(toolErrorText(stale), /STALE|MISMATCH/);
     assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })), inspected);
+    const next = payload(await client.callTool({ name: "headless.edit.execute", arguments: {
+      projectId, sequenceId, expectedRevision: inspected.timeline.revision,
+      operations: [{ type: "add-marker", marker: { id: "marker-2", name: "Second", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } } }],
+    } }));
+    const later = payload(await client.callTool({ name: "headless.edit.execute", arguments: {
+      projectId, sequenceId, expectedRevision: next.after.timeline.revision,
+      operations: [{ type: "add-marker", marker: { id: "marker-3", name: "Third", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } } }],
+    } }));
+    const intervening = await client.callTool({ name: "headless.edit.undo", arguments: {
+      projectId, sequenceId, undoId: next.undoId, expectedRevision: later.after.timeline.revision,
+    } });
+    assert.match(toolErrorText(intervening), /HEADLESS_UNDO_STALE/);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, later.after.timeline);
   } finally {
     await client?.close();
     await transport?.close();
