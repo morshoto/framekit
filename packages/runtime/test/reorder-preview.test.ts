@@ -9,10 +9,11 @@ function fixture(): ProjectSnapshot {
     id, mediaId, name: id, start: start * 1001 / 24000, duration: duration * 1001 / 24000,
     startTime: frame(start), durationTime: frame(duration), sourceStartTime: frame(source), track: 0, role: "video" as const,
   });
+  const clips = [clip("a", "one", 100, 2, 3), clip("b", "two", 102, 4, 5), clip("c", "one", 106, 6, 9)];
   return {
     projectId: "project", projectName: "Example", revision: { id: "rev-1", sequence: 1, timestamp: "2026-01-01T00:00:00Z" },
     timeline: { id: "sequence", name: "Example", duration: 12 * 1001 / 24000, durationTime: frame(12), frameDuration: frame(1),
-      clips: [clip("a", "one", 100, 2, 3), clip("b", "two", 102, 4, 5), clip("c", "one", 106, 6, 9)], storyElements: [], markers: [], captions: [] },
+      clips, storyElements: clips.map((item) => ({ id: item.id, kind: "asset-clip", mediaId: item.mediaId, start: item.start, duration: item.duration, startTime: item.startTime, durationTime: item.durationTime })), markers: [], captions: [] },
     media: [{ mediaId: "one", source: "/media/one.mov" }, { mediaId: "two", source: "/media/two.mov" }],
   };
 }

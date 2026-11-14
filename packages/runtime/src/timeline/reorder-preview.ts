@@ -62,6 +62,20 @@ export function previewPrimaryStorylineReorder(
       throw new Error("REORDER_UNSUPPORTED: primary storyline is not contiguous");
     }
   }
+  if (snapshot.timeline.storyElements.length !== clips.length) {
+    throw new Error("REORDER_UNSUPPORTED: story elements are incomplete or unaccounted");
+  }
+  const storyIds = new Set<string>();
+  for (const element of snapshot.timeline.storyElements) {
+    const clip = clips.find((item) => item.id === element.id);
+    if (!clip || storyIds.has(element.id) || element.mediaId !== clip.mediaId
+      || !element.startTime || !element.durationTime
+      || compare(element.startTime, clip.startTime) !== 0 || compare(element.durationTime, clip.durationTime) !== 0
+      || (element.lane !== undefined && element.lane !== 0) || element.attachedTo) {
+      throw new Error("REORDER_UNSUPPORTED: story element does not match a primary occurrence");
+    }
+    storyIds.add(element.id);
+  }
   const oldIndex = clips.findIndex((clip) => clip.id === occurrenceId);
   if (oldIndex < 0) throw new Error("REORDER_TARGET_NOT_FOUND: moving occurrence is missing");
   if ((destination.kind === "before" || destination.kind === "after") && !ids.has(destination.occurrenceId)) {
