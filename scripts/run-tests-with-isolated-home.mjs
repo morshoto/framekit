@@ -57,6 +57,7 @@ if (selection.checkOnly) {
 }
 process.stdout.write(`TEST_SUITE_SELECTED: ${suiteName} (${testFiles.length} files)\n`);
 let reportDirectory = process.env.FRAMEKIT_TEST_REPORT_DIR ? path.resolve(process.env.FRAMEKIT_TEST_REPORT_DIR) : undefined;
+const publishStepSummary = Boolean(reportDirectory);
 const testedSha = reportDirectory ? spawnSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).stdout.trim() : undefined;
 const originalHome = process.env.HOME ?? os.homedir();
 const temporaryRoot = process.platform === "win32" ? os.tmpdir() : "/tmp";
@@ -100,6 +101,8 @@ await chmod(isolatedHome, 0o555);
 
 const environment = {
   ...process.env,
+  // Only the aggregate controller may publish to the caller CI step summary.
+  GITHUB_STEP_SUMMARY: "",
   HOME: isolatedHome,
   USERPROFILE: isolatedHome,
   TMPDIR: writableDirectories.temporary,
@@ -136,7 +139,7 @@ try {
   }
 } finally {
   try {
-    if (reportDirectory) await writeTestSummary(reportDirectory, process.env.GITHUB_STEP_SUMMARY);
+    if (publishStepSummary) await writeTestSummary(reportDirectory, process.env.GITHUB_STEP_SUMMARY);
   } finally {
     await chmod(isolatedHome, 0o700).catch(() => undefined);
     await rm(stateRoot, { recursive: true, force: true });
