@@ -140,11 +140,36 @@ test("inventory regeneration preserves reviewed metadata and flags new files for
 test("discovery includes documentation but deliberately delegates Docs app runners", async t => {
   const root = await mkdtemp('/tmp/framekit-discovery-');
   t.after(() => rm(root, { recursive: true, force: true }));
-  const included = ['tests/documentation/policy.test.mjs', 'packages/runtime/test/domain.test.ts'];
-  const excluded = ['apps/docs/src/lib/a.test.ts', 'apps/docs/test/export.test.mjs', 'tests/fixture/node_modules/hidden.test.ts', 'tests/fixture/dist/hidden.test.ts'];
+  const included = ['tests/tooling/ci/policy.test.mjs', 'tests/runtime/editing/nested/domain.test.ts', 'packages/runtime/test/domain.test.ts'];
+  const excluded = ['apps/docs/src/lib/a.test.ts', 'apps/docs/test/export.test.mjs', 'tests/fixture/node_modules/hidden.test.ts', 'tests/fixture/dist/hidden.test.ts', 'tests/research/unsafe.test.ts'];
   for (const file of [...included, ...excluded]) {
     await mkdir(resolve(root, file, '..'), { recursive: true });
     await writeFile(join(root, file), '');
   }
   assert.deepEqual(await discoverTestFiles(root), included.sort());
+});
+
+
+test("relocations preserve every reviewed suite member exactly once", async () => {
+  const baseline = JSON.parse(await readFile(resolve(repository, 'tests/support/testing/relocations.json'), 'utf8'));
+  const manifest = await loadTestSuiteManifest(repository);
+  const discovered = new Set(await discoverTestFiles(repository));
+  for (const [suite, previous] of Object.entries(baseline.suites) as Array<[string, string[]]>) {
+    const actual = selectTestFiles(manifest, suite);
+    assert.equal(new Set(actual).size, actual.length, suite);
+    for (const old of previous) {
+      const current = discovered.has(baseline.paths[old]) ? baseline.paths[old] : old;
+      assert.ok(actual.includes(current), `${suite}: lost ${old} -> ${current}`);
+      if (current !== old) assert.equal(discovered.has(old), false, `duplicate execution of ${old}`);
+    }
+  }
+});
+
+test("duplicate inventory entries are rejected rather than executing a test twice", async t => {
+  const root = await mkdtemp('/tmp/framekit-duplicate-inventory-');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, 'scripts'));
+  const manifest = await loadTestSuiteManifest(repository);
+  await writeFile(join(root, 'scripts/test-suite-manifest.json'), JSON.stringify({ ...manifest, tests: [manifest.tests[0], manifest.tests[0]] }));
+  await assert.rejects(loadTestSuiteManifest(root), /TEST_METADATA_INVALID/);
 });
