@@ -176,6 +176,7 @@ function sourcePreservingEditor(f: Awaited<ReturnType<typeof fixture>>, original
     if (fault === "wrong-source") { right.sourceStart -= 0.2; right.sourceStartTime = time(right.sourceStart); }
     if (fault === "missing-piece") pieces.pop();
     if (fault === "ambiguous-piece") pieces.push({ ...right, id: "duplicate-right" });
+    if (fault === "unexpected-piece") pieces.push(clip("unexpected", 0.1, 0.1, 0.1));
     result.timeline.clips = [...pieces, { ...result.timeline.clips[1], start: position, startTime: time(position) }];
     result.timeline.storyElements = result.timeline.clips.map((item: any) => ({ ...original.timeline.storyElements[0], ...item, kind: "asset-clip" }));
     result.timeline.duration = position + 4; result.timeline.durationTime = time(result.timeline.duration);
@@ -188,7 +189,7 @@ function sourcePreservingEditor(f: Awaited<ReturnType<typeof fixture>>, original
   };
 }
 
-for (const fault of [undefined, "retained-id", "multiple-cuts", "wrong-source", "missing-piece", "ambiguous-piece", "rational-source-mismatch"]) {
+for (const fault of [undefined, "retained-id", "multiple-cuts", "wrong-source", "missing-piece", "ambiguous-piece", "unexpected-piece", "rational-source-mismatch"]) {
   test(`full filler Skill validates source-preserving split: ${fault ?? "valid mapping"}`, async t => {
     const invalid = fault !== undefined && fault !== "retained-id" && fault !== "multiple-cuts";
     const f = await fixture(t, false, fault === "multiple-cuts"); const original = await f.inspect();
