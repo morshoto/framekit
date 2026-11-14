@@ -1379,6 +1379,13 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         fail("FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE", `Final Cut did not expose an immutable Browser source identity for pre-existing ${name}`, false);
       }
 
+      // Browser discovery can change the active context. Recheck immediately
+      // before dispatch; this does not replace receiver-side target fencing.
+      const dispatchTarget = normalizeNativeImportTarget(await observer.captureTarget());
+      if (!sameNativeImportTarget(expectedTarget, dispatchTarget)) {
+        return fail("TARGET_MISMATCH", "native import target changed during Browser discovery", false);
+      }
+
       beginStage("native-import-ui");
       partialImportPossible = true;
       try {

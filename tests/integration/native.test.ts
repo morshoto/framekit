@@ -3275,7 +3275,7 @@ test("native import rejects independently observed source and target mismatches"
       const observer = {
         captureTarget: async () => {
           targetReads += 1;
-          return mismatch === "active-target" && targetReads > 1 ? { ...target, projectId: "changed-project" } : target;
+          return mismatch === "active-target" && targetReads > 2 ? { ...target, projectId: "changed-project" } : target;
         },
         observeImportedSource: async () => ({
           sourceIdentity: mismatch === "identity" ? "different" : "browser-source",
