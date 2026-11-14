@@ -34,6 +34,7 @@ import { CapabilityUnavailableError } from "../domain/capabilities.js";
 import { planRoughCut } from "../planning/rough-cut.js";
 import { bindSpeechAnalysis } from "../speech/analysis.js";
 import { parseRational } from "../timeline/rational-time.js";
+import { canonicalSnapshotDigest } from "../timeline/snapshot-digest.js";
 
 export interface PostWriteAnalysisRequirements {
   speech?: boolean;
@@ -99,6 +100,7 @@ export class MediaAnalysisService {
       mediaId,
       occurrenceId,
       signalScope,
+      ...(analysis.signalProvenance ? { signalProvenance: structuredClone(analysis.signalProvenance) } : {}),
       sourceIdentity: sourceIdentityOf(media),
       requestedRange,
       measuredRange,
@@ -1002,6 +1004,32 @@ function validateAudioProvenance(
     occurrenceId?: string;
   },
 ): void {
+  if (analysis.signalProvenance) {
+    const signal = analysis.signalProvenance;
+    const clip = expected.project.timeline.clips.find(candidate => candidate.id === expected.occurrenceId);
+    const start = clip ? rationalSeconds(clip.startTime) : NaN;
+    const duration = clip ? rationalSeconds(clip.durationTime) : NaN;
+    if (!clip || analysis.signalScope !== "occurrence" || !analysis.revision
+      || analysis.mediaId !== expected.mediaId || !analysis.sourceIdentity
+      || !analysis.requestedRange || !analysis.measuredRange || !expected.requestedRange
+      || !sameRange(analysis.measuredRange, expected.requestedRange)
+      || signal.scope !== "isolated-occurrence" || signal.origin !== "editor-export"
+      || typeof signal.requestId !== "string" || !signal.requestId.trim()
+      || signal.projectId !== expected.project.projectId || signal.sequenceId !== expected.project.timeline.id
+      || signal.canonicalDigest !== canonicalSnapshotDigest(expected.project)
+      || signal.effectScope !== "gain-only" || !Number.isFinite(signal.gainDb) || signal.gainDb !== (clip.gainDb ?? 0)
+      || !signal.sequenceRange || !sameRange(signal.sequenceRange, { start, end: start + duration })
+      || !/^sha256:[a-f0-9]{64}$/.test(signal.outputDigest)
+      || ![signal.exporter?.id, signal.exporter?.provider, signal.exporter?.version].every(value => typeof value === "string" && value.trim())
+      || typeof signal.meterVersion !== "string" || !signal.meterVersion.trim()) {
+      throw new Error("ANALYSIS_INVALID: exported audio signal provenance does not match the canonical occurrence");
+    }
+    if (!Number.isSafeInteger(signal.sampleRate) || signal.sampleRate <= 0
+      || !Number.isSafeInteger(signal.sampleCount) || signal.sampleCount <= 0
+      || Math.abs(signal.sampleCount / signal.sampleRate - duration) > 1 / signal.sampleRate + 1e-9) {
+      throw new Error("ANALYSIS_INVALID: exported audio signal provenance has incomplete sample coverage");
+    }
+  }
   if (analysis.signalScope !== undefined && analysis.signalScope !== "source" && analysis.signalScope !== "occurrence") {
     throw new Error("ANALYSIS_INVALID: unsupported audio signal scope");
   }
