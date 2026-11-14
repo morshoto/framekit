@@ -36,6 +36,23 @@ test("headless project list includes valid project IDs that resemble render reco
   }
 });
 
+test("headless project list rejects a project whose stored ID differs from its filename", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headless-project-id-"));
+  try {
+    const service = new HeadlessProjectService({ directory });
+    const timeline = emptyTimeline();
+    timeline.project.id = "actual";
+    await service.create(timeline);
+    const original = await readFile(join(directory, "actual.json"), "utf8");
+    await writeFile(join(directory, "different.json"), original);
+    await assert.rejects(service.list(), /PROJECT.*(IDENTITY|MISMATCH|CORRUPT)/);
+    assert.equal(await readFile(join(directory, "actual.json"), "utf8"), original);
+    assert.equal(await readFile(join(directory, "different.json"), "utf8"), original);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("headless export checks the revision of the media-validated snapshot", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-headless-export-snapshot-"));
   const oldTimeline = emptyTimeline();
