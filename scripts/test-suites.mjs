@@ -5,22 +5,6 @@ import { fileURLToPath } from "node:url";
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const manifestPath = "scripts/test-suite-manifest.json";
 const excludedDirectories = new Set([".git", ".codex", "coverage", "dist", "dist-package", "node_modules"]);
-const fastIntegrationTests = new Set([
-  "tests/integration/basic-editing-mvp.test.ts",
-  "tests/integration/canonical-provider-readiness.test.ts",
-  "tests/integration/codeql-workflow.test.ts",
-  "tests/integration/composite-transactions.test.ts",
-  "tests/integration/connection.test.ts",
-  "tests/integration/editing-intent.test.ts",
-  "tests/integration/editor-first-routing.test.ts",
-  "tests/integration/finalcut-routing.test.ts",
-  "tests/integration/project-transactions.test.ts",
-  "tests/integration/range-validation.test.ts",
-  "tests/integration/release-workflow.test.ts",
-  "tests/integration/runtime.test.ts",
-  "tests/integration/test-state-isolation.test.ts",
-]);
-
 export const TEST_SUITE_DEFINITIONS = Object.freeze({
   documentation: { tags: ["documentation"], executables: [] },
   all: { tags: [], executables: ["ffmpeg", "ffprobe", "npm"] },
@@ -141,43 +125,16 @@ async function walk(directory, rootDir, files) {
     throw error;
   }
   for (const entry of entries) {
-    if (relative(rootDir, join(directory, entry.name)).split(sep).join("/") === "apps/docs") continue;
+    if (relative(rootDir, join(directory, entry.name)).split(sep).join("/") === "apps/docs" || relative(rootDir, join(directory, entry.name)).split(sep).join("/") === "tests/research") continue;
     if (entry.isDirectory() && !excludedDirectories.has(entry.name)) {
       await walk(join(directory, entry.name), rootDir, files);
-    } else if (entry.isFile() && (entry.name.endsWith(".test.ts") || (relative(rootDir, directory).split(sep).join("/") === "tests/documentation" && entry.name.endsWith(".test.mjs")))) {
+    } else if (entry.isFile() && (entry.name.endsWith(".test.ts") || entry.name.endsWith(".test.mjs"))) {
       files.push(relative(rootDir, join(directory, entry.name)).split(sep).join("/"));
     }
   }
 }
 
-function tagsForTest(file) {
-  const tags = new Set();
-  if (file.startsWith("tests/documentation/")) { tags.add("documentation"); tags.add("unit"); }
-  if (fastIntegrationTests.has(file)) tags.add("fast-integration");
-  if (file.startsWith("packages/") || file.startsWith("apps/") || file.startsWith("adapters/")) tags.add("unit");
-  if (file.startsWith("tests/integration/")) {
-    tags.add("integration");
-    tags.add("fixture-e2e");
-  }
-  if (file.startsWith("tests/evaluation/") || file.startsWith("tests/golden/")) tags.add("fixture-e2e");
-  if (file.startsWith("tests/speech/") || file.startsWith("tests/filler-removal/")) tags.add("unit");
-  if (file.startsWith("tests/filler-removal/")) tags.add("fixture-e2e");
-  if (file.startsWith("tests/release-gate/") || file.startsWith("tests/release-report/") || /release-gate/i.test(file)) tags.add("release-gate");
-  if (/(?:contract|schema|protocol|capabilities|(?:^|\/)mcp(?:[-.]|\/))/i.test(file)) tags.add("contract");
-  if (/(?:headless|rough-cut|render|semantic-media|local-media-registration)/i.test(file)) tags.add("headless");
-  if (/(?:native|headed)/i.test(file)) tags.add("native");
-  if (/(?:package-distribution|package-build-identity|clean-mcp-clients|codex-plugin)/i.test(file)) tags.add("package");
-  if (file === "tests/integration/test-suites.test.ts") tags.add("unit");
-  if (tags.size === 0) tags.add("unit");
-  return [...tags].sort();
-}
-
-function prerequisitesForTest(file, tags) {
-  const requirements = new Set();
-  if (tags.includes("headless")) {
-    requirements.add("ffmpeg");
-    requirements.add("ffprobe");
-  }
-  if (file === "tests/integration/package-distribution.test.ts") requirements.add("npm");
-  return [...requirements].sort();
+function tagsForTest() {
+  // New tests require a human review. Folder names do not establish evidence.
+  return ['unreviewed'];
 }
