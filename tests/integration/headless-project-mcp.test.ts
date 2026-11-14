@@ -43,7 +43,11 @@ test("artifact-first production MCP edits, restores, exports and renders fractio
     const paths = [join(directory, "a", "same.mp4"), join(directory, "b", "same.mp4")];
     await mkdir(dirname(paths[0]!), { recursive: true });
     await mkdir(dirname(paths[1]!), { recursive: true });
-    await generateSegmentedSource(paths[0]!, [{ color: "red", duration: 4 }], 440);
+    await generateSegmentedSource(paths[0]!, [
+      { color: "red", duration: 1 },
+      { color: "lime", duration: 1 },
+      { color: "yellow", duration: 2 },
+    ], 440);
     await generateSegmentedSource(paths[1]!, [{ color: "blue", duration: 4 }], 660);
     const sha = async (path: string) => createHash("sha256").update(await readFile(path)).digest("hex");
     const sourceDigests = await Promise.all(paths.map(sha));
@@ -100,16 +104,25 @@ test("artifact-first production MCP edits, restores, exports and renders fractio
     assert.ok(Math.abs((parsed.timeline.clips[1]!.sourceStart ?? NaN) - 1.001) < 0.001);
     assert.ok(Math.abs((parsed.timeline.clips[2]!.sourceStart ?? NaN) - 1.5015) < 0.001);
     assert.ok(Math.abs(parsed.timeline.clips[3]!.start - 2.002) < 0.001);
-    const redFrame = await readVideoFrame(outputPath, 1.5);
-    const blueFrame = await readVideoFrame(outputPath, 2.5);
     const pixel = (buffer: Buffer) => [buffer[0]!, buffer[1]!, buffer[2]!];
-    const [r1, g1, b1] = pixel(redFrame);
-    const [r2, g2, b2] = pixel(blueFrame);
-    assert.ok(r1! > g1! + 100 && r1! > b1! + 100, `expected red frame: ${pixel(redFrame)}`);
-    assert.ok(b2! > r2! + 100 && b2! > g2! + 100, `expected blue frame: ${pixel(blueFrame)}`);
-    const probe = JSON.parse((await execFileAsync("ffprobe", ["-v", "error", "-show_entries", "format=duration:stream=r_frame_rate", "-of", "json", outputPath])).stdout);
+    // These samples are independently stated from the requested source ranges:
+    // a's first half is red, its split right half is green, and repeat-a crosses
+    // from green into yellow before the blue source begins at timeline 2.002s.
+    for (const [time, expected] of [[0.25, "red"], [0.75, "green"], [1.25, "green"], [1.75, "yellow"], [2.5, "blue"]] as const) {
+      const observed = pixel(await readVideoFrame(outputPath, time));
+      const [r, g, b] = observed;
+      const matches = expected === "red" ? r! > g! + 100 && r! > b! + 100
+        : expected === "green" ? g! > r! + 100 && g! > b! + 100
+        : expected === "yellow" ? r! > b! + 100 && g! > b! + 100
+        : b! > r! + 100 && b! > g! + 100;
+      assert.ok(matches, `expected ${expected} at ${time}s, observed ${observed}`);
+    }
+    const probe = JSON.parse((await execFileAsync("ffprobe", ["-v", "error", "-count_frames", "-show_entries", "format=duration:stream=codec_type,r_frame_rate,nb_read_frames,duration", "-of", "json", outputPath])).stdout);
     assert.ok(Math.abs(Number(probe.format.duration) - 3.003) < 0.1);
-    assert.ok(probe.streams.some((stream: any) => stream.r_frame_rate === "24000/1001"));
+    const video = probe.streams.find((stream: any) => stream.codec_type === "video");
+    assert.equal(video.r_frame_rate, "24000/1001");
+    assert.equal(Number(video.nb_read_frames), 72);
+    assert.ok(Math.abs(Number(video.duration) - 3.003) < 0.002);
     const hiddenPath = `${paths[1]!}.missing`;
     await rename(paths[1]!, hiddenPath);
     try {
