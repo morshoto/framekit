@@ -100,3 +100,15 @@ test("watch reruns the selected test and cleans isolated state on termination", 
   await closed;
   assert.equal(existsSync(env.FRAMEKIT_TEST_STATE_DIR), false);
 });
+
+test('selection reports do not count a name filter as a selected file', async t => {
+  const { root, files } = await checkout(t);
+  const fixture = join(root, files[0]!);
+  await writeFile(fixture, (await readFile(fixture, 'utf8')).replace("test('wanted'", "test('wanted.test.ts'"));
+  const reports = join(root, 'reports');
+  await exec(process.execPath, ['scripts/run-tests-with-isolated-home.mjs', '--file', files[0]!, '--test-name-pattern', 'wanted.test.ts'], {
+    cwd: root, env: { ...childEnvironment, HOME: process.env.FRAMEKIT_TEST_ORIGINAL_HOME ?? process.env.HOME, FRAMEKIT_TEST_REPORT_DIR: reports },
+  });
+  const metadata = JSON.parse(await readFile(join(reports, 'all-metadata.json'), 'utf8'));
+  assert.deepEqual(metadata.selectedFiles, [files[0]]);
+});
