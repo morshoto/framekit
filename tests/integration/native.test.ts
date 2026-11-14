@@ -4494,3 +4494,37 @@ test("native placement undo does not replay an uncertain focus failure", async (
   await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_.*(UNCERTAIN|STALE)/);
   assert.equal(undoCalls, 1);
 });
+
+test("native placement undo rejects restored duration on a different target", async () => {
+  for (const changed of ["project", "sequence"] as const) {
+    let projectId = "project-1";
+    let sequenceId = "sequence-1";
+    let revision = 1;
+    let duration = "10";
+    const adapter = new FinalCutNativeAutomationAdapter({
+      enabled: true,
+      liveState: async () => ({
+        project: { id: projectId, name: "Edit" },
+        sequence: { id: sequenceId, name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+        playheadTime: { value: "4", timescale: "1" },
+        sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" } },
+        revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(0).toISOString() },
+      }),
+      executor: async (script) => {
+        if (script.includes('keystroke "e"')) { revision = 2; duration = "15"; }
+        if (script.includes('click menu item "Undo Append"')) {
+          if (changed === "project") projectId = "project-2"; else sequenceId = "sequence-2";
+          revision = 3; duration = "10";
+        }
+        if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${String.fromCharCode(30)}`;
+        return script.includes('set frontWindow to window "Final Cut Pro"') ? context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1, revision === 2 ? "Undo Append" : "Undo") : "";
+      },
+    });
+    const [media] = await adapter.searchMedia("Interview");
+    await adapter.selectMedia(media.handle);
+    const preview = await adapter.previewAppendMedia(media.handle);
+    const result = await adapter.executeAppendMedia(preview.previewToken);
+    await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_VERIFICATION_FAILED.*(project|sequence|target)/);
+    await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_UNCERTAIN/);
+  }
+});
