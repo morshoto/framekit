@@ -5,7 +5,7 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import test from "node:test";
 
 test("aggregate tests run with a read-only home and isolated writable state", {
-  skip: !process.env.FRAMEKIT_TEST_STATE_DIR,
+  skip: !process.env.FRAMEKIT_TEST_STATE_DIR ? "requires the isolated runner; use pnpm test --file tests/tooling/validation/test-state-isolation.test.ts" : false,
 }, async () => {
   const testStateDirectory = process.env.FRAMEKIT_TEST_STATE_DIR;
   const homeDirectory = process.env.HOME;

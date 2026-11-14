@@ -360,9 +360,9 @@ test("MCP project.list returns structured background inspection failures", async
   }
 });
 
-const headedLibraryInspectionTest = process.env.FRAMEKIT_FINAL_CUT_LIBRARY_HEADED === "1" ? test : test.skip;
-
-headedLibraryInspectionTest("read-only library inspection preserves frontmost application", async () => {
+test("read-only library inspection preserves frontmost application", {
+  skip: process.env.FRAMEKIT_FINAL_CUT_LIBRARY_HEADED !== "1" ? "requires separate opt-in on macOS with Final Cut Pro; deterministic runner disables headed library inspection" : false,
+}, async () => {
   const before = await frontmostBundleIdentifier();
   const result = await new FinalCutLibraryInspectionProvider().inspect();
   const after = await frontmostBundleIdentifier();

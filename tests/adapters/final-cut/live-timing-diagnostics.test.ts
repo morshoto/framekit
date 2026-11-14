@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-test("native diagnostics identify unavailable times and document-open errors", { skip: process.platform !== "darwin" }, () => {
+test("native diagnostics identify unavailable times and document-open errors", { skip: process.platform !== "darwin" ? "requires macOS, xcrun and the CoreMedia SDK; run the macOS SDK job" : false }, () => {
   const dir = mkdtempSync(join(tmpdir(), "framekit-live-times-"));
   try {
     const main = join(dir, "main.swift");

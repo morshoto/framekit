@@ -40,20 +40,33 @@ runs:
       run: pnpm run test:codex-plugin
 
     - name: Run unit and integration tests
+      id: deterministic-tests
       if: ${{ inputs.validation-level != 'fast' }}
       shell: bash
       env:
+        NODE_V8_COVERAGE: ${{ github.workspace }}/artifacts/test-results/v8
         FRAMEKIT_TEST_REPORT_DIR: artifacts/test-results
         FRAMEKIT_HEADLESS_RELEASE_GATE_EVIDENCE_DIR: artifacts/headless-release-gate/${{ github.run_id }}
         FRAMEKIT_HEADLESS_RELEASE_GATE_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       run: pnpm run test
+
+    - name: Report package branch coverage
+      if: ${{ always() && inputs.validation-level != 'fast' }}
+      shell: bash
+      env:
+        FRAMEKIT_COVERAGE_TEST_OUTCOME: ${{ steps.deterministic-tests.outcome }}
+        FRAMEKIT_HEADLESS_RELEASE_GATE_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      run: pnpm run coverage:report
 
     - name: Upload deterministic test results
       if: ${{ always() && inputs.validation-level != 'fast' }}
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
       with:
         name: deterministic-tests-${{ github.run_id }}-${{ github.run_attempt }}
-        path: artifacts/test-results/
+        path: |
+          artifacts/test-results/*.json
+          artifacts/test-results/*.xml
+          artifacts/test-results/coverage/
         if-no-files-found: warn
         retention-days: 14
 

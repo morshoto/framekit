@@ -445,7 +445,17 @@
       "platforms": [
         "any"
       ],
-      "network": "none"
+      "network": "none",
+      "expectedSkips": [
+        {
+          "name": "read-only library inspection preserves frontmost application",
+          "reason": "requires separate opt-in on macOS with Final Cut Pro; deterministic runner disables headed library inspection",
+          "platforms": [
+            "any"
+          ],
+          "kind": "opt-in"
+        }
+      ]
     },
     {
       "path": "tests/adapters/final-cut/final-cut-media.test.ts",
@@ -698,14 +708,32 @@
       ],
       "requires": [],
       "reviewed": true,
-      "evidence": "process",
+      "evidence": "sdk",
       "dependsOn": [
         "packages/runtime"
       ],
       "platforms": [
         "any"
       ],
-      "network": "none"
+      "network": "none",
+      "expectedSkips": [
+        {
+          "name": "native diagnostics identify unavailable times and document-open errors",
+          "reason": "requires macOS, xcrun and the CoreMedia SDK; run the macOS SDK job",
+          "platforms": [
+            "linux",
+            "win32"
+          ]
+        }
+      ],
+      "conditionalRequires": [
+        {
+          "platform": "darwin",
+          "executables": [
+            "xcrun"
+          ]
+        }
+      ]
     },
     {
       "path": "tests/adapters/final-cut/media-role-preservation.test.ts",
@@ -1013,7 +1041,24 @@
       "platforms": [
         "any"
       ],
-      "network": "none"
+      "network": "none",
+      "expectedSkips": [
+        {
+          "name": "compiled FCPXML validates against Final Cut's 1.11 DTD",
+          "reason": "requires installed Final Cut Pro FCPXML 1.11 DTD and xmllint; run on macOS with Final Cut Pro",
+          "platforms": [
+            "any"
+          ]
+        }
+      ],
+      "conditionalRequires": [
+        {
+          "platform": "darwin",
+          "executables": [
+            "xmllint"
+          ]
+        }
+      ]
     },
     {
       "path": "tests/adapters/headless/headless-render-fixtures.test.ts",
@@ -3180,7 +3225,16 @@
       "platforms": [
         "any"
       ],
-      "network": "none"
+      "network": "none",
+      "expectedSkips": [
+        {
+          "name": "Final Cut MCP test state cannot escape through a symlink",
+          "reason": "requires directory symlink privileges; run on POSIX or privileged Windows",
+          "platforms": [
+            "win32"
+          ]
+        }
+      ]
     },
     {
       "path": "tests/tooling/git/staged-content.test.ts",

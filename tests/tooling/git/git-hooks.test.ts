@@ -205,7 +205,7 @@ test("Final Cut MCP test environment requires isolated state", () => {
 
 test("Final Cut MCP test state cannot escape through a symlink", async (t) => {
   if (process.platform === "win32") {
-    t.skip("directory symlink creation may require privileges on Windows");
+    t.skip("requires directory symlink privileges; run on POSIX or privileged Windows");
     return;
   }
   const root = await mkdtemp("/tmp/framekit-isolation-test-");

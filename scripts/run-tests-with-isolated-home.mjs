@@ -41,7 +41,7 @@ for (const file of selection.files) {
 const testFiles = selection.files.length ? [...new Set(selection.files)].sort() : suiteFiles;
 if (!testFiles.length) { process.stderr.write('TEST_SELECTION_EMPTY\n'); process.exit(64); }
 const prerequisites = evaluateSuitePrerequisites(suiteName, {
-  availableExecutables: new Set(["node", ...[...new Set(manifest.tests.filter(entry => testFiles.includes(entry.path)).flatMap(entry => entry.requires))].filter(executableAvailable)]),
+  availableExecutables: new Set(["node", ...[...new Set(manifest.tests.filter(entry => testFiles.includes(entry.path)).flatMap(entry => [...entry.requires, ...(entry.conditionalRequires ?? []).filter(rule => rule.platform === process.platform).flatMap(rule => rule.executables)]))].filter(executableAvailable)]),
   manifest,
   selectedFiles: testFiles,
   offline: process.env.FRAMEKIT_TEST_OFFLINE === "1",
@@ -119,6 +119,7 @@ const environment = {
   FRAMEKIT_FINAL_CUT_HEADLESS: "1",
   FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
   FRAMEKIT_AUTO_CONNECT: "0",
+  FRAMEKIT_FINAL_CUT_LIBRARY_HEADED: "0",
   PATH: [isolatedPnpmPath ? isolatedBin : undefined, process.env.PATH]
     .filter((entry) => Boolean(entry))
     .join(path.delimiter),
@@ -152,6 +153,8 @@ async function runCommand(command, args, environment) {
     const phase = args.includes("--import") ? suiteName : "documentation";
     const reporters = await prepareTestReport(reportDirectory, phase, {
       suite: suiteName, testedSha,
+      skipPolicy: manifest.tests.filter(entry => testFiles.includes(entry.path)).flatMap(entry =>
+        (entry.expectedSkips ?? []).map(rule => ({ ...rule, file: entry.path }))),
       candidateSha: process.env.FRAMEKIT_HEADLESS_RELEASE_GATE_CANDIDATE_SHA,
       selectedFiles: args.filter(argument => /\.test\.(?:ts|mjs)$/.test(argument)),
     });

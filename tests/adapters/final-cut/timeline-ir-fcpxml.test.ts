@@ -130,7 +130,7 @@ function validateWithInstalledFinalCut(path: string): void {
   }
 }
 
-test("compiled FCPXML validates against Final Cut's 1.11 DTD", { skip: !existsSync(finalCutDtd) }, async () => {
+test("compiled FCPXML validates against Final Cut's 1.11 DTD", { skip: !existsSync(finalCutDtd) ? "requires installed Final Cut Pro FCPXML 1.11 DTD and xmllint; run on macOS with Final Cut Pro" : false }, async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-fcpxml-dtd-"));
   const path = join(directory, "timeline.fcpxml");
   try {

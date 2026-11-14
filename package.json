@@ -80,7 +80,8 @@
     "package:final-cut-release": "bash scripts/package-final-cut-release.sh",
     "prepack": "pnpm run build:package",
     "xcode:check": "bash nix/check-xcode.sh",
-    "check:boundaries": "node scripts/check-boundaries.mjs"
+    "check:boundaries": "node scripts/check-boundaries.mjs",
+    "coverage:report": "c8 report --temp-directory=artifacts/test-results/v8 --reports-dir=artifacts/test-results/coverage --reporter=json-summary --reporter=json --reporter=text && node scripts/ci/coverage-report.mjs artifacts/test-results/coverage/coverage-summary.json"
   },
   "config": {
     "commitizen": {

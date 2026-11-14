@@ -3058,7 +3058,21 @@
     "tests/integration/test-suites.test.ts": [
       "\"relocations preserve every reviewed suite member exactly once\"",
       "\"duplicate inventory entries are rejected rather than executing a test twice\"",
-      "\"relocations preserve declared test identities through the reviewed path map\""
+      "\"relocations preserve declared test identities through the reviewed path map\"",
+      "\"platform-only prerequisites block SDK tests only in their execution environment\""
+    ],
+    "tests/documentation/ci-reporting.test.mjs": [
+      "'reports slow tests, seed replay diagnostics and reviewed versus unexpected skips'",
+      "'package branch baselines retain unmeasured packages and reject invalid counters'"
+    ],
+    "tests/documentation/ci-workflow.test.mjs": [
+      "'deterministic PR coverage reports package branches even when tests fail'"
+    ],
+    "tests/integration/final-cut-library-inspection.test.ts": [
+      "\"read-only library inspection preserves frontmost application\""
     ]
+  },
+  "identityDiscoveryCorrections": {
+    "tests/integration/final-cut-library-inspection.test.ts": "Existing headedLibraryInspectionTest alias now uses an explicit test with a reason; same skipped test identity, ordinary runner forces opt-in off."
   }
 }

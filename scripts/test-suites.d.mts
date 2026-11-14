@@ -8,6 +8,8 @@ export interface TestSuiteManifestEntry {
   network: "none" | "registry";
   tags: string[];
   requires: string[];
+  conditionalRequires?: Array<{ platform: string; executables: string[] }>;
+  expectedSkips?: Array<{ name: string; reason: string; platforms: string[]; kind?: "platform" | "opt-in" }>;
 }
 
 export interface TestSuiteManifest {

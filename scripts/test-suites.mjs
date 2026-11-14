@@ -83,6 +83,9 @@ export function evaluateSuitePrerequisites(suiteName, options = {}) {
     ...(options.manifest ? [] : definition.executables),
     ...selected.flatMap((entry) => entry.requires ?? []),
   ]);
+  for (const entry of selected) for (const requirement of entry.conditionalRequires ?? []) {
+    if (requirement.platform === (options.platform ?? process.platform)) for (const executable of requirement.executables) executables.add(executable);
+  }
   const nodeMajor = Number.parseInt((options.nodeVersion ?? process.versions.node).split(".")[0] ?? "0", 10);
   const missing = [...executables].filter((executable) => !available.has(executable));
   for (const entry of selected) {
