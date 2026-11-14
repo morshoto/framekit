@@ -216,6 +216,11 @@ test("FCPXML comparison requires explicit exports and fails on changed source co
     const missingReference = spawnSync(process.execPath, [...args, expected, actual], { encoding: "utf8" });
     assert.notEqual(missingReference.status, 0, "matching unresolved media references are not evidence");
     assert.match(missingReference.stderr, /reference|binding/i);
+    await writeFile(expected, xml(expectedMedia));
+    await writeFile(actual, xml(actualMedia).replace('</spine>', '<filter-video ref="unknown"/></spine>'));
+    const unknownElement = spawnSync(process.execPath, [...args, expected, actual], { encoding: "utf8" });
+    assert.notEqual(unknownElement.status, 0, "unobserved effects must not be silently ignored");
+    assert.match(unknownElement.stderr, /unsupported/i);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
