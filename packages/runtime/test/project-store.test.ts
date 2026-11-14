@@ -157,6 +157,28 @@ test("an interrupted atomic write preserves the previous valid project", async (
   }
 });
 
+test("project creation cannot replace a record published after its absence check", async () => {
+  const root = await directory();
+  const path = join(root, "project.json");
+  const competing = '{"record":"other writer"}\n';
+  try {
+    const interleaved: ProjectStoreFileSystem = {
+      mkdir: async (p, options) => { await mkdir(p, options); },
+      readFile: async (p, encoding) => readFile(p, encoding),
+      writeFile: async (p, data, options) => {
+        await writeFile(p, data, options);
+        if (p.endsWith(".tmp")) await writeFile(path, competing, { encoding: "utf8", flag: "wx" });
+      },
+      rename,
+      unlink: async (p) => rm(p, { force: true }),
+    };
+    await assert.rejects(new FramekitProjectStore(path, interleaved).create(project()), /PROJECT_ALREADY_EXISTS/);
+    assert.equal(await readFile(path, "utf8"), competing);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("an expected revision mismatch fails before replacing canonical state", async () => {
   const root = await directory();
   const path = join(root, "project.json");
