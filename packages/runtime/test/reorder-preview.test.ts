@@ -79,6 +79,19 @@ test("reorder preview rejects negative source starts on every occurrence", () =>
   assert.doesNotThrow(() => previewPrimaryStorylineReorder(zero, "a", { kind: "end" }));
 });
 
+test("reorder preview checks exact source ranges with a nonzero origin", () => {
+  const input = fixture();
+  const media = input.media[0]! as typeof input.media[number] & { sourceRange: { start: { value: string; timescale: string }; duration: { value: string; timescale: string } } };
+  media.sourceRange = { start: { value: "1001", timescale: "12000" }, duration: { value: "13013", timescale: "24000" } };
+  assert.doesNotThrow(() => previewPrimaryStorylineReorder(input, "a", { kind: "end" }));
+  const beforeStart = structuredClone(input);
+  beforeStart.timeline.clips[0]!.sourceStartTime = { value: "1001", timescale: "24000" };
+  assert.throws(() => previewPrimaryStorylineReorder(beforeStart, "a", { kind: "end" }), /REORDER_INVALID.*source.*range/i);
+  const pastEnd = structuredClone(input);
+  pastEnd.timeline.clips[2]!.sourceStartTime = { value: "10010", timescale: "24000" };
+  assert.throws(() => previewPrimaryStorylineReorder(pastEnd, "a", { kind: "end" }), /REORDER_INVALID.*source.*range/i);
+});
+
 test("reorder preview rejects an unaccounted primary story element", () => {
   const input = fixture();
   input.timeline.storyElements.push({ id: "unaccounted", kind: "asset-clip", mediaId: "one", start: 5, duration: 1, startTime: { value: "5", timescale: "1" }, durationTime: { value: "1", timescale: "1" } });

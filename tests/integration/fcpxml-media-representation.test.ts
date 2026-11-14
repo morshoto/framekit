@@ -29,6 +29,25 @@ test("original media representations preserve canonical content across export di
   }
 });
 
+test("FCPXML retains an explicit exact source range without inventing a missing origin", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-source-range-"));
+  try {
+    const path = join(directory, "Info.fcpxml");
+    await writeFile(path, `<fcpxml version="1.11"><resources>
+      <asset id="a" start="10s" duration="4004/24000s" src="file:///fixtures/a.mov"/>
+      <asset id="b" duration="1s" src="file:///fixtures/b.mov"/>
+      </resources><library><event><project uid="p" name="QA"><sequence uid="s" duration="1s"><spine>
+      <asset-clip ref="a" start="10s" offset="0s" duration="1001/24000s"/>
+      </spine></sequence></project></event></library></fcpxml>`);
+    const snapshot = await new FcpxmlDocumentAdapter(path).readProject();
+    const range = (media: typeof snapshot.media[number]) => (media as typeof media & { sourceRange?: unknown }).sourceRange;
+    assert.deepEqual(range(snapshot.media[0]!), { start: { value: "10", timescale: "1" }, duration: { value: "4004", timescale: "24000" } });
+    assert.equal(range(snapshot.media[1]!), undefined);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("same-named sources and nested overlapping occurrences retain distinct bindings", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-collision-fixture-"));
   try {
