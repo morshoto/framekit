@@ -2602,7 +2602,7 @@ test("native Final Cut appends the currently selected Browser media with AX iden
   assert.equal(preview.media.sourceIdentity, "media-source-3");
   assert.equal(preview.insertionTime.value, "10");
   const result = await adapter.executeAppendSelectedMedia(preview.previewToken);
-  assert.equal(result.verification.verified, true);
+  assert.equal(result.verification.verified, false);
   assert.equal(result.afterDuration.value, "15");
   assert.equal(result.afterRevision.id, "rev-2");
   assert.equal(scripts.some((script) => script.includes("selectedBrowserMediaScript")), false);
@@ -2651,7 +2651,7 @@ test("native Final Cut selected-media append fails closed without AX identity or
   await assert.rejects(changedSelection.executeAppendSelectedMedia(preview.previewToken), /FINAL_CUT_NATIVE_MEDIA_SELECTION_CHANGED/);
 });
 
-test("native Final Cut adapter previews, appends selected media, verifies duration and revision, and undoes", async () => {
+test("native append duration and revision do not verify placement or Undo", async () => {
   let revision = 1;
   let duration = "10";
   const scripts: string[] = [];
@@ -2695,7 +2695,7 @@ test("native Final Cut adapter previews, appends selected media, verifies durati
   assert.deepEqual(preview.beforeDuration, { value: "10", timescale: "1" });
   assert.deepEqual(preview.insertionTime, { value: "10", timescale: "1" });
   const result = await adapter.executeAppendMedia(preview.previewToken);
-  assert.equal(result.verification.verified, true);
+  assert.equal(result.verification.verified, false);
   assert.deepEqual(result.afterDuration, { value: "15", timescale: "1" });
   assert.equal(result.afterRevision.id, "rev-2");
   assert.equal(result.undoCommand, "Undo Append");
@@ -2706,14 +2706,13 @@ test("native Final Cut adapter previews, appends selected media, verifies durati
   assert.ok(appendScript.includes('exists sheet 1 of mainWindow'));
   assert.ok(appendScript.includes('click button "OK" of sheet 1 of mainWindow'));
 
-  const undone = await adapter.undo(result.operationId);
-  assert.equal(undone.undone, true);
-  assert.equal(undone.verification.verified, true);
+  await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_VERIFICATION_FAILED.*canonical/);
+  await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_UNCERTAIN/);
   assert.deepEqual((await liveState()).sequence?.duration, { value: "10", timescale: "1" });
   assert.equal(scripts.some((script) => script.includes('click menu item "Undo Append" of menu "Edit"')), true);
 });
 
-test("native Final Cut adapter previews, inserts selected media at the playhead, verifies duration and revision, and undoes", async () => {
+test("native insert duration and revision do not verify placement or Undo", async () => {
   let revision = 1;
   let duration = "10";
   const scripts: string[] = [];
@@ -2756,14 +2755,13 @@ test("native Final Cut adapter previews, inserts selected media at the playhead,
   assert.equal(preview.operation, "insert");
   assert.deepEqual(preview.insertionTime, { value: "4", timescale: "1" });
   const result = await adapter.executeInsertMedia(preview.previewToken);
-  assert.equal(result.verification.verified, true);
+  assert.equal(result.verification.verified, false);
   assert.deepEqual(result.afterDuration, { value: "15", timescale: "1" });
   assert.equal(result.afterRevision.id, "rev-2");
   assert.equal(scripts.filter((script) => script.includes('set targetIdentity to "browser-1"')).length >= 2, true);
 
-  const undone = await adapter.undo(result.operationId);
-  assert.equal(undone.undone, true);
-  assert.equal(undone.verification.verified, true);
+  await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_VERIFICATION_FAILED.*canonical/);
+  await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_UNCERTAIN/);
   assert.deepEqual((await liveState()).sequence?.duration, { value: "10", timescale: "1" });
   assert.equal(scripts.some((script) => script.includes('click menu item "Undo Insert" of menu "Edit"')), true);
 });
@@ -2845,9 +2843,9 @@ test("native media insertion rolls back when post-command verification observes 
   const [media] = await adapter.searchMedia("Interview");
   await adapter.selectMedia(media.handle);
   const preview = await adapter.previewAppendMedia(media.handle);
-  await assert.rejects(adapter.executeAppendMedia(preview.previewToken), /insertion was rolled back/);
-  assert.equal(undoCalls, 1);
-  assert.equal(revision, 3);
+  await assert.rejects(adapter.executeAppendMedia(preview.previewToken), /recovery.*required/i);
+  assert.equal(undoCalls, 0);
+  assert.equal(revision, 1);
 });
 
 test("native media insertion does not undo an unrelated revision change", async () => {
