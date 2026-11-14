@@ -36,6 +36,18 @@ async function rejectUnsupportedStructure(path: string): Promise<void> {
     if (Array.isArray(value)) { for (const item of value) visit(item); return; }
     if (!value || typeof value !== "object") return;
     const node = value as Record<string, unknown>;
+    if ("asset" in node && Array.isArray(node.asset)) {
+      const attributes = (node[":@"] ?? {}) as Record<string, unknown>;
+      const originals = node.asset.filter((item: unknown) => {
+        if (!item || typeof item !== "object") return false;
+        const representation = item as Record<string, unknown>;
+        const attrs = (representation[":@"] ?? {}) as Record<string, unknown>;
+        return "media-rep" in representation && (attrs["@_kind"] === "original-media" || attrs["@_kind"] === undefined);
+      });
+      if (originals.length + (attributes["@_src"] === undefined ? 0 : 1) > 1) {
+        throw new Error("Ambiguous multiple original media representations");
+      }
+    }
     if ("asset-clip" in node && node[":@"] && typeof node[":@"] === "object") {
       const allowed = new Set(["@_ref", "@_name", "@_offset", "@_start", "@_duration", "@_lane", "@_audioRole"]);
       for (const attribute of Object.keys(node[":@"] as object)) {
