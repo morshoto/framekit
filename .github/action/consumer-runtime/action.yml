@@ -10,18 +10,9 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Set up pnpm
-      uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
-
-    - name: Set up Node.js
-      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+    - uses: ./.github/action/setup
       with:
         node-version: ${{ inputs.node-version }}
-        cache: pnpm
-
-    - name: Install dependencies
-      shell: bash
-      run: pnpm install --frozen-lockfile
 
     - name: Build the package
       shell: bash
@@ -43,4 +34,14 @@ runs:
         cd "$RUNNER_TEMP/consumer"
         npm install --ignore-scripts --no-audit --no-fund "$RUNNER_TEMP"/morshoto-framekit-*.tgz
         cp "$GITHUB_WORKSPACE/scripts/consumer-runtime-smoke.mjs" .
-        node consumer-runtime-smoke.mjs
+        node consumer-runtime-smoke.mjs 2>&1 | tee "$RUNNER_TEMP/consumer-runtime.log"
+        echo "Consumer smoke passed on Node $(node --version)." >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload consumer smoke diagnostics
+      if: ${{ always() }}
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      with:
+        name: consumer-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+        path: ${{ runner.temp }}/consumer-runtime.log
+        if-no-files-found: warn
+        retention-days: 14
