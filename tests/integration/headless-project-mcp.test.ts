@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { chmod, link, mkdir, open, readFile, mkdtemp, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
+import { chmod, link, mkdir, open, readFile, mkdtemp, rename, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { dirname } from "node:path";
 import { tmpdir } from "node:os";
@@ -838,6 +838,11 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     otherTimeline.project.id = "other-project";
     const other = await service.create(otherTimeline);
     await service.registerMedia(other.timeline.project.id, otherSource, other.timeline.revision);
+    // A valid project record may itself be a static symlink in the store.
+    const otherProjectPath = join(directory, "projects", `${other.timeline.project.id}.json`);
+    const relocatedProject = join(directory, "other-project-record.json");
+    await rename(otherProjectPath, relocatedProject);
+    await symlink(relocatedProject, otherProjectPath);
     const otherSourceLink = join(directory, "other-project-source-link.mp4");
     await link(otherSource, otherSourceLink);
     for (const path of [otherSource, otherSourceLink]) {
