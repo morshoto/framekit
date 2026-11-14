@@ -703,6 +703,7 @@ interface NativeOperationRecord {
   afterLive?: EditorLiveState;
   beforeDuration?: RationalTime;
   undoCommand?: string;
+  undoDispatched?: boolean;
   rollbackEvidence?: NativeFinalCutRollbackEvidence;
 }
 
@@ -1203,8 +1204,23 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const operation = this.operations.get(operationId);
     if (!operation) throw new Error(`FINAL_CUT_NATIVE_UNDO_UNAVAILABLE: unknown operation ${operationId}`);
     if (this.latestOperationId !== operationId) throw new Error("FINAL_CUT_NATIVE_UNDO_STALE: operation is no longer the latest native edit");
+    if (operation.kind === "blade" && operation.undoDispatched) {
+      throw new Error("FINAL_CUT_NATIVE_UNDO_OUTCOME_UNCERTAIN: Blade Undo may already have been dispatched; recovery is required");
+    }
     const before = await this.requireTimelineContext();
     const currentLive = await this.readLiveState();
+    if (operation.kind === "blade") {
+      const projectId = operation.beforeLive?.project?.id;
+      const sequenceId = operation.beforeLive?.sequence?.id;
+      if (!projectId || !sequenceId || operation.afterLive?.project?.id !== projectId
+        || operation.afterLive?.sequence?.id !== sequenceId || currentLive?.project?.id !== projectId
+        || currentLive?.sequence?.id !== sequenceId || before.target.projectId !== projectId
+        || before.target.sequenceId !== sequenceId || before.target.revision?.id !== currentLive?.revision.id
+        || before.target.revision?.sequence !== currentLive?.revision.sequence
+        || operation.afterLive.revision.sequence !== currentLive?.revision.sequence) {
+        throw new Error("FINAL_CUT_NATIVE_UNDO_TARGET_CHANGED: Blade target or revision is unavailable or changed");
+      }
+    }
     if (operation.afterLive && currentLive && operation.afterLive.revision.id !== currentLive.revision.id) {
       throw new Error("FINAL_CUT_NATIVE_UNDO_STALE: Final Cut timeline changed after the native edit");
     }
@@ -1223,13 +1239,19 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       throw new Error("FINAL_CUT_NATIVE_UNDO_COMMAND_CHANGED: Final Cut's current Undo command does not match the native edit");
     }
     try {
-      await this.executeNativeCommand(undoScript(operation.undoCommand), (recovered) => {
-        this.assertRetryContext(before, recovered);
-        if (!recovered.undoAvailable || recovered.undoCommand !== operation.undoCommand) {
-          throw new Error("FINAL_CUT_NATIVE_UNDO_COMMAND_CHANGED: Final Cut's current Undo command does not match the native edit");
-        }
-      });
+      if (operation.kind === "blade") {
+        operation.undoDispatched = true;
+        await this.executeNativeScript(undoScript(operation.undoCommand));
+      } else {
+        await this.executeNativeCommand(undoScript(operation.undoCommand), (recovered) => {
+          this.assertRetryContext(before, recovered);
+          if (!recovered.undoAvailable || recovered.undoCommand !== operation.undoCommand) {
+            throw new Error("FINAL_CUT_NATIVE_UNDO_COMMAND_CHANGED: Final Cut's current Undo command does not match the native edit");
+          }
+        });
+      }
     } catch (error) {
+      if (operation.kind === "blade") throw new Error(`FINAL_CUT_NATIVE_UNDO_OUTCOME_UNCERTAIN: Blade Undo may have been applied; recovery is required: ${String(error)}`);
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
     const after = await this.requireTimelineContext();

@@ -122,6 +122,8 @@ partial results as a complete or unique match.
 Direct Blade execution checks the previewed project, sequence, revision,
 selected UI identity, frame timing and playhead again before dispatch. An
 uncertain command failure is reported without automatically retrying Blade.
+Blade Undo checks the original project and sequence and is not retried after
+an uncertain dispatch; the in-process operation remains unavailable for retry.
 These checks do not establish canonical source binding or verified split/Undo.
 
 The current source-binding decision is **NO-GO** for the bundled adapter:
