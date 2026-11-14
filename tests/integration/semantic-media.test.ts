@@ -723,7 +723,7 @@ test("source audio analysis cannot authorize an occurrence gain edit", async () 
     ...DIALOGUE_NORMALIZATION_DEFAULTS,
     mediaId: "media-semantic-1", occurrenceId: "clip-semantic-1", baseRevision: before.revision,
   });
-  assert.equal((preview.measurement as unknown as { signalScope: string }).signalScope, "source");
+  assert.equal(preview.measurement.signalScope, "source");
   assert.equal(preview.measurement.valid, false);
   assert.equal(preview.measurement.invalidReason, "OCCURRENCE_SIGNAL_UNAVAILABLE");
   assert.equal(preview.plan.decision, "SKIP");
@@ -735,7 +735,7 @@ test("source audio results explicitly identify the measured signal", async () =>
   const fixture = semanticFixture();
   const runtime = new AgentVideoRuntime(fixture.adapter, { audioAnalyzer: new FixtureAudioAnalyzer() });
   const result = await runtime.analyzeAudio("media-semantic-1", { start: 1, end: 3 });
-  assert.equal((result as unknown as { signalScope: string }).signalScope, "source");
+  assert.equal(result.signalScope, "source");
 });
 
 test("audio measurements reject a different occurrence before previewing edits", async () => {

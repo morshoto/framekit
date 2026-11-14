@@ -357,3 +357,12 @@ check; a changed or unreadable source invalidates that output. This check
 verifies local source content, not the independent binding between a native
 Final Cut occurrence and that source. Sources without a supplied digest are
 checked for changes during analysis but do not gain cross-run identity evidence.
+
+Audio analysis reports `signalScope: source` by default. An occurrence measurement
+request includes the exact `occurrenceId`; an occurrence-aware provider must echo
+that ID and return `signalScope: occurrence` with its measured signal. A
+mismatched occurrence is rejected. Source-file loudness cannot authorize or
+verify an occurrence gain change: normalization reports an unavailable
+occurrence measurement, and a source-only post-write response causes verified
+rollback rather than an output-loudness claim. Reusable source analysis and
+occurrence/output measurements remain distinct.

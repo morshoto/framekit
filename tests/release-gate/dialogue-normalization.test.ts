@@ -39,10 +39,12 @@ function createDialogueRuntime(
   let audioAnalysisCalls = 0;
   const analyzer: AudioAnalyzer = {
     descriptor: { id: "fixture.dialogue-audio", provider: "fixture", version: "1" },
-    analyze: async ({ project }) => {
+    analyze: async ({ project, occurrenceId }) => {
       audioAnalysisCalls += 1;
       const gain = project.timeline.clips.find((clip) => clip.id === "dialogue-clip")?.gainDb ?? 0;
       return {
+        signalScope: occurrenceId ? "occurrence" : "source",
+        occurrenceId,
         integratedLufs: (audio.integratedLufs ?? -20) + gain,
         truePeakDb: (audio.truePeakDb ?? -6) + gain,
         silenceMs: audio.silenceMs ?? 100,
