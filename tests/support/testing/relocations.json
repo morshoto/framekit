@@ -185,7 +185,19 @@
     "tests/release-report/workflow.test.ts": "tests/release/report/workflow.test.ts",
     "tests/integration/final-cut-test-env.ts": "tests/support/final-cut/test-environment.ts",
     "tests/golden/workflow-corpus-runner.ts": "tests/workflows/golden/workflow-corpus-runner.ts",
-    "tests/golden/corpus.json": "tests/workflows/golden/corpus.json"
+    "tests/golden/corpus.json": "tests/workflows/golden/corpus.json",
+    "tests/release-gate/runner.ts": "scripts/release/gate/runner.ts",
+    "tests/release-gate/artifacts.ts": "scripts/release/gate/artifacts.ts",
+    "tests/release-gate/native-editing.ts": "scripts/release/gate/native-editing.ts",
+    "tests/release-gate/repository-checks.ts": "scripts/release/gate/repository-checks.ts",
+    "tests/release-gate/v0112-acceptance.ts": "scripts/release/acceptance/v0112-acceptance.ts",
+    "tests/release-gate/corpus.json": "tests/fixtures/release/gate/corpus.json",
+    "tests/release-gate/manifest.json": "tests/fixtures/release/gate/manifest.json",
+    "tests/release-gate/v0112-acceptance.json": "tests/fixtures/release/acceptance/v0112-acceptance.json",
+    "tests/filler-removal/benchmark.ts": "scripts/benchmarks/filler-removal/benchmark.ts",
+    "tests/filler-removal/artifacts.ts": "scripts/benchmarks/filler-removal/artifacts.ts",
+    "tests/filler-removal/corpus.json": "tests/fixtures/workflows/filler-removal/corpus.json",
+    "tests/evaluation/suite.ts": "scripts/evaluation/suite.ts"
   },
   "suites": {
     "documentation": [
