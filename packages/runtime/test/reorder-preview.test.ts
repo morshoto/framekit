@@ -92,6 +92,9 @@ test("reorder preview checks exact source ranges with a nonzero origin", () => {
   const pastEnd = structuredClone(input);
   pastEnd.timeline.clips[2]!.sourceStartTime = { value: "10010", timescale: "24000" };
   assert.throws(() => previewPrimaryStorylineReorder(pastEnd, "a", { kind: "end" }), /REORDER_INVALID.*source.*range/i);
+  const malformed = structuredClone(input);
+  Object.assign(malformed.media[0]!, { sourceRange: null });
+  assert.throws(() => previewPrimaryStorylineReorder(malformed, "a", { kind: "end" }), /REORDER_INVALID.*source.*range/i);
 });
 
 test("snapshot integrity detects changes in supplied exact source bounds", () => {
