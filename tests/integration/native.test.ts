@@ -1006,6 +1006,52 @@ test("native Blade undo uses Final Cut's Undo Blade command", async () => {
   assert.equal(scripts.some((script) => script.includes('click menu item "Undo Blade" of menu "Edit"')), true);
 });
 
+test("native Blade passes the Browser identity to its post-command scan", async () => {
+  let bladed = false;
+  const current = boundNativeLiveState();
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => structuredClone(current),
+    executor: async (script) => {
+      if (script.includes('click menu item "Blade" of menu "Trim"')) {
+        bladed = true;
+        current.revision = { ...current.revision, id: "rev-2", sequence: 2 };
+      }
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, bladed ? "Undo Blade" : "Undo Existing Change");
+      if (script.includes("collectTimelineClipMatches")) {
+        if (!script.includes('set sourceIdentity to "browser-source"')) throw new Error("FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: timeline lookup requires a shared source-media identifier");
+        return `Interview${separator}AXRow${separator}${separator}800${separator}0/1${separator}10/1${String.fromCharCode(30)}Interview${separator}AXRow${separator}${separator}900${separator}10/1${separator}10/1${String.fromCharCode(30)}`;
+      }
+      return "";
+    },
+  });
+  const occurrence = { handle: "occurrence-1", mediaHandle: "media-1", name: "Interview" };
+  const state = adapter as unknown as { occurrenceHandles: Map<string, unknown>; mediaHandles: Map<string, unknown> };
+  state.occurrenceHandles.set(occurrence.handle, occurrence);
+  state.mediaHandles.set("media-1", { handle: "media-1", name: "Interview", sourceIdentity: "browser-source" });
+  const preview = await adapter.previewBlade(occurrence.handle);
+  const result = await adapter.executeBlade(preview.previewToken);
+  assert.equal(result.verification.verified, false);
+  assert.match(result.verification.detail, /source.*unverified/i);
+});
+
+test("native Blade rejects missing Browser identity before dispatch", async () => {
+  let bladeCalls = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => boundNativeLiveState(),
+    executor: async (script) => {
+      if (script.includes('click menu item "Blade"')) bladeCalls++;
+      return script.includes('set frontWindow to window "Final Cut Pro"') ? context(true, "Final Cut Pro", "Interview", 1, true) : "";
+    },
+  });
+  const occurrence = { handle: "occurrence-1", mediaHandle: "media-1", name: "Interview" };
+  (adapter as unknown as { occurrenceHandles: Map<string, unknown> }).occurrenceHandles.set(occurrence.handle, occurrence);
+  const preview = await adapter.previewBlade(occurrence.handle);
+  await assert.rejects(adapter.executeBlade(preview.previewToken), /FINAL_CUT_NATIVE_MEDIA_HANDLE_STALE/);
+  assert.equal(bladeCalls, 0);
+});
+
 test("native Blade Undo rejects another project or sequence before dispatch", async () => {
   for (const change of ["project", "sequence"] as const) {
     let bladed = false;
