@@ -235,6 +235,18 @@ test("FCPXML comparison requires explicit exports and fails on changed source co
     assert.match(changedTrim.stderr, /SEMANTIC_MISMATCH/);
     await writeFile(actual, xml(actualMedia).replace('duration="2s"', 'duration="48/24s"'));
     assert.equal(spawnSync(process.execPath, [...args, expected, actual]).status, 0, "equivalent rational times compare equally");
+    const duplicateExpected = join(expectedDir, "other.mp4");
+    const duplicateActual = join(actualDir, "other.mp4");
+    await writeFile(duplicateExpected, "expected source");
+    await writeFile(duplicateActual, "expected source");
+    const sameContentSources = (source: string, other: string) => xml(source)
+      .replace('</resources>', `<asset id="r3" name="other.mp4" duration="2s" hasVideo="1"><media-rep kind="original-media" src="${pathToFileURL(other).href}"/></asset></resources>`)
+      .replace('</spine>', '<asset-clip ref="r3" name="other.mp4" offset="2s" start="0s" duration="2s"/></spine>');
+    await writeFile(expected, sameContentSources(expectedMedia, duplicateExpected));
+    await writeFile(actual, sameContentSources(actualMedia, duplicateActual));
+    const ambiguousContent = spawnSync(process.execPath, [...args, expected, actual], { encoding: "utf8" });
+    assert.notEqual(ambiguousContent.status, 0, "identical bytes do not identify distinct sources");
+    assert.match(ambiguousContent.stderr, /ambiguous/i);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
