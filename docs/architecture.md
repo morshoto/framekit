@@ -118,6 +118,10 @@ snapshots retain that exact `sourceRange`; a missing start remains unknown.
 Canonical snapshot digests and media diffs include supplied source bounds, so
 adding or changing those bounds changes the digest. This is artifact evidence,
 not proof of a live native occurrence or current source media.
+Timeline IR preserves supplied bounds and FCPXML compilation preserves them,
+rejecting a clip if frame rounding would move it outside those bounds. The
+FFmpeg renderer rejects nonzero source origins until their seek semantics are
+established.
 | Read-only Accessibility scan | The adapter observes accessible timeline elements and their exposed attributes without selecting them. | The current scan does not independently expose their original source. Names, timing, ordering, and a requested Browser item are not proof of the mapping, including when occurrences repeat or names collide. |
 | Generated or imported FCPXML | A proposal or import describes intended content. | It is not native readback and cannot prove what the active timeline contains. |
 

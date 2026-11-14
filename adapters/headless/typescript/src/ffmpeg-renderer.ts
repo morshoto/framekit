@@ -158,6 +158,9 @@ interface RenderModel {
 
 async function prepareRenderModel(plan: FramekitRenderPlan): Promise<RenderModel> {
   const timeline = structuredClone(plan.timeline);
+  if (timeline.resources.some((resource) => resource.sourceRange && BigInt(resource.sourceRange.start.value) !== 0n)) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", "nonzero source origins are not yet supported");
+  }
   const sequence = timeline.sequence;
   const occurrences = sequence.occurrences
     .filter(isPrimaryVideoOccurrence)

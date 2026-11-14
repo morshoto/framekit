@@ -112,6 +112,9 @@ test("Timeline IR retains and validates exact source bounds", () => {
   const ir = createTimelineIrFromProjectSnapshot(snapshot);
   assert.deepEqual((ir.resources[0] as typeof ir.resources[number] & { sourceRange?: unknown }).sourceRange, snapshot.media[0]!.sourceRange);
   assert.doesNotThrow(() => validateTimelineIr(ir));
+  const conflicting = structuredClone(ir);
+  conflicting.resources[0]!.metadata = { durationTime: { value: "1", timescale: "1" }, streams: [{ kind: "video", frameRate: { value: "24", timescale: "1" } }] };
+  assert.throws(() => validateTimelineIr(conflicting), /TIMELINE_IR_INVALID.*source range duration.*metadata/i);
   ir.sequence.occurrences[2]!.sourceStartTime = { value: "10010", timescale: "24000" };
   assert.throws(() => validateTimelineIr(ir), /TIMELINE_IR_INVALID.*source range/i);
 });
