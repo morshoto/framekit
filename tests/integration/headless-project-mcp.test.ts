@@ -13,10 +13,38 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
 import { compileTimelineIrToFcpxml } from "../../adapters/final-cut/typescript/src/timeline-ir-fcpxml.js";
 import { HeadlessProjectService } from "@framekit/headless-application";
-import { type TimelineIr } from "@framekit/runtime";
+import { FramekitProjectStore, type TimelineIr } from "@framekit/runtime";
 import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer } from "../../adapters/headless/typescript/src/index.js";
 
 const execFileAsync = promisify(execFile);
+
+test("headless export checks the revision of the media-validated snapshot", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headless-export-snapshot-"));
+  const oldTimeline = emptyTimeline();
+  oldTimeline.resources.push({
+    id: "missing", name: "missing.mp4", mediaKind: "video", source: join(directory, "missing.mp4"),
+    sourceKind: "local-file", sourceDigest: "0".repeat(64),
+  });
+  const newTimeline = emptyTimeline();
+  newTimeline.revision = { ...newTimeline.revision, id: "newer", sequence: 1 };
+  const metadata = { createdAt: oldTimeline.revision.timestamp, updatedAt: oldTimeline.revision.timestamp };
+  const oldProject = { schemaVersion: 1 as const, metadata, timeline: oldTimeline };
+  const newProject = { schemaVersion: 1 as const, metadata, timeline: newTimeline };
+  let loadCount = 0;
+  t.mock.method(FramekitProjectStore.prototype, "load", async () => ++loadCount % 2 ? oldProject : newProject);
+  const service = new HeadlessProjectService({ directory, mediaProbe: { probe: async () => { throw new Error("not used"); } } });
+  const outputPath = join(directory, "out.fcpxml");
+  const target = { provider: "final-cut" as const, libraryUid: "library", eventUid: "event", projectUid: "project", sequenceUid: "sequence" };
+  try {
+    await assert.rejects(service.exportFcpxml(oldTimeline.project.id, oldTimeline.sequence.id, oldTimeline.revision, outputPath, target), /STALE/);
+    assert.equal(existsSync(outputPath), false);
+    const opened = await service.open(oldTimeline.project.id);
+    assert.equal(opened.timeline.revision.id, "newer");
+  } finally {
+    t.mock.restoreAll();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 test("production MCP exports an edited headless project as FCPXML without a rough-cut plan", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-headless-fcpxml-"));

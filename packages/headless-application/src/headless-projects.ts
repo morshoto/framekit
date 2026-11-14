@@ -286,7 +286,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     if (hasLocalMedia && !this.mediaProbe) {
       throw new Error("HEADLESS_MEDIA_PROBE_UNAVAILABLE: local-file resources require a configured media probe");
     }
-    if (this.mediaProbe) await new LocalMediaRegistrar(this.store(projectId), this.mediaProbe).reopen();
+    if (this.mediaProbe) return new LocalMediaRegistrar(this.store(projectId), this.mediaProbe).reopen();
     return project;
   }
 
