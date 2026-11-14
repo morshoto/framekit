@@ -79,3 +79,44 @@ test('summarizes actual Docs totals and failure status', async () => {
     assert.match(markdown, /failed/);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test('reports slow tests, seed replay diagnostics and reviewed versus unexpected skips', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ci-detailed-reports-'));
+  try {
+    const fixture = join(dir, 'fixture.test.mjs');
+    const reason = 'requires macOS and the CoreMedia SDK; run the SDK job';
+    await writeFile(fixture, `import test from 'node:test';
+      test('slow case', async t => { t.diagnostic('Replay: FRAMEKIT_TEST_SEED=733 pnpm test'); await new Promise(r => setTimeout(r, 20)); });
+      test('SDK case', { skip: ${JSON.stringify(reason)} }, () => {});
+      test.skip('unexplained case', () => {});`);
+    const args = await prepareTestReport(dir, 'fixture', { suite: 'all', testedSha: 'sha', selectedFiles: [fixture],
+      skipPolicy: [{ file: fixture, name: 'SDK case', reason, platforms: [process.platform] }] });
+    const env = { ...process.env, NODE_OPTIONS: '' }; delete env.NODE_TEST_CONTEXT;
+    const child = spawnSync(process.execPath, [...args, '--test', fixture], { encoding: 'utf8', env });
+    assert.equal(child.status, 0, child.stderr);
+    const report = JSON.parse(await readFile(join(dir, 'fixture.json'), 'utf8'));
+    assert.equal(report.slowest[0].name, 'slow case');
+    assert.ok(report.slowest[0].duration_ms >= 20);
+    assert.ok(report.reproductions.some(message => message.includes('FRAMEKIT_TEST_SEED=733')));
+    const summary = join(dir, 'summary.md'); await writeTestSummary(dir, summary);
+    const markdown = await readFile(summary, 'utf8');
+    assert.match(markdown, /expected platform.*SDK case/i);
+    assert.match(markdown, /unexpected.*unexplained case.*unspecified/i);
+    assert.match(markdown, /slow case/);
+    assert.match(markdown, /CoreMedia SDK/);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('package branch baselines retain unmeasured packages and reject invalid counters', async () => {
+  const { summarizePackageCoverage } = await import('../../../scripts/ci/coverage-report.mjs');
+  const root = '/fixture';
+  const result = summarizePackageCoverage({
+    '/fixture/packages/runtime/src/one.ts': { branches: { total: 4, covered: 3 } },
+    '/fixture/packages/runtime/src/two.ts': { branches: { total: 6, covered: 2 } },
+    '/fixture/adapters/final-cut/typescript/src/native.ts': { branches: { total: 10, covered: 6 } },
+    '/outside/packages/runtime/src/one.ts': { branches: { total: 999, covered: 999 } },
+  }, root);
+  assert.deepEqual(result.find(entry => entry.owner === 'packages/runtime'), { owner: 'packages/runtime', files: 2, total: 10, covered: 5, percent: 50 });
+  assert.equal(result.find(entry => entry.owner === 'apps/cli').percent, null);
+  assert.throws(() => summarizePackageCoverage({ '/fixture/packages/runtime/src/bad.ts': { branches: { total: 1, covered: 2 } } }, root), /COVERAGE_INVALID/);
+});
