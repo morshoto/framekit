@@ -703,6 +703,7 @@ interface NativeOperationRecord {
   afterLive?: EditorLiveState;
   beforeDuration?: RationalTime;
   undoCommand?: string;
+  undoDispatched?: boolean;
   rollbackEvidence?: NativeFinalCutRollbackEvidence;
 }
 
@@ -1204,6 +1205,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const operation = this.operations.get(operationId);
     if (!operation) throw new Error(`FINAL_CUT_NATIVE_UNDO_UNAVAILABLE: unknown operation ${operationId}`);
     if (this.latestOperationId !== operationId) throw new Error("FINAL_CUT_NATIVE_UNDO_STALE: operation is no longer the latest native edit");
+    if (operation.kind === "media-insertion" && operation.undoDispatched) {
+      throw new Error("FINAL_CUT_NATIVE_UNDO_UNCERTAIN: placement Undo may already have been dispatched");
+    }
     const before = await this.requireTimelineContext();
     const currentLive = await this.readLiveState();
     if (operation.kind === "media-insertion") {
@@ -1233,12 +1237,18 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       throw new Error("FINAL_CUT_NATIVE_UNDO_COMMAND_CHANGED: Final Cut's current Undo command does not match the native edit");
     }
     try {
-      await this.executeNativeCommand(undoScript(operation.undoCommand), (recovered) => {
-        this.assertRetryContext(before, recovered);
-        if (!recovered.undoAvailable || recovered.undoCommand !== operation.undoCommand) {
-          throw new Error("FINAL_CUT_NATIVE_UNDO_COMMAND_CHANGED: Final Cut's current Undo command does not match the native edit");
-        }
-      });
+      if (operation.kind === "media-insertion") {
+        // Once invocation begins, neither an error nor stale readback proves Undo did not run.
+        operation.undoDispatched = true;
+        await this.executeNativeScript(undoScript(operation.undoCommand));
+      } else {
+        await this.executeNativeCommand(undoScript(operation.undoCommand), (recovered) => {
+          this.assertRetryContext(before, recovered);
+          if (!recovered.undoAvailable || recovered.undoCommand !== operation.undoCommand) {
+            throw new Error("FINAL_CUT_NATIVE_UNDO_COMMAND_CHANGED: Final Cut's current Undo command does not match the native edit");
+          }
+        });
+      }
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
