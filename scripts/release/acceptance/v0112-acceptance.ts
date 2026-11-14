@@ -9,7 +9,7 @@ import {
   type ContextRevision,
 } from "@framekit/runtime";
 import { InMemoryEditorAdapter, type InMemoryFixture } from "@framekit/testkit";
-import { runReleaseGate, type ReleaseGateReport } from "./runner.js";
+import { runReleaseGate, type ReleaseGateReport } from "../gate/runner.js";
 
 export const V0112_ACCEPTANCE_SCHEMA_VERSION = 1;
 export const V0112_FILLER_VERIFICATION_THRESHOLD = 0.95;
@@ -102,7 +102,7 @@ interface RunV0112AcceptanceOptions {
   headedCandidateCommit?: string;
 }
 
-const corpusPath = fileURLToPath(new URL("./v0112-acceptance.json", import.meta.url));
+const corpusPath = fileURLToPath(new URL("../../../tests/fixtures/release/acceptance/v0112-acceptance.json", import.meta.url));
 
 export function loadV0112AcceptanceCorpus(): V0112AcceptanceCorpus {
   const corpus = JSON.parse(readFileSync(corpusPath, "utf8")) as V0112AcceptanceCorpus;

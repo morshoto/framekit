@@ -10,8 +10,8 @@ import {
   runFillerRemovalBenchmark,
   summarizeFillerRemovalResults,
   type FillerRemovalRawResult,
-} from "../../filler-removal/benchmark.js";
-import { writeFillerRemovalArtifacts } from "../../filler-removal/artifacts.js";
+} from "../../../scripts/benchmarks/filler-removal/benchmark.js";
+import { writeFillerRemovalArtifacts } from "../../../scripts/benchmarks/filler-removal/artifacts.js";
 
 test("filler-removal corpus is versioned and includes representative failure cases", () => {
   const corpus = loadFillerRemovalCorpus();

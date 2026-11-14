@@ -20,8 +20,8 @@ import {
 } from "@framekit/runtime";
 import { FcpxmlDocumentAdapter, FinalCutSessionAdapter } from "@framekit/final-cut";
 import { InMemoryEditorAdapter, type InMemoryFixture } from "@framekit/testkit";
-import { createMcpServer } from "../../apps/mcp-server/src/server.js";
-import { FRAMEKIT_VERSION } from "../../apps/mcp-server/src/version.js";
+import { createMcpServer } from "../../../apps/mcp-server/src/server.js";
+import { FRAMEKIT_VERSION } from "../../../apps/mcp-server/src/version.js";
 import {
   assessReleaseProvenance,
   loadNativeEditingManifest,
@@ -35,7 +35,7 @@ import {
 } from "./native-editing.js";
 import { unrunRepositoryChecks, type RepositoryChecksReport } from "./repository-checks.js";
 
-const corpusPath = fileURLToPath(new URL("./corpus.json", import.meta.url));
+const corpusPath = fileURLToPath(new URL("../../../tests/fixtures/release/gate/corpus.json", import.meta.url));
 const requiredFillerCases = [
   "obvious",
   "low-confidence",
@@ -237,12 +237,12 @@ export async function runReleaseGate(options: RunReleaseGateOptions = {}): Promi
     headedEvidenceDirectory: options.headedEvidenceDirectory,
     headedCandidateCommit: options.headedCandidateCommit,
   });
-  const packageManifest = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as {
+  const packageManifest = JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf8")) as {
     name?: string;
     version?: string;
     private?: boolean;
   };
-  const pluginManifest = JSON.parse(readFileSync(new URL("../../plugins/framekit/.codex-plugin/plugin.json", import.meta.url), "utf8")) as {
+  const pluginManifest = JSON.parse(readFileSync(new URL("../../../plugins/framekit/.codex-plugin/plugin.json", import.meta.url), "utf8")) as {
     name?: string;
     version?: string;
   };

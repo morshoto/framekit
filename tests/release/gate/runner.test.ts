@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { loadNativeEditingManifest } from "../../release-gate/native-editing.js";
-import { loadReleaseGateCorpus, renderReleaseGateReport, runReleaseGate } from "../../release-gate/runner.js";
+import { loadNativeEditingManifest } from "../../../scripts/release/gate/native-editing.js";
+import { loadReleaseGateCorpus, renderReleaseGateReport, runReleaseGate } from "../../../scripts/release/gate/runner.js";
 
 test("v0.1.6 release gate corpus carries controlled fixtures", () => {
   const corpus = loadReleaseGateCorpus();

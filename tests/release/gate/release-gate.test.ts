@@ -8,7 +8,7 @@ import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { createMcpServer } from "../../../apps/mcp-server/src/server.js";
 
 test("release corpus covers both v0.1.6 workflow families and safety cases", async () => {
-  const raw = await readFile(new URL("../../release-gate/corpus.json", import.meta.url), "utf8");
+  const raw = await readFile(new URL("../../fixtures/release/gate/corpus.json", import.meta.url), "utf8");
   const corpus = JSON.parse(raw) as {
     schemaVersion: number;
     workflows: Array<{ id: string; family: string; expectedOutcome: string }>;

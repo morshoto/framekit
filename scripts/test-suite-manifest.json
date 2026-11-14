@@ -1533,6 +1533,23 @@
       "network": "none"
     },
     {
+      "path": "tests/release/gate/harness-location.test.ts",
+      "owner": "scripts/release",
+      "tags": [
+        "release-gate"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "process",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
       "path": "tests/release/gate/headless-release-gate.test.ts",
       "owner": "apps/mcp-server",
       "tags": [

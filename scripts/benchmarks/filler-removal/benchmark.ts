@@ -123,7 +123,7 @@ export interface RunFillerRemovalBenchmarkOptions {
   generatedAt?: string;
 }
 
-const corpusPath = fileURLToPath(new URL("./corpus.json", import.meta.url));
+const corpusPath = fileURLToPath(new URL("../../../tests/fixtures/workflows/filler-removal/corpus.json", import.meta.url));
 
 export function loadFillerRemovalCorpus(): FillerRemovalCorpus {
   const parsed: unknown = JSON.parse(readFileSync(corpusPath, "utf8"));

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { renderEvaluationReport, runMcpEvaluation } from "../../evaluation/suite.js";
+import { renderEvaluationReport, runMcpEvaluation } from "../../../scripts/evaluation/suite.js";
 
 test("deterministic MCP evaluation covers editing workflows and reports actionable metrics", async () => {
   const report = await runMcpEvaluation();

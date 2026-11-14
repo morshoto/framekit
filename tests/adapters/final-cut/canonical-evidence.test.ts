@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { buildFinalCutCanonicalExportScript } from "../../../adapters/final-cut/typescript/src/canonical.js";
 import { canonicalSnapshotDigest } from "../../../packages/runtime/src/timeline/snapshot-digest.js";
 import { canonicalEvidenceDigest, hashCanonicalSourceMedia, sanitizeCanonicalEvidence, sanitizeCanonicalReadEvidence } from "../../../scripts/final-cut-evidence.mjs";
-import { loadNativeEditingManifest, summarizeHeadedEvidence } from "../../release-gate/native-editing.js";
+import { loadNativeEditingManifest, summarizeHeadedEvidence } from "../../../scripts/release/gate/native-editing.js";
 
 test("canonical export resolves the Final Cut save field by stable accessibility id", () => {
   const script = buildFinalCutCanonicalExportScript("/tmp/framekit/active.fcpxml");

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { runRepositoryChecks } from "../../release-gate/repository-checks.js";
+import { runRepositoryChecks } from "../../../scripts/release/gate/repository-checks.js";
 
 test("repository release checks run the frozen install and each required gate independently", async () => {
   const commands: string[] = [];

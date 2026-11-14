@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-const manifestPath = fileURLToPath(new URL("./manifest.json", import.meta.url));
+const manifestPath = fileURLToPath(new URL("../../../tests/fixtures/release/gate/manifest.json", import.meta.url));
 const expectedTierIds = ["deterministic", "fcpxml-artifact", "metadata-only", "canonical-live", "headed-native"] as const;
 const expectedWorkflowIds = [
   "canonical-live",

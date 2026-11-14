@@ -7,8 +7,8 @@ import {
   assessReleaseProvenance,
   loadNativeEditingManifest,
   summarizeHeadedEvidence,
-} from "../../release-gate/native-editing.js";
-import { runReleaseGate } from "../../release-gate/runner.js";
+} from "../../../scripts/release/gate/native-editing.js";
+import { runReleaseGate } from "../../../scripts/release/gate/runner.js";
 
 test("v0.1.6 manifest names every evidence tier and workflow", () => {
   const manifest = loadNativeEditingManifest();

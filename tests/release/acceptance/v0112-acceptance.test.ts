@@ -4,7 +4,7 @@ import {
   loadV0112AcceptanceCorpus,
   renderV0112AcceptanceReport,
   runV0112Acceptance,
-} from "../../release-gate/v0112-acceptance.js";
+} from "../../../scripts/release/acceptance/v0112-acceptance.js";
 
 test("v0.1.12 acceptance corpus covers closed-loop success and recovery cases", () => {
   const corpus = loadV0112AcceptanceCorpus();

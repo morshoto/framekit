@@ -3,8 +3,8 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { runReleaseGate } from "../../release-gate/runner.js";
-import { writeReleaseGateArtifacts } from "../../release-gate/artifacts.js";
+import { runReleaseGate } from "../../../scripts/release/gate/runner.js";
+import { writeReleaseGateArtifacts } from "../../../scripts/release/gate/artifacts.js";
 
 test("release gate artifacts retain the report and an auditable manifest", async () => {
   const report = await runReleaseGate({ generatedAt: "2026-08-30T00:00:00.000Z" });
