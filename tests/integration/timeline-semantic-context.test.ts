@@ -164,3 +164,32 @@ test("timeline semantic search and source-digest mismatch remain explicit", asyn
   assert.equal(unavailable.occurrences[0]?.status, "unavailable");
   assert.match(unavailable.occurrences[0]?.reason ?? "", /source-bound semantic index entry is unavailable/);
 });
+
+test("timeline semantic context uses authoritative rational source coordinates", async () => {
+  class RationalSourceAdapter extends InMemoryEditorAdapter {
+    public override async readProject() {
+      const snapshot = await super.readProject();
+      const clip = snapshot.timeline.clips[0]!;
+      // The convenience seconds are rounded; the rational source position is exact.
+      clip.sourceStart = 10;
+      clip.sourceStartTime = { value: "1001", timescale: "100" };
+      return snapshot;
+    }
+  }
+  const baseline = await adapterFor().readProject();
+  const adapter = new RationalSourceAdapter({
+    projectId: baseline.projectId, projectName: baseline.projectName,
+    timelineId: baseline.timeline.id, timelineName: baseline.timeline.name,
+    clips: baseline.timeline.clips, media: baseline.media,
+  });
+  const store = new InMemorySemanticMediaIndexStore();
+  await store.save(understanding());
+  const runtime = new AgentVideoRuntime(adapter, { semanticMediaIndexStore: store });
+  const context = await runtime.inspectTimelineSemanticContext({ occurrenceIds: ["occurrence-first"] });
+  assert.deepEqual(context.occurrences[0]?.sourceRange, {
+    start: 10.01, end: 15.01,
+    startTime: { value: "1001", timescale: "100" },
+    durationTime: { value: "5", timescale: "1" },
+  });
+  assert.equal(context.occurrences[0]?.observations.find((entry) => entry.capability === "speech")?.text, "second");
+});
