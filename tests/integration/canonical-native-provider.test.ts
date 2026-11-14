@@ -2813,6 +2813,60 @@ test("source capability limits only source-bound operations when canonical readi
   assert.equal(unavailable.editor.semanticOperations?.["add-marker"], true);
 });
 
+test("canonical single-edit readiness never advertises recoverable batches through MCP", async () => {
+  const calls: string[] = [];
+  const original = snapshot("Original");
+  const active = liveState();
+  const provider = new FinalCutCanonicalNativeProvider({
+    live: {
+      ...liveWithoutBackgroundCatalog(),
+      getCapabilities: async () => ({ editor: { projectSelection: true, projectSelectionMode: "headed-only" } }) as never,
+      selectProject: async () => { throw new Error("unexpected selection"); },
+    },
+    native: {
+      renameSelectedClip: async () => { calls.push("edit"); return { operationId: "edit", undoAvailable: true }; },
+      undo: async () => { calls.push("undo"); return { undone: true, verification: { verified: true } }; },
+    },
+    readSnapshot: async () => structuredClone(original),
+    resolveTarget: Object.assign(async () => { calls.push("resolve"); }, { sourceBindingAvailable: true }),
+    backgroundCatalog: { listProjects: async () => ({ projects: [{ id: active.project!.id, name: active.project!.name, sequences: [{ id: active.sequence!.id, name: active.sequence!.name }] }], activeProjectId: active.project!.id, activeSequenceId: active.sequence!.id }) },
+  });
+  const session = new FinalCutSessionAdapter({ live: provider });
+  for (const adapter of [provider, session]) {
+    const capabilities = await adapter.getCapabilities();
+    assert.equal(capabilities.editor.timelineWrite, true, "the fixture has full single-edit readiness");
+    assert.equal(capabilities.editor.singleOperationTransactions, true);
+    assert.equal(capabilities.editor.compositeTransactions, false);
+    assert.equal(capabilities.families?.editing.compositeTransactions.available, false);
+  }
+  const runtime = new Runtime(session);
+  const server = createMcpServer(runtime, { processMode: "headed" });
+  const client = new Client({ name: "canonical-batch-capability", version: "1" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const inspected = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
+    assert.equal(inspected.capabilities.editor.compositeTransactions, false);
+    for (const skill of ["filler-removal", "dialogue-normalization"]) {
+      const result = JSON.parse(textFrom(await client.callTool({ name: "skill.inspect", arguments: { skill } })));
+      assert.equal(result.availability.available, false);
+      assert.ok(result.availability.missingRequirements.some((missing: { name: string }) => missing.name === "compositeTransactions"));
+    }
+    const before = await provider.readProject();
+    const operation = { type: "rename-clip" as const, clipId: before.timeline.clips[0]!.id, name: "Renamed" };
+    for (const operations of [[], [operation, { ...operation, name: "Again" }]]) {
+      await assert.rejects(provider.previewTransaction(operations, before.revision), /CAPABILITY_UNAVAILABLE/);
+      await assert.rejects(provider.applyTransaction(operations, before.revision), /CAPABILITY_UNAVAILABLE/);
+      await assert.rejects(runtime.previewEdit({ baseRevision: before.revision, operations }), operations.length ? /CAPABILITY_UNAVAILABLE/ : /INVALID_OPERATION/);
+    }
+    assert.equal(canonicalSnapshotDigest(await provider.readProject()), canonicalSnapshotDigest(before));
+    assert.deepEqual(calls, []);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
 test("production canonical resolver reports source binding unavailable", () => {
   const resolver = createFinalCutNativeTargetResolver({
     searchMedia: async () => [],
