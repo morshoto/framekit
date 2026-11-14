@@ -165,10 +165,19 @@ test("responsive themes and enlarged text stay readable and accessible", async (
     }
   }
   await page.setViewportSize({ width: 375, height: 800 });
+  await page.goto(`${site}/`, { waitUntil: "networkidle" });
   const description = page.getByText(/Bring your video workflow into Codex/);
-  const before = await description.evaluate(element => parseFloat(getComputedStyle(element).fontSize));
+  const before = await description.evaluate((element) =>
+    parseFloat(getComputedStyle(element).fontSize),
+  );
   await page.evaluate(() => (document.documentElement.style.fontSize = "200%"));
-  expect(await description.evaluate(element => parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(before * 1.9);
+  await expect
+    .poll(() =>
+      description.evaluate((element) =>
+        parseFloat(getComputedStyle(element).fontSize),
+      ),
+    )
+    .toBeGreaterThanOrEqual(before * 1.9);
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,

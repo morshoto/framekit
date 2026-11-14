@@ -4,13 +4,11 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { EnglishOverview } from "./EnglishOverview";
 
 beforeEach(() => {
-  window.matchMedia = vi
-    .fn()
-    .mockReturnValue({
-      matches: true,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-    });
+  window.matchMedia = vi.fn().mockReturnValue({
+    matches: true,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  });
   vi.stubGlobal(
     "fetch",
     vi.fn(() => new Promise(() => {})),
@@ -19,7 +17,9 @@ beforeEach(() => {
 
 it("introduces the product with one hero and no article breadcrumb", () => {
   render(<EnglishOverview />);
-  expect(screen.getByText(/Bring your video workflow into Codex/)).toHaveTextContent("Bring your video workflow into Codex. Inspect projects");
+  expect(
+    screen.getByText(/Bring your video workflow into Codex/),
+  ).toHaveTextContent("Bring your video workflow into Codex. Inspect projects");
   expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
     "Video editing, in your own words.",
   );
