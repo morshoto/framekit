@@ -275,6 +275,9 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       const projectId = entry.name.slice(0, -".json".length);
       if (await this.isInternalRecord(entry.name)) continue;
       const project = await this.store(projectId).load();
+      if (project.timeline.project.id !== projectId) {
+        throw new Error("HEADLESS_PROJECT_IDENTITY_MISMATCH: stored project ID differs from its filename");
+      }
       summaries.push(toSummary(project, this.projectPath(projectId)));
     }
     return summaries.sort((left, right) => left.projectId.localeCompare(right.projectId));
