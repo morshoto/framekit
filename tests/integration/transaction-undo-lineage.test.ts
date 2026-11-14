@@ -65,3 +65,52 @@ test("a new branch after verified Undo retains its own restoration chain", async
   await assert.rejects(runtime.undo(second.id), /STALE_CONTEXT/);
   assert.equal(canonicalSnapshotDigest(await runtime.undo(first.id)), canonicalSnapshotDigest(baseline));
 });
+
+for (const failure of ["partial-apply", "unexpected-diff"]) test(`${failure} recovery preserves the earlier Undo`, async () => {
+  const { adapter, runtime, gain } = fixture(); const baseline = await runtime.inspectProject();
+  const first = await gain(1); const apply = adapter.applyTransaction.bind(adapter);
+  adapter.applyTransaction = async (...args) => {
+    await apply(...args);
+    if (failure === "partial-apply") throw new Error("controlled partial failure");
+    const current = await adapter.readProject();
+    await adapter.apply({ type: "rename-clip", clipId: "speech", name: "unexpected" }, current.revision);
+  };
+  if (failure === "partial-apply") await assert.rejects(gain(2), /TRANSACTION_FAILED/);
+  else assert.equal((await gain(2)).status, "ROLLED_BACK");
+  assert.equal(canonicalSnapshotDigest(await runtime.inspectProject()), canonicalSnapshotDigest(first.after));
+  assert.equal(canonicalSnapshotDigest(await runtime.undo(first.id)), canonicalSnapshotDigest(baseline));
+});
+
+test("concurrent Undo requests cannot dispatch restoration twice", async () => {
+  const { adapter, runtime, gain } = fixture(); const transaction = await gain(1);
+  const restore = adapter.restore.bind(adapter); let attempts = 0;
+  adapter.restore = async (...args) => { attempts++; await new Promise(resolve => setImmediate(resolve)); await restore(...args); };
+  const results = await Promise.allSettled([runtime.undo(transaction.id), runtime.undo(transaction.id)]);
+  assert.equal(results.filter(r => r.status === "fulfilled").length, 1);
+  assert.equal(attempts, 1);
+});
+
+test("failed restoration dispatch is consumed even when the editor did not advance", async () => {
+  const { adapter, runtime, gain } = fixture(); const transaction = await gain(1); let attempts = 0;
+  adapter.restore = async () => { attempts++; throw new Error("controlled pending restoration"); };
+  await assert.rejects(runtime.undo(transaction.id), /controlled pending restoration/);
+  await assert.rejects(runtime.undo(transaction.id), /STALE_CONTEXT/);
+  assert.equal(attempts, 1);
+});
+
+test("artifact Undo chaining retains the exact source-file guard", async t => {
+  const { FcpxmlDocumentAdapter } = await import("@framekit/final-cut");
+  const { mkdtemp, writeFile, appendFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os"); const { join } = await import("node:path");
+  const directory = await mkdtemp(join(tmpdir(), "framekit-undo-chain-")); t.after(() => rm(directory, { recursive: true, force: true }));
+  const path = join(directory, "project.fcpxml");
+  await writeFile(path, '<fcpxml version="1.11"><resources><asset id="source" src="file:///fixture.wav" duration="4s" /></resources><library><event><project uid="project" name="Undo"><sequence uid="sequence" duration="4s"><spine><asset-clip id="speech" ref="source" offset="0s" duration="4s" /></spine></sequence></project></event></library></fcpxml>');
+  const runtime = new AgentVideoRuntime(new FcpxmlDocumentAdapter(path));
+  const gain = async (gainDb: number) => runtime.edit({ type: "set-gain", clipId: "speech", gainDb });
+  const first = await gain(1); const second = await gain(2);
+  await runtime.undo(second.id);
+  assert.equal(canonicalSnapshotDigest(await runtime.inspectProject()), canonicalSnapshotDigest(first.after));
+  const third = await gain(3); await runtime.undo(third.id);
+  await appendFile(path, '\n<!-- external edit without changing timeline semantics -->');
+  await assert.rejects(runtime.undo(first.id), /ARTIFACT_SOURCE_CHANGED/);
+});

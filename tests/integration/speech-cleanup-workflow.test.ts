@@ -56,7 +56,8 @@ async function fixture(t: test.TestContext, failOutput = false) {
   t.after(async () => { await client.close(); await server.close(); });
   const call = async (name: string, args: Record<string, unknown> = {}): Promise<any> => {
     const result = await client.callTool({ name, arguments: args });
-    const text = result.content?.find(item => item.type === "text")?.text ?? "";
+    const content = result.content as Array<{ type: string; text?: string }> | undefined;
+    const text = content?.find(item => item.type === "text")?.text ?? "";
     if (result.isError) throw new Error(text);
     return JSON.parse(text as string);
   };
