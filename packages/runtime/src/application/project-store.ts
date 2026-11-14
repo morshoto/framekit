@@ -164,7 +164,8 @@ export class FramekitProjectStore implements ProjectStore {
         if (!isAlreadyExists(error)) {
           throw new ProjectPersistenceError("PROJECT_SAVE_FAILED", `could not acquire project lock: ${this.path}`, { path: this.path }, { cause: error });
         }
-        if (await this.removeStaleLock(lockPath)) continue;
+        // An empty or dead-PID lock may still belong to a live writer, or be
+        // replaced between inspection and unlink. Never reclaim it here.
         if (Date.now() >= deadline) {
           throw new ProjectPersistenceError("PROJECT_SAVE_FAILED", `could not acquire project lock: ${this.path}`, { path: this.path }, { cause: error });
         }
@@ -177,26 +178,6 @@ export class FramekitProjectStore implements ProjectStore {
     } finally {
       await this.removeTemporaryFile(lockPath);
     }
-  }
-
-  private async removeStaleLock(lockPath: string): Promise<boolean> {
-    let owner: string;
-    try {
-      owner = await this.fs.readFile(lockPath, "utf8");
-    } catch (error) {
-      return isMissingFile(error);
-    }
-
-    const pid = Number.parseInt(owner.trim(), 10);
-    if (!Number.isInteger(pid) || pid <= 0 || isProcessDead(pid)) {
-      try {
-        await this.fs.unlink(lockPath);
-        return true;
-      } catch (error) {
-        return isMissingFile(error);
-      }
-    }
-    return false;
   }
 
   private async removeTemporaryFile(path: string): Promise<void> {
@@ -281,14 +262,4 @@ function isMissingFile(error: unknown): boolean {
 
 function isAlreadyExists(error: unknown): boolean {
   return typeof error === "object" && error !== null && (error as NodeJS.ErrnoException).code === "EEXIST";
-}
-
-function isProcessDead(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return false;
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    return code !== "EPERM";
-  }
 }
