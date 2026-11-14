@@ -50,7 +50,12 @@ test("development checkout launcher prefers source over a stale dist package", a
   await assert.rejects(exec(process.execPath, [launcher], { cwd: root, env: { ...process.env, CLI_EXIT: '23' } }), (error: any) => error.code === 23);
   // Kill a precedence mutant using the same observable assertion.
   const correct = await readFile(launcher, 'utf8');
-  await writeFile(launcher, correct.replace('const development = existsSync(developmentEntrypoint);', 'const development = false;'));
+  await writeFile(launcher, `import { spawn } from 'node:child_process';
+    import { fileURLToPath } from 'node:url';
+    // Intentional regression: always select stale packaged output.
+    const stale = fileURLToPath(new URL('../dist-package/apps/cli/src/main.js', import.meta.url));
+    const child = spawn(process.execPath, [stale, ...process.argv.slice(2)], { stdio: 'inherit' });
+    child.once('exit', code => { process.exitCode = code ?? 1; });`);
   await assert.rejects(assertSource(), /PACKAGED/);
   await writeFile(launcher, correct);
   await rm(source);
