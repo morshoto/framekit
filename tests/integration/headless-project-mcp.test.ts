@@ -33,6 +33,10 @@ test("headless media search returns both registered same-name sources through pr
   let client: Client | undefined;
   let transport: StdioClientTransport | undefined;
   try {
+    const reservationPath = join(directory, "state", "canonical-recovery", "pending.json");
+    const reservation = JSON.stringify({ version: 2, kind: "native-operation", owner: "00000000-0000-4000-8000-000000000001", operation: "native.searchmedia" }) + "\n";
+    await mkdir(dirname(reservationPath), { recursive: true });
+    await writeFile(reservationPath, reservation);
     const paths = [join(directory, "a", "same.mp4"), join(directory, "b", "same.mp4")];
     await mkdir(dirname(paths[0]!), { recursive: true });
     await mkdir(dirname(paths[1]!), { recursive: true });
@@ -51,6 +55,7 @@ test("headless media search returns both registered same-name sources through pr
     assert.deepEqual(exact.media.map((item: any) => item.id), [first.resource.id]);
     const absent = payload(await client.callTool({ name: "headless.media.search", arguments: { projectId, query: "not-present" } }));
     assert.deepEqual(absent.media, []);
+    assert.equal(await readFile(reservationPath, "utf8"), reservation);
   } finally {
     await client?.close();
     await transport?.close();
