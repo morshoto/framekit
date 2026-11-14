@@ -4322,4 +4322,6 @@ test("native media placement rejects a switched project before insertion", async
   projectId = "project-2";
   await assert.rejects(adapter.executeInsertMedia(preview.previewToken), /FINAL_CUT_NATIVE_PREVIEW_STALE.*project/);
   assert.equal(scripts.some((script) => script.includes('keystroke "w"')), false);
+  projectId = "";
+  await assert.rejects(adapter.previewInsertMedia(media.handle), /CAPABILITY_UNAVAILABLE.*project/);
 });
