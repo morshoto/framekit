@@ -964,7 +964,7 @@ test("native range mutation establishes operation Undo after the first command",
   assert.deepEqual((await liveState()).sequence.duration, { value: "20", timescale: "1" });
 });
 
-test("native Blade undo uses Final Cut's Undo Blade command", async () => {
+test("native Blade undo requires canonical restoration even when revision advances", async () => {
   const recordSeparator = String.fromCharCode(30);
   const scripts: string[] = [];
   let bladed = false;
@@ -1000,10 +1000,9 @@ test("native Blade undo uses Final Cut's Undo Blade command", async () => {
   const preview = await adapter.previewBlade(occurrence.handle);
   const result = await adapter.executeBlade(preview.previewToken);
   assert.equal(result.undoCommand, "Undo Blade");
-  const undone = await adapter.undo(result.operationId);
-  assert.equal(undone.undone, true);
-  assert.equal(undone.verification.verified, true);
-  assert.equal(scripts.some((script) => script.includes('click menu item "Undo Blade" of menu "Edit"')), true);
+  await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_VERIFICATION_FAILED:.*canonical.*recovery/i);
+  await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_OUTCOME_UNCERTAIN/);
+  assert.equal(scripts.filter((script) => script.includes('click menu item "Undo Blade" of menu "Edit"')).length, 1);
 });
 
 test("native Blade passes the Browser identity to its post-command scan", async () => {
