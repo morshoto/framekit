@@ -6,6 +6,7 @@ export * from "./canonical-recovery.js";
 export * from "./canonical-verification.js";
 export * from "./session.js";
 export * from "./analyzers.js";
+export * from "./occurrence-audio.js";
 export * from "./assets.js";
 export * from "./media.js";
 export * from "./native.js";

@@ -916,6 +916,29 @@
       "network": "none"
     },
     {
+      "path": "tests/adapters/final-cut/occurrence-audio-render.test.ts",
+      "owner": "adapters/final-cut/typescript",
+      "reviewed": true,
+      "tags": [
+        "integration",
+        "fixture-e2e"
+      ],
+      "evidence": "process",
+      "dependsOn": [
+        "adapters/final-cut/typescript",
+        "packages/runtime",
+        "packages/testkit"
+      ],
+      "requires": [
+        "ffmpeg",
+        "ffprobe"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
       "path": "tests/adapters/final-cut/pasteboard-snapshot.test.ts",
       "owner": "adapters/final-cut/typescript",
       "tags": [

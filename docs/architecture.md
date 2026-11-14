@@ -379,6 +379,31 @@ occurrence measurement, and a source-only post-write response causes verified
 rollback rather than an output-loudness claim. Reusable source analysis and
 occurrence/output measurements remain distinct.
 
+`FinalCutOccurrenceAudioAnalyzer` can independently meter PCM supplied by an
+explicit isolated-occurrence exporter. Its receipt binds a fresh request,
+canonical target/revision/digest, exact source and sequence ranges, gain-only
+processing, exporter version, and exported-byte digest. It checks source bytes
+and canonical state before and after measurement, verifies decoded sample
+coverage, and runs FFmpeg's EBU R128 scanner with true-peak measurement. It does
+not apply gain to source audio or substitute predicted levels. Measurements
+retain the exported-signal provenance through runtime binding; inconsistent
+target or gain evidence is rejected.
+
+The bundled Share exporter does not provide this isolated-output contract, so
+the analyzer is not enabled in the production MCP and has no source fallback.
+A native exporter must prove isolation and gain-only processing without timeline
+mutation, including any unsupported effects outside the current snapshot model.
+Generated PCM and simulated exporter receipts establish metering tests only.
+Temporary output is removed after terminal export and metering; timeout requests
+cancellation but never treats that request as proof the native writer stopped.
+Exporters must settle after cancellation becomes terminal. Metering subprocesses
+are bounded and reaped before cleanup. Mono/stereo little-endian PCM is supported; ambiguous
+streams, changed bytes/state, invalid duration, and nonfinite silence results
+are rejected. Output below the 400 ms loudness window is invalid. Silence uses
+a fixed -60 dB threshold and 100 ms detection interval. Evidence records decoded
+sample count and rate; full-occurrence coverage allows at most one sample of
+rounding against the exact canonical range.
+
 Persisted source evidence is revalidated through the configured speech/audio
 providers' optional `validateSource` port before understanding, timeline
 semantic context, semantic indexing or rough-cut planning reuses it. Command
