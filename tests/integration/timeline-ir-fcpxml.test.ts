@@ -577,3 +577,9 @@ test("FCPXML compilation refuses to discard an explicit nonzero timecode origin"
   value.sequence.timecodeStart = { value: "0", timescale: "24000" };
   assert.match(compileTimelineIrToFcpxml(value, { target }).xml, /tcStart="0s"/);
 });
+
+test("FCPXML compilation refuses to discard a nonzero frame-grid origin", () => {
+  const value = timeline();
+  value.sequence.frameGridOrigin = { value: "1", timescale: "48" };
+  assert.throws(() => compileTimelineIrToFcpxml(value, { target }), /FCPXML_UNSUPPORTED.*frame.grid.*origin/i);
+});

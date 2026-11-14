@@ -285,6 +285,34 @@ test("previews and applies a fractional-frame split without changing another use
   }
 });
 
+test("split preview uses an explicit nonzero fractional frame grid without rounding", async () => {
+  const { directory, store, initial, service } = await createService();
+  try {
+    initial.timeline.sequence.frameDuration = { value: "1001", timescale: "24000" };
+    initial.timeline.sequence.frameGridOrigin = { value: "1001", timescale: "48000" };
+    const occurrence = initial.timeline.sequence.occurrences[0]!;
+    occurrence.startTime = { value: "3003", timescale: "48000" };
+    occurrence.durationTime = { value: "1001", timescale: "3000" };
+    occurrence.sourceStartTime = { value: "1", timescale: "3" };
+    await store.save(initial);
+    const split = (offset: { value: string; timescale: string }) => command(initial, "unused", [{
+      type: "split-occurrence", occurrenceId: "occurrence-1", splitOffsetTime: offset, newOccurrenceId: "right",
+    }]);
+    const invalid = split({ value: "1001", timescale: "48000" });
+    await assert.rejects(service.preview(invalid), /frame.*align/i);
+    await assert.rejects(service.execute(invalid), /frame.*align/i);
+    assert.deepEqual(await store.load(), initial);
+    const valid = split({ value: "1001", timescale: "12000" });
+    const preview = await service.preview(valid);
+    const result = await service.execute(valid);
+    assert.deepEqual(result.after.timeline.sequence.occurrences, preview.after.timeline.sequence.occurrences);
+    assert.deepEqual(result.after.timeline.sequence.occurrences[1]!.sourceStartTime, { value: "1667", timescale: "4000" });
+    assert.deepEqual(result.after.timeline.sequence.frameGridOrigin, initial.timeline.sequence.frameGridOrigin);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("rejects splitting clips with fades before changing the project", async () => {
   for (const fade of [{ fadeIn: 0.25 }, { fadeOut: 0.25 }]) {
     const { directory, store, initial, service } = await createService();

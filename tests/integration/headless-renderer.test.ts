@@ -527,6 +527,9 @@ test("FFmpeg renderer rejects an explicit nonzero sequence timecode origin", () 
   assert.equal(capabilities().features["structural-edits"], "supported");
   source.sequence.timecodeStart = { value: "3600", timescale: "1" };
   assert.equal(capabilities().features["structural-edits"], "unsupported");
+  source.sequence.timecodeStart = { value: "0", timescale: "1" };
+  source.sequence.frameGridOrigin = { value: "1", timescale: "48" };
+  assert.equal(capabilities().features["structural-edits"], "unsupported");
 });
 
 test("FFmpeg renderer commits no-clobber output atomically", async () => {

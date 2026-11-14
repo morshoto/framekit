@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   assertTimelineTargetReadAfterWrite,
   createTimelineTarget,
+  createTimelineIrFromProjectSnapshot,
   resolveTimelineTarget,
   type ProjectSnapshot,
   type TimelineTarget,
@@ -148,6 +149,7 @@ test("stable targets bind an explicit fractional frame-grid origin", () => {
     end: { value: "3003", timescale: "48000" },
   };
   const target = createTimelineTarget(project, { range });
+  assert.deepEqual(createTimelineIrFromProjectSnapshot(project).sequence.frameGridOrigin, project.timeline.frameGridOrigin);
   assert.deepEqual(target.timelineStartTime, project.timeline.frameGridOrigin);
   assert.doesNotThrow(() => resolveTimelineTarget(project, target));
   assert.throws(() => createTimelineTarget(project, {
