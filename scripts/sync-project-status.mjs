@@ -136,13 +136,14 @@ export function createProjectStatusClient({
 		'X-GitHub-Api-Version': '2022-11-28',
 		'Content-Type': 'application/json',
 	};
-	const rest = async (path, { method = 'GET', body } = {}) => {
+	const rest = async (path, { method = 'GET', body, allowNotFound = false } = {}) => {
 		const url = `${apiRoot}/repos/${repository}${path}`;
 		const response = await fetchImpl(url, {
 			method,
 			headers,
 			...(body === undefined ? {} : { body: JSON.stringify(body) }),
 		});
+		if (allowNotFound && response.status === 404) return null;
 		if (!response.ok) {
 			throw new Error(`GITHUB_API_REQUEST_FAILED: ${method} ${new URL(url).pathname} returned ${response.status}`);
 		}
@@ -221,7 +222,7 @@ export function createProjectStatusClient({
 
 	return {
 		getProject,
-		readIssue: (number) => rest(`/issues/${number}`),
+		readIssue: (number, options) => rest(`/issues/${number}`, options),
 		setIssueStatusLabel,
 		setProjectStatus,
 		projectItemForIssue,
@@ -242,7 +243,9 @@ export async function syncIssueEvent({ client, issue, action, eventLabel }) {
 
 	const currentIssue = await client.readIssue(issue.number);
 	const labels = issueLabels(currentIssue);
-	const status = chooseIssueStatus({ action, eventLabel, labels });
+	// PR reconciliation can emit label events just as an issue is closed.
+	// Its current closed state wins over any delayed label event.
+	const status = currentIssue.state === 'closed' ? 'Done' : chooseIssueStatus({ action, eventLabel, labels });
 	await client.setIssueStatusLabel(currentIssue, status);
 	const changed = await client.setProjectStatus(project, item.id, status, statusValue(item, project.statusField.id));
 	return { action: changed ? 'updated' : 'unchanged', status };

@@ -223,6 +223,7 @@ const runtime = new AgentVideoRuntime(editor, {
 });
 const headlessProjects = new HeadlessProjectService({
   directory: join(framekitStateDirectory, "projects"),
+  protectedStateDirectory: framekitStateDirectory,
   mediaProbe: new FfmpegMediaMetadataProbe(),
   renderer: new FfmpegTimelineRenderer(),
   verifier: new FfmpegRenderVerifier(),

@@ -30,6 +30,17 @@ is reported as incomplete. Reports distinguish the tested merge commit from
 the PR head. Workflow summaries and failure artifacts describe fixture or shim
 evidence without claiming headed Final Cut proof.
 
+PR summaries also expose per-package branch-coverage baselines, critical
+persistence/recovery files, slow-test timings, and reviewed platform/opt-in
+skip reasons. Coverage includes unvisited source files and has no global
+threshold. Compact JSON/JUnit/coverage artifacts retain provenance and failing
+seed diagnostics; raw V8 temporary data is not uploaded.
+
+Use `pnpm test --file <reviewed-test-path> --test-name-pattern <regex>` or
+`pnpm run test:watch --file <reviewed-test-path>` for isolated focused feedback.
+See the [suite commands, responsibility layout, and discovery boundaries](../tests/README.md)
+for metadata review and generated-test replay instructions.
+
 Run `pnpm run check:workflows` to validate workflow syntax and expressions with
 checksum-verified actionlint. Manual CI dispatch validates Docs unconditionally
 and uses a separate concurrency group from PR runs.
@@ -85,6 +96,46 @@ dispatches once and requests semantic readback separately; if dispatch is
 uncertain, inspect the recorded job rather than dispatching again. Its output
 keeps the issue verdict at NO-GO until the remaining identity and integrity
 evidence has been independently reviewed.
+
+## Project status automation
+
+The `Assign` workflow keeps issue `Status:` labels and Project #3's Status
+field aligned. Opening or reopening an issue selects Backlog; closing selects
+Done. Adding a status label selects that status and removes the previous status
+label. Removing the last status label resets it to Backlog. Manual dispatch
+backfills existing issue cards, using a single status label first or seeding a
+missing label from the board. Multiple labels are reported as conflicts.
+
+The `PR project status` workflow updates existing open issue cards referenced
+in a PR body (`Refs #123`, closing keywords, same-repository qualified references
+or issue URLs), as well as GitHub's linked closing issues:
+
+| Current related PR state | Issue label and project status |
+| --- | --- |
+| Open PR, including a draft | In progress |
+| Submitted review or inline review comments | In review |
+| Failed required CI, merge conflict, or branch behind the base | Pending |
+
+Pending takes precedence over In review, which takes precedence over In progress
+when several open PRs reference an issue. Running CI and missing approvals do
+not select Pending. Optional failed checks do not select Pending. Clearing a
+blocker restores the status from current PR state. Closed issues remain Done;
+PR cards and other repositories are excluded. With no open related PR, the
+existing issue status remains unchanged; merging a PR does not close an issue
+unless GitHub's normal closing-link behavior does so.
+
+PR, review, CI-completion, commit-status, and `main` push events trigger a
+refresh. A roughly 15-minute scheduled refresh also handles delayed mergeability
+updates, checks from other providers, and fork reviews whose event cannot access
+the secret. Manual dispatch runs the same refresh. Each run reads current PR
+and check state instead of replaying the triggering event. The workflow checks
+out only the default branch and runs without installing PR dependencies.
+
+Both workflows require the `GH_TOKEN_FRAMEKIT_PRJ` repository secret with access
+to read PRs, checks, and projects and to update issue labels and Project #3.
+A missing secret produces a warning and skips synchronization. Moving a card
+on the board does not itself update its label. Automatic PR reconciliation can
+replace a manually chosen status while a related PR remains open.
 
 ## Evidence levels
 

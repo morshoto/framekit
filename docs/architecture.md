@@ -44,7 +44,7 @@ cycle checks follow runtime edges.
 | Source layer | Allowed workspace dependencies | External packages |
 | --- | --- | --- |
 | `packages/runtime` (domain and application) | None | Node built-ins only. |
-| `packages/headless-application` | Runtime and Final Cut document adapter | Node built-ins only. |
+| `packages/headless-application` | Runtime and FCPXML document entrypoint | Node built-ins only. |
 | `packages/testkit` | `packages/runtime` | Node built-ins only. |
 | TypeScript adapters | `packages/runtime` | `adapters/final-cut/typescript`: `fast-xml-parser`; headless adapter: Node built-ins only. |
 | `apps/mcp-server` | Runtime, headless application, and both TypeScript adapters | `@modelcontextprotocol/sdk`, `zod`, and Node built-ins. |
@@ -261,6 +261,19 @@ closed or when Final Cut Pro is not installed. The bundled Workflow Extension pr
 only unless a configured provider advertises more. A failed headless operation
 has no implicit headed-native fallback or foreground activation.
 
+The artifact-first workflow uses separate capability and evidence boundaries:
+
+| Surface | Gate and result |
+| --- | --- |
+| Headless editing | A configured Framekit project store and supported, revision-bound operation; no native reservation is required. |
+| Artifact generation | The requested compiler or renderer must support the project and source media; generated FCPXML and verified video are local artifacts. |
+| Manual handoff | A person may review and separately arrange a handoff; generating an artifact does not establish that Final Cut received or accepted it. |
+| Native observation | A separately available native provider must independently identify the target and report sufficient current state. |
+| Native mutation | The native operation requires its own target, authorization, recovery and verification prerequisites; an uncertain reservation continues to block guarded native work. |
+
+An unavailable native surface does not disable a side-effect-free headless
+operation. Evidence from one row does not establish the result of another.
+
 FFmpeg headless renders normalize audio to AAC at 48 kHz mono. Verification
 checks this emitted format while preserving registered source metadata; other
 renderer backends are checked against their source audio metadata.
@@ -343,3 +356,15 @@ used by the runtime. Session persistence and semantic media indexing keep
 separate contracts and adapters; the semantic media index already follows this
 pattern, while session persistence can adopt it in its own change without
 changing project storage.
+
+### FCPXML document interchange
+
+Headless project workflows import `@framekit/final-cut/fcpxml`, which exposes
+`FcpxmlDocumentAdapter`, `resolveMediaSource`, and the existing Timeline IR
+compiler and its types. Installed npm consumers use `@morshoto/framekit/fcpxml`.
+These document APIs read, validate, edit, and compile selected FCPXML artifacts
+without a Final Cut process or native provider. Existing adapter exports remain
+compatible. The import-graph check restricts this entrypoint and headless
+application workflows to document modules within the Final Cut adapter,
+including transitive and type-only imports. Artifact round trips establish
+document compatibility; native acceptance still requires separate evidence.
