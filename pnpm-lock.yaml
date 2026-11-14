@@ -197,6 +197,9 @@ importers:
       esbuild:
         specifier: 0.28.2
         version: 0.28.2
+      js-yaml:
+        specifier: 4.3.2
+        version: 4.3.2
       tsc-alias:
         specifier: 1.9.10
         version: 1.9.10
@@ -5522,8 +5525,7 @@ snapshots:
 
   anynum@1.0.1: {}
 
-  argparse@2.0.1:
-    optional: true
+  argparse@2.0.1: {}
 
   argue-cli@3.2.0:
     optional: true
@@ -6498,7 +6500,6 @@ snapshots:
   js-yaml@4.3.2:
     dependencies:
       argparse: 2.0.1
-    optional: true
 
   jsdom@26.1.0(supports-color@7.2.0):
     dependencies:
