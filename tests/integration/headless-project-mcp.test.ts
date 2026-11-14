@@ -755,6 +755,43 @@ test("headless rough-cut preview and execution preserve provenance and produce v
   }
 });
 
+test("rough-cut history failure reports the committed revision without execution proof", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-rough-cut-history-failure-"));
+  try {
+    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], { cwd: process.cwd(), env: process.env });
+    const projects = join(directory, "projects");
+    const service = new HeadlessProjectService({ directory: projects, mediaProbe: new FfmpegMediaMetadataProbe(), renderer: new FfmpegTimelineRenderer(), verifier: new FfmpegRenderVerifier() });
+    const created = await service.create(emptyTimeline());
+    const registered = await service.registerMedia(created.timeline.project.id, join(directory, "fixture-red-440hz.mp4"), created.timeline.revision);
+    const source = registered.resource;
+    const request = {
+      projectId: created.timeline.project.id, sequenceId: created.timeline.sequence.id,
+      plan: { planner: { id: "framekit.rough-cut", version: 1 }, revision: registered.project.timeline.revision, query: { query: "speech" }, shots: [{ order: 1, sourceIdentity: { mediaId: source.id, source: source.source!, sourceDigest: source.sourceDigest!, mediaKind: "video" as const, duration: 2 }, range: { start: 0.25, end: 1.25 }, confidence: 0.9, matchedProperties: ["query:speech"], rationale: "selected" }], warnings: [] },
+      render: { outputPath: join(directory, "rough-cut.mp4"), format: "mp4" as const, width: 320, height: 180, frameRate: { value: "30", timescale: "1" } },
+      fcpxml: { path: join(directory, "rough-cut.fcpxml"), target: { provider: "final-cut" as const, libraryUid: "library", eventUid: "event", projectUid: "project", sequenceUid: "sequence" } },
+    };
+    const preview = await service.previewRoughCut(request);
+    (service as any).saveRoughCutExecution = async () => { throw new Error("injected history failure"); };
+    let message = "";
+    await assert.rejects(service.executeRoughCut({ ...request, approved: true, planDigest: preview.planDigest }), (error: unknown) => {
+      message = String(error);
+      return /HEADLESS_ROUGH_CUT_HISTORY_UNRECORDED/.test(message);
+    });
+    assert.match(message, /reinspect.*before retry/i);
+    assert.match(message, /no execution.*publish proof/i);
+    const details = JSON.parse(message.slice(message.indexOf("{")));
+    assert.equal(details.projectId, request.projectId);
+    assert.equal(details.sequenceId, request.sequenceId);
+    assert.match(details.executionId, /^rough-cut-/);
+    const reopened = await new HeadlessProjectService({ directory: projects, mediaProbe: new FfmpegMediaMetadataProbe() }).open(request.projectId);
+    assert.deepEqual(details.committedRevision, reopened.timeline.revision);
+    assert.equal(reopened.timeline.revision.sequence, registered.project.timeline.revision.sequence + 1);
+    await assert.rejects(service.verifyPublishableRoughCut(details.executionId, request.fcpxml.path), /HEADLESS_ROUGH_CUT_EXECUTION_NOT_FOUND/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("render and rough-cut execution history cannot replace projects with matching IDs", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-history-collision-"));
   try {
