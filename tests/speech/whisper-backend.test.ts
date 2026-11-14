@@ -8,7 +8,7 @@ import test from "node:test";
 function runBackend(input: unknown, environment: NodeJS.ProcessEnv): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn("python3", [join(process.cwd(), "scripts/whisper-speech-backend.py")], {
-      env: environment,
+      env: { ...environment, FRAMEKIT_SILERO_VAD_MODEL: "", FRAMEKIT_SPEECH_REQUIRE_VAD: "0" },
       stdio: ["pipe", "pipe", "pipe"],
     });
     let stdout = "";

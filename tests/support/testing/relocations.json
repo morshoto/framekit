@@ -3166,7 +3166,9 @@
     ],
     "tests/speech/revision-bound-analysis.test.ts": [
       "\"speech binding preserves configured model and configuration provenance\"",
-      "`speech binding rejects mismatched configured provider ${Object.keys(change)[0]}`"
+      "`speech binding rejects mismatched configured provider ${Object.keys(change)[0]}`",
+      "\"speech binding retains an unavailable VAD reason without inventing activity\"",
+      "\"speech binding rejects conflicting VAD availability evidence\""
     ]
   },
   "identityDiscoveryCorrections": {
@@ -3368,6 +3370,18 @@
       "addedTestNames": {
         "tests/integration/timeline-semantic-context.test.ts": [
           "\"MCP speech mapping rejects incomplete and contradictory cached evidence\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        738
+      ],
+      "reason": "Retain independent VAD unavailability and reject contradictory activity evidence; no baseline identities removed.",
+      "addedTestNames": {
+        "tests/speech/revision-bound-analysis.test.ts": [
+          "\"speech binding retains an unavailable VAD reason without inventing activity\"",
+          "\"speech binding rejects conflicting VAD availability evidence\""
         ]
       }
     }
