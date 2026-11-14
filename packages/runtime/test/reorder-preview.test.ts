@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ProjectSnapshot } from "../src/domain/project.js";
 import { assertReorderPreviewCurrent, previewPrimaryStorylineReorder, verifyPrimaryStorylineReorder } from "../src/timeline/reorder-preview.js";
+import { canonicalSnapshotDigest } from "../src/timeline/snapshot-digest.js";
+import { diffSnapshots } from "../src/timeline/snapshot-diff.js";
 
 function fixture(): ProjectSnapshot {
   const frame = (n: number) => ({ value: String(n * 1001), timescale: "24000" });
@@ -90,6 +92,14 @@ test("reorder preview checks exact source ranges with a nonzero origin", () => {
   const pastEnd = structuredClone(input);
   pastEnd.timeline.clips[2]!.sourceStartTime = { value: "10010", timescale: "24000" };
   assert.throws(() => previewPrimaryStorylineReorder(pastEnd, "a", { kind: "end" }), /REORDER_INVALID.*source.*range/i);
+});
+
+test("snapshot integrity detects changes in supplied exact source bounds", () => {
+  const before = fixture();
+  const after = structuredClone(before);
+  Object.assign(after.media[0]!, { sourceRange: { start: { value: "1", timescale: "1" }, duration: { value: "10", timescale: "1" } } });
+  assert.notEqual(canonicalSnapshotDigest(before), canonicalSnapshotDigest(after));
+  assert.equal(diffSnapshots(before, after).mediaChanges[0]?.type, "MEDIA_MODIFIED");
 });
 
 test("reorder preview rejects an unaccounted primary story element", () => {

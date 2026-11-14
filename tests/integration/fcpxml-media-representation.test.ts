@@ -41,7 +41,7 @@ test("FCPXML retains an explicit exact source range without inventing a missing 
       </spine></sequence></project></event></library></fcpxml>`);
     const snapshot = await new FcpxmlDocumentAdapter(path).readProject();
     const range = (media: typeof snapshot.media[number]) => (media as typeof media & { sourceRange?: unknown }).sourceRange;
-    assert.deepEqual(range(snapshot.media[0]!), { start: { value: "10", timescale: "1" }, duration: { value: "4004", timescale: "24000" } });
+    assert.deepEqual(range(snapshot.media[0]!), { start: { value: "10", timescale: "1" }, duration: { value: "1001", timescale: "6000" } });
     assert.equal(range(snapshot.media[1]!), undefined);
   } finally {
     await rm(directory, { recursive: true, force: true });
