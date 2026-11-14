@@ -2724,15 +2724,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       if (preview.selectionMode === "handle") await this.selectMediaNative(preview.mediaHandle);
       await this.focusTimelineForMediaInsertion();
       this.validateMediaInsertionBinding(preview, await this.requireLiveState());
-      await this.executeNativeCommand(mediaInsertionScript(preview.operation), async (recovered) => {
-        this.assertRetryContext(before, recovered, preview.operation === "insert");
-        if (preview.selectionMode === "handle") await this.selectMediaNative(preview.mediaHandle);
-        const refocused = await this.prepareNativeRetry();
-        this.assertRetryContext(before, refocused, preview.operation === "insert");
-        await this.focusTimelineForMediaInsertion();
-        this.validateMediaInsertionBinding(preview, await this.requireLiveState());
-        if (preview.selectionMode === "selected") await this.validateSelectedMediaBinding(media);
-      });
+      // A transport or focus error can arrive after the shortcut was issued.
+      // Without a receiver completion receipt, retrying can duplicate the edit.
+      await this.executeNativeScript(mediaInsertionScript(preview.operation));
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }

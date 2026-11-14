@@ -2890,7 +2890,7 @@ test("native media insertion does not undo an unrelated revision change", async 
   assert.equal(revision, 2);
 });
 
-test("native media insertion reselects Browser media before a focus-recovery retry", async () => {
+test("native media insertion does not retry an uncertain append focus error", async () => {
   let revision = 1;
   let duration = "10";
   let insertionCalls = 0;
@@ -2929,17 +2929,9 @@ test("native media insertion reselects Browser media before a focus-recovery ret
   const [media] = await adapter.searchMedia("Interview");
   await adapter.selectMedia(media.handle);
   const preview = await adapter.previewAppendMedia(media.handle);
-  const result = await adapter.executeAppendMedia(preview.previewToken);
-  assert.equal(result.verification.verified, true);
-  assert.equal(insertionCalls, 2);
-  assert.equal(scripts.filter((script) => script.includes('set targetIdentity to "browser-1"')).length, 3);
-  const selectionScripts = scripts
-    .map((script, index) => ({ script, index }))
-    .filter(({ script }) => script.includes('set targetIdentity to "browser-1"'));
-  const insertionScripts = scripts
-    .map((script, index) => ({ script, index }))
-    .filter(({ script }) => script.includes('keystroke "e"'));
-  assert.equal(selectionScripts[2]!.index < insertionScripts[1]!.index, true);
+  await assert.rejects(adapter.executeAppendMedia(preview.previewToken), /-1719/);
+  assert.equal(insertionCalls, 1);
+  assert.equal(scripts.filter((script) => script.includes('set targetIdentity to "browser-1"')).length, 2);
 });
 
 test("native Final Cut adapter targets one media occurrence and reports live playhead state", async () => {
