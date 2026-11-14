@@ -11,11 +11,56 @@ pnpm run check:docs
 ```
 
 `pnpm run test` includes deterministic unit and integration tests, release
-contract tests, and the documentation allowlist/link tests. PR CI runs
-`pnpm run test:fast` for unit, selected contract, and critical integration
-coverage. After a push to `main`, Security CI runs the full suite, clean Codex
-plugin install, deterministic MCP evaluation, filler-removal benchmark, and
-repository release gate. PRs also run build, boundary, and documentation checks.
+contract tests, and the documentation allowlist/link tests. PR CI runs the full
+suite under the existing `Unit / integration tests` check; lint and tests run
+in parallel. `test:fast` remains available for local feedback. Benchmarks, clean
+Codex plugin installation, deterministic MCP evaluation, and release exercises remain in
+Security CI after a push to `main` or on scheduled/manual runs.
+
+`CI passed` checks every expected job result, including package consumer smoke
+and Nix bootstrap. Docs type-checking and unit tests run once when relevant;
+static exports run separately for root and `/framekit`. Only an explicit
+successful negative Docs scope decision permits those jobs to skip. Detection
+failure runs Docs validation and fails the aggregate. Failed, cancelled,
+missing, and unexpectedly skipped jobs cannot pass the aggregate.
+
+All PR jobs have explicit timeouts. Deterministic tests upload JUnit results,
+JSON totals, and selected-file/toolchain/commit metadata; an interrupted phase
+is reported as incomplete. Reports distinguish the tested merge commit from
+the PR head. Workflow summaries and failure artifacts describe fixture or shim
+evidence without claiming headed Final Cut proof.
+
+Run `pnpm run check:workflows` to validate workflow syntax and expressions with
+checksum-verified actionlint. Manual CI dispatch validates Docs unconditionally
+and uses a separate concurrency group from PR runs.
+
+### Required-check rollout
+
+The workflow introduces `CI passed` without removing the existing required
+check names. A workflow change alone does not update the live GitHub ruleset.
+After the new workflow has merged, an authorized maintainer must add `CI passed`
+from GitHub Actions to the main ruleset, retaining strict commit freshness and
+all existing requirements: `Lint / static checks`, `Unit / integration tests`,
+`Swift type-check`, and the separate `CodeQL PR policy`. Verify actual check
+names and terminal results on the exact candidate commit before rollout; do not
+require a check before `main` can emit it.
+
+Audit the live configuration without changing it:
+
+```sh
+node scripts/ci/check-required-checks.mjs morshoto/framekit 20905528
+```
+
+The audit exits nonzero until all required contexts and their GitHub Actions
+producer are enforced. Keep existing coverage until its required replacement
+has passed hosted CI. Nix's broad fixture test invocation can then be removed
+while retaining install, build, doctor, and MCP smoke.
+
+Hosted Swift validation explicitly selects the `ci` profile in
+`nix/xcode-version.json`: Xcode 26.6 (17F113), macOS SDK 26.5. The default native
+compatibility check retains Xcode 16.4 / SDK 15.5. Hosted validation lists the
+project and type-checks the Swift source against a shim; it does not build the
+extension or validate headed Final Cut behavior.
 
 For native source changes, also run:
 
