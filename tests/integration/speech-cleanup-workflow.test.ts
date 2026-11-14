@@ -37,7 +37,8 @@ async function fixture(t: test.TestContext, failOutput = false) {
     media: [{ mediaId: "speech", source, sourceDigest: digest(bytes), mediaKind: "audio", duration: 4, speech: { words } }] });
   const speech: SpeechAnalyzer = { descriptor: { id: "controlled-speech", provider: "test", version: "1" }, capabilities: { transcription: true, vad: true },
     analyze: async ({ project }, range) => {
-      const edited = project.timeline.clips.find(clip => clip.id === "selected")!.duration < 4;
+      const selected = project.timeline.clips.find(clip => clip.id === "selected");
+      const edited = !selected || selected.duration < 4;
       const observed = words.filter(word => (!edited || !word.filler) && (!range || word.start >= range.start && word.end <= range.end));
       return { words: observed, vadSegments: observed.map(word => ({ start: word.start, end: word.end, kind: "speech" as const })) };
     } };
@@ -144,3 +145,53 @@ test("source-preserving remap rejects old occurrence context and cached measurem
   await f.call("edit.undo", { transactionId: cut.id });
   assert.equal(canonicalSnapshotDigest(await f.inspect()), canonicalSnapshotDigest(original));
 });
+
+function sourcePreservingEditor(f: Awaited<ReturnType<typeof fixture>>, original: any, fault?: string) {
+  const preview = f.adapter.previewTransaction.bind(f.adapter);
+  const apply = f.adapter.applyTransaction.bind(f.adapter);
+  const time = (seconds: number) => ({ value: String(Math.round(seconds * 24000)), timescale: "24000" });
+  const split = (range: { start: number; end: number }) => {
+    const result = structuredClone(original);
+    const selected = result.timeline.clips[0];
+    const clip = (id: string, start: number, sourceStart: number, duration: number) => ({ ...selected, id, start, sourceStart, duration,
+      startTime: time(start), sourceStartTime: time(sourceStart), durationTime: time(duration) });
+    const left = clip("selected-left", 0, 0, range.start);
+    const right = clip("selected-right", range.start, range.end, 4 - range.end);
+    if (fault === "wrong-source") { right.sourceStart -= 0.2; right.sourceStartTime = time(right.sourceStart); }
+    const pieces = fault === "missing-piece" ? [left] : [left, right];
+    if (fault === "ambiguous-piece") pieces.push({ ...right, id: "duplicate-right" });
+    result.timeline.clips = [...pieces, { ...result.timeline.clips[1], start: 4 - (range.end - range.start), startTime: time(4 - (range.end - range.start)) }];
+    result.timeline.storyElements = result.timeline.clips.map((item: any) => ({ ...original.timeline.storyElements[0], ...item, kind: "asset-clip" }));
+    result.timeline.duration -= range.end - range.start; result.timeline.durationTime = time(result.timeline.duration);
+    return result;
+  };
+  f.adapter.previewTransaction = async (operations, revision) => operations[0]?.type === "ripple-delete" ? split(operations[0].range) : preview(operations, revision);
+  f.adapter.applyTransaction = async (operations, revision) => {
+    if (operations[0]?.type === "ripple-delete") await f.adapter.restore(split(operations[0].range), revision);
+    else await apply(operations, revision);
+  };
+}
+
+for (const fault of [undefined, "wrong-source", "missing-piece", "ambiguous-piece"]) {
+  test(`full filler Skill validates source-preserving split: ${fault ?? "valid mapping"}`, async t => {
+    const f = await fixture(t); const original = await f.inspect();
+    sourcePreservingEditor(f, original, fault);
+    const args = { baseRevision: original.revision, range: { start: 0, end: 4 } };
+    const preview = await f.call("skill.preview", { skill: "filler-removal", arguments: args });
+    const approved = await f.call("skill.preview", { skill: "filler-removal", arguments: { ...args, selectedCandidateIds: [preview.plan.details.candidates[0].id] } });
+    const cut = await f.call("skill.execute", { previewToken: approved.previewToken });
+    assert.equal(cut.status, fault ? "ROLLED_BACK" : "VERIFIED", JSON.stringify(cut.verification));
+    if (fault) {
+      assert.ok(cut.verification.checks.some((check: any) => check.name.includes("speech-continuity") && !check.passed));
+    } else {
+      const intermediate = await f.inspect();
+      const fresh = await f.normalize("selected-right");
+      const gain = await f.call("skill.execute", { previewToken: fresh.previewToken });
+      assert.equal(gain.status, "VERIFIED");
+      await f.call("edit.undo", { transactionId: gain.transactionIds[0] });
+      assert.equal(canonicalSnapshotDigest(await f.inspect()), canonicalSnapshotDigest(intermediate));
+      await f.call("edit.undo", { transactionId: cut.transactionIds[0] });
+    }
+    assert.equal(canonicalSnapshotDigest(await f.inspect()), canonicalSnapshotDigest(original));
+  });
+}
