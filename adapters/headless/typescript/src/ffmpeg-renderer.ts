@@ -547,6 +547,7 @@ function supportsStructuralEdits(timeline: TimelineIr): boolean {
   const primaryOccurrences = timeline.sequence.occurrences.filter(isPrimaryVideoOccurrence);
   return timeline.sequence.storyElements.length === 0
     && (timeline.sequence.timecodeStart === undefined || /^-?0+$/.test(timeline.sequence.timecodeStart.value))
+    && (timeline.sequence.frameGridOrigin === undefined || /^-?0+$/.test(timeline.sequence.frameGridOrigin.value))
     && timeline.sequence.markers.length === 0
     && timeline.sequence.captions.length === 0
     && primaryOccurrences.length > 0

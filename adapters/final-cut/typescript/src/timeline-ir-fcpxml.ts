@@ -104,6 +104,9 @@ export function compileTimelineIrToFcpxml(
   if (timeline.sequence.timecodeStart && parseExactRational(timeline.sequence.timecodeStart).value !== 0n) {
     throw new Error("FCPXML_UNSUPPORTED_TIMELINE_FEATURE: nonzero timecode origin requires verified frame-grid handling");
   }
+  if (timeline.sequence.frameGridOrigin && parseExactRational(timeline.sequence.frameGridOrigin).value !== 0n) {
+    throw new Error("FCPXML_UNSUPPORTED_TIMELINE_FEATURE: nonzero frame-grid origin requires verified handling");
+  }
   const version = options.version ?? FRAMEKIT_FCPXML_VERSION;
   if (version !== FRAMEKIT_FCPXML_VERSION) {
     throw new Error(`FCPXML_VERSION_UNSUPPORTED: ${String(version)}`);

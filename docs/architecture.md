@@ -86,6 +86,11 @@ coordinates; resolution and readback reject a changed origin or frame duration.
 Snapshots without that field retain the existing zero-origin targeting policy,
 which is not evidence of a live Final Cut frame grid. FCPXML `tcStart` is not
 automatically treated as `frameGridOrigin`.
+Timeline IR retains a supplied grid origin and rejects split points off that
+grid using exact rational arithmetic. Without an explicit grid origin, the
+existing generic split behavior remains unchanged; it is not native frame-grid
+proof. Nonzero grid origins are not yet supported by FCPXML compilation or the
+headless renderer.
 `playheadTime` describes the editor playhead; it is not a substitute for a
 stable target or timeline revision. Read-after-write verifies a mutation
 against the same target and revision contract. Canonical native rename, trim,
