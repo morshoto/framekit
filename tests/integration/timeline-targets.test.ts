@@ -170,6 +170,20 @@ test("stable targets reject a caller-supplied origin that shifts the grid", () =
   assert.throws(() => resolveTimelineTarget(project, target), /FRAME_ALIGNMENT_REQUIRED.*origin/i);
 });
 
+test("stable targets reject loss or introduction of explicit zero-grid evidence", () => {
+  const observed = snapshot({ frameGridOrigin: { value: "0", timescale: "24" } });
+  const unobserved = structuredClone(observed);
+  delete unobserved.timeline.frameGridOrigin;
+  const observedTarget = createTimelineTarget(observed);
+  const unobservedTarget = createTimelineTarget(unobserved);
+  assert.doesNotThrow(() => resolveTimelineTarget(observed, observedTarget));
+  assert.doesNotThrow(() => resolveTimelineTarget(unobserved, unobservedTarget));
+  assert.throws(() => resolveTimelineTarget(unobserved, observedTarget), /FRAME_ALIGNMENT_REQUIRED.*origin.*evidence/i);
+  assert.throws(() => assertTimelineTargetReadAfterWrite(observedTarget, observed, unobserved), /FRAME_ALIGNMENT_REQUIRED.*origin.*evidence/i);
+  assert.throws(() => resolveTimelineTarget(observed, unobservedTarget), /FRAME_ALIGNMENT_REQUIRED.*origin.*evidence/i);
+  assert.throws(() => assertTimelineTargetReadAfterWrite(unobservedTarget, unobserved, observed), /FRAME_ALIGNMENT_REQUIRED.*origin.*evidence/i);
+});
+
 test("read-after-write accepts coordinate changes but rejects identity drift", () => {
   const before = snapshot();
   const target = targetFor(before);
