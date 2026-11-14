@@ -853,3 +853,25 @@ test("audio measurements reject a different occurrence before previewing edits",
   }), /TARGET_MISMATCH: audio occurrence/);
   assert.deepEqual(await runtime.inspectProject(), before);
 });
+
+test("semantic cache cannot rebind occurrence loudness as reusable source analysis", async () => {
+  const fixture = semanticFixture();
+  const store = new InMemorySemanticMediaIndexStore();
+  let calls = 0;
+  const analyzer = {
+    descriptor: { id: "fixture.audio", provider: "fixture", version: "1" },
+    analyze: async () => {
+      calls += 1;
+      return { integratedLufs: -20, truePeakDb: -6, silenceMs: 0 };
+    },
+  };
+  const runtime = () => new AgentVideoRuntime(fixture.adapter, { audioAnalyzer: analyzer, semanticMediaIndexStore: store });
+  const first = await runtime().understandMedia("media-semantic-1");
+  first.audio!.signalScope = "occurrence";
+  first.audio!.occurrenceId = "old-occurrence";
+  await store.save(first);
+  const result = await runtime().understandMedia("media-semantic-1");
+  assert.equal(calls, 2);
+  assert.equal(result.audio?.signalScope, "source");
+  assert.equal(result.audio?.occurrenceId, undefined);
+});
