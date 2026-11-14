@@ -3276,3 +3276,31 @@ test("canonical ripple delete requires source observation of the affected occurr
   await assert.rejects(provider.applyTransaction([operation], snapshotBefore.revision), /TARGET_MISMATCH.*source unavailable/);
   assert.deepEqual(calls, ["resolve"]);
 });
+
+test("ripple source observation preserves checkpoint when discovery may dispatch", async () => {
+  for (const dispatched of [false, true]) {
+    const { before } = rippleSnapshots();
+    const calls: string[] = [];
+    const resolve = Object.assign(async () => { calls.push("resolve"); throw new Error("TARGET_MISMATCH: source unavailable"); }, {
+      sourceBindingAvailable: true,
+      trackNativeDispatch: async <T>(operation: () => Promise<T>, onDispatch: () => void): Promise<T> => {
+        if (dispatched) onDispatch();
+        return operation();
+      },
+    });
+    const guard = {
+      assertClear: async () => {},
+      begin: async () => { calls.push("begin"); },
+      complete: async () => { calls.push("complete"); },
+    };
+    const provider = providerFor([before, before, before], calls, resolve, liveState(), undefined, {
+      rippleDeleteRange: async () => { calls.push("delete"); return { operationId: "delete-1", undoAvailable: true }; },
+    }, guard);
+    const current = await provider.readProject();
+    const operation = { type: "ripple-delete" as const, timelineId: current.timeline.id,
+      range: { start: 2, end: 4, startTime: { value: "48", timescale: "24" }, durationTime: { value: "48", timescale: "24" } },
+      candidateId: "filler-1", reason: "remove verified filler" };
+    await assert.rejects(provider.applyTransaction([operation], current.revision), dispatched ? /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/ : /TARGET_MISMATCH/);
+    assert.deepEqual(calls, dispatched ? ["begin", "resolve"] : ["begin", "resolve", "complete"]);
+  }
+});
