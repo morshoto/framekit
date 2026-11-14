@@ -1206,6 +1206,15 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (this.latestOperationId !== operationId) throw new Error("FINAL_CUT_NATIVE_UNDO_STALE: operation is no longer the latest native edit");
     const before = await this.requireTimelineContext();
     const currentLive = await this.readLiveState();
+    if (operation.kind === "media-insertion") {
+      const expectedProject = operation.beforeLive?.project?.id;
+      const expectedSequence = operation.beforeLive?.sequence?.id;
+      if (!expectedProject || !expectedSequence
+        || operation.afterLive?.project?.id !== expectedProject || operation.afterLive?.sequence?.id !== expectedSequence
+        || currentLive?.project?.id !== expectedProject || currentLive?.sequence?.id !== expectedSequence) {
+        throw new Error("FINAL_CUT_NATIVE_UNDO_TARGET_CHANGED: placement target is unavailable or changed");
+      }
+    }
     if (operation.afterLive && currentLive && operation.afterLive.revision.id !== currentLive.revision.id) {
       throw new Error("FINAL_CUT_NATIVE_UNDO_STALE: Final Cut timeline changed after the native edit");
     }
