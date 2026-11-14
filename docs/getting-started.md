@@ -6,10 +6,10 @@ headless fixture; it does not launch or activate Final Cut Pro.
 
 ## Development setup
 
-Contributor toolchain: Node.js 22.14.0 and pnpm 12.14.0.
+Contributor toolchain: Node.js 22.23.5 and pnpm 12.18.0.
 Consumer runtime: Node.js >=20.
-CI tests this contributor pair; the pre-commit hook accepts Node.js 22.14 or newer.
-Install pnpm 12.14.0 using Corepack or your preferred package manager.
+CI tests this contributor pair; the pre-commit hook accepts Node.js 22.23 or newer.
+Install pnpm 12.18.0 using Corepack or your preferred package manager.
 Xcode 16.4 with the macOS 15.5 SDK is required only for native extension work.
 The optional Nix environment provides Node.js 22, pinned pnpm, FFmpeg/ffprobe,
 and SQLite for fixture and headless development. Start with the fixture profile;

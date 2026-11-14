@@ -9,7 +9,7 @@ function Heading({ level, id, children }: { level: 2 | 3 | 4; id?: string; child
   return <Tag id={id}>{children}{id && <> <a href={`#${id}`} aria-label={`Link to ${typeof children === 'string' ? children : 'section'}`}>#</a></>}</Tag>;
 }
 function Code({ children }: ComponentProps<'pre'>) {
-  if (isValidElement<{ className?: string; children?: ReactNode }>(children) && typeof children.props.children === 'string') return <CodeBlock code={children.props.children} language={children.props.className?.replace(/^language-/, '')} />;
+  if (isValidElement<{ className?: string; title?: string; children?: ReactNode }>(children) && typeof children.props.children === 'string') return <CodeBlock code={children.props.children} language={children.props.className?.replace(/^language-/, '')} title={children.props.title} />;
   return <pre>{children}</pre>;
 }
 export function useMDXComponents(components: MDXComponents): MDXComponents {

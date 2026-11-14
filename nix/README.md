@@ -6,7 +6,7 @@ Enter the project shell with:
 nix develop ./nix
 ```
 
-The flake provides Node.js 22, the repository-pinned pnpm through Corepack,
+The flake provides Node.js 24, the repository-pinned pnpm through Corepack,
 FFmpeg/ffprobe, SQLite, Git, and Bash. It supports fixture and headless
 development on Linux and macOS. Xcode is intentionally not packaged by Nix:
 Apple's Workflow Extension SDK and `ProExtensionHost` must be provided by a
