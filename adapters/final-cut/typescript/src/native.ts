@@ -1963,28 +1963,13 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (before.target.name && before.target.name !== preview.occurrence.name) {
       throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: selected timeline occurrence changed");
     }
-    const original = preview.live;
-    const originalScope = preview.context.target;
-    const currentScope = before.target;
-    if (!original?.project?.id || !original.sequence?.id || !original.playheadTime
-      || !beforeLive?.project?.id || !beforeLive.sequence?.id || !beforeLive.playheadTime
-      || !preview.context.playheadTime || !before.playheadTime
-      || !originalScope.identity || currentScope.identity !== originalScope.identity
-      || originalScope.projectId !== original.project.id || originalScope.sequenceId !== original.sequence.id
-      || originalScope.revision?.id !== original.revision.id || originalScope.revision?.sequence !== original.revision.sequence
-      || currentScope.projectId !== beforeLive.project.id || currentScope.sequenceId !== beforeLive.sequence.id
-      || currentScope.revision?.id !== beforeLive.revision.id || currentScope.revision?.sequence !== beforeLive.revision.sequence
-      || original.project.id !== beforeLive.project.id || original.sequence.id !== beforeLive.sequence.id
-      || original.revision.id !== beforeLive.revision.id || original.revision.sequence !== beforeLive.revision.sequence
-      || compareRational(parseRationalString(preview.context.playheadTime, "preview playhead"), original.playheadTime) !== 0
-      || compareRational(parseRationalString(before.playheadTime, "current playhead"), beforeLive.playheadTime) !== 0
-      || compareRational(original.playheadTime, beforeLive.playheadTime) !== 0
-      || compareRational(original.sequence.startTime, beforeLive.sequence.startTime) !== 0
-      || compareRational(original.sequence.frameDuration, beforeLive.sequence.frameDuration) !== 0) {
-      throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: Blade target, frame grid, revision, or playhead changed or is unavailable");
-    }
+    this.assertBladePreviewBinding(preview, before, beforeLive);
     await this.validateOccurrenceBinding(preview.occurrence);
-    if (!before.bladeAvailable) throw new Error("FINAL_CUT_NATIVE_PLAYHEAD_OUTSIDE_OCCURRENCE: Final Cut has disabled Blade for the current selection/playhead");
+    const finalContext = await this.requireNativeWriteContext();
+    const finalLive = await this.readLiveState();
+    this.assertBladePreviewBinding(preview, finalContext, finalLive);
+    if (!finalContext.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
+    if (!finalContext.bladeAvailable) throw new Error("FINAL_CUT_NATIVE_PLAYHEAD_OUTSIDE_OCCURRENCE: Final Cut has disabled Blade for the current selection/playhead");
     try {
       await this.executeNativeScript(bladeScript());
     } catch (error) {
@@ -2004,9 +1989,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const operationId = opaqueHandle("native-blade");
     const operation = {
       kind: "blade" as const,
-      before,
+      before: finalContext,
       after,
-      beforeLive,
+      beforeLive: finalLive,
       afterLive,
       undoCommand: after.undoCommand,
     } satisfies NativeOperationRecord;
@@ -2017,12 +2002,40 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       previewToken,
       occurrence: preview.occurrence,
       resultingSegments,
-      before,
+      before: finalContext,
       after,
       verification: { verified: true, detail: "Final Cut accepted the Blade command while the target remained frontmost" },
       undoAvailable: after.undoAvailable,
       ...(after.undoCommand ? { undoCommand: after.undoCommand } : {}),
     };
+  }
+
+  private assertBladePreviewBinding(
+    preview: { context: NativeFinalCutContext; live?: EditorLiveState },
+    before: NativeFinalCutContext,
+    beforeLive: EditorLiveState | undefined,
+  ): void {
+    const original = preview.live;
+    const originalScope = preview.context.target;
+    const currentScope = before.target;
+    if (!original?.project?.id || !original.sequence?.id || !original.playheadTime
+      || !beforeLive?.project?.id || !beforeLive.sequence?.id || !beforeLive.playheadTime
+      || !preview.context.playheadTime || !before.playheadTime
+      || currentScope.kind !== "selected-clip" || !originalScope.identity || currentScope.identity !== originalScope.identity
+      || currentScope.name !== originalScope.name
+      || originalScope.projectId !== original.project.id || originalScope.sequenceId !== original.sequence.id
+      || originalScope.revision?.id !== original.revision.id || originalScope.revision?.sequence !== original.revision.sequence
+      || currentScope.projectId !== beforeLive.project.id || currentScope.sequenceId !== beforeLive.sequence.id
+      || currentScope.revision?.id !== beforeLive.revision.id || currentScope.revision?.sequence !== beforeLive.revision.sequence
+      || original.project.id !== beforeLive.project.id || original.sequence.id !== beforeLive.sequence.id
+      || original.revision.id !== beforeLive.revision.id || original.revision.sequence !== beforeLive.revision.sequence
+      || compareRational(parseRationalString(preview.context.playheadTime, "preview playhead"), original.playheadTime) !== 0
+      || compareRational(parseRationalString(before.playheadTime, "current playhead"), beforeLive.playheadTime) !== 0
+      || compareRational(original.playheadTime, beforeLive.playheadTime) !== 0
+      || compareRational(original.sequence.startTime, beforeLive.sequence.startTime) !== 0
+      || compareRational(original.sequence.frameDuration, beforeLive.sequence.frameDuration) !== 0) {
+      throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: Blade target, frame grid, revision, or playhead changed or is unavailable");
+    }
   }
 
   public async previewDeleteRange(range: NativeFinalCutRange, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutRangePreview> {
