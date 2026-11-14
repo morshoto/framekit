@@ -996,6 +996,19 @@
       "requires": []
     },
     {
+      "path": "tests/integration/occurrence-audio-render.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "headless",
+        "integration"
+      ],
+      "requires": [
+        "ffmpeg",
+        "ffprobe"
+      ]
+    },
+    {
       "path": "tests/integration/package-distribution.test.ts",
       "owner": "shared",
       "tags": [
