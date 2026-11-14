@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+import { validateDialogueNativeAcceptance } from "../../final-cut-dialogue-acceptance.mjs";
+
 const manifestPath = fileURLToPath(new URL("../../../tests/fixtures/release/gate/manifest.json", import.meta.url));
 const expectedTierIds = ["deterministic", "fcpxml-artifact", "metadata-only", "canonical-live", "headed-native"] as const;
 const expectedWorkflowIds = [
@@ -143,6 +145,7 @@ export function summarizeHeadedEvidence(
     : undefined;
   const target = extractTarget(raw);
   assertHeadedTarget(target, workflow.id);
+  if (workflow.id === "dialogue-normalization") validateDialogueNativeAcceptance(raw);
   const revision = extractRevisions(raw);
   const verification = extractVerification(raw);
 

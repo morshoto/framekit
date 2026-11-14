@@ -183,8 +183,9 @@ results do not establish native Final Cut behavior.
 
 The headed-native tier is opt-in and requires a disposable project plus the
 runner-specific target and mutation-consent configuration. The standard gate
-does not run headed UI mutations by default. For a complete release-gate
-bundle, use a fresh output directory and run each native command separately:
+does not run headed UI mutations by default. Use fresh output directories and run each authorized native command separately.
+The dialogue command currently emits a non-passing single-case diagnostic;
+it cannot complete the release-gate bundle:
 
 ```sh
 mkdir -p artifacts/final-cut-headed
@@ -193,9 +194,41 @@ pnpm run test:final-cut-pip-headed > artifacts/final-cut-headed/picture-in-pictu
 pnpm run test:final-cut-title-headed > artifacts/final-cut-headed/built-in-title-discovery.json
 pnpm run test:final-cut-masking-headed > artifacts/final-cut-headed/masking.json
 pnpm run test:final-cut-filler-headed > artifacts/final-cut-headed/filler-removal.json
-pnpm run test:final-cut-dialogue-headed > artifacts/final-cut-headed/dialogue-normalization.json
+mkdir -p artifacts/final-cut-diagnostics
+pnpm run test:final-cut-dialogue-headed > artifacts/final-cut-diagnostics/dialogue-normalization.json
 pnpm run release-gate --output-dir artifacts/release-gate/headed-run --headed-evidence-dir artifacts/final-cut-headed --headed-candidate-commit "$FRAMEKIT_FINAL_CUT_E2E_CANDIDATE_COMMIT"
 ```
+
+The dialogue diagnostic requires `FRAMEKIT_FINAL_CUT_E2E_ALLOW_MUTATION=1`
+and an approved disposable target. Set `FRAMEKIT_FINAL_CUT_E2E_PROJECT`,
+`FRAMEKIT_FINAL_CUT_E2E_PROJECT_ID`, `FRAMEKIT_FINAL_CUT_E2E_SEQUENCE_ID`,
+`FRAMEKIT_FINAL_CUT_E2E_REVISION_ID`, `FRAMEKIT_FINAL_CUT_E2E_OCCURRENCE`,
+`FRAMEKIT_FINAL_CUT_E2E_CANDIDATE_COMMIT`, `FRAMEKIT_FINAL_CUT_E2E_BASELINE_DIGEST`
+(the canonical SHA-256), `FRAMEKIT_FINAL_CUT_E2E_SOURCE_DIGEST` (`sha256:…`), and
+`FRAMEKIT_FINAL_CUT_E2E_APPROVED_GAIN_DB` (the approved absolute occurrence gain,
+including its initial gain). Policy defaults are -16 LUFS, 0.5 LU tolerance,
+-1 dBTP maximum, ±6 dB gain change, and one second minimum dialogue. Override
+these with `FRAMEKIT_DIALOGUE_TARGET_LUFS`, `FRAMEKIT_DIALOGUE_TOLERANCE_DB`,
+`FRAMEKIT_DIALOGUE_MAX_TRUE_PEAK_DB`, `FRAMEKIT_DIALOGUE_MIN_GAIN_DB`,
+`FRAMEKIT_DIALOGUE_MAX_GAIN_DB`, and `FRAMEKIT_DIALOGUE_MIN_DURATION_SECONDS`.
+Preflight with `.agents/skills/verify-final-cut-native/scripts/run-headed-check.sh dialogue-normalization`
+before executing. Both the helper and direct runner check mutation consent;
+the direct runner also requires a clean candidate and aligned loaded components.
+
+Dialogue schema-v2 acceptance requires all twenty scenarios named by
+`scripts/final-cut-dialogue-acceptance.mjs`, including measured quiet/loud and
+nonzero-gain cases, repeated sources, NO_OP/SKIP and rejection cases, bounded
+recovery, and writes blocked after recovery failure followed by observed
+restoration. Each receipt binds the approved policy/token, target/revision,
+source and unrelated-state integrity, independent signal references and
+loaded package/plugin/extension/exporter/meter identities. Success cases need
+actual isolated exported output with fresh request IDs, matching providers,
+complete sample coverage, measured LUFS/true peak, and canonical gain/Undo
+readback. Source-only measurements and boolean-only historical receipts fail.
+The complete native suite collector, independent reference acquisition and
+production occurrence exporter remain prerequisites; the current diagnostic
+reports `passed: false` and `NO_GO`. Synthetic validator fixtures must never be
+published as native receipts. Schema validation cannot authenticate acquisition.
 
 The headed candidate must be a full lowercase commit SHA; every headed record
 must match it. Missing, mismatched, or incomplete headed evidence makes the

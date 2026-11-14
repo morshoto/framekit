@@ -282,6 +282,26 @@
       "network": "none"
     },
     {
+      "path": "tests/adapters/final-cut/dialogue-native-review.test.ts",
+      "owner": "adapters/final-cut/typescript",
+      "reviewed": true,
+      "tags": [
+        "integration",
+        "fixture-e2e"
+      ],
+      "evidence": "fixture",
+      "dependsOn": [
+        "adapters/final-cut/typescript",
+        "packages/runtime",
+        "packages/testkit"
+      ],
+      "requires": [],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
       "path": "tests/adapters/final-cut/disposable-native-evidence.test.ts",
       "owner": "scripts",
       "tags": [

@@ -3173,6 +3173,9 @@
     ],
     "tests/integration/composite-transactions.test.ts": [
       "\"single-operation previews require an explicit provider guarantee when batches are unavailable\""
+    ],
+    "tests/integration/headed-native-evidence.test.ts": [
+      "\"headed dialogue evidence retains complete measured acceptance\""
     ]
   },
   "identityDiscoveryCorrections": {
@@ -3182,6 +3185,9 @@
   "removedTestNames": {
     "packages/runtime/test/project-store.test.ts": [
       "\"a stale lock left by a dead process is recovered after restart\""
+    ],
+    "tests/integration/headed-native-evidence.test.ts": [
+      "\"headed dialogue evidence keeps measurements and rollback proof\""
     ]
   },
   "upstreamReplacements": [
@@ -3389,6 +3395,22 @@
         ],
         "tests/integration/composite-transactions.test.ts": [
           "\"single-operation previews require an explicit provider guarantee when batches are unavailable\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        749
+      ],
+      "reason": "Replace the legacy boolean dialogue receipt test with the complete measured acceptance contract while preserving other baseline identities.",
+      "addedTestNames": {
+        "tests/integration/headed-native-evidence.test.ts": [
+          "\"headed dialogue evidence retains complete measured acceptance\""
+        ]
+      },
+      "removedTestNames": {
+        "tests/integration/headed-native-evidence.test.ts": [
+          "\"headed dialogue evidence keeps measurements and rollback proof\""
         ]
       }
     }

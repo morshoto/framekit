@@ -266,3 +266,27 @@ test("lost dialogue or invalid silence evidence cannot verify a gain edit", asyn
     assert.equal(canonicalSnapshotDigest(await f.adapter.readProject()), canonicalSnapshotDigest(before));
   }
 });
+
+test("native diagnostic review consumes real metered PCM through the production Skill contract", async t => {
+  const { previewApprovedDialogue, verifyDialogueReadback } = await import("../../../scripts/final-cut-dialogue-review.mjs");
+  const f = await fixture(t, true);
+  const before = await f.runtime.inspectProject();
+  const policy = { targetLufs: -20, toleranceDb: 0.2, maxTruePeakDb: -1, minGainDb: -6, maxGainDb: 6, minDialogueDurationSeconds: 1 };
+  const approval = { projectId: before.projectId, projectName: before.projectName, sequenceId: before.timeline.id,
+    revisionId: before.revision.id, occurrenceId: "selected", candidateCommit: "a".repeat(40), gainDb: 5,
+    baselineDigest: canonicalSnapshotDigest(before), sourceDigest: before.media[0]!.sourceDigest, policy };
+  const preview = await previewApprovedDialogue(async (name, args) => {
+    assert.equal(name, "skill.preview");
+    const { baseRevision, ...input } = args.arguments;
+    return f.runtime.previewSkill({ skillId: args.skill, baseRevision, input });
+  }, () => f.runtime.inspectProject(), before, approval);
+  const execution = await f.runtime.executeSkill(preview.previewToken);
+  assert.equal(execution.status, "VERIFIED");
+  const measurement = execution.verification?.checks.find(check => check.name === "dialogue-measurement")?.observed;
+  const after = await f.runtime.inspectProject();
+  await f.runtime.undo(execution.transactionIds[0]!);
+  const report = verifyDialogueReadback(before, after, await f.runtime.inspectProject(), preview, measurement, approval);
+  assert.ok(Math.abs(report.output.integratedLufs + 20) < 0.2);
+  assert.equal(report.output.signal.sampleCount, 96000);
+  assert.deepEqual(report.unchangedOccurrenceIds, ["duplicate"]);
+});
