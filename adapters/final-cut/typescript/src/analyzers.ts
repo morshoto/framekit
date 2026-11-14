@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 
 import { createReadStream } from "node:fs";
 import { access } from "node:fs/promises";
-import { bindSpeechAnalysis, sameMediaSourceIdentity } from "@framekit/runtime";
+import { bindSpeechAnalysis, sameMediaSourceIdentity, validateAudioAnalysisPayload } from "@framekit/runtime";
 import type {
   AnalysisInput,
   AudioAnalysis,
@@ -314,7 +314,7 @@ function validateResult(value: unknown, kind: string): void {
     return;
   }
   if (kind === "audio") {
-    if (!["integratedLufs", "truePeakDb", "silenceMs"].every((key) => typeof record[key] === "number")) throw new Error("audio result requires loudness fields");
+    validateAudioAnalysisPayload(value);
     return;
   }
   if (kind === "metadata") {
