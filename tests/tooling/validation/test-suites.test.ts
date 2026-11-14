@@ -195,3 +195,13 @@ test("relocations preserve declared test identities through the reviewed path ma
     assert.deepEqual(actual.sort(), [...expected, ...(baseline.addedTestNames?.[old] ?? [])].sort(), current);
   }
 });
+
+
+test("platform-only prerequisites block SDK tests only in their execution environment", () => {
+  const manifest = { schemaVersion: 2 as const, tests: [{ path: 'tests/adapters/sdk.test.ts', owner: 'adapters/final-cut/typescript',
+    reviewed: true, evidence: 'sdk' as const, network: 'none' as const, platforms: ['any'], dependsOn: ['adapters/final-cut/typescript'],
+    tags: ['native'], requires: [], conditionalRequires: [{ platform: 'darwin', executables: ['xcrun'] }] }] };
+  const options = { manifest, availableExecutables: new Set(['node']) };
+  assert.deepEqual(evaluateSuitePrerequisites('native', { ...options, platform: 'linux' }), { ready: true, missing: [] });
+  assert.deepEqual(evaluateSuitePrerequisites('native', { ...options, platform: 'darwin' }), { ready: false, missing: ['xcrun'] });
+});
