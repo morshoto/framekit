@@ -841,6 +841,35 @@ test("uncertain direct native outcomes retain their reservation", async () => {
   }
 });
 
+test("uncertain Blade readback blocks subsequent native edits", async () => {
+  for (const outcome of ["error", "unverified"] as const) {
+    const directory = await mkdtemp(join(tmpdir(), "framekit-blade-uncertain-"));
+    const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+    let edits = 0;
+    const nativeEditor = {
+      capabilities: () => ({}),
+      executeBlade: async () => {
+        if (outcome === "error") throw new Error("FINAL_CUT_NATIVE_BLADE_OUTCOME_UNCERTAIN: do not retry without recovery");
+        return { operationId: "blade-1", verification: { verified: false } };
+      },
+      edit: async () => { edits++; return { verification: { verified: true } }; },
+    } as unknown as NativeFinalCutEditor;
+    const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, nativeEditor });
+    try {
+      await client.callTool({ name: "editor.native.blade.execute", arguments: { previewToken: "blade-preview" } });
+      assert.equal((await guard.inspectNativeReservation())?.operation, "native.executeblade", outcome);
+      const edit = await client.callTool({ name: "editor.native.edit", arguments: { type: "add-marker-at-playhead", name: "Review" } });
+      assert.equal(edit.isError, true, outcome);
+      assert.match(textFrom(edit), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/, outcome);
+      assert.equal(edits, 0, outcome);
+    } finally {
+      await client.close();
+      await server.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+});
+
 test("a tracker that defers native search cannot release its reservation", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-native-deferred-search-"));
   const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));

@@ -2003,39 +2003,44 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     } catch (error) {
       throw new Error(`FINAL_CUT_NATIVE_BLADE_OUTCOME_UNCERTAIN: Blade may have been applied; do not retry without recovery: ${String(error)}`);
     }
-    const after = await this.requireTimelineContext();
-    if (!after.frontmost) throw new Error("FINAL_CUT_NATIVE_VERIFICATION_FAILED: Final Cut changed focus during Blade");
-    const afterLive = await this.readLiveState();
-    const resultingSegments = parseOccurrences(
-      await this.executeNativeScript(locateOccurrenceScript(media, true)),
-      preview.occurrence.mediaHandle,
-    );
-    normalizeOccurrenceTimes(resultingSegments, afterLive?.sequence);
-    if (resultingSegments.length < 2) {
-      throw new Error("FINAL_CUT_NATIVE_VERIFICATION_FAILED: Final Cut did not expose two resulting timeline segments after Blade");
+    try {
+      const after = await this.requireTimelineContext();
+      if (!after.frontmost) throw new Error("FINAL_CUT_NATIVE_VERIFICATION_FAILED: Final Cut changed focus during Blade");
+      const afterLive = await this.readLiveState();
+      const resultingSegments = parseOccurrences(
+        await this.executeNativeScript(locateOccurrenceScript(media, true)),
+        preview.occurrence.mediaHandle,
+      );
+      normalizeOccurrenceTimes(resultingSegments, afterLive?.sequence);
+      if (resultingSegments.length < 2) {
+        throw new Error("FINAL_CUT_NATIVE_VERIFICATION_FAILED: Final Cut did not expose two resulting timeline segments after Blade");
+      }
+      const operationId = opaqueHandle("native-blade");
+      const operation = {
+        kind: "blade" as const,
+        before: finalContext,
+        after,
+        beforeLive: finalLive,
+        afterLive,
+        undoCommand: after.undoCommand,
+      } satisfies NativeOperationRecord;
+      this.rememberOperation(operationId, operation);
+      this.assertNativeRollbackReady(operationId, "Blade", operation);
+      return {
+        operationId,
+        previewToken,
+        occurrence: preview.occurrence,
+        resultingSegments,
+        before: finalContext,
+        after,
+        verification: { verified: false, detail: "Final Cut exposed UI rows after Blade; original source and canonical split remain unverified; do not retry without recovery" },
+        undoAvailable: after.undoAvailable,
+        ...(after.undoCommand ? { undoCommand: after.undoCommand } : {}),
+      };
+    } catch (error) {
+      if (error instanceof NativeFinalCutPartialMutationError) throw error;
+      throw new Error(`FINAL_CUT_NATIVE_BLADE_OUTCOME_UNCERTAIN: Blade may have been applied; do not retry without recovery: ${String(error)}`);
     }
-    const operationId = opaqueHandle("native-blade");
-    const operation = {
-      kind: "blade" as const,
-      before: finalContext,
-      after,
-      beforeLive: finalLive,
-      afterLive,
-      undoCommand: after.undoCommand,
-    } satisfies NativeOperationRecord;
-    this.rememberOperation(operationId, operation);
-    this.assertNativeRollbackReady(operationId, "Blade", operation);
-    return {
-      operationId,
-      previewToken,
-      occurrence: preview.occurrence,
-      resultingSegments,
-      before: finalContext,
-      after,
-      verification: { verified: false, detail: "Final Cut exposed UI rows after Blade; original source and canonical split remain unverified" },
-      undoAvailable: after.undoAvailable,
-      ...(after.undoCommand ? { undoCommand: after.undoCommand } : {}),
-    };
   }
 
   private assertBladePreviewBinding(

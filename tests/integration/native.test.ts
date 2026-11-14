@@ -1033,6 +1033,7 @@ test("native Blade passes the Browser identity to its post-command scan", async 
   const result = await adapter.executeBlade(preview.previewToken);
   assert.equal(result.verification.verified, false);
   assert.match(result.verification.detail, /source.*unverified/i);
+  assert.match(result.verification.detail, /do not retry.*recovery/i);
 });
 
 test("native Blade rejects missing Browser identity before dispatch", async () => {
@@ -1105,6 +1106,31 @@ test("native Blade reports recovery required when post-dispatch readback fails",
     assert.equal(bladeCalls, 1, mode);
     await assert.rejects(adapter.executeBlade(preview.previewToken), /PREVIEW_STALE/, mode);
   }
+});
+
+test("native Blade preserves structured recovery details when Undo is unbound", async () => {
+  const current = boundNativeLiveState();
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => structuredClone(current),
+    executor: async (script) => {
+      if (script.includes('click menu item "Blade" of menu "Trim"')) current.revision = { ...current.revision, id: "rev-2", sequence: 2 };
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, "Undo Existing Change");
+      if (script.includes("collectTimelineClipMatches")) return `Interview${separator}AXRow${separator}${separator}800${separator}0/1${separator}10/1${String.fromCharCode(30)}Interview${separator}AXRow${separator}${separator}900${separator}10/1${separator}10/1${String.fromCharCode(30)}`;
+      return "";
+    },
+  });
+  const occurrence = { handle: "occurrence-1", mediaHandle: "media-1", name: "Interview" };
+  const state = adapter as unknown as { occurrenceHandles: Map<string, unknown>; mediaHandles: Map<string, unknown> };
+  state.occurrenceHandles.set(occurrence.handle, occurrence);
+  state.mediaHandles.set("media-1", { handle: "media-1", name: "Interview", sourceIdentity: "browser-source" });
+  const preview = await adapter.previewBlade(occurrence.handle);
+  await assert.rejects(adapter.executeBlade(preview.previewToken), (error: unknown) => {
+    assert.ok(error instanceof NativeFinalCutPartialMutationError);
+    assert.equal(error.details.safeToRetry, false);
+    assert.ok(error.details.operationId);
+    return true;
+  });
 });
 
 test("native Blade Undo rejects another project or sequence before dispatch", async () => {

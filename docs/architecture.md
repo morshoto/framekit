@@ -120,8 +120,9 @@ observed source and exactly one matches the canonical path.
 An incomplete Accessibility occurrence scan fails rather than treating its
 partial results as a complete or unique match.
 Direct Blade execution checks the previewed project, sequence, revision,
-selected UI identity, frame timing and playhead again before dispatch. An
-uncertain command failure is reported without automatically retrying Blade.
+selected UI identity, frame timing and playhead again before dispatch. A
+command or readback failure after dispatch is reported as an uncertain Blade
+outcome without automatically retrying it.
 The Browser handle must remain available and unchanged for the post-command UI
 scan. That scan is name-based and its result is explicitly unverified; the
 Browser identity is not evidence of the timeline occurrence's original source.
