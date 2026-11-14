@@ -303,6 +303,28 @@ test("rejects splitting an occurrence referenced by a story element", async () =
   }
 });
 
+test("rejects splitting an attached occurrence without remapping its parent", async () => {
+  const { directory, store, initial, service } = await createService();
+  try {
+    initial.timeline.sequence.occurrences.push({
+      id: "parent", name: "Parent", track: 0, mediaId: "media-1",
+      startTime: { value: "0", timescale: "1" }, durationTime: { value: "2", timescale: "1" },
+    });
+    initial.timeline.sequence.occurrences[0]!.attachedTo = "parent";
+    initial.timeline.sequence.occurrences[0]!.track = 1;
+    await store.save(initial);
+    const split = command(initial, "unused", [{
+      type: "split-occurrence", occurrenceId: "occurrence-1",
+      splitOffsetTime: { value: "1", timescale: "2" }, newOccurrenceId: "occurrence-1-right",
+    }]);
+    await assert.rejects(service.preview(split), /attach/i);
+    await assert.rejects(service.execute(split), /attach/i);
+    assert.deepEqual(await store.load(), initial);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("moves and removes occurrences while preserving deterministic order", async () => {
   const { directory, initial, service } = await createService();
   try {
