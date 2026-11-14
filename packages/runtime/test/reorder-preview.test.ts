@@ -66,3 +66,9 @@ test("reorder preview rejects unsupported destination values", () => {
   assert.throws(() => previewPrimaryStorylineReorder(fixture(), "b", { kind: "unknown", occurrenceId: "a" } as never), /REORDER_INVALID.*destination/);
   assert.throws(() => previewPrimaryStorylineReorder(fixture(), "b", null as never), /REORDER_INVALID.*destination/);
 });
+
+test("reorder preview rejects an unaccounted primary story element", () => {
+  const input = fixture();
+  input.timeline.storyElements.push({ id: "unaccounted", kind: "asset-clip", mediaId: "one", start: 5, duration: 1, startTime: { value: "5", timescale: "1" }, durationTime: { value: "1", timescale: "1" } });
+  assert.throws(() => previewPrimaryStorylineReorder(input, "a", { kind: "end" }), /REORDER_(INVALID|UNSUPPORTED).*story/i);
+});
