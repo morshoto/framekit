@@ -25,7 +25,7 @@ test("reorder preview preserves source ranges and reports exact affected order",
   assert.deepEqual(preview.before.map(({ id }) => id), ["a", "b", "c"]);
   assert.deepEqual(preview.after.map(({ id }) => id), ["c", "a", "b"]);
   assert.deepEqual(preview.after.map(({ startTime }) => startTime), [
-    { value: "1001", timescale: "240" }, { value: "53053", timescale: "12000" }, { value: "9009", timescale: "2000" },
+    { value: "100100", timescale: "24000" }, { value: "53053", timescale: "12000" }, { value: "9009", timescale: "2000" },
   ]);
   assert.deepEqual(preview.after.map(({ sourceStartTime }) => sourceStartTime), [before.timeline.clips[2]!.sourceStartTime, before.timeline.clips[0]!.sourceStartTime, before.timeline.clips[1]!.sourceStartTime]);
   assert.deepEqual(before, original);
