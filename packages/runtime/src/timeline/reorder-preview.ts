@@ -51,6 +51,21 @@ export function assertReorderPreviewCurrent(preview: PrimaryStorylineReorderPrev
   }
 }
 
+function assertFiniteNumbers(value: unknown): void {
+  if (typeof value === "number" && !Number.isFinite(value)) throw new Error("REORDER_INVALID: non-finite snapshot value");
+  if (Array.isArray(value)) { for (const item of value) assertFiniteNumbers(item); }
+  else if (value && typeof value === "object") { for (const child of Object.values(value)) assertFiniteNumbers(child); }
+}
+
+function assertNumericTime(value: number, exact: RationalTime): void {
+  const time = parseRational(exact, "REORDER_INVALID");
+  const seconds = Number(time.value) / Number(time.timescale);
+  if (!Number.isFinite(seconds) || !Number.isFinite(value)
+    || Math.abs(value - seconds) > Number.EPSILON * Math.max(1, Math.abs(value), Math.abs(seconds)) * 8) {
+    throw new Error("REORDER_INVALID: numeric and rational timing disagree");
+  }
+}
+
 /** Plan a contiguous primary-storyline reorder without dispatching an editor operation. */
 export function previewPrimaryStorylineReorder(
   snapshot: ProjectSnapshot,
@@ -62,7 +77,10 @@ export function previewPrimaryStorylineReorder(
     || ((destination.kind === "before" || destination.kind === "after") && (typeof destination.occurrenceId !== "string" || !destination.occurrenceId))) {
     throw new Error("REORDER_INVALID: destination is invalid");
   }
-  if (!snapshot.projectId || !snapshot.timeline.id || !snapshot.revision.id) throw new Error("REORDER_INVALID: target and revision are required");
+  assertFiniteNumbers(snapshot);
+  if (!snapshot.projectId || !snapshot.timeline.id || !snapshot.revision.id || !Number.isSafeInteger(snapshot.revision.sequence) || snapshot.revision.sequence < 0) {
+    throw new Error("REORDER_INVALID: target and revision are required");
+  }
   if (snapshot.timeline.markers.length || snapshot.timeline.captions.length
     || snapshot.timeline.storyElements.some((item) => item.kind !== "asset-clip")) {
     throw new Error("REORDER_UNSUPPORTED: timeline structure requires independent verification");
@@ -80,6 +98,9 @@ export function previewPrimaryStorylineReorder(
     ids.add(clip.id);
     if (clip.track !== 0 || clip.attachedTo || !clip.sourceStartTime) throw new Error("REORDER_UNSUPPORTED: primary occurrence or source range is unavailable");
     parseRational(clip.sourceStartTime, "REORDER_INVALID");
+    assertNumericTime(clip.start, clip.startTime);
+    assertNumericTime(clip.duration, clip.durationTime);
+    if (clip.sourceStart !== undefined) assertNumericTime(clip.sourceStart, clip.sourceStartTime);
     if (compare(clip.durationTime, { value: "0", timescale: "1" }) <= 0) throw new Error("REORDER_INVALID: duration must be positive");
     if (index > 0 && compare(addRationalTimes(clips[index - 1]!.startTime, clips[index - 1]!.durationTime), clip.startTime) !== 0) {
       throw new Error("REORDER_UNSUPPORTED: primary storyline is not contiguous");
