@@ -4325,3 +4325,30 @@ test("native media placement rejects a switched project before insertion", async
   projectId = "";
   await assert.rejects(adapter.previewInsertMedia(media.handle), /CAPABILITY_UNAVAILABLE.*project/);
 });
+
+test("native media placement rechecks project after Browser reselection", async () => {
+  let projectId = "project-1";
+  let selections = 0;
+  let dispatched = false;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => ({
+      project: { id: projectId, name: "Edit" },
+      sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: "10", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+      playheadTime: { value: "4", timescale: "1" },
+      sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "10", timescale: "1" } },
+      revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
+    }),
+    executor: async (script) => {
+      if (script.includes('set targetIdentity to "browser-1"') && ++selections === 2) projectId = "project-2";
+      if (script.includes('keystroke "w"')) { dispatched = true; throw new Error("unexpected insertion dispatch"); }
+      if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${String.fromCharCode(30)}`;
+      return script.includes('set frontWindow to window "Final Cut Pro"') ? context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1, "Undo") : "";
+    },
+  });
+  const [media] = await adapter.searchMedia("Interview");
+  await adapter.selectMedia(media.handle);
+  const preview = await adapter.previewInsertMedia(media.handle);
+  await assert.rejects(adapter.executeInsertMedia(preview.previewToken), /FINAL_CUT_NATIVE_PREVIEW_STALE.*project/);
+  assert.equal(dispatched, false);
+});
