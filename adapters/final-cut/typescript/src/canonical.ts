@@ -776,6 +776,20 @@ export function createFinalCutNativeTargetResolver(
       throw new Error(`AMBIGUOUS_PROJECT_TARGET: Final Cut timeline occurrence coordinates are not unique for ${clip.id}`);
     }
     const occurrence = matchingOccurrences[0]!;
+    for (const candidate of located.occurrences) {
+      if (candidate === occurrence) continue;
+      const [startValue, startScale] = candidate.start!.trim().split("/");
+      const [durationValue, durationScale] = candidate.duration!.trim().split("/");
+      const start = { value: startValue!, timescale: startScale! };
+      const duration = { value: durationValue!, timescale: durationScale! };
+      if (compareRational(duration, zeroRational()) <= 0) {
+        throw new Error("AMBIGUOUS_PROJECT_TARGET: discovered occurrence duration is invalid");
+      }
+      if (compareRational(clip.startTime, addRational(start, duration)) < 0
+        && compareRational(start, addRational(clip.startTime, clip.durationTime)) < 0) {
+        throw new Error(`AMBIGUOUS_PROJECT_TARGET: discovered timeline occurrences overlap for ${clip.id}`);
+      }
+    }
     const occurrenceIdentity = occurrence.identity ?? occurrence.nativeIdentity;
     if (!occurrenceIdentity) {
       throw new Error(`TARGET_MISMATCH: native occurrence has no stable identity for ${clip.id}`);
