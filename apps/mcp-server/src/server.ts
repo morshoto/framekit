@@ -1410,6 +1410,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     },
   }, async ({ projectId, sourcePath, expectedRevision }) => sessionResult(() => requireHeadlessProjects().registerMedia(projectId, sourcePath, expectedRevision)));
 
+  server.registerTool("headless.media.search", {
+    description: "Search one Framekit-owned project's registered media by ID, name, or source path without contacting Final Cut.",
+    inputSchema: { projectId: z.string().min(1), query: z.string() },
+  }, async ({ projectId, query }) => sessionResult(() => requireHeadlessProjects().searchMedia(projectId, query)));
+
   server.registerTool("headless.edit.preview", {
     description: "Preview supported Framekit Timeline IR edits without persisting or mutating the project.",
     inputSchema: {
