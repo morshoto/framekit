@@ -40,6 +40,7 @@ function diffById<T extends { id: string }>(before: T[], after: T[]) {
 function mediaRegistryFields(media: MediaContext) {
   return {
     source: media.source,
+    sourceRange: media.sourceRange,
     mediaKind: media.mediaKind,
     duration: media.duration,
     sourceDigest: media.sourceDigest,

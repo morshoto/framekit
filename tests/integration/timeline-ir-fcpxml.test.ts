@@ -78,6 +78,32 @@ const target: TimelineIrToFcpxmlTarget = {
   eventName: "Framekit Event",
 };
 
+test("FCPXML compilation preserves explicit nonzero source bounds", async () => {
+  const value = timeline();
+  value.resources[0]!.metadata = undefined;
+  Object.assign(value.resources[0]!, { sourceRange: { start: { value: "10", timescale: "1" }, duration: { value: "20", timescale: "1" } } });
+  value.sequence.occurrences[0]!.sourceStartTime = { value: "15", timescale: "1" };
+  const result = compileTimelineIrToFcpxml(value, { target });
+  assert.match(result.xml, /<asset\b[^>]*start="10s"[^>]*duration="20s"/);
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-source-bounds-"));
+  try {
+    const path = join(directory, "project.fcpxml");
+    await writeFile(path, result.xml);
+    const snapshot = await new FcpxmlDocumentAdapter(path).readProject();
+    assert.deepEqual(snapshot.media[0]!.sourceRange, { start: { value: "10", timescale: "1" }, duration: { value: "20", timescale: "1" } });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("FCPXML frame rounding cannot move an occurrence outside source bounds", () => {
+  const value = timeline();
+  value.resources[0]!.metadata = undefined;
+  Object.assign(value.resources[0]!, { sourceRange: { start: { value: "10", timescale: "1" }, duration: { value: "2002", timescale: "24000" } } });
+  value.sequence.occurrences[0]!.sourceStartTime = { value: "10", timescale: "1" };
+  assert.throws(() => compileTimelineIrToFcpxml(value, { target }), /FCPXML_.*SOURCE.*RANGE/i);
+});
+
 test("materialization round trips plain dialogue on a video occurrence", async () => {
   const value = timeline();
   value.sequence.markers = [];

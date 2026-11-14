@@ -84,6 +84,42 @@ test("native publish readback rejects changed audio subroles", () => {
   assert.throws(() => verifyFinalCutPublishReadback(expected, actual), /FINAL_CUT_PUBLISH_SEMANTIC_MISMATCH/);
 });
 
+test("publish readback compares explicit source bounds and rejects lost evidence", () => {
+  const expected = makeSnapshot("approved", { a: "a", b: "b", c: "c", music: "music" });
+  const actual = makeSnapshot("native", { a: "a", b: "b", c: "c", music: "music" });
+  expected.media[0]!.sourceRange = { start: { value: "10", timescale: "1" }, duration: { value: "24", timescale: "1" } };
+  actual.media[0]!.sourceRange = { start: { value: "20", timescale: "2" }, duration: { value: "48", timescale: "2" } };
+  assert.equal(verifyFinalCutPublishReadback(expected, actual).verified, true);
+  const missing = structuredClone(actual);
+  delete missing.media[0]!.sourceRange;
+  assert.throws(() => verifyFinalCutPublishReadback(expected, missing), /FINAL_CUT_PUBLISH_SEMANTIC_MISMATCH:.*source-media-bindings/);
+  const changed = structuredClone(actual);
+  changed.media[0]!.sourceRange!.start.value = "22";
+  assert.throws(() => verifyFinalCutPublishReadback(expected, changed), /FINAL_CUT_PUBLISH_SEMANTIC_MISMATCH:.*source-media-bindings/);
+  const invalid = structuredClone(actual);
+  invalid.media[0]!.sourceRange!.duration.value = "-1";
+  assert.throws(() => verifyFinalCutPublishReadback(invalid, invalid), /FINAL_CUT_PUBLISH_READBACK_INVALID.*source range/i);
+});
+
+test("publish readback rejects swapped bounds for occurrences of the same source", () => {
+  const expected = makeSnapshot("approved", { a: "a", b: "b", c: "c", music: "music" });
+  for (const media of expected.media.slice(0, 2)) {
+    media.source = "/tmp/shared.mp4";
+    media.duration = 30;
+  }
+  expected.media[0]!.sourceRange = { start: rate(0), duration: rate(480) };
+  expected.media[1]!.sourceRange = { start: rate(0), duration: rate(720) };
+  expected.timeline.clips[1]!.sourceStart = 0;
+  expected.timeline.clips[1]!.sourceStartTime = rate(0);
+  const actual = structuredClone(expected);
+  assert.equal(verifyFinalCutPublishReadback(expected, actual).verified, true);
+  actual.timeline.clips[0]!.mediaId = "a";
+  actual.timeline.clips[1]!.mediaId = "b";
+  actual.timeline.storyElements[0]!.mediaId = "a";
+  actual.timeline.storyElements[3]!.mediaId = "b";
+  assert.throws(() => verifyFinalCutPublishReadback(expected, actual), /FINAL_CUT_PUBLISH_SEMANTIC_MISMATCH:.*clip-order-and-source-ranges/);
+});
+
 test("native publish readback binds same-named sources by verified content", () => {
   const approved = makeSnapshot("approved", { a: "r1", b: "r2", c: "r3", music: "r4" });
   const native = makeSnapshot("native", { a: "asset-8", b: "asset-3", c: "asset-9", music: "asset-6" });
