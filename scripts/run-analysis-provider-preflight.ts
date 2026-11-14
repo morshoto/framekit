@@ -28,6 +28,10 @@ interface SpeechResult extends CapabilityResult {
 interface AudioResult extends CapabilityResult {
   provider?: AnalyzerDescriptor;
   signalScope?: AudioAnalysis["signalScope"];
+  sourceTimebase?: RationalTime;
+  signalFormat?: AudioAnalysis["signalFormat"];
+  measuredRange?: TimeRange;
+  analyzedDurationSeconds?: number;
   integratedLufs?: number;
   truePeakDb?: number;
   silenceMs?: number;
@@ -112,6 +116,8 @@ export async function runAnalysisProviderPreflight(options: {
         const result = await analyze<AudioAnalysis>(client, "audio.analyze", args);
         audio = result.value && result.value.valid !== false ? {
           status: "available", provider: result.value.provider, signalScope: result.value.signalScope,
+          sourceTimebase: result.value.sourceTimebase, signalFormat: result.value.signalFormat,
+          measuredRange: result.value.measuredRange, analyzedDurationSeconds: result.value.analyzedDurationSeconds,
           integratedLufs: result.value.integratedLufs, truePeakDb: result.value.truePeakDb, silenceMs: result.value.silenceMs,
         } : unavailable(result.reason ?? "provider-rejected-audio");
       }
