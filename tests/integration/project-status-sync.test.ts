@@ -13,6 +13,177 @@ import {
 	backfillProject,
 	syncIssueEvent,
 } from '../../scripts/sync-project-status.mjs';
+import {
+	choosePullRequestStatus,
+	createPullRequestStatusSource,
+	extractLinkedIssueNumbers,
+	syncPullRequestStatuses,
+} from '../../scripts/sync-pr-project-status.mjs';
+
+test('PR creation starts progress; submitted review comments select review', () => {
+	const pr = {
+		mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN',
+		hasReviewComments: false, checks: [],
+	};
+	assert.equal(choosePullRequestStatus(pr), 'In progress');
+	assert.equal(choosePullRequestStatus({ ...pr, hasReviewComments: true }), 'In review');
+});
+
+test('only failed required CI, conflicts, or behind branches select Pending', () => {
+	const pr = { mergeable: 'MERGEABLE', mergeStateStatus: 'BLOCKED', hasReviewComments: true, checks: [] };
+	for (const mergeStateStatus of ['DIRTY', 'BEHIND']) {
+		assert.equal(choosePullRequestStatus({ ...pr, mergeStateStatus }), 'Pending');
+	}
+	assert.equal(choosePullRequestStatus({ ...pr, mergeable: 'CONFLICTING' }), 'Pending');
+	for (const conclusion of ['FAILURE', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE', 'STALE']) {
+		assert.equal(choosePullRequestStatus({ ...pr, checks: [{ required: true, status: 'COMPLETED', conclusion }] }), 'Pending');
+	}
+	assert.equal(choosePullRequestStatus({ ...pr, checks: [{ required: true, state: 'ERROR' }] }), 'Pending');
+	assert.equal(choosePullRequestStatus({ ...pr, checks: [{ required: true, state: 'FAILURE' }] }), 'Pending');
+	for (const check of [
+		{ required: true, status: 'IN_PROGRESS' },
+		{ required: true, state: 'PENDING' },
+		{ required: false, status: 'COMPLETED', conclusion: 'FAILURE' },
+		{ required: true, status: 'COMPLETED', conclusion: 'SUCCESS' },
+		{ required: true, status: 'COMPLETED', conclusion: 'SKIPPED' },
+		{ required: true, status: 'COMPLETED', conclusion: 'NEUTRAL' },
+	]) {
+		assert.equal(choosePullRequestStatus({ ...pr, checks: [check] }), 'In review');
+	}
+});
+
+test('issue references include Refs and closing links but exclude other repositories', () => {
+	const body = [
+		'Refs #723; closes #724. morshoto/framekit#725',
+		'https://github.com/morshoto/framekit/issues/726',
+		'other/repo#99 https://github.com/other/repo/issues/98 #723',
+		'#99999999999999999999999',
+	].join('\n');
+	assert.deepEqual(extractLinkedIssueNumbers(body, 'morshoto/framekit'), [723, 724, 725, 726]);
+});
+
+test('missing reference targets are skipped without hiding real API failures', async () => {
+	const client = createProjectStatusClient({
+		repository: 'morshoto/framekit', token: 'fixture',
+		fetchImpl: async () => new Response('', { status: 404 }),
+	});
+	assert.equal(await client.readIssue(999, { allowNotFound: true }), null);
+	await assert.rejects(client.readIssue(999), /GITHUB_API_REQUEST_FAILED/);
+});
+
+test('PR source paginates links/checks, uses current heads and test-merge results, and skips closed PRs', async () => {
+	const pageInfo = (endCursor: string | null = null) => ({ hasNextPage: endCursor !== null, endCursor });
+	const calls: Array<Record<string, unknown>> = [];
+	const check = (databaseId: number, conclusion: string, required = true) => ({
+		__typename: 'CheckRun', name: 'Tests', databaseId,
+		status: 'COMPLETED', conclusion, required,
+	});
+	const fetchImpl: typeof fetch = async (_input, init) => {
+		const { query, variables } = JSON.parse(String(init?.body));
+		calls.push(variables);
+		let data;
+		if (query.includes('pullRequests(first:')) {
+			data = { repository: { pullRequests: {
+				nodes: [{ number: variables.after ? 21 : 20 }],
+				pageInfo: pageInfo(variables.after ? null : 'pr-page-2'),
+			} } };
+		} else if (query.includes('... on StatusCheckRollup')) {
+			data = { node: { contexts: { nodes: [check(3, 'SUCCESS')], pageInfo: pageInfo() } } };
+		} else if (variables.after === 'link-page-2') {
+			data = { repository: { pullRequest: { closingIssuesReferences: {
+				nodes: [{ number: 12, repository: { nameWithOwner: 'morshoto/framekit' } }],
+				pageInfo: pageInfo(),
+			} } } };
+		} else if (variables.number === 21) {
+			data = { repository: { pullRequest: { state: 'CLOSED' } } };
+		} else {
+			data = { repository: { pullRequest: {
+				number: 20, state: 'OPEN', body: 'Refs #8', mergeable: 'MERGEABLE', mergeStateStatus: 'BLOCKED',
+				reviews: { totalCount: 0 }, reviewThreads: { totalCount: 1 },
+				closingIssuesReferences: { nodes: [
+					{ number: 10, repository: { nameWithOwner: 'morshoto/framekit' } },
+					{ number: 99, repository: { nameWithOwner: 'other/repo' } },
+				], pageInfo: pageInfo('link-page-2') },
+				commits: { nodes: [{ commit: { statusCheckRollup: {
+					id: 'head-rollup', contexts: {
+						nodes: [check(1, 'FAILURE'), check(2, 'FAILURE', false)],
+						pageInfo: pageInfo(),
+					},
+				} } }] },
+				potentialMergeCommit: { statusCheckRollup: {
+					id: 'merge-rollup', contexts: {
+						nodes: [check(2, 'FAILURE')], pageInfo: pageInfo('check-page-2'),
+					},
+				} },
+			} } };
+		}
+		return Response.json({ data });
+	};
+	const source = createPullRequestStatusSource({ repository: 'morshoto/framekit', token: 'fixture', fetchImpl });
+	const snapshots = await source.readOpenPullRequests();
+	assert.equal(snapshots.length, 1);
+	assert.deepEqual(snapshots[0].issueNumbers, [8, 10, 12]);
+	assert.equal(choosePullRequestStatus(snapshots[0]), 'In review');
+	assert.ok(calls.some((variables) => variables.after === 'pr-page-2'));
+	assert.ok(calls.some((variables) => variables.after === 'link-page-2'));
+	assert.ok(calls.some((variables) => variables.id === 'merge-rollup' && variables.after === 'check-page-2'));
+});
+
+test('PR source fails before status writes if GitHub cannot return complete state', async () => {
+	for (const response of [Response.json({ errors: [{ message: 'insufficient scopes' }] }), new Response('', { status: 503 })]) {
+		const source = createPullRequestStatusSource({ repository: 'morshoto/framekit', token: 'fixture', fetchImpl: async () => response });
+		await assert.rejects(source.readOpenPullRequests(), /GITHUB_GRAPHQL_REQUEST_FAILED/);
+	}
+});
+
+test('reconciliation uses current PR state, keeps closed issues Done, and combines related PRs', async () => {
+	const updates: string[] = [];
+	const project = { id: 'project', statusField: { id: 'status' }, items: [] };
+	const client = {
+		getProject: async () => project,
+		readIssue: async (number: number) => number === 10 ? null : ({
+			number, node_id: `issue-${number}`, state: number === 9 ? 'closed' : 'open',
+			pull_request: number === 12 ? {} : undefined,
+			labels: [{ name: 'Status: Pending' }],
+		}),
+		projectItemForIssue: (_project: unknown, nodeId: string) => nodeId === 'issue-11' ? undefined : ({
+			id: nodeId, fieldValues: { nodes: [{ field: { id: 'status' }, name: 'Pending' }] },
+		}),
+		setIssueStatusLabel: async (issue: { number: number }, status: string) => {
+			updates.push(`label:${issue.number}:${status}`);
+		},
+		setProjectStatus: async (_project: unknown, item: string, status: string) => {
+			updates.push(`board:${item}:${status}`);
+			return true;
+		},
+	} as unknown as Parameters<typeof syncPullRequestStatuses>[0]['client'];
+	const pr = {
+		number: 20, issueNumbers: [8, 9, 10, 11, 12], mergeable: 'MERGEABLE',
+		mergeStateStatus: 'CLEAN', hasReviewComments: true, checks: [],
+	};
+	let pullRequests = [pr, { ...pr, number: 21, issueNumbers: [8], mergeStateStatus: 'BEHIND' }];
+	const source = { readOpenPullRequests: async () => pullRequests };
+	await syncPullRequestStatuses({ client, source });
+	assert.deepEqual(updates, ['label:8:Pending', 'board:issue-8:Pending']);
+	updates.length = 0;
+	// A later success rereads the current state rather than replaying the old failure event.
+	pullRequests = [pr];
+	await syncPullRequestStatuses({ client, source });
+	assert.deepEqual(updates, ['label:8:In review', 'board:issue-8:In review']);
+});
+
+test('PR workflow reacts to lifecycle, review, CI and base changes without executing PR code', async () => {
+	const workflow = await readRepositoryFile('.github/workflows/project-pr-status.yml');
+	for (const trigger of ['pull_request_target', 'pull_request_review', 'pull_request_review_comment', 'workflow_run', 'status', 'push', 'schedule', 'workflow_dispatch']) {
+		assert.match(workflow, new RegExp(`^    ${trigger}:`, 'm'));
+	}
+	assert.match(workflow, /workflows: \[CI, CodeQL, Security\]/);
+	assert.match(workflow, /ref: \$\{\{ github\.event\.repository\.default_branch \}\}/);
+	assert.match(workflow, /persist-credentials: false/);
+	assert.match(workflow, /node scripts\/sync-pr-project-status\.mjs/);
+	assert.match(workflow, /FRAMEKIT_PROJECT_TOKEN: \$\{\{ secrets\.GH_TOKEN_FRAMEKIT_PRJ \}\}/);
+	assert.doesNotMatch(workflow, /pull_request\.head|pnpm install|npm install/);
+});
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -48,6 +219,19 @@ test('issue lifecycle assigns the documented default status', () => {
 		}),
 		'Done',
 	);
+});
+
+test('delayed PR label events cannot move an already closed issue out of Done', async () => {
+	const statuses: string[] = [];
+	const client = {
+		getProject: async () => ({ id: 'project', statusField: { id: 'status' } }),
+		projectItemForIssue: () => ({ id: 'item', fieldValues: { nodes: [] } }),
+		readIssue: async () => ({ number: 8, node_id: 'issue-8', state: 'closed', labels: [{ name: 'Status: In progress' }] }),
+		setIssueStatusLabel: async (_issue: unknown, status: string) => { statuses.push(status); },
+		setProjectStatus: async (_project: unknown, _item: unknown, status: string) => { statuses.push(status); return true; },
+	} as unknown as Parameters<typeof syncIssueEvent>[0]['client'];
+	await syncIssueEvent({ client, issue: { number: 8, node_id: 'issue-8', state: 'open' }, action: 'labeled', eventLabel: 'Status: In progress' });
+	assert.deepEqual(statuses, ['Done', 'Done']);
 });
 
 test('opened pull request events do not add pull request cards to the project', async () => {
