@@ -93,6 +93,8 @@ export interface ProjectSnapshot {
     name: string;
     duration: number;
     durationTime?: RationalTime;
+    /** Explicit source timecode origin, when independently present in the artifact. */
+    timecodeStart?: RationalTime;
     frameDuration?: RationalTime;
     clips: Clip[];
     storyElements: StoryElement[];

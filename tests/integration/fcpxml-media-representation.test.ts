@@ -107,6 +107,7 @@ test("FCPXML snapshots preserve explicit sequence timecode origin without invent
     const { createTimelineIrFromProjectSnapshot } = await import("@framekit/runtime");
     assert.deepEqual(createTimelineIrFromProjectSnapshot(explicit).sequence.timecodeStart, { value: "3600", timescale: "1" });
     assert.equal(createTimelineIrFromProjectSnapshot(missing).sequence.timecodeStart, undefined);
+    await assert.rejects(read('tcStart="bad"'), /FCPXML_INVALID_TIME/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

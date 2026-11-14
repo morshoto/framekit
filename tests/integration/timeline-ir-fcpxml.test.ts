@@ -574,4 +574,6 @@ test("FCPXML compilation refuses to discard an explicit nonzero timecode origin"
   const value = timeline();
   value.sequence.timecodeStart = { value: "3600", timescale: "1" };
   assert.throws(() => compileTimelineIrToFcpxml(value, { target }), /FCPXML_UNSUPPORTED.*timecode.*origin/i);
+  value.sequence.timecodeStart = { value: "0", timescale: "24000" };
+  assert.match(compileTimelineIrToFcpxml(value, { target }).xml, /tcStart="0s"/);
 });

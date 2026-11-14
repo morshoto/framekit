@@ -145,6 +145,8 @@ export interface TimelineIr {
     id: string;
     name: string;
     durationTime: RationalTime;
+    /** Explicit source timecode origin; absence is not a zero-origin assertion. */
+    timecodeStart?: RationalTime;
     frameDuration: RationalTime;
     occurrences: TimelineIrOccurrence[];
     storyElements: TimelineIrStoryElement[];
@@ -463,6 +465,7 @@ export function createTimelineIrFromProjectSnapshot(
       id: snapshot.timeline.id,
       name: snapshot.timeline.name,
       durationTime: requiredRational(snapshot.timeline.durationTime, "timeline durationTime"),
+      ...(snapshot.timeline.timecodeStart ? { timecodeStart: normalizeRationalTime(snapshot.timeline.timecodeStart) } : {}),
       frameDuration: requiredRational(snapshot.timeline.frameDuration, "timeline frameDuration"),
       occurrences,
       storyElements,
@@ -493,6 +496,7 @@ export function validateTimelineIr(timeline: TimelineIr): void {
   requireText(timeline.sequence?.id, "sequence.id");
   requireText(timeline.sequence?.name, "sequence.name");
   validateRational(timeline.sequence.durationTime, "sequence.durationTime", false);
+  if (timeline.sequence.timecodeStart) parseRational(timeline.sequence.timecodeStart, "TIMELINE_IR_INVALID");
   validateRational(timeline.sequence.frameDuration, "sequence.frameDuration", true);
   validateRevision(timeline.revision);
   validateBinding(timeline.project.binding, "project.binding");
