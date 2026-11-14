@@ -97,6 +97,19 @@ analysis. Providers may report `sourceTimebase` as a positive rational clock and
 nonempty `channelLayout`. Declared range timing and format are validated and
 retained; absent technical metadata is not inferred.
 
+For source-file loudness in a checkout, the optional
+`apps/mcp-server/runtime/ffmpeg-audio-backend.py` command requires Python 3,
+`ffmpeg` and `ffprobe` on `PATH`. Select it with `FRAMEKIT_AUDIO_ANALYZER` and
+pin the FFmpeg/backend version with `FRAMEKIT_AUDIO_ANALYZER_VERSION`. The
+executable also ships in the package's MCP runtime assets. It measures one
+mono/stereo source audio stream with zero stream offset, returning integrated
+LUFS, oversampled true peak and silence below -60 dB for at least 100 ms.
+Requested bounds are quantized inward to sample coordinates; decoded coverage,
+measured ranges, source clock and channel format are retained. Ambiguous
+streams, short/silent or truncated signals and invalid tool output are
+unavailable. Occurrence/output requests are rejected before media tools run;
+this source measurement cannot verify a timeline gain change.
+
 Use `connection.status` for connection diagnostics, `editor.inspect` for
 backend and capability details, and `editing.route` for the requested
 operation's selected path. Unsupported operations return a structured
