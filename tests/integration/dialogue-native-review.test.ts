@@ -112,3 +112,28 @@ test("dialogue readback rejects predicted levels, unchanged cached output, colla
   ];
   for (const change of changes) { const f = await fixture(); change(f); assert.throws(() => verifyDialogueReadback(f.before, f.after, f.restored, f.preview, f.output, f.approval), /DIALOGUE_REVIEW_REJECTED/); }
 });
+
+test("direct dialogue runner rejects missing mutation consent before MCP startup", async () => {
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  await assert.rejects(promisify(execFile)(process.execPath, ["scripts/final-cut-dialogue-normalization-headed-e2e.mjs"], {
+    env: { ...process.env, FRAMEKIT_FINAL_CUT_E2E_ALLOW_MUTATION: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1", FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0", FRAMEKIT_FINAL_CUT_EXISTING_SOCKET_ONLY: "1", FRAMEKIT_FINAL_CUT_SOCKET: "/tmp/framekit-test-no-native.sock", FRAMEKIT_FINAL_CUT_E2E_PROJECT: "Disposable", FRAMEKIT_FINAL_CUT_E2E_OCCURRENCE: "selected" },
+    timeout: 5000,
+  }), /DIALOGUE_APPROVAL_REQUIRED/);
+});
+
+test("boolean-only dialogue evidence cannot establish native acceptance", async () => {
+  const { sanitizeDialogueNormalizationEvidence } = await import("../../scripts/final-cut-evidence.mjs");
+  const { summarizeHeadedEvidence, loadNativeEditingManifest } = await import("../release-gate/native-editing.js");
+  const raw = { passed: true, schemaVersion: 1, evidenceType: "headed-native-dialogue-normalization", recordedAt: new Date().toISOString(),
+    environment: { framekitVersion: "1", finalCutVersion: "1", gitCommit: "a".repeat(40), nodeVersion: "22", platform: "darwin", architecture: "arm64", osVersion: "Darwin" },
+    editor: { name: "Final Cut Pro", version: "1", backend: "final-cut-live" }, capabilities: { editor: { canonicalTimelineMode: "canonical-write" }, analyzers: {} },
+    project: { id: "project", name: "Disposable", sequenceId: "sequence", occurrenceId: "selected" },
+    target: { project: "Disposable", projectId: "project", sequenceId: "sequence", occurrenceId: "selected" },
+    normalization: { status: "VERIFIED", verificationPassed: true, measuredLufs: -20, measuredTruePeakDb: -5, proposedGainDb: 4,
+      outputLufs: -30, outputTruePeakDb: 3, toleranceDb: 0.5, maxTruePeakDb: -1, beforeRevision: { id: "before" }, afterRevision: { id: "after" } },
+    restoration: { status: "VERIFIED", restored: true, restoredRevision: { id: "restored" } },
+    revisions: { before: "before", after: "after", restored: "restored" }, verification: { execute: true, undo: true }, toolResults: [] };
+  assert.throws(() => sanitizeDialogueNormalizationEvidence(raw, raw.environment), /dialogue acceptance/);
+  assert.throws(() => summarizeHeadedEvidence(raw, loadNativeEditingManifest().workflows.find(w => w.id === "dialogue-normalization")!), /dialogue acceptance/);
+});
