@@ -157,6 +157,33 @@ plans, and ephemeral run logs do not belong in the maintained `docs/` tree.
 
 ## Focused validation commands
 
+### Analysis provider preflight
+
+Generate the non-private synthetic speech fixtures, configure the existing
+speech/audio command variables and version pins described in
+[getting started](getting-started.md), then run:
+
+```sh
+node scripts/generate-codex-video-speech-fixtures.mjs artifacts/analysis-preflight/fixtures
+pnpm exec tsx scripts/run-analysis-provider-preflight.ts --fixtures artifacts/analysis-preflight/fixtures --output artifacts/analysis-preflight/report.json
+```
+
+This runner invokes production MCP analysis tools against a headless fixture
+adapter. It checks source hashes before and after analysis, records requested
+and observed speech ranges, and compares transcription with tokens declared in
+the fixture specification before inference. Transcription, required VAD and
+source-audio measurements have independent availability. Unconfigured or
+unversioned providers remain unavailable; missing VAD is never synthesized.
+
+Exit code 0 means provider readiness only; code 2 records a blocked preflight,
+and code 1 reports an execution or fixture-integrity failure. Every report keeps
+native acceptance `not-run`, including a ready result. Expected-token matches
+do not establish transcription accuracy, calibrated VAD/loudness tolerances,
+native source binding, occurrence/output measurements or edit/Undo acceptance.
+Models and their dependencies are optional external setup and are not installed
+by repository tests. Keep local models, generated media and raw output ignored;
+attach sanitized provenance and results to the issue or PR.
+
 ```sh
 pnpm run evaluate
 pnpm run test:golden
