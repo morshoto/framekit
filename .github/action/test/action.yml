@@ -72,7 +72,7 @@ runs:
     - name: Run Basic Final Cut Editing MVP gate
       if: ${{ always() && inputs.validation-level == 'full' }}
       shell: bash
-      run: pnpm exec tsx --test tests/integration/basic-editing-mvp.test.ts
+      run: pnpm exec tsx --test tests/workflows/basic-editing/basic-editing-mvp.test.ts
 
     - name: Run deterministic MCP evaluation
       if: ${{ inputs.validation-level == 'full' }}

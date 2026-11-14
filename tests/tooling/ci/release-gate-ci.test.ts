@@ -16,7 +16,7 @@ test("release gate is wired into local and CI validation", async () => {
 
   assert.equal(packageJson.scripts?.test, "node scripts/run-tests-with-isolated-home.mjs");
   assert.match(testRunner, /selectTestFiles/);
-  assert.ok(suiteManifest.tests.some(({ path, tags }) => path.startsWith("tests/release-gate/") && tags.includes("release-gate")));
+  assert.ok(suiteManifest.tests.some(({ path, tags }) => path.startsWith("tests/release/gate/") && tags.includes("release-gate")));
   assert.equal(packageJson.scripts?.["test:release-gate"], "node scripts/run-tests-with-isolated-home.mjs release-gate");
   assert.equal(packageJson.scripts?.["release-gate"], "tsx scripts/release/run-release-gate.ts");
   assert.match(compatibilityRunner, /\.\/release\/run-release-gate\.js/);

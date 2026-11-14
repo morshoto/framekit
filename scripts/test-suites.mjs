@@ -10,7 +10,7 @@ export const TEST_SUITE_DEFINITIONS = Object.freeze({
   all: { tags: [], executables: ["ffmpeg", "ffprobe", "npm"] },
   fast: {
     tags: ["unit", "contract", "fast-integration"],
-    exclude: ["tests/integration/finalcut-mcp.test.ts", "tests/integration/headless-project-mcp.test.ts"],
+    exclude: ["tests/workflows/basic-editing/finalcut-mcp.test.ts", "tests/workflows/rough-cut/headless-project-mcp.test.ts"],
     executables: [],
   },
   unit: { tags: ["unit"], executables: [] },

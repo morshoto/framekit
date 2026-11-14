@@ -16,10 +16,10 @@ test("filler-removal benchmark is wired into local and CI validation", async () 
 
   assert.equal(packageJson.scripts?.test, "node scripts/run-tests-with-isolated-home.mjs");
   assert.match(testRunner, /selectTestFiles/);
-  for (const file of suiteManifest.tests.filter(({ path }) => path.startsWith("tests/filler-removal/") || path.startsWith("tests/speech/"))) {
+  for (const file of suiteManifest.tests.filter(({ path }) => ["tests/workflows/filler-removal/benchmark.test.ts", "tests/workflows/filler-removal/cli.test.ts"].includes(path) || path.startsWith("tests/speech/"))) {
     assert.ok(file.tags.includes("unit"), `${file.path} is included in the unit suite`);
   }
-  assert.equal(packageJson.scripts?.["test:filler-removal"], "tsx --test tests/filler-removal/*.test.ts");
+  assert.equal(packageJson.scripts?.["test:filler-removal"], "tsx --test tests/workflows/filler-removal/*.test.ts");
   assert.equal(packageJson.scripts?.["benchmark:filler-removal"], "tsx scripts/run-filler-removal-benchmark.ts");
   assert.match(workflow, /if: \$\{\{ inputs\.validation-level == 'full' \}\}[\s\S]*?pnpm run benchmark:filler-removal --output-dir artifacts\/filler-removal\/\$\{\{ github\.run_id \}\}/);
   assert.doesNotMatch(workflow, /pnpm run benchmark:filler-removal -- --output-dir/);

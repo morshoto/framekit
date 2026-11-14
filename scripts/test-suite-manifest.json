@@ -1204,437 +1204,6 @@
       "network": "registry"
     },
     {
-      "path": "tests/evaluation/mcp-evaluation.test.ts",
-      "owner": "packages/runtime",
-      "tags": [
-        "contract",
-        "fixture-e2e"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "fixture",
-      "dependsOn": [
-        "packages/runtime"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/filler-removal/benchmark.test.ts",
-      "owner": "packages/runtime",
-      "tags": [
-        "fixture-e2e",
-        "unit"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "static",
-      "dependsOn": [
-        "packages/runtime"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/filler-removal/cli.test.ts",
-      "owner": "scripts",
-      "tags": [
-        "fixture-e2e",
-        "unit"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "fixture",
-      "dependsOn": [
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/golden/workflow-corpus.test.ts",
-      "owner": "scripts",
-      "tags": [
-        "fixture-e2e"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "fixture",
-      "dependsOn": [
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/artifact-workflow.test.ts",
-      "owner": "adapters/final-cut/typescript",
-      "tags": [
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "fixture",
-      "dependsOn": [
-        "adapters/final-cut/typescript",
-        "apps/mcp-server",
-        "packages/runtime"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/basic-editing-mvp.test.ts",
-      "owner": "adapters/final-cut/typescript",
-      "tags": [
-        "fast-integration",
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "fixture",
-      "dependsOn": [
-        "adapters/final-cut/typescript",
-        "apps/mcp-server",
-        "packages/runtime",
-        "packages/testkit"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/dialogue-normalization-skill.test.ts",
-      "owner": "adapters/final-cut/typescript",
-      "tags": [
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "fixture",
-      "dependsOn": [
-        "adapters/final-cut/typescript",
-        "packages/runtime",
-        "packages/testkit"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/filler-removal-evidence.test.ts",
-      "owner": "scripts",
-      "tags": [
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "static",
-      "dependsOn": [
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/filler-removal-skill.test.ts",
-      "owner": "packages/runtime",
-      "tags": [
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "fixture",
-      "dependsOn": [
-        "packages/runtime",
-        "packages/testkit"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/filler-removal.test.ts",
-      "owner": "apps/mcp-server",
-      "tags": [
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "fixture",
-      "dependsOn": [
-        "apps/mcp-server",
-        "packages/runtime",
-        "packages/testkit"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/finalcut-mcp.test.ts",
-      "owner": "adapters/final-cut/typescript",
-      "tags": [
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "fixture",
-      "dependsOn": [
-        "adapters/final-cut/typescript",
-        "apps/mcp-server",
-        "packages/runtime",
-        "packages/testkit"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/headless-project-mcp.test.ts",
-      "owner": "adapters/final-cut/typescript",
-      "tags": [
-        "fixture-e2e",
-        "headless",
-        "integration"
-      ],
-      "requires": [
-        "ffmpeg",
-        "ffprobe"
-      ],
-      "reviewed": true,
-      "evidence": "process",
-      "dependsOn": [
-        "adapters/final-cut/typescript",
-        "apps/mcp-server",
-        "packages/headless-application",
-        "packages/runtime",
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/headless-release-gate.test.ts",
-      "owner": "apps/mcp-server",
-      "tags": [
-        "fixture-e2e",
-        "headless",
-        "integration",
-        "release-gate"
-      ],
-      "requires": [
-        "ffmpeg",
-        "ffprobe",
-        "git"
-      ],
-      "reviewed": true,
-      "evidence": "process",
-      "dependsOn": [
-        "apps/mcp-server",
-        "packages/runtime",
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/integrated-background-workflow.test.ts",
-      "owner": "apps/mcp-server",
-      "tags": [
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "fixture",
-      "dependsOn": [
-        "apps/mcp-server",
-        "packages/runtime",
-        "packages/testkit"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/release-runner.test.ts",
-      "owner": "scripts",
-      "tags": [
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "process",
-      "dependsOn": [
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/render-and-verify.test.ts",
-      "owner": "packages/runtime",
-      "tags": [
-        "fixture-e2e",
-        "headless",
-        "integration"
-      ],
-      "requires": [
-        "ffmpeg",
-        "ffprobe"
-      ],
-      "reviewed": true,
-      "evidence": "process",
-      "dependsOn": [
-        "packages/runtime",
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/rough-cut-headed-evidence.test.ts",
-      "owner": "scripts",
-      "tags": [
-        "fixture-e2e",
-        "headless",
-        "integration",
-        "native"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "fixture",
-      "dependsOn": [
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/rough-cut-headed.test.ts",
-      "owner": "scripts",
-      "tags": [
-        "fixture-e2e",
-        "headless",
-        "integration",
-        "native"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "static",
-      "dependsOn": [
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/rough-cut.test.ts",
-      "owner": "apps/mcp-server",
-      "tags": [
-        "fixture-e2e",
-        "headless",
-        "integration"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "fixture",
-      "dependsOn": [
-        "apps/mcp-server",
-        "packages/runtime",
-        "packages/testkit"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/skill-conformance.test.ts",
-      "owner": "adapters/final-cut/typescript",
-      "tags": [
-        "fixture-e2e",
-        "integration"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "fixture",
-      "dependsOn": [
-        "adapters/final-cut/typescript",
-        "packages/runtime",
-        "packages/testkit"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/integration/v017-semantic-media-qa.test.ts",
-      "owner": "packages/headless-application",
-      "tags": [
-        "fixture-e2e",
-        "headless",
-        "integration"
-      ],
-      "requires": [
-        "ffmpeg",
-        "ffprobe"
-      ],
-      "reviewed": true,
-      "evidence": "process",
-      "dependsOn": [
-        "apps/mcp-server",
-        "packages/headless-application",
-        "packages/runtime",
-        "packages/testkit",
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
       "path": "tests/mcp/sessions/canonical-resync-mcp.test.ts",
       "owner": "apps/mcp-server",
       "tags": [
@@ -1887,7 +1456,50 @@
       "network": "none"
     },
     {
-      "path": "tests/release-gate/artifacts.test.ts",
+      "path": "tests/release/acceptance/v0112-acceptance.test.ts",
+      "owner": "scripts/release",
+      "tags": [
+        "release-gate"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/release/acceptance/v017-semantic-media-qa.test.ts",
+      "owner": "packages/headless-application",
+      "tags": [
+        "fixture-e2e",
+        "headless",
+        "integration"
+      ],
+      "requires": [
+        "ffmpeg",
+        "ffprobe"
+      ],
+      "reviewed": true,
+      "evidence": "process",
+      "dependsOn": [
+        "apps/mcp-server",
+        "packages/headless-application",
+        "packages/runtime",
+        "packages/testkit",
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/release/gate/artifacts.test.ts",
       "owner": "scripts/release",
       "tags": [
         "release-gate"
@@ -1904,7 +1516,7 @@
       "network": "none"
     },
     {
-      "path": "tests/release-gate/cli.test.ts",
+      "path": "tests/release/gate/cli.test.ts",
       "owner": "scripts/release",
       "tags": [
         "release-gate"
@@ -1921,19 +1533,25 @@
       "network": "none"
     },
     {
-      "path": "tests/release-gate/mcp-skill.test.ts",
-      "owner": "scripts/release",
+      "path": "tests/release/gate/headless-release-gate.test.ts",
+      "owner": "apps/mcp-server",
       "tags": [
-        "contract",
+        "fixture-e2e",
+        "headless",
+        "integration",
         "release-gate"
       ],
-      "requires": [],
+      "requires": [
+        "ffmpeg",
+        "ffprobe",
+        "git"
+      ],
       "reviewed": true,
-      "evidence": "fixture",
+      "evidence": "process",
       "dependsOn": [
         "apps/mcp-server",
         "packages/runtime",
-        "packages/testkit"
+        "scripts"
       ],
       "platforms": [
         "any"
@@ -1941,7 +1559,7 @@
       "network": "none"
     },
     {
-      "path": "tests/release-gate/native-editing.test.ts",
+      "path": "tests/release/gate/native-editing.test.ts",
       "owner": "scripts/release",
       "tags": [
         "native",
@@ -1959,7 +1577,7 @@
       "network": "none"
     },
     {
-      "path": "tests/release-gate/release-candidate-evidence.test.ts",
+      "path": "tests/release/gate/release-candidate-evidence.test.ts",
       "owner": "scripts/release",
       "tags": [
         "release-gate"
@@ -1976,7 +1594,7 @@
       "network": "none"
     },
     {
-      "path": "tests/release-gate/release-gate.test.ts",
+      "path": "tests/release/gate/release-gate.test.ts",
       "owner": "scripts/release",
       "tags": [
         "release-gate"
@@ -1995,7 +1613,25 @@
       "network": "none"
     },
     {
-      "path": "tests/release-gate/repository-checks.test.ts",
+      "path": "tests/release/gate/release-runner.test.ts",
+      "owner": "scripts",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "process",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/release/gate/repository-checks.test.ts",
       "owner": "scripts/release",
       "tags": [
         "release-gate"
@@ -2012,7 +1648,7 @@
       "network": "none"
     },
     {
-      "path": "tests/release-gate/runner.test.ts",
+      "path": "tests/release/gate/runner.test.ts",
       "owner": "scripts/release",
       "tags": [
         "release-gate"
@@ -2029,24 +1665,7 @@
       "network": "none"
     },
     {
-      "path": "tests/release-gate/v0112-acceptance.test.ts",
-      "owner": "scripts/release",
-      "tags": [
-        "release-gate"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "fixture",
-      "dependsOn": [
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/release-report/artifacts.test.ts",
+      "path": "tests/release/report/artifacts.test.ts",
       "owner": "scripts/release",
       "tags": [
         "release-gate"
@@ -2063,7 +1682,7 @@
       "network": "none"
     },
     {
-      "path": "tests/release-report/cli.test.ts",
+      "path": "tests/release/report/cli.test.ts",
       "owner": "scripts/release",
       "tags": [
         "release-gate"
@@ -2080,7 +1699,7 @@
       "network": "none"
     },
     {
-      "path": "tests/release-report/generate.test.ts",
+      "path": "tests/release/report/generate.test.ts",
       "owner": "scripts/release",
       "tags": [
         "release-gate"
@@ -2097,7 +1716,7 @@
       "network": "none"
     },
     {
-      "path": "tests/release-report/generator.test.ts",
+      "path": "tests/release/report/generator.test.ts",
       "owner": "scripts/release",
       "tags": [
         "release-gate"
@@ -2114,7 +1733,7 @@
       "network": "none"
     },
     {
-      "path": "tests/release-report/github.test.ts",
+      "path": "tests/release/report/github.test.ts",
       "owner": "scripts/release",
       "tags": [
         "release-gate"
@@ -2131,7 +1750,7 @@
       "network": "none"
     },
     {
-      "path": "tests/release-report/metrics.test.ts",
+      "path": "tests/release/report/metrics.test.ts",
       "owner": "scripts/release",
       "tags": [
         "release-gate"
@@ -2148,7 +1767,7 @@
       "network": "none"
     },
     {
-      "path": "tests/release-report/rendering.test.ts",
+      "path": "tests/release/report/rendering.test.ts",
       "owner": "scripts/release",
       "tags": [
         "headless",
@@ -2166,7 +1785,7 @@
       "network": "none"
     },
     {
-      "path": "tests/release-report/sources.test.ts",
+      "path": "tests/release/report/sources.test.ts",
       "owner": "scripts/release",
       "tags": [
         "release-gate"
@@ -2183,7 +1802,7 @@
       "network": "none"
     },
     {
-      "path": "tests/release-report/workflow.test.ts",
+      "path": "tests/release/report/workflow.test.ts",
       "owner": "scripts/release",
       "tags": [
         "release-gate"
@@ -3746,6 +3365,387 @@
       "evidence": "static",
       "dependsOn": [
         "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/workflows/basic-editing/artifact-workflow.test.ts",
+      "owner": "adapters/final-cut/typescript",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "adapters/final-cut/typescript",
+        "apps/mcp-server",
+        "packages/runtime"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/workflows/basic-editing/basic-editing-mvp.test.ts",
+      "owner": "adapters/final-cut/typescript",
+      "tags": [
+        "fast-integration",
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "adapters/final-cut/typescript",
+        "apps/mcp-server",
+        "packages/runtime",
+        "packages/testkit"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/workflows/basic-editing/finalcut-mcp.test.ts",
+      "owner": "adapters/final-cut/typescript",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "adapters/final-cut/typescript",
+        "apps/mcp-server",
+        "packages/runtime",
+        "packages/testkit"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/workflows/basic-editing/integrated-background-workflow.test.ts",
+      "owner": "apps/mcp-server",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "apps/mcp-server",
+        "packages/runtime",
+        "packages/testkit"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/workflows/basic-editing/mcp-skill.test.ts",
+      "owner": "scripts/release",
+      "tags": [
+        "contract",
+        "release-gate"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "apps/mcp-server",
+        "packages/runtime",
+        "packages/testkit"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/workflows/basic-editing/render-and-verify.test.ts",
+      "owner": "packages/runtime",
+      "tags": [
+        "fixture-e2e",
+        "headless",
+        "integration"
+      ],
+      "requires": [
+        "ffmpeg",
+        "ffprobe"
+      ],
+      "reviewed": true,
+      "evidence": "process",
+      "dependsOn": [
+        "packages/runtime",
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/workflows/basic-editing/skill-conformance.test.ts",
+      "owner": "adapters/final-cut/typescript",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "adapters/final-cut/typescript",
+        "packages/runtime",
+        "packages/testkit"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/workflows/dialogue-normalization/dialogue-normalization-skill.test.ts",
+      "owner": "adapters/final-cut/typescript",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "adapters/final-cut/typescript",
+        "packages/runtime",
+        "packages/testkit"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/workflows/evaluation/mcp-evaluation.test.ts",
+      "owner": "packages/runtime",
+      "tags": [
+        "contract",
+        "fixture-e2e"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "packages/runtime"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/workflows/filler-removal/benchmark.test.ts",
+      "owner": "packages/runtime",
+      "tags": [
+        "fixture-e2e",
+        "unit"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "static",
+      "dependsOn": [
+        "packages/runtime"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/workflows/filler-removal/cli.test.ts",
+      "owner": "scripts",
+      "tags": [
+        "fixture-e2e",
+        "unit"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/workflows/filler-removal/filler-removal-evidence.test.ts",
+      "owner": "scripts",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "static",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/workflows/filler-removal/filler-removal-skill.test.ts",
+      "owner": "packages/runtime",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "packages/runtime",
+        "packages/testkit"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/workflows/filler-removal/filler-removal.test.ts",
+      "owner": "apps/mcp-server",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "apps/mcp-server",
+        "packages/runtime",
+        "packages/testkit"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/workflows/golden/workflow-corpus.test.ts",
+      "owner": "scripts",
+      "tags": [
+        "fixture-e2e"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/workflows/rough-cut/headless-project-mcp.test.ts",
+      "owner": "adapters/final-cut/typescript",
+      "tags": [
+        "fixture-e2e",
+        "headless",
+        "integration"
+      ],
+      "requires": [
+        "ffmpeg",
+        "ffprobe"
+      ],
+      "reviewed": true,
+      "evidence": "process",
+      "dependsOn": [
+        "adapters/final-cut/typescript",
+        "apps/mcp-server",
+        "packages/headless-application",
+        "packages/runtime",
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/workflows/rough-cut/rough-cut-headed-evidence.test.ts",
+      "owner": "scripts",
+      "tags": [
+        "fixture-e2e",
+        "headless",
+        "integration",
+        "native"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/workflows/rough-cut/rough-cut-headed.test.ts",
+      "owner": "scripts",
+      "tags": [
+        "fixture-e2e",
+        "headless",
+        "integration",
+        "native"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "static",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/workflows/rough-cut/rough-cut.test.ts",
+      "owner": "apps/mcp-server",
+      "tags": [
+        "fixture-e2e",
+        "headless",
+        "integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "apps/mcp-server",
+        "packages/runtime",
+        "packages/testkit"
       ],
       "platforms": [
         "any"

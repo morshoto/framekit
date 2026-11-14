@@ -15,7 +15,7 @@ test("the CI test command runs the versioned golden workflow corpus", async () =
 
   assert.equal(packageJson.scripts?.test, "node scripts/run-tests-with-isolated-home.mjs");
   assert.match(testRunner, /selectTestFiles/);
-  assert.ok(suiteManifest.tests.some(({ path, tags }) => path.startsWith("tests/golden/") && tags.includes("fixture-e2e")));
+  assert.ok(suiteManifest.tests.some(({ path, tags }) => path.startsWith("tests/workflows/golden/") && tags.includes("fixture-e2e")));
   assert.match(documentation, /pnpm run test:golden/);
   assert.match(documentation, /zero silent corruption/);
 });

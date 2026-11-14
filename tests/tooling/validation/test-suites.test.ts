@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import test from "node:test";
+import { parse } from "@babel/parser";
 import {
   compareTestInventory,
   discoverTestFiles,
@@ -44,7 +45,7 @@ test("suite tags keep unit, contract, fixture, headless, native, package and rel
   }
 
   assert.ok(selectTestFiles(manifest, "unit").includes("packages/runtime/test/project-store.test.ts"));
-  assert.ok(selectTestFiles(manifest, "headless").includes("tests/integration/headless-project-mcp.test.ts"));
+  assert.ok(selectTestFiles(manifest, "headless").includes("tests/workflows/rough-cut/headless-project-mcp.test.ts"));
   assert.ok(selectTestFiles(manifest, "contract").includes("tests/mcp/tools/skill-mcp-contract.test.ts"));
 });
 
@@ -90,14 +91,14 @@ test("fast CI and post-merge validation preserve reviewed test coverage", async 
   assert.match(workflow, /Install FFmpeg fixture toolchain/);
   const manifest = await loadTestSuiteManifest(repository);
   const fast = selectTestFiles(manifest, "fast");
-  const deepOnly = ["tests/integration/finalcut-mcp.test.ts", "tests/integration/headless-project-mcp.test.ts"];
+  const deepOnly = ["tests/workflows/basic-editing/finalcut-mcp.test.ts", "tests/workflows/rough-cut/headless-project-mcp.test.ts"];
   for (const suite of ["unit", "contract"]) {
     for (const file of selectTestFiles(manifest, suite)) {
       assert.equal(fast.includes(file), !deepOnly.includes(file), file);
     }
   }
   for (const file of deepOnly) assert.ok(selectTestFiles(manifest, "all").includes(file), file);
-  for (const file of ["tests/integration/basic-editing-mvp.test.ts", "tests/runtime/projects/runtime.test.ts", "tests/tooling/ci/codeql-workflow.test.ts"]) {
+  for (const file of ["tests/workflows/basic-editing/basic-editing-mvp.test.ts", "tests/runtime/projects/runtime.test.ts", "tests/tooling/ci/codeql-workflow.test.ts"]) {
     assert.ok(fast.includes(file), file);
   }
   assert.ok(selectTestFiles(manifest, "all").length > fast.length);
@@ -172,4 +173,25 @@ test("duplicate inventory entries are rejected rather than executing a test twic
   const manifest = await loadTestSuiteManifest(repository);
   await writeFile(join(root, 'scripts/test-suite-manifest.json'), JSON.stringify({ ...manifest, tests: [manifest.tests[0], manifest.tests[0]] }));
   await assert.rejects(loadTestSuiteManifest(root), /TEST_METADATA_INVALID/);
+});
+
+
+test("relocations preserve declared test identities through the reviewed path map", async () => {
+  const baseline = JSON.parse(await readFile(resolve(repository, 'tests/support/testing/relocations.json'), 'utf8'));
+  for (const [old, expected] of Object.entries(baseline.testNames) as Array<[string, string[]]>) {
+    const current = baseline.paths[old] ?? old;
+    const source = await readFile(resolve(repository, current), 'utf8');
+    const actual: string[] = [];
+    const visit = (node: any) => {
+      if (!node || typeof node !== 'object') return;
+      if (node.type === 'CallExpression' && (node.callee?.name === 'test' || node.callee?.object?.name === 'test')
+        && ['StringLiteral', 'TemplateLiteral'].includes(node.arguments[0]?.type)) actual.push(source.slice(node.arguments[0].start, node.arguments[0].end));
+      for (const [key, value] of Object.entries(node)) if (!['loc', 'comments', 'tokens'].includes(key)) {
+        if (Array.isArray(value)) value.forEach(visit);
+        else if (value && typeof value === 'object') visit(value);
+      }
+    };
+    visit(parse(source, { sourceType: 'module', plugins: ['typescript'] }));
+    assert.deepEqual(actual.sort(), [...expected, ...(baseline.addedTestNames?.[old] ?? [])].sort(), current);
+  }
 });

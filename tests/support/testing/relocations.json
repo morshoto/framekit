@@ -3040,5 +3040,13 @@
       "\"local Whisper backend rejects negative and reversed word timestamps\"",
       "\"local Whisper backend rejects negative, reversed, and non-empty zero-duration segments\""
     ]
+  },
+  "recordedAtCommit": "37a92fa1",
+  "addedTestNames": {
+    "tests/integration/test-suites.test.ts": [
+      "\"relocations preserve every reviewed suite member exactly once\"",
+      "\"duplicate inventory entries are rejected rather than executing a test twice\"",
+      "\"relocations preserve declared test identities through the reviewed path map\""
+    ]
   }
 }
