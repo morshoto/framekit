@@ -247,6 +247,11 @@ test("FCPXML comparison requires explicit exports and fails on changed source co
     const ambiguousContent = spawnSync(process.execPath, [...args, expected, actual], { encoding: "utf8" });
     assert.notEqual(ambiguousContent.status, 0, "identical bytes do not identify distinct sources");
     assert.match(ambiguousContent.stderr, /ambiguous/i);
+    await writeFile(expected, xml(expectedMedia));
+    await writeFile(actual, xml(actualMedia).replace('</asset>', `<media-rep kind="original-media" src="${pathToFileURL(duplicateActual).href}"/></asset>`));
+    const multipleOriginals = spawnSync(process.execPath, [...args, expected, actual], { encoding: "utf8" });
+    assert.notEqual(multipleOriginals.status, 0, "multiple original representations must be ambiguous");
+    assert.match(multipleOriginals.stderr, /ambiguous/i);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
