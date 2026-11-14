@@ -12,6 +12,7 @@ import {
   JsonSemanticMediaIndexStore,
   bindSpeechAnalysis,
   type ProjectSnapshot,
+  type TimelineSemanticContext,
   mapSourceRangeToSequenceRange,
   mapSpeechAnalysisToOccurrence,
   type RevisionBoundSpeechAnalysis,
@@ -285,7 +286,8 @@ test("cached speech remaps rational trim reorder and split snapshots after resta
           id: row.id, name: row.id, mediaId: source.mediaId, track: 0,
           start: seconds(row.sequence), startTime: exact(row.sequence),
           duration: seconds(row.length), durationTime: exact(row.length),
-          sourceStart: seconds(row.source), sourceStartTime: exact(row.source),
+          // The canonical contract defines absent source start as exactly zero.
+          ...(row.source ? { sourceStart: seconds(row.source), sourceStartTime: exact(row.source) } : {}),
         })),
         storyElements: [], markers: [], captions: [],
       },
@@ -306,7 +308,7 @@ test("cached speech remaps rational trim reorder and split snapshots after resta
     const server = createMcpServer(runtime);
     const client = new Client({ name: "rational-mapping-test", version: "1" });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    let mcpContext;
+    let mcpContext: TimelineSemanticContext;
     try {
       await server.connect(serverTransport);
       await client.connect(clientTransport);

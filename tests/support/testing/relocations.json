@@ -3153,7 +3153,8 @@
     ],
     "tests/integration/timeline-semantic-context.test.ts": [
       "\"timeline semantic context uses authoritative rational source coordinates\"",
-      "\"timeline semantic context rejects cached evidence from a different configured provider\""
+      "\"timeline semantic context rejects cached evidence from a different configured provider\"",
+      "\"MCP speech mapping rejects incomplete and contradictory cached evidence\""
     ],
     "tests/speech/mapping.test.ts": [
       "\"speech occurrence mapping refuses unobserved source coverage\"",
@@ -3356,6 +3357,17 @@
       "addedTestNames": {
         "tests/integration/semantic-media.test.ts": [
           "\"audio requests reject contradictory rational ranges before provider dispatch\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        740
+      ],
+      "reason": "Exercise optional production MCP speech mapping and unavailable evidence controls; no baseline identities removed.",
+      "addedTestNames": {
+        "tests/integration/timeline-semantic-context.test.ts": [
+          "\"MCP speech mapping rejects incomplete and contradictory cached evidence\""
         ]
       }
     }
