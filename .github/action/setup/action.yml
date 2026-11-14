@@ -1,0 +1,28 @@
+name: Contributor dependencies
+description: Set up the pinned contributor toolchain and frozen workspace dependencies.
+inputs:
+  node-version:
+    description: Contributor Node.js version.
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: pnpm
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile
+    - name: Record toolchain and tested commit
+      shell: bash
+      env:
+        CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      run: |
+        {
+          echo '## Contributor environment'
+          echo "Tested commit: $(git rev-parse HEAD)"
+          echo "Candidate commit: $CANDIDATE_SHA"
+          echo "Node: $(node --version); pnpm: $(pnpm --version)"
+        } >> "$GITHUB_STEP_SUMMARY"

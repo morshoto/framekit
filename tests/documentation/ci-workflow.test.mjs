@@ -52,3 +52,17 @@ test('all jobs are bounded and manual runs cannot collide with PR runs', () => {
   assert.match(workflow, /group:.*github.event_name.*github.event.pull_request.number.*github.run_id/);
   assert.match(job('docs-changes'), /github.event_name/);
 });
+
+test('dependency setup is shared and workflow syntax is checked', () => {
+  for (const id of ['lint-static', 'test', 'consumer-runtime']) {
+    const action = readFileSync(`.github/action/${id}/action.yml`, 'utf8');
+    assert.match(action, /uses: \.\/\.github\/action\/setup/);
+    assert.doesNotMatch(action, /uses: pnpm\/action-setup@/);
+  }
+  for (const id of ['docs-foundation', 'docs-export']) assert.match(job(id), /uses: \.\/\.github\/action\/setup/);
+  const setup = readFileSync('.github/action/setup/action.yml', 'utf8');
+  assert.match(setup, /pnpm\/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115/);
+  assert.match(setup, /pnpm install --frozen-lockfile/);
+  assert.match(setup, /GITHUB_STEP_SUMMARY/);
+  assert.match(readFileSync('.github/action/lint-static/action.yml', 'utf8'), /pnpm run check:workflows/);
+});
