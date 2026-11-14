@@ -822,7 +822,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly occurrenceHandles = new Map<string, NativeFinalCutOccurrence>();
   private readonly ambiguousMediaHandles = new Set<string>();
   private readonly mediaImportDirectoryPreviews = new Map<string, NativeFinalCutMediaImportDirectoryPreviewRecord>();
-  private readonly bladePreviews = new Map<string, { occurrence: NativeFinalCutOccurrence; context: NativeFinalCutContext; live?: EditorLiveState; expiresAt: number }>();
+  private readonly bladePreviews = new Map<string, { occurrence: NativeFinalCutOccurrence; media?: NativeFinalCutMediaMatch; context: NativeFinalCutContext; live?: EditorLiveState; expiresAt: number }>();
   private readonly maskPreviews = new Map<string, {
     occurrence: NativeFinalCutOccurrence;
     mask: NativeFinalCutMaskConfiguration;
@@ -1811,9 +1811,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     await this.validateOccurrenceBinding(occurrence);
     if (!context.bladeAvailable) throw new Error("FINAL_CUT_NATIVE_PLAYHEAD_OUTSIDE_OCCURRENCE: Final Cut has disabled Blade for the current selection/playhead");
     const live = await this.readLiveState();
+    const media = this.mediaHandles.get(occurrence.mediaHandle);
     const expiresAtMs = this.now() + 30_000;
     const previewToken = opaqueHandle("blade-preview");
-    this.bladePreviews.set(previewToken, { occurrence: structuredClone(occurrence), context: structuredClone(context), ...(live ? { live: structuredClone(live) } : {}), expiresAt: expiresAtMs });
+    this.bladePreviews.set(previewToken, { occurrence: structuredClone(occurrence), ...(media ? { media: structuredClone(media) } : {}), context: structuredClone(context), ...(live ? { live: structuredClone(live) } : {}), expiresAt: expiresAtMs });
     return {
       previewToken,
       occurrence,
@@ -1992,6 +1993,11 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.assertBladePreviewBinding(preview, finalContext, finalLive);
     if (!finalContext.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
     if (!finalContext.bladeAvailable) throw new Error("FINAL_CUT_NATIVE_PLAYHEAD_OUTSIDE_OCCURRENCE: Final Cut has disabled Blade for the current selection/playhead");
+    const media = this.mediaHandles.get(preview.occurrence.mediaHandle);
+    if (!preview.media || !media || media.name !== preview.occurrence.name || media.name !== preview.media.name
+      || !browserMediaIdentity(media) || browserMediaIdentity(media) !== browserMediaIdentity(preview.media)) {
+      throw new Error("FINAL_CUT_NATIVE_MEDIA_HANDLE_STALE: Blade Browser identity is unavailable or changed");
+    }
     try {
       await this.executeNativeScript(bladeScript());
     } catch (error) {
@@ -2001,7 +2007,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (!after.frontmost) throw new Error("FINAL_CUT_NATIVE_VERIFICATION_FAILED: Final Cut changed focus during Blade");
     const afterLive = await this.readLiveState();
     const resultingSegments = parseOccurrences(
-      await this.executeNativeScript(locateOccurrenceScript({ handle: preview.occurrence.mediaHandle, name: preview.occurrence.name }, true)),
+      await this.executeNativeScript(locateOccurrenceScript(media, true)),
       preview.occurrence.mediaHandle,
     );
     normalizeOccurrenceTimes(resultingSegments, afterLive?.sequence);
@@ -2026,7 +2032,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       resultingSegments,
       before: finalContext,
       after,
-      verification: { verified: true, detail: "Final Cut accepted the Blade command while the target remained frontmost" },
+      verification: { verified: false, detail: "Final Cut exposed UI rows after Blade; original source and canonical split remain unverified" },
       undoAvailable: after.undoAvailable,
       ...(after.undoCommand ? { undoCommand: after.undoCommand } : {}),
     };

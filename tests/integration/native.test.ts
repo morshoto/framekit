@@ -993,7 +993,7 @@ test("native Blade undo uses Final Cut's Undo Blade command", async () => {
       return "";
     },
   });
-  const media = { handle: "media-1", name: "Interview" };
+  const media = { handle: "media-1", name: "Interview", sourceIdentity: "browser-source" };
   const occurrence = { handle: "occurrence-1", mediaHandle: media.handle, name: media.name };
   (adapter as unknown as { mediaHandles: Map<string, unknown>; occurrenceHandles: Map<string, unknown> }).mediaHandles.set(media.handle, media);
   (adapter as unknown as { mediaHandles: Map<string, unknown>; occurrenceHandles: Map<string, unknown> }).occurrenceHandles.set(occurrence.handle, occurrence);
@@ -1052,6 +1052,26 @@ test("native Blade rejects missing Browser identity before dispatch", async () =
   assert.equal(bladeCalls, 0);
 });
 
+test("native Blade rejects a changed Browser identity after preview", async () => {
+  let bladeCalls = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => boundNativeLiveState(),
+    executor: async (script) => {
+      if (script.includes('click menu item "Blade"')) bladeCalls++;
+      return script.includes('set frontWindow to window "Final Cut Pro"') ? context(true, "Final Cut Pro", "Interview", 1, true) : "";
+    },
+  });
+  const occurrence = { handle: "occurrence-1", mediaHandle: "media-1", name: "Interview" };
+  const state = adapter as unknown as { occurrenceHandles: Map<string, unknown>; mediaHandles: Map<string, unknown> };
+  state.occurrenceHandles.set(occurrence.handle, occurrence);
+  state.mediaHandles.set("media-1", { handle: "media-1", name: "Interview", sourceIdentity: "browser-source" });
+  const preview = await adapter.previewBlade(occurrence.handle);
+  state.mediaHandles.set("media-1", { handle: "media-1", name: "Interview", sourceIdentity: "different-source" });
+  await assert.rejects(adapter.executeBlade(preview.previewToken), /FINAL_CUT_NATIVE_MEDIA_HANDLE_STALE/);
+  assert.equal(bladeCalls, 0);
+});
+
 test("native Blade Undo rejects another project or sequence before dispatch", async () => {
   for (const change of ["project", "sequence"] as const) {
     let bladed = false;
@@ -1075,6 +1095,7 @@ test("native Blade Undo rejects another project or sequence before dispatch", as
     });
     const occurrence = { handle: "occurrence-1", mediaHandle: "media-1", name: "Interview" };
     (adapter as unknown as { occurrenceHandles: Map<string, unknown> }).occurrenceHandles.set(occurrence.handle, occurrence);
+    (adapter as unknown as { mediaHandles: Map<string, unknown> }).mediaHandles.set("media-1", { handle: "media-1", name: "Interview", sourceIdentity: "browser-source" });
     const preview = await adapter.previewBlade(occurrence.handle);
     const result = await adapter.executeBlade(preview.previewToken);
     if (change === "project") current.project.id = "other-project";
@@ -1109,6 +1130,7 @@ test("native Blade Undo is never replayed after an uncertain dispatch", async ()
   });
   const occurrence = { handle: "occurrence-1", mediaHandle: "media-1", name: "Interview" };
   (adapter as unknown as { occurrenceHandles: Map<string, unknown> }).occurrenceHandles.set(occurrence.handle, occurrence);
+    (adapter as unknown as { mediaHandles: Map<string, unknown> }).mediaHandles.set("media-1", { handle: "media-1", name: "Interview", sourceIdentity: "browser-source" });
   const preview = await adapter.previewBlade(occurrence.handle);
   const result = await adapter.executeBlade(preview.previewToken);
   await assert.rejects(adapter.undo(result.operationId), /UNDO_OUTCOME_UNCERTAIN.*-1719/);
@@ -2382,7 +2404,7 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   const preview = await adapter.previewBlade(occurrences.occurrences[0].handle);
   assert.equal(preview.command, "Blade at playhead");
   const result = await adapter.executeBlade(preview.previewToken);
-  assert.equal(result.verification.verified, true);
+  assert.equal(result.verification.verified, false);
   assert.equal(result.resultingSegments.length, 2);
   assert.deepEqual(result.resultingSegments.map(({ start, duration }) => ({ start, duration })), [
     { start: "0/1", duration: "5/24" },
@@ -3252,6 +3274,7 @@ test("native Blade never retries an uncertain dispatched command", async () => {
   });
   const occurrence = { handle: "occurrence-1", mediaHandle: "media-1", name: "Interview" };
   (adapter as unknown as { occurrenceHandles: Map<string, unknown> }).occurrenceHandles.set(occurrence.handle, occurrence);
+    (adapter as unknown as { mediaHandles: Map<string, unknown> }).mediaHandles.set("media-1", { handle: "media-1", name: "Interview", sourceIdentity: "browser-source" });
   const preview = await adapter.previewBlade(occurrence.handle);
   await assert.rejects(adapter.executeBlade(preview.previewToken), /BLADE_OUTCOME_UNCERTAIN.*do not retry.*-1719/);
   assert.equal(bladeCalls, 1);

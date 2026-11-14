@@ -122,6 +122,9 @@ partial results as a complete or unique match.
 Direct Blade execution checks the previewed project, sequence, revision,
 selected UI identity, frame timing and playhead again before dispatch. An
 uncertain command failure is reported without automatically retrying Blade.
+The Browser handle must remain available and unchanged for the post-command UI
+scan. That scan is name-based and its result is explicitly unverified; the
+Browser identity is not evidence of the timeline occurrence's original source.
 Blade Undo checks the original project and sequence and is not retried after
 an uncertain dispatch; the in-process operation remains unavailable for retry.
 These checks do not establish canonical source binding or verified split/Undo.
