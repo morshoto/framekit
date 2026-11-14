@@ -123,3 +123,17 @@ test("same-revision restoration cannot authorize the earlier Undo", async () => 
   await assert.rejects(runtime.undo(second.id), /ROLLBACK_FAILED: restoration did not advance/);
   await assert.rejects(runtime.undo(first.id), /STALE_CONTEXT/);
 });
+
+for (const invalid of ["same-id", "backward-sequence"]) test(`restoration with ${invalid} cannot rebind an older transaction`, async () => {
+  const { adapter, runtime, gain } = fixture(); const first = await gain(1); const second = await gain(2);
+  const read = adapter.readProject.bind(adapter); const restore = adapter.restore.bind(adapter); let restored = false;
+  adapter.restore = async (...args) => { await restore(...args); restored = true; };
+  adapter.readProject = async () => {
+    const value = await read();
+    if (restored) value.revision = invalid === "same-id" ? { ...value.revision, id: second.after.revision.id }
+      : { ...value.revision, sequence: first.after.revision.sequence };
+    return value;
+  };
+  await assert.rejects(runtime.undo(second.id), /ROLLBACK_FAILED: restoration did not advance/);
+  await assert.rejects(runtime.undo(first.id), /STALE_CONTEXT/);
+});
