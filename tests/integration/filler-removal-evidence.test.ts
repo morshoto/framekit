@@ -3,10 +3,11 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { sanitizeFillerRemovalEvidence } from "../../scripts/final-cut-evidence.mjs";
+import { sanitizeFillerRemovalEvidence, sanitizeFillerRemovalDiagnostic } from "../../scripts/final-cut-evidence.mjs";
 import { fillerNativeEvidence } from "../release-gate/filler-native-fixture.js";
 import { loadNativeEditingManifest, summarizeHeadedEvidence } from "../release-gate/native-editing.js";
 import { parseFillerApproval, previewApprovedFiller } from "../../scripts/final-cut-filler-review.mjs";
+import { fillerTimelineSemanticDigest } from "../../scripts/final-cut-filler-acceptance.mjs";
 
 const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -37,12 +38,38 @@ test("filler native gate rejects missing scenarios, source-only continuity and u
     raw => { raw.acceptance.scenarios[0].approval.beforeRevisionId = "wrong"; },
     raw => { raw.acceptance.scenarios[5].after.digest = "0".repeat(64); },
     raw => { raw.acceptance.scenarios[11].failure.restorationVerified = false; },
+    raw => { raw.project.occurrenceId = "different"; },
+    raw => { raw.restoration.restoredDigest = "0".repeat(64); },
+    raw => { raw.removal.removedDurationSeconds = 0.5; },
+    raw => { delete raw.acceptance.scenarios[3].reusedSourceReadback; },
+    raw => { raw.acceptance.scenarios[3].reusedSourceReadback.afterDigest = "0".repeat(64); },
   ];
   for (const mutate of mutations) {
     const raw = fillerNativeEvidence(); mutate(raw);
     assert.throws(() => sanitizeFillerRemovalEvidence(raw, raw.environment), /filler/i);
     assert.throws(() => summarizeHeadedEvidence(raw, workflow), /filler/i);
   }
+});
+
+test("one headed filler diagnostic cannot promote native acceptance", () => {
+  const raw = fillerNativeEvidence();
+  const diagnostic = sanitizeFillerRemovalDiagnostic(raw, raw.environment);
+  assert.equal(diagnostic.passed, false);
+  assert.equal(diagnostic.outcome, "NO_GO");
+  assert.equal(diagnostic.removal.continuityVerified, false);
+  assert.throws(() => summarizeHeadedEvidence(diagnostic, loadNativeEditingManifest().workflows.find(item => item.id === "filler-removal")!), /did not pass/);
+});
+
+test("independent filler semantics compare exact source ranges without generated clip IDs", () => {
+  const snapshot = { timeline: { frameDuration: { value: "1001", timescale: "24000" }, durationTime: { value: "48048", timescale: "24000" },
+    clips: [{ id: "native-assigned", mediaId: "source", track: 0, startTime: { value: "0", timescale: "1" },
+      durationTime: { value: "48048", timescale: "24000" }, sourceStartTime: { value: "24024", timescale: "24000" } }] } };
+  const expected = fillerTimelineSemanticDigest(snapshot);
+  snapshot.timeline.clips[0]!.id = "different-assigned-id";
+  snapshot.timeline.clips[0]!.sourceStartTime = { value: "1001", timescale: "1000" };
+  assert.equal(fillerTimelineSemanticDigest(snapshot), expected);
+  snapshot.timeline.clips[0]!.sourceStartTime = { value: "1002", timescale: "1000" };
+  assert.notEqual(fillerTimelineSemanticDigest(snapshot), expected);
 });
 
 function reviewFixture() {

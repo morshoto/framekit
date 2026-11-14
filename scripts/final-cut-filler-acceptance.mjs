@@ -35,6 +35,18 @@ export function validateFillerNativeAcceptance(run) {
   check(Array.isArray(acceptance.scenarios) && acceptance.scenarios.length === required.length
     && required.every(id => acceptance.scenarios.filter(item => item.id === id).length === 1), "required native scenarios are missing or duplicated");
   const scenarios = acceptance.scenarios.map(item => validateScenario(item, commit));
+  const reviewed = scenarios.find(item => item.id === "reviewed-removal");
+  check(run.project?.id === reviewed.target.projectId && run.project?.sequenceId === reviewed.target.sequenceId
+    && run.project?.occurrenceId === reviewed.target.occurrenceId
+    && (run.revisions?.before ?? run.removal?.beforeRevision?.id) === reviewed.before.revision.id
+    && (run.revisions?.after ?? run.removal?.afterRevision?.id) === reviewed.after.revision.id
+    && (run.revisions?.restored ?? run.restoration?.restoredRevision?.id) === reviewed.restored.revision.id
+    && run.restoration?.beforeDigest === reviewed.before.digest && run.restoration?.restoredDigest === reviewed.restored.digest,
+  "summary target, revisions or restoration differs from the reviewed scenario");
+  const removedFrames = reviewed.reference.expectedCuts.reduce((sum, cut) => sum + cut.endFrame - cut.startFrame, 0);
+  const duration = removedFrames * Number(reviewed.reference.frameDuration.value) / Number(reviewed.reference.frameDuration.timescale);
+  check(run.removal?.operationCount === reviewed.reference.expectedCuts.length && Number.isFinite(run.removal?.removedDurationSeconds)
+    && Math.abs(run.removal.removedDurationSeconds - duration) <= 1e-9, "summary duration differs from approved cut frames");
   return { candidateCommit: commit, components, scenarios };
 }
 
@@ -42,16 +54,17 @@ function validateScenario(item, commit) {
   const target = pick(item.target, targetKeys);
   check(targetKeys.every(key => identity(target[key])), `${item.id}: stable target is missing`);
   const changes = changing.has(item.id);
-  const outcome = item.id === "verification-recovery" ? "recovered" : changes ? "verified" : item.id === "no-candidates" ? "no-op" : "rejected";
+  const outcome = item.id === "verification-recovery" ? "recovered" : changes ? "verified"
+    : ["no-candidates", "uncertain-candidates"].includes(item.id) ? "no-op" : "rejected";
   check(item.outcome === outcome, `${item.id}: unexpected outcome`);
   const phases = Object.fromEntries(["before", "after", "restored"].map(phase => {
     const state = item[phase];
-    check(digest(state?.digest) && identity(state?.revision?.id) && Number.isSafeInteger(state.revision.sequence)
+    check(digest(state?.digest) && digest(state?.semanticDigest) && identity(state?.revision?.id) && Number.isSafeInteger(state.revision.sequence)
       && state.revision.sequence >= 0 && Number.isFinite(Date.parse(state.revision.timestamp)), `${item.id}: ${phase} observation is incomplete`);
-    return [phase, { digest: state.digest, revision: pick(state.revision, ["id", "sequence", "timestamp"]) }];
+    return [phase, { digest: state.digest, semanticDigest: state.semanticDigest, revision: pick(state.revision, ["id", "sequence", "timestamp"]) }];
   }));
   const { before, after, restored } = phases;
-  check(before.digest === restored.digest, `${item.id}: restoration digest differs`);
+  check(before.digest === restored.digest && before.semanticDigest === restored.semanticDigest, `${item.id}: restoration digest differs`);
   check(changes ? before.digest !== after.digest && before.revision.sequence < after.revision.sequence
     && after.revision.sequence < restored.revision.sequence && new Set([before.revision.id, after.revision.id, restored.revision.id]).size === 3
     : equal(before, after) && equal(before, restored), `${item.id}: revision or non-mutation proof differs`);
@@ -60,7 +73,7 @@ function validateScenario(item, commit) {
   check(/^[1-9]\d*$/.test(frame?.value ?? "") && /^[1-9]\d*$/.test(frame?.timescale ?? ""), `${item.id}: exact frame duration is missing`);
   const cuts = validateRanges(reference.expectedCuts, true);
   const protectedRanges = validateRanges(reference.protectedRanges, false);
-  check(digest(reference.expectedAfterDigest) && reference.expectedAfterDigest === after.digest
+  check(digest(reference.expectedAfterDigest) && reference.expectedAfterDigest === after.semanticDigest
     && digest(reference.expectedContentDigest), `${item.id}: independent semantic reference differs`);
   check(changes ? cuts.length > 0 : cuts.length === 0, `${item.id}: expected cut set differs`);
   if (item.id === "fractional-multiple-cuts") check(cuts.length >= 2 && BigInt(frame.value) > 1n, "fractional multiple-cut scenario is incomplete");
@@ -71,6 +84,13 @@ function validateScenario(item, commit) {
     && cut.startFrame < other.endFrame && cut.endFrame > other.startFrame)), `${item.id}: cuts overlap`);
   const safeReference = { frameDuration: pick(frame, ["value", "timescale"]), expectedCuts: cuts, protectedRanges,
     expectedAfterDigest: reference.expectedAfterDigest, expectedContentDigest: reference.expectedContentDigest };
+  if (item.id === "repeated-source") {
+    const reused = reference.reusedSource;
+    check(identity(reused?.mediaId) && digest(reused?.sourceDigest) && reused.selectedOccurrenceId === target.occurrenceId
+      && identity(reused.untouchedOccurrenceId) && reused.untouchedOccurrenceId !== target.occurrenceId
+      && digest(reused.expectedUntouchedDigest), "repeated source reference is incomplete");
+    safeReference.reusedSource = pick(reused, ["mediaId", "sourceDigest", "selectedOccurrenceId", "untouchedOccurrenceId", "expectedUntouchedDigest"]);
+  }
   const approval = item.approval;
   const operations = ["preview", "execute", "verify", "undo"];
   check(approval?.candidateCommit === commit && targetKeys.every(key => approval[key] === target[key])
@@ -80,6 +100,8 @@ function validateScenario(item, commit) {
   for (const key of ["suggestedCandidateIds", "approvedCandidateIds", "selectedCandidateIds"]) {
     check(Array.isArray(review?.[key]) && review[key].every(identity) && new Set(review[key]).size === review[key].length, `${item.id}: candidate review is malformed`);
   }
+  if (item.id === "no-candidates") check(review.suggestedCandidateIds.length === 0, "no-candidate scenario contains candidates");
+  if (item.id === "uncertain-candidates") check(review.suggestedCandidateIds.length > 0, "uncertain-candidate scenario has no reviewed candidates");
   const ids = cuts.map(cut => cut.candidateId).sort();
   check(equal([...review.approvedCandidateIds].sort(), ids) && equal([...review.selectedCandidateIds].sort(), ids)
     && ids.every(id => review.suggestedCandidateIds.includes(id))
@@ -94,6 +116,15 @@ function validateScenario(item, commit) {
     return [phase, sources.map(source => pick(source, ["mediaId", "digest"])).sort((a, b) => a.mediaId.localeCompare(b.mediaId))];
   }));
   check(equal(sourceIntegrity.before, sourceIntegrity.after) && equal(sourceIntegrity.before, sourceIntegrity.restored), `${item.id}: source media changed`);
+  let reusedSourceReadback;
+  if (safeReference.reusedSource) {
+    const reused = safeReference.reusedSource;
+    const observed = item.reusedSourceReadback;
+    check(sourceIntegrity.before.some(source => source.mediaId === reused.mediaId && source.digest === reused.sourceDigest)
+      && ["mediaId", "sourceDigest", "selectedOccurrenceId", "untouchedOccurrenceId"].every(key => observed?.[key] === reused[key])
+      && ["beforeDigest", "afterDigest", "restoredDigest"].every(key => observed?.[key] === reused.expectedUntouchedDigest), "repeated source occurrence was not preserved");
+    reusedSourceReadback = pick(observed, ["mediaId", "sourceDigest", "selectedOccurrenceId", "untouchedOccurrenceId", "beforeDigest", "afterDigest", "restoredDigest"]);
+  }
   let editedSpeech;
   if (changes) {
     const signal = item.editedSpeech;
@@ -106,11 +137,13 @@ function validateScenario(item, commit) {
     editedSpeech = { ...pick(signal, ["scope", ...targetKeys, "revisionId", "canonicalDigest", "outputDigest", "observedContentDigest"]), provider: pick(signal.provider, ["id", "version"]) };
   }
   if (outcome === "recovered") check(item.failure?.code === "CONTINUITY_FAILED" && item.failure.restorationVerified === true, `${item.id}: failure recovery is not verified`);
-  if (outcome === "rejected") check(identity(item.rejectionCode), `${item.id}: rejection outcome is missing`);
+  const rejectionCodes = { "invalid-selection": "CANDIDATE_NOT_FOUND", "stale-preview": "STALE_CONTEXT",
+    "expired-preview": "SKILL_PREVIEW_TOKEN_EXPIRED", "reused-token": "SKILL_PREVIEW_TOKEN_INVALID", "missing-vad": "SKILL_REQUIREMENTS_UNMET" };
+  if (outcome === "rejected") check(item.rejectionCode === rejectionCodes[item.id], `${item.id}: expected rejection outcome is missing`);
   return { id: item.id, target, outcome, ...phases, reference: safeReference,
     approval: { candidateCommit: commit, ...target, beforeRevisionId: before.revision.id, referenceDigest: approval.referenceDigest, operations },
     review: { ...pick(review, ["suggestedCandidateIds", "approvedCandidateIds", "selectedCandidateIds", "firstPreviewDigest", "selectedPreviewDigest", "approvedPreviewDigest", "executedPreviewDigest"]), approvedCuts: cuts, executedCuts: cuts },
-    sourceIntegrity, ...(editedSpeech ? { editedSpeech } : {}),
+    sourceIntegrity, ...(editedSpeech ? { editedSpeech } : {}), ...(reusedSourceReadback ? { reusedSourceReadback } : {}),
     ...(outcome === "recovered" ? { failure: pick(item.failure, ["code", "restorationVerified"]) } : {}),
     ...(outcome === "rejected" ? { rejectionCode: item.rejectionCode } : {}) };
 }
@@ -123,4 +156,25 @@ function validateRanges(ranges, candidates) {
       && range.endFrame > range.startFrame, "frame range is invalid");
     return pick(range, [...(candidates ? ["candidateId"] : []), "occurrenceId", "startFrame", "endFrame"]);
   });
+}
+
+/** Source/range/order projection deliberately excludes newly assigned clip IDs. */
+export function fillerTimelineSemanticDigest(snapshot) {
+  check(Array.isArray(snapshot?.timeline?.clips), "canonical source-range readback is unavailable");
+  const time = value => {
+    check(/^-?\d+$/.test(value?.value ?? "") && /^[1-9]\d*$/.test(value?.timescale ?? ""), "exact source-range readback is unavailable");
+    let n = BigInt(value.value); let d = BigInt(value.timescale);
+    let a = n < 0n ? -n : n; let b = d;
+    while (b) [a, b] = [b, a % b];
+    return `${n / a}/${d / a}`;
+  };
+  const projection = { frameDuration: time(snapshot.timeline.frameDuration), duration: time(snapshot.timeline.durationTime),
+    clips: snapshot.timeline.clips.map(clip => {
+      check(identity(clip.mediaId) && Number.isFinite(clip.track) && Number.isFinite(clip.gainDb ?? 0), "source identity, gain or lane readback is unavailable");
+      const { id, start, duration, sourceStart, startTime, durationTime, sourceStartTime, ...properties } = clip;
+      return { ...properties, startTime: time(startTime), durationTime: time(durationTime), sourceStartTime: time(sourceStartTime) };
+    }), storyElements: snapshot.timeline.storyElements ?? [], markers: snapshot.timeline.markers ?? [], captions: snapshot.timeline.captions ?? [] };
+  const stable = value => Array.isArray(value) ? value.map(stable) : value && typeof value === "object"
+    ? Object.fromEntries(Object.keys(value).sort().map(key => [key, stable(value[key])])) : value;
+  return sha256(stable(projection));
 }

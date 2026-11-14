@@ -289,14 +289,14 @@ test("all claimed headed runners publish through an allowlisted sanitizer", asyn
   assert.match(runners[1], /sanitizePictureInPictureEvidence/);
   assert.match(runners[2], /sanitizeNativeTitleEvidence/);
   assert.match(runners[3], /sanitizeMaskEvidence/);
-  assert.match(runners[4], /sanitizeFillerRemovalEvidence/);
+  assert.match(runners[4], /sanitizeFillerRemovalDiagnostic/);
   assert.match(runners[5], /sanitizeDialogueNormalizationEvidence/);
   assert.match(runners[6], /sanitizeRoughCutEvidence/);
   assert.match(runners[2], /occurrenceId:\s*executed\.after\.target\.identity/);
   assert.match(runners[4], /occurrenceId[,:]/);
   for (const runner of runners.slice(4, 6)) {
     assert.match(runner, /callJson\("skill\.inspect"/);
-    assert.match(runner, /callJson\("skill\.preview"/);
+    assert.match(runner, /callJson\("skill\.preview"|previewApprovedFiller/);
     assert.match(runner, /callJson\("skill\.execute"/);
   }
 });

@@ -698,6 +698,8 @@ function summarizeFillerMutation(run, environment) {
     restored: requireString(run.restoration.restoredRevision?.id, "filler-removal restored revision"),
   };
   assert(revisions.before !== revisions.after, "filler-removal revision did not advance");
+  assert(/^[a-f0-9]{64}$/.test(run.restoration.beforeDigest ?? "")
+    && run.restoration.beforeDigest === run.restoration.restoredDigest, "filler-removal restoration digest does not match");
   return {
     schemaVersion: 1,
     evidenceType: "headed-native-filler-removal",
@@ -726,7 +728,7 @@ function summarizeFillerMutation(run, environment) {
       continuityVerified: run.removal.continuityVerified === true,
     },
     revisions,
-    restoration: { status: "VERIFIED", restored: true },
+    restoration: { status: "VERIFIED", restored: true, beforeDigest: run.restoration.beforeDigest, restoredDigest: run.restoration.restoredDigest },
     verification: { execute: true, undo: true },
     toolResults: sanitizeToolResultList(run.toolResults),
     sanitization: {

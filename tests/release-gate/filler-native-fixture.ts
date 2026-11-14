@@ -8,7 +8,7 @@ export function fillerNativeEvidence() {
   const commit = "d".repeat(40);
   const target = { projectId: "project-filler", sequenceId: "sequence-filler", occurrenceId: "occurrence-filler" };
   const revision = (id: string, sequence: number) => ({ id, sequence, timestamp: `2026-11-15T00:00:0${sequence}.000Z` });
-  return {
+  const result = {
     schemaVersion: 2, evidenceType: "headed-native-filler-removal", passed: true, recordedAt: "2026-11-15T00:00:09.000Z",
     environment: { framekitVersion: "0.2.4", finalCutVersion: "test-only", gitCommit: commit, nodeVersion: "test", platform: "darwin", architecture: "arm64", osVersion: "test" },
     editor: { name: "Final Cut Pro", version: "test-only", backend: "final-cut-live" },
@@ -32,18 +32,24 @@ export function fillerNativeEvidence() {
         const cuts = changes ? [{ candidateId: "candidate", occurrenceId: target.occurrenceId, startFrame: 24, endFrame: 36 }] : [];
         if (id === "fractional-multiple-cuts") cuts.push({ candidateId: "candidate-2", occurrenceId: target.occurrenceId, startFrame: 48, endFrame: 60 });
         const candidateIds = cuts.map(cut => cut.candidateId);
-        const before = { revision: revision(`${id}-before`, 1), digest: hash(`${id}-before`) };
-        const after = changes ? { revision: revision(`${id}-after`, 2), digest: hash(`${id}-after`) } : structuredClone(before);
-        const restored = changes ? { revision: revision(`${id}-restored`, 3), digest: before.digest } : structuredClone(before);
+        const before = { revision: revision(`${id}-before`, 1), digest: hash(`${id}-before`), semanticDigest: hash(`${id}-source-ranges-before`) };
+        const after = changes ? { revision: revision(`${id}-after`, 2), digest: hash(`${id}-after`), semanticDigest: hash(`${id}-source-ranges-after`) } : structuredClone(before);
+        const restored = changes ? { revision: revision(`${id}-restored`, 3), digest: before.digest, semanticDigest: before.semanticDigest } : structuredClone(before);
         const reference = { frameDuration: { value: "1001", timescale: "24000" }, expectedCuts: cuts,
           protectedRanges: [{ occurrenceId: target.occurrenceId, startFrame: 0, endFrame: 20 }],
-          expectedAfterDigest: after.digest, expectedContentDigest: hash("known public reference transcript") };
+          expectedAfterDigest: after.semanticDigest, expectedContentDigest: hash("known public reference transcript"),
+          ...(id === "repeated-source" ? { reusedSource: { mediaId: "media-filler", sourceDigest: hash("source bytes"),
+            selectedOccurrenceId: target.occurrenceId, untouchedOccurrenceId: "duplicate-occurrence", expectedUntouchedDigest: hash("duplicate occurrence state") } } : {}) };
         const source = [{ mediaId: "media-filler", digest: hash("source bytes") }];
-        return { id, target, outcome: id === "verification-recovery" ? "recovered" : changes ? "verified" : id === "no-candidates" ? "no-op" : "rejected",
+        const rejectionCodes: Record<string, string> = { "invalid-selection": "CANDIDATE_NOT_FOUND", "stale-preview": "STALE_CONTEXT", "expired-preview": "SKILL_PREVIEW_TOKEN_EXPIRED", "reused-token": "SKILL_PREVIEW_TOKEN_INVALID", "missing-vad": "SKILL_REQUIREMENTS_UNMET" };
+        return { id, target, outcome: id === "verification-recovery" ? "recovered" : changes ? "verified" : ["no-candidates", "uncertain-candidates"].includes(id) ? "no-op" : "rejected",
           approval: { candidateCommit: commit, ...target, beforeRevisionId: before.revision.id, referenceDigest: hash(JSON.stringify(reference)),
             operations: ["preview", "execute", "verify", "undo"] },
           reference, before, after, restored, sourceIntegrity: { before: source, after: source, restored: source },
-          review: { suggestedCandidateIds: candidateIds, approvedCandidateIds: candidateIds,
+          ...(reference.reusedSource ? { reusedSourceReadback: { mediaId: "media-filler", sourceDigest: hash("source bytes"),
+            selectedOccurrenceId: target.occurrenceId, untouchedOccurrenceId: "duplicate-occurrence", beforeDigest: hash("duplicate occurrence state"),
+            afterDigest: hash("duplicate occurrence state"), restoredDigest: hash("duplicate occurrence state") } } : {}),
+          review: { suggestedCandidateIds: id === "uncertain-candidates" ? ["uncertain-candidate"] : candidateIds, approvedCandidateIds: candidateIds,
             selectedCandidateIds: candidateIds, approvedCuts: cuts, executedCuts: cuts,
             firstPreviewDigest: before.digest, selectedPreviewDigest: before.digest,
             approvedPreviewDigest: hash(`${id}-approved-token`), executedPreviewDigest: hash(`${id}-approved-token`) },
@@ -51,9 +57,18 @@ export function fillerNativeEvidence() {
             outputDigest: hash(`${id}-exported audio`), provider: { id: "real-provider-contract", version: "1" },
             observedContentDigest: id === "verification-recovery" ? hash("deliberate speech continuity failure") : reference.expectedContentDigest } } : {}),
           ...(id === "verification-recovery" ? { failure: { code: "CONTINUITY_FAILED", restorationVerified: true } } : {}),
-          ...(!changes && id !== "no-candidates" ? { rejectionCode: "REJECTED_AS_EXPECTED" } : {}),
+          ...(rejectionCodes[id] ? { rejectionCode: rejectionCodes[id] } : {}),
         };
       }),
     },
   };
+  const reviewed = result.acceptance.scenarios[0]!;
+  result.removal.beforeRevision = reviewed.before.revision;
+  result.removal.afterRevision = reviewed.after.revision;
+  result.removal.removedDurationSeconds = 12 * 1001 / 24000;
+  result.restoration.restoredRevision = reviewed.restored.revision;
+  result.restoration.beforeDigest = reviewed.before.digest;
+  result.restoration.restoredDigest = reviewed.restored.digest;
+  result.revisions = { before: reviewed.before.revision.id, after: reviewed.after.revision.id, restored: reviewed.restored.revision.id };
+  return result;
 }
