@@ -1,28 +1,19 @@
 name: Unit and integration checks
-description: Run fast pull request or full Security validation.
+description: Run fast local, complete deterministic PR, or full Security validation.
 inputs:
   node-version:
     description: Contributor Node.js version.
     required: true
   validation-level:
-    description: Select fast pull request checks or full Security validation.
+    description: Select fast, deterministic, or full Security validation.
     required: false
     default: full
 runs:
   using: composite
   steps:
-    - name: Set up pnpm
-      uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-
-    - name: Set up Node.js
-      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+    - uses: ./.github/action/setup
       with:
         node-version: ${{ inputs.node-version }}
-        cache: pnpm
-
-    - name: Install dependencies
-      shell: bash
-      run: pnpm install --frozen-lockfile
 
     - name: Install FFmpeg fixture toolchain
       shell: bash
@@ -33,7 +24,7 @@ runs:
       env:
         VALIDATION_LEVEL: ${{ inputs.validation-level }}
       run: |
-        if [[ "$VALIDATION_LEVEL" != "fast" && "$VALIDATION_LEVEL" != "full" ]]; then
+        if [[ "$VALIDATION_LEVEL" != "fast" && "$VALIDATION_LEVEL" != "deterministic" && "$VALIDATION_LEVEL" != "full" ]]; then
           echo "Unsupported validation level: $VALIDATION_LEVEL" >&2
           exit 1
         fi
@@ -49,19 +40,29 @@ runs:
       run: pnpm run test:codex-plugin
 
     - name: Run unit and integration tests
-      if: ${{ inputs.validation-level == 'full' }}
+      if: ${{ inputs.validation-level != 'fast' }}
       shell: bash
       env:
+        FRAMEKIT_TEST_REPORT_DIR: artifacts/test-results
         FRAMEKIT_HEADLESS_RELEASE_GATE_EVIDENCE_DIR: artifacts/headless-release-gate/${{ github.run_id }}
         FRAMEKIT_HEADLESS_RELEASE_GATE_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       run: pnpm run test
+
+    - name: Upload deterministic test results
+      if: ${{ always() && inputs.validation-level != 'fast' }}
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      with:
+        name: deterministic-tests-${{ github.run_id }}-${{ github.run_attempt }}
+        path: artifacts/test-results/
+        if-no-files-found: warn
+        retention-days: 14
 
     - name: Validate skill tool metadata against tools/list
       shell: bash
       run: pnpm run check:skill-tools
 
     - name: Upload v0.1.15 headless release-gate evidence
-      if: ${{ always() && inputs.validation-level == 'full' }}
+      if: ${{ always() && inputs.validation-level != 'fast' }}
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
       with:
         name: headless-release-gate-${{ github.run_id }}
