@@ -141,6 +141,31 @@ test("headless edit Undo survives MCP restart and verifies the restored project"
   }
 });
 
+test("concurrent headless Undo attempts cannot both restore the same revision", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headless-undo-concurrent-"));
+  try {
+    const service = new HeadlessProjectService({ directory });
+    const initial = await service.create(emptyTimeline());
+    const projectId = initial.timeline.project.id;
+    const sequenceId = initial.timeline.sequence.id;
+    const edit = await service.executeEdit(projectId, {
+      schemaVersion: 1, expectedRevision: initial.timeline.revision,
+      operations: [{ type: "add-marker", marker: { id: "one", name: "One", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } } }],
+    }, sequenceId);
+    const attempts = await Promise.allSettled([
+      service.undoEdit(projectId, sequenceId, edit.undoId, edit.after.timeline.revision),
+      service.undoEdit(projectId, sequenceId, edit.undoId, edit.after.timeline.revision),
+    ]);
+    assert.equal(attempts.filter((attempt) => attempt.status === "fulfilled").length, 1);
+    assert.equal(attempts.filter((attempt) => attempt.status === "rejected").length, 1);
+    const restored = await service.inspect(projectId);
+    assert.deepEqual(restored.timeline.sequence, initial.timeline.sequence);
+    assert.equal(restored.timeline.revision.sequence, edit.after.timeline.revision.sequence + 1);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("production rough-cut tools expose digest-bound edit operations", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-rough-cut-operations-"));
   const here = dirname(fileURLToPath(import.meta.url));
