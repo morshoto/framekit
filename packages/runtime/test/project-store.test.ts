@@ -289,6 +289,61 @@ test("a failed lock initialization retains its reservation", async () => {
   }
 });
 
+test("a legacy writer removing an initializing lock can bypass upgraded writer exclusion", async () => {
+  const root = await directory();
+  const path = join(root, "project.json");
+  let resume!: () => void;
+  const resumed = new Promise<void>((resolve) => { resume = resolve; });
+  let opened!: () => void;
+  const lockOpened = new Promise<void>((resolve) => { opened = resolve; });
+  let unblockReads!: () => void;
+  const bothReads = new Promise<void>((resolve) => { unblockReads = resolve; });
+  let reads = 0;
+  try {
+    const first = project();
+    await new FramekitProjectStore(path).create(first);
+    const a = structuredClone(first);
+    const b = structuredClone(first);
+    a.timeline.project.name = "Writer A";
+    b.timeline.project.name = "Writer B";
+    a.timeline.revision = { ...first.timeline.revision, id: "a", sequence: 8 };
+    b.timeline.revision = { ...first.timeline.revision, id: "b", sequence: 8 };
+    const shared: ProjectStoreFileSystem = {
+      mkdir: async (p, options) => { await mkdir(p, options); },
+      readFile: async (p, encoding) => {
+        const contents = await readFile(p, encoding);
+        if (p === path) { reads++; if (reads === 2) unblockReads(); await bothReads; }
+        return contents;
+      },
+      writeFile: async (p, data, options) => { await writeFile(p, data, options); },
+      rename,
+      unlink: async (p) => rm(p, { force: true }),
+    };
+    const firstFs: ProjectStoreFileSystem = { ...shared, writeFile: async (p, data, options) => {
+      if (p !== `${path}.lock`) return shared.writeFile(p, data, options);
+      const handle = await open(p, "wx");
+      try { opened(); await resumed; await handle.writeFile(data); } finally { await handle.close(); }
+    } };
+    const secondFs: ProjectStoreFileSystem = { ...shared, writeFile: async (p, data, options) => {
+      await shared.writeFile(p, data, options);
+      if (p === `${path}.lock`) resume();
+    } };
+    const firstWrite = new FramekitProjectStore(path, firstFs).save(a, first.timeline.revision);
+    await lockOpened;
+    // Simulate a legacy writer treating the empty lock as stale and removing it.
+    assert.equal(await readFile(`${path}.lock`, "utf8"), "");
+    await rm(`${path}.lock`);
+    const secondWrite = new FramekitProjectStore(path, secondFs).save(b, first.timeline.revision);
+    const writes = await Promise.allSettled([firstWrite, secondWrite]);
+    assert.deepEqual(writes.map((result) => result.status), ["fulfilled", "fulfilled"]);
+    assert.ok(["Writer A", "Writer B"].includes((await new FramekitProjectStore(path).load()).timeline.project.name));
+  } finally {
+    resume();
+    unblockReads();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("a live lock owner is not stolen", async () => {
   const root = await directory();
   const path = join(root, "project.json");
