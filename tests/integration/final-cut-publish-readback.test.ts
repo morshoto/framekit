@@ -210,6 +210,12 @@ test("FCPXML comparison requires explicit exports and fails on changed source co
     const nested = spawnSync(process.execPath, [...args, expected, actual], { encoding: "utf8" });
     assert.notEqual(nested.status, 0, "unsupported compound references must not pass even when both inputs match");
     assert.match(nested.stderr, /unsupported/i);
+    const unresolved = (source: string) => xml(source).replace('ref="r2"', 'ref="missing"');
+    await writeFile(expected, unresolved(expectedMedia));
+    await writeFile(actual, unresolved(actualMedia));
+    const missingReference = spawnSync(process.execPath, [...args, expected, actual], { encoding: "utf8" });
+    assert.notEqual(missingReference.status, 0, "matching unresolved media references are not evidence");
+    assert.match(missingReference.stderr, /reference|binding/i);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
