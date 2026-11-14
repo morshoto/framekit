@@ -137,6 +137,34 @@ test("stable target construction rejects ranges that are not frame aligned", () 
   );
 });
 
+test("stable targets bind an explicit fractional frame-grid origin", () => {
+  const project = snapshot({
+    frameDuration: { value: "1001", timescale: "24000" },
+    frameGridOrigin: { value: "1001", timescale: "48000" },
+    durationTime: { value: "1001", timescale: "6000" },
+  });
+  const range = {
+    start: { value: "1001", timescale: "48000" },
+    end: { value: "3003", timescale: "48000" },
+  };
+  const target = createTimelineTarget(project, { range });
+  assert.deepEqual(target.timelineStartTime, project.timeline.frameGridOrigin);
+  assert.doesNotThrow(() => resolveTimelineTarget(project, target));
+  assert.throws(() => createTimelineTarget(project, {
+    range: { start: { value: "0", timescale: "1" }, end: range.end },
+  }), /FRAME_ALIGNMENT_REQUIRED/);
+  const shifted = { ...target, timelineStartTime: { value: "1001", timescale: "24000" } };
+  assert.throws(() => resolveTimelineTarget(project, shifted), /FRAME_ALIGNMENT_REQUIRED.*origin/i);
+});
+
+test("stable targets reject a caller-supplied origin that shifts the grid", () => {
+  const project = snapshot();
+  const target = createTimelineTarget(project);
+  target.timelineStartTime = { value: "1", timescale: "48" };
+  target.range = { start: { value: "1", timescale: "48" }, end: { value: "3", timescale: "48" } };
+  assert.throws(() => resolveTimelineTarget(project, target), /FRAME_ALIGNMENT_REQUIRED.*origin/i);
+});
+
 test("read-after-write accepts coordinate changes but rejects identity drift", () => {
   const before = snapshot();
   const target = targetFor(before);
