@@ -407,6 +407,11 @@ transcription. Source/occurrence results retain declared clock and sample
 format, while missing metadata remains unknown; shape validation alone does
 not verify a provider's physical measurements.
 
+Cached audio passes the same payload gate before understanding, indexing or
+timeline context can reuse it. Provider-rejected measurements and conflicting
+nested media, source, provider or revision identities are excluded before
+rebinding cached evidence to the current snapshot.
+
 ### FCPXML document interchange
 
 Headless project workflows import `@framekit/final-cut/fcpxml`, which exposes

@@ -312,7 +312,7 @@ export class MediaAnalysisService {
     const persisted = media.sourceDigest?.trim()
       ? await this.options.semanticMediaIndexStore?.load(sourceIdentity) : undefined;
     if (persisted && (!analyzedProvidersMatch(persisted, this.options)
-      || (persisted.audio && persisted.audio.signalScope !== "source"))) {
+      || !sourceAudioIsReusable(persisted))) {
       return unavailableTimelineOccurrence(clip.id, "cached analyzer provenance is incompatible with current source analysis",
         clip.mediaId, sourceRange, sourceIdentity);
     }
@@ -353,8 +353,8 @@ export class MediaAnalysisService {
     if (!cached || !cacheMatchesAnalyzers(cached, this.options)) return undefined;
     if (cached.speech && (!coversWholeSource(cached.speech.requestedRange, media.duration)
       || !coversWholeSource(cached.speech.observedRange, media.duration))) return undefined;
-    if (cached.audio && (cached.audio.signalScope !== "source"
-      || !coversWholeSource(cached.audio.requestedRange, media.duration)
+    if (!sourceAudioIsReusable(cached)) return undefined;
+    if (cached.audio && (!coversWholeSource(cached.audio.requestedRange, media.duration)
       || !coversWholeSource(cached.audio.measuredRange, media.duration))) return undefined;
     try {
       await this.validateCurrentSource(project, media);
@@ -384,7 +384,7 @@ export class MediaAnalysisService {
   private async persistedIndexEntries(query: MediaIndexQuery, project: ProjectSnapshot): Promise<MediaIndexEntry[]> {
     const entries = await this.options.semanticMediaIndexStore?.list() ?? [];
     return this.validIndexEntries(entries
-      .filter((entry) => entry.sourceIdentity.sourceDigest?.trim())
+      .filter((entry) => entry.sourceIdentity.sourceDigest?.trim() && sourceAudioIsReusable(entry))
       .map(understandingToIndexEntry)
       .filter((entry) => matchesMediaIndexQuery(entry, query)), project);
   }
@@ -393,7 +393,7 @@ export class MediaAnalysisService {
     const valid: MediaIndexEntry[] = [];
     for (const entry of entries) {
       if (!analyzedProvidersMatch(entry, this.options)
-        || (entry.audio && entry.audio.signalScope !== "source")) continue;
+        || !sourceAudioIsReusable(entry)) continue;
       try {
         await this.validateCurrentSource(project, { ...entry.sourceIdentity });
         valid.push(entry);
@@ -861,6 +861,33 @@ function indexEntryScore(entry: MediaIndexEntry): number {
   return entry.analysis.filter((record) => record.status === "analyzed").length
     + entry.semantic.usableRanges.length
     + (entry.semantic.transcript?.trim() ? 1 : 0);
+}
+
+type SourceAudioEvidence = Pick<MediaUnderstanding, "audio" | "sourceIdentity" | "analysis"> & {
+  analysisRevision?: MediaUnderstanding["analysisRevision"] | string;
+};
+
+function sourceAudioIsReusable(evidence: SourceAudioEvidence): boolean {
+  const audio = evidence.audio;
+  if (audio === undefined) return true;
+  try {
+    validateAudioAnalysisPayload(audio);
+    if (audio.signalScope !== "source" || audio.valid === false) return false;
+    const provenance = evidence.analysis.find((entry) => entry.capability === "audio" && entry.status === "analyzed")?.provenance;
+    if (!provenance || !sameMediaSourceIdentity(provenance.source, evidence.sourceIdentity)) return false;
+    if (audio.mediaId !== undefined && audio.mediaId !== evidence.sourceIdentity.mediaId) return false;
+    if (audio.sourceIdentity !== undefined && !sameMediaSourceIdentity(audio.sourceIdentity, evidence.sourceIdentity)) return false;
+    if (audio.provider !== undefined && !sameDescriptor(audio.provider, provenance.analyzer)) return false;
+    if (audio.revision !== undefined) {
+      const revision = evidence.analysisRevision;
+      if (!revision || (typeof revision === "string"
+        ? audio.revision.id !== revision
+        : !sameContextRevision(audio.revision, revision))) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function analyzedProvidersMatch(understanding: Pick<MediaUnderstanding, "analysis">, options: RuntimeOptions): boolean {
