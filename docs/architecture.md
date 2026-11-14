@@ -91,6 +91,10 @@ Single-operation editor previews retain their revision, semantic-operation,
 readback, and rollback gates. The filler Skill still requires composite support.
 The dialogue Skill accepts guarded single-operation support for its one absolute
 gain edit; it also requires an independently measured occurrence signal.
+The legacy `speech.filler.remove.preview` and `speech.filler.remove.execute` route also requires
+composite support and both transaction methods. It submits the complete approved
+descending-cut list through one provider transaction; it never substitutes a
+loop of independently applied edits or a preview without a predicted diff.
 A provider advertising
 `markerIdentityMode: "editor-assigned"` may return a different ID for a uniquely
 added marker; verification still checks its semantics and all other changes. Canonical Final Cut reads reject

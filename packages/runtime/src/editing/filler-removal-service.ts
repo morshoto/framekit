@@ -91,17 +91,15 @@ export class FillerRemovalService {
     }));
     const previewToken = `filler-preview-${randomUUID()}`;
     const expiresAt = new Date(this.now() + (this.options.previewTtlMs ?? 30_000)).toISOString();
-    const expectedDiff = this.adapter.previewTransaction
-      ? diffSnapshots(before, await this.adapter.previewTransaction(operations, before.revision))
-      : undefined;
+    const expectedDiff = diffSnapshots(before, await this.adapter.previewTransaction!(operations, before.revision));
     const preview: FillerRemovalPreview = {
       previewToken,
       baseRevision: structuredClone(before.revision),
       range: structuredClone(selectedRange),
       candidates: structuredClone(candidates),
       operations: structuredClone(operations),
-      ...(expectedDiff ? { expectedDiff } : {}),
-      warnings: expectedDiff ? [] : ["The selected canonical editor has no non-mutating preview provider; the diff will be observed after execution."],
+      expectedDiff,
+      warnings: [],
       expiresAt,
     };
     this.prunePreviews();
@@ -129,16 +127,11 @@ export class FillerRemovalService {
       throw new Error("STALE_CONTEXT: filler preview base revision does not match current editor state");
     }
     await this.assertCapabilities();
-    let current = before;
-    let currentRevision = before.revision;
     try {
-      for (const operation of record.preview.operations) {
-        currentRevision = await this.adapter.apply(operation, currentRevision);
-        current = await this.project.inspectProject();
-        if (!sameRevision(current.revision, currentRevision)) {
-          throw new Error("READ_AFTER_WRITE_FAILED: editor returned an unexpected filler-removal revision");
-        }
-      }
+      // The provider owns intermediate revisions and whole-batch recovery.
+      // Individual apply() calls cannot promise restoration of earlier cuts.
+      await this.adapter.applyTransaction!(record.preview.operations, before.revision);
+      const current = await this.project.inspectProject();
       const transaction: EditTransaction = {
         id: `txn-${randomUUID()}`,
         intent: "remove-filler-words",
@@ -194,6 +187,11 @@ export class FillerRemovalService {
     if (!capabilities.timelineSnapshotRead || !capabilities.timelineWrite
       || !capabilities.readAfterWrite || !capabilities.rollback) {
       throw new Error("CAPABILITY_UNAVAILABLE: filler removal requires canonical timeline write, read-after-write, and rollback");
+    }
+    if (!capabilities.compositeTransactions
+      || typeof this.adapter.previewTransaction !== "function"
+      || typeof this.adapter.applyTransaction !== "function") {
+      throw new Error("CAPABILITY_UNAVAILABLE: filler removal requires composite transaction preview, execution, and recovery");
     }
   }
 
