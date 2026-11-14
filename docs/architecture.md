@@ -333,3 +333,14 @@ used by the runtime. Session persistence and semantic media indexing keep
 separate contracts and adapters; the semantic media index already follows this
 pattern, while session persistence can adopt it in its own change without
 changing project storage.
+
+### Local analyzer source verification
+
+Command analyzers stream a SHA-256 check before provider execution and compare
+any supplied source digest (hex or `sha256:`-prefixed hex) with the actual
+source bytes. A mismatch returns `ANALYZER_SOURCE_CHANGED` before starting the
+provider. Successful provider output is accepted only after a second content
+check; a changed or unreadable source invalidates that output. This check
+verifies local source content, not the independent binding between a native
+Final Cut occurrence and that source. Sources without a supplied digest are
+checked for changes during analysis but do not gain cross-run identity evidence.
