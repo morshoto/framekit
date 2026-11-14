@@ -612,6 +612,7 @@ test("headless rough-cut preview and execution preserve provenance and produce v
       mediaProbe: new FfmpegMediaMetadataProbe(),
       renderer: new FfmpegTimelineRenderer(),
       verifier: new FfmpegRenderVerifier(),
+      clock: () => "2026-10-05T00:00:00.000Z",
     });
     const created = await service.create(emptyTimeline());
     const registered = await service.registerMedia(created.timeline.project.id, join(directory, "fixture-red-440hz.mp4"), created.timeline.revision);
@@ -659,6 +660,16 @@ test("headless rough-cut preview and execution preserve provenance and produce v
       },
     };
     const preview = await service.previewRoughCut(request);
+    const collisionId = `${preview.planDigest}.approval`;
+    const collisionPath = join(directory, "projects", `${collisionId}.json`);
+    await rm(collisionPath);
+    const collisionTimeline = emptyTimeline();
+    collisionTimeline.project.id = collisionId;
+    const collision = await service.create(collisionTimeline);
+    await assert.rejects(service.previewRoughCut(request), /COLLISION|EXISTS/i);
+    assert.deepEqual(await service.open(collisionId), collision);
+    await rm(collisionPath);
+    assert.equal((await service.previewRoughCut(request)).planDigest, preview.planDigest);
     assert.equal(preview.before.timeline.sequence.occurrences.length, 0);
     assert.deepEqual(preview.after.timeline.sequence.occurrences[0]?.sourceStartTime, { value: "4", timescale: "15" });
     assert.equal(preview.after.timeline.sequence.occurrences[0]?.durationTime.value, "1");
@@ -721,6 +732,26 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     );
     assert.equal(await readFile(request.fcpxml.path, "utf8"), "tampered FCPXML");
     assert.equal((await service.open(created.timeline.project.id)).timeline.revision.sequence, registered.project.timeline.revision.sequence + 1);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("render and rough-cut execution history cannot replace projects with matching IDs", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-history-collision-"));
+  try {
+    const service = new HeadlessProjectService({ directory });
+    const cases = [
+      { id: "render-00000000-0000-4000-8000-000000000001", method: "saveRender", field: "renderId" },
+      { id: "rough-cut-00000000-0000-4000-8000-000000000002", method: "saveRoughCutExecution", field: "executionId" },
+    ];
+    for (const { id, method, field } of cases) {
+      const timeline = emptyTimeline();
+      timeline.project.id = id;
+      const original = await service.create(timeline);
+      await assert.rejects((service as any)[method]({ [field]: id }), /COLLISION|EXISTS/i);
+      assert.deepEqual(await service.open(id), original);
+    }
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
