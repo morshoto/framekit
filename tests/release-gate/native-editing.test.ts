@@ -1,3 +1,4 @@
+import { dialogueNativeFixture } from "./dialogue-native-fixture.js";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -437,7 +438,7 @@ test("complete headed evidence promotes every claimed native workflow", async ()
 
   try {
     for (const record of records) {
-      const evidence = record.evidenceType === "headed-native-canonical-mutation" ? canonicalRenameEvidence() : {
+      const evidence = record.evidenceType === "headed-native-canonical-mutation" ? canonicalRenameEvidence() : record.evidenceType === "headed-native-dialogue-normalization" ? dialogueNativeFixture(environment.gitCommit) : {
         schemaVersion: 1,
         evidenceType: record.evidenceType,
         passed: true,

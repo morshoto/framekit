@@ -72,7 +72,7 @@ export function reviewDialogueMeasurement(measurement, snapshot, approval) {
     && signal.projectId === snapshot.projectId && signal.sequenceId === snapshot.timeline.id
     && signal.canonicalDigest === canonicalEvidenceDigest(snapshot) && sameRange(signal.sequenceRange, t.sequenceRange)
     && near(signal.gainDb, t.clip.gainDb ?? 0) && identity(signal.requestId) && identity(signal.meterVersion)
-    && digest(signal.outputDigest) && signal.outputDigest !== approval.sourceDigest
+    && digest(signal.outputDigest)
     && Number.isSafeInteger(signal.sampleRate) && signal.sampleRate > 0 && Number.isSafeInteger(signal.sampleCount) && signal.sampleCount > 0
     && Math.abs(signal.sampleCount / signal.sampleRate - t.duration) <= 1 / signal.sampleRate + 1e-9, "exported signal is missing or mismatched");
   return { integratedLufs: measurement.integratedLufs, truePeakDb: measurement.truePeakDb,

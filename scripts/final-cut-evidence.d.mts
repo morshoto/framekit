@@ -32,3 +32,5 @@ export function sanitizeDialogueNormalizationEvidence(run: unknown, environment:
 export function sanitizeRoughCutEvidence(run: unknown, environment: EvidenceEnvironment): any;
 export function sanitizeCanonicalReadEvidence(run: unknown, environment: EvidenceEnvironment): unknown;
 export function sanitizeIncrementalSyncEvidence(run: unknown, environment: EvidenceEnvironment): any;
+
+export function sanitizeDialogueNormalizationDiagnostic(run: any, environment: EvidenceEnvironment): any;

@@ -7,6 +7,9 @@ import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
+import { validateDialogueNativeAcceptance } from "./final-cut-dialogue-acceptance.mjs";
+import { verifyDialogueReadback } from "./final-cut-dialogue-review.mjs";
+
 const execFile = promisify(execFileCallback);
 
 const editorCapabilityKeys = [
@@ -27,6 +30,7 @@ const editorCapabilityKeys = [
   "projectCatalogRead",
   "projectSelection",
   "compositeTransactions",
+  "singleOperationTransactions",
   "videoExport",
   "mediaImport",
   "mediaPlacement",
@@ -724,62 +728,38 @@ export function sanitizeFillerRemovalEvidence(run, environment) {
 }
 
 export function sanitizeDialogueNormalizationEvidence(run, environment) {
-  assert(run?.passed === true, "headed dialogue-normalization run did not pass");
-  assert(run.editor && run.project && run.normalization && run.restoration, "dialogue-normalization evidence is incomplete");
-  assert(run.normalization.status === "VERIFIED", "dialogue-normalization mutation was not verified");
-  assert(run.normalization.verificationPassed === true, "dialogue-normalization verification failed");
-  assert(run.restoration.restored === true && run.restoration.status === "VERIFIED", "dialogue-normalization Undo was not verified");
-  const project = {
-    id: requireString(run.project.id, "dialogue-normalization project id"),
-    name: requireString(run.project.name, "dialogue-normalization project name"),
-    sequenceId: requireString(run.project.sequenceId, "dialogue-normalization sequence id"),
-    occurrenceId: requireSafeIdentity(run.project.occurrenceId, "dialogue-normalization occurrence id"),
-  };
-  const revisions = {
-    before: requireString(run.normalization.beforeRevision?.id, "dialogue-normalization before revision"),
-    after: requireString(run.normalization.afterRevision?.id, "dialogue-normalization after revision"),
-    restored: requireString(run.restoration.restoredRevision?.id, "dialogue-normalization restored revision"),
-  };
-  assert(revisions.before !== revisions.after, "dialogue-normalization revision did not advance");
-  return {
-    schemaVersion: 1,
-    evidenceType: "headed-native-dialogue-normalization",
-    passed: true,
-    recordedAt: requireString(run.recordedAt, "recordedAt"),
-    environment: sanitizeEnvironment(environment),
-    editor: sanitizeIdentity(run.editor),
-    capabilities: sanitizeCapabilities(run.capabilities),
-    project,
-    target: {
-      project: project.name,
-      projectId: project.id,
-      sequenceId: project.sequenceId,
-      occurrenceId: project.occurrenceId,
-    },
-    measurement: {
-      before: {
-        lufs: requireFiniteNumber(run.normalization.measuredLufs, "dialogue-normalization measured LUFS"),
-        truePeakDb: requireFiniteNumber(run.normalization.measuredTruePeakDb, "dialogue-normalization measured true peak"),
-      },
-      proposedGainDb: requireFiniteNumber(run.normalization.proposedGainDb, "dialogue-normalization proposed gain"),
-      after: {
-        lufs: requireFiniteNumber(run.normalization.outputLufs, "dialogue-normalization output LUFS"),
-        truePeakDb: requireFiniteNumber(run.normalization.outputTruePeakDb, "dialogue-normalization output true peak"),
-      },
-      constraints: {
-        toleranceDb: requireFiniteNumber(run.normalization.toleranceDb, "dialogue-normalization tolerance"),
-        maxTruePeakDb: requireFiniteNumber(run.normalization.maxTruePeakDb, "dialogue-normalization maximum true peak"),
-      },
-    },
-    revisions,
-    restoration: { status: "VERIFIED", restored: true },
-    verification: { execute: true, undo: true },
-    toolResults: sanitizeToolResultList(run.toolResults),
-    sanitization: {
-      strategy: "allowlisted-summary",
-      omitted: ["non-allowlisted source and diagnostic fields"],
-    },
-  };
+  const acceptance = validateDialogueNativeAcceptance({ ...run, environment });
+  const primary = acceptance.scenarios.find(scenario => scenario.id === "quiet");
+  const projectName = requireString(run.project?.name ?? run.target?.project, "dialogue project name");
+  return { schemaVersion: 2, evidenceType: "headed-native-dialogue-normalization", passed: true,
+    recordedAt: requireString(run.recordedAt, "recordedAt"), environment: sanitizeEnvironment(environment),
+    editor: sanitizeIdentity(run.editor), capabilities: sanitizeCapabilities(run.capabilities),
+    project: { id: primary.target.projectId, name: projectName, sequenceId: primary.target.sequenceId, occurrenceId: primary.target.occurrenceId },
+    target: { project: projectName, ...primary.target }, acceptance,
+    revisions: Object.fromEntries(["before", "after", "restored"].map(phase => [phase, primary[phase].revision.id])),
+    restoration: { status: "VERIFIED", restored: true, beforeDigest: primary.before.digest, restoredDigest: primary.restored.digest },
+    verification: { execute: true, undo: true }, sanitization: { strategy: "allowlisted-summary" } };
+}
+
+/** A single authorized gain/Undo probe does not establish the complete native suite. */
+export function sanitizeDialogueNormalizationDiagnostic(run, environment) {
+  assert(run.approval?.candidateCommit === environment.gitCommit, "diagnostic candidate differs");
+  const observation = verifyDialogueReadback(run.before, run.after, run.restored, run.preview, run.measurement, run.approval);
+  const sourceMediaIntegrity = verifyCanonicalSourceIntegrity(run.before, run.sourceIntegrity);
+  verifyCanonicalSourceIntegrity(run.before, { before: run.sourceIntegrity.before, restored: run.sourceIntegrity.after });
+  assert(run.sourceIntegrity.before.some(source => source.mediaId === observation.input.mediaId
+    && `sha256:${source.sha256}` === run.approval.sourceDigest), "approved source hash differs");
+  return { schemaVersion: 2, evidenceType: "headed-native-dialogue-normalization-diagnostic", passed: false, outcome: "NO_GO",
+    missingAcceptance: ["complete-native-scenario-suite", "independent-reference-comparison", "unrelated-project-integrity"],
+    recordedAt: requireString(run.recordedAt, "recordedAt"), environment: sanitizeEnvironment(environment),
+    editor: sanitizeIdentity(run.editor), capabilities: sanitizeCapabilities(run.capabilities),
+    target: { project: run.approval.projectName, projectId: run.approval.projectId, sequenceId: run.approval.sequenceId,
+      occurrenceId: run.approval.occurrenceId, mediaId: observation.input.mediaId },
+    review: { previewTokenDigest: createHash("sha256").update(requireString(run.preview.previewToken, "diagnostic preview token")).digest("hex"),
+      operationId: requireSafeIdentity(run.execution?.transactionIds?.[0], "diagnostic transaction id"),
+      baselineDigest: run.approval.baselineDigest, approvedGainDb: run.approval.gainDb },
+    observation, sourceMediaIntegrity, toolResults: sanitizeToolResultList(run.toolResults),
+    sanitization: { strategy: "allowlisted-summary" } };
 }
 
 export function sanitizeCanonicalReadEvidence(run, environment) {

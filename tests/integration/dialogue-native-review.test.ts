@@ -137,3 +137,50 @@ test("boolean-only dialogue evidence cannot establish native acceptance", async 
   assert.throws(() => sanitizeDialogueNormalizationEvidence(raw, raw.environment), /dialogue acceptance/);
   assert.throws(() => summarizeHeadedEvidence(raw, loadNativeEditingManifest().workflows.find(w => w.id === "dialogue-normalization")!), /dialogue acceptance/);
 });
+
+test("complete dialogue receipt validates measured references and every required scenario", async () => {
+  const { dialogueNativeFixture } = await import("../release-gate/dialogue-native-fixture.js");
+  const { sanitizeDialogueNormalizationEvidence } = await import("../../scripts/final-cut-evidence.mjs");
+  const { validateDialogueNativeAcceptance } = await import("../../scripts/final-cut-dialogue-acceptance.mjs");
+  const raw = dialogueNativeFixture();
+  raw.acceptance.scenarios[0].privateDiagnostic = "private-sentinel";
+  const safe = sanitizeDialogueNormalizationEvidence(raw, raw.environment);
+  assert.equal(safe.schemaVersion, 2);
+  assert.equal(safe.acceptance.scenarios.length, 20);
+  assert.doesNotMatch(JSON.stringify(safe), /private-sentinel/);
+  validateDialogueNativeAcceptance(safe);
+  const changes: Array<(run: any) => void> = [
+    r => { r.passed = false; }, r => { r.acceptance.scenarios.pop(); }, r => { r.acceptance.components[0].observedCommit = "b".repeat(40); },
+    r => { r.acceptance.components.find((c: any) => c.name === "audio-meter").descriptor.version = "other"; },
+    r => { r.acceptance.scenarios[0].output.integratedLufs = -30; },
+    r => { r.acceptance.scenarios[0].output.truePeakDb = 0; },
+    r => { r.acceptance.scenarios[0].output.signal.outputDigest = r.acceptance.scenarios[0].input.signal.outputDigest; },
+    r => { r.acceptance.scenarios[0].output.signal.requestId = r.acceptance.scenarios[0].input.signal.requestId; },
+    r => { r.acceptance.scenarios[0].output.signal.canonicalDigest = r.acceptance.scenarios[0].before.digest; },
+    r => { r.acceptance.scenarios[0].restored.gainDb = 4; },
+    r => { r.acceptance.scenarios[0].after.unrelatedDigest = "0".repeat(64); },
+    r => { r.acceptance.scenarios[0].after.sourceDigest = `sha256:${"0".repeat(64)}`; },
+    r => { r.acceptance.scenarios[0].approval.gainDb = 10; },
+    r => { r.acceptance.scenarios[0].reference.afterLufs = -20; },
+    r => { r.acceptance.scenarios.find((s: any) => s.id === "already-normalized").writeCount = 1; },
+    r => { r.acceptance.scenarios.find((s: any) => s.id === "recovery-failure").recovery.writesBlocked = false; },
+    r => { r.acceptance.scenarios.find((s: any) => s.id === "stale-preview").reason = "SOME_ERROR"; },
+  ];
+  for (const change of changes) { const run = dialogueNativeFixture(); change(run); assert.throws(() => validateDialogueNativeAcceptance(run), /dialogue acceptance/); }
+});
+
+test("single dialogue probe remains non-passing and retains source/output integrity", async () => {
+  const { sanitizeDialogueNormalizationDiagnostic } = await import("../../scripts/final-cut-evidence.mjs");
+  const f = await fixture();
+  const environment = { framekitVersion: "1", finalCutVersion: "1", gitCommit: f.approval.candidateCommit, nodeVersion: "22", platform: "darwin", architecture: "arm64", osVersion: "Darwin" };
+  const raw = { ...f, measurement: f.output, execution: { transactionIds: ["diagnostic-transaction"] }, recordedAt: new Date().toISOString(), editor: { name: "Final Cut Pro", version: "1", backend: "final-cut-live" },
+    capabilities: { editor: { canonicalTimelineMode: "canonical-write" }, analyzers: {} }, toolResults: [{ name: "skill.execute", status: "VERIFIED" }, { name: "edit.undo", status: "passed" }],
+    sourceIntegrity: Object.fromEntries(["before", "after", "restored"].map(phase => [phase, [{ mediaId: "media", sha256: "a".repeat(64) }]])) };
+  const result = sanitizeDialogueNormalizationDiagnostic(raw, environment);
+  assert.equal(result.passed, false); assert.equal(result.outcome, "NO_GO");
+  assert.match(result.evidenceType, /diagnostic/);
+  assert.equal(result.sourceMediaIntegrity.sourceCount, 1);
+  assert.equal(result.observation.output.signal.requestId, "after-export");
+  raw.sourceIntegrity.after[0]!.sha256 = "b".repeat(64);
+  assert.throws(() => sanitizeDialogueNormalizationDiagnostic(raw, environment), /source media hashes changed/);
+});
