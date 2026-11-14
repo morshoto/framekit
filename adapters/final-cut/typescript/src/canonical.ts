@@ -913,7 +913,10 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         projectSelection: selection.available,
         projectSelectionMode: selection.mode,
         backgroundLibraryInspection: Boolean(backgroundCatalog),
-        compositeTransactions: snapshotProbe.available,
+        // The native Undo port retains only the latest edit. A readable snapshot
+        // and verified single-operation restoration cannot guarantee a batch.
+        compositeTransactions: false,
+        singleOperationTransactions: snapshotProbe.available,
         ...(snapshotProbe.available && this.native.addMarkerAtTime ? { markerIdentityMode: "editor-assigned" as const } : {}),
         semanticOperations: {
           "rename-clip": snapshotProbe.available && sourceBindingAvailable,
@@ -965,6 +968,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
           readAfterWrite: false,
           rollback: false,
           compositeTransactions: false,
+          singleOperationTransactions: false,
           markerIdentityMode: undefined,
           semanticOperations: {},
         },
@@ -989,6 +993,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
         readAfterWrite: false,
         rollback: false,
         compositeTransactions: false,
+        singleOperationTransactions: false,
       },
     });
   }

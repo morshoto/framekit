@@ -2835,6 +2835,7 @@ test("canonical single-edit readiness never advertises recoverable batches throu
   for (const adapter of [provider, session]) {
     const capabilities = await adapter.getCapabilities();
     assert.equal(capabilities.editor.timelineWrite, true, "the fixture has full single-edit readiness");
+    assert.equal(capabilities.editor.singleOperationTransactions, true);
     assert.equal(capabilities.editor.compositeTransactions, false);
     assert.equal(capabilities.families?.editing.compositeTransactions.available, false);
   }
@@ -2856,7 +2857,7 @@ test("canonical single-edit readiness never advertises recoverable batches throu
     for (const operations of [[], [operation, { ...operation, name: "Again" }]]) {
       await assert.rejects(provider.previewTransaction(operations, before.revision), /CAPABILITY_UNAVAILABLE/);
       await assert.rejects(provider.applyTransaction(operations, before.revision), /CAPABILITY_UNAVAILABLE/);
-      await assert.rejects(runtime.previewEdit({ baseRevision: before.revision, operations }), /CAPABILITY_UNAVAILABLE/);
+      await assert.rejects(runtime.previewEdit({ baseRevision: before.revision, operations }), operations.length ? /CAPABILITY_UNAVAILABLE/ : /INVALID_OPERATION/);
     }
     assert.equal(canonicalSnapshotDigest(await provider.readProject()), canonicalSnapshotDigest(before));
     assert.deepEqual(calls, []);
