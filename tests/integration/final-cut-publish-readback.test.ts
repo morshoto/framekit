@@ -221,6 +221,10 @@ test("FCPXML comparison requires explicit exports and fails on changed source co
     const unknownElement = spawnSync(process.execPath, [...args, expected, actual], { encoding: "utf8" });
     assert.notEqual(unknownElement.status, 0, "unobserved effects must not be silently ignored");
     assert.match(unknownElement.stderr, /unsupported/i);
+    await writeFile(actual, xml(actualMedia).replace('<asset-clip ', '<asset-clip mystery="different" '));
+    const unknownAttribute = spawnSync(process.execPath, [...args, expected, actual], { encoding: "utf8" });
+    assert.notEqual(unknownAttribute.status, 0, "unmodeled attributes must not be silently ignored");
+    assert.match(unknownAttribute.stderr, /unsupported/i);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
