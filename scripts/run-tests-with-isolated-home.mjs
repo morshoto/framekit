@@ -1,6 +1,7 @@
 import { chmod, mkdir, mkdtemp, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { spawn, spawnSync } from "node:child_process";
 import os from "node:os";
+import { prepareTestReport, writeTestSummary } from "./ci/test-reports.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -41,6 +42,8 @@ if (process.argv.includes("--check-only")) {
 }
 const testFiles = selectTestFiles(manifest, suiteName);
 process.stdout.write(`TEST_SUITE_SELECTED: ${suiteName} (${testFiles.length} files)\n`);
+const reportDirectory = process.env.FRAMEKIT_TEST_REPORT_DIR ? path.resolve(process.env.FRAMEKIT_TEST_REPORT_DIR) : undefined;
+const testedSha = reportDirectory ? spawnSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).stdout.trim() : undefined;
 const originalHome = process.env.HOME ?? os.homedir();
 const temporaryRoot = process.platform === "win32" ? os.tmpdir() : "/tmp";
 if (isWithin(originalHome, temporaryRoot)) {
@@ -115,17 +118,10 @@ try {
     }
   }
 
-  const exitCode = await new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ["--import", "tsx", "--test", ...testFiles], {
-      cwd: repositoryRoot,
-      env: environment,
-      stdio: "inherit",
-    });
-    child.once("error", reject);
-    child.once("close", (code) => resolve(code ?? 1));
-  });
+  const exitCode = await runCommand(process.execPath, ["--import", "tsx", "--test", ...testFiles], environment);
   process.exitCode = exitCode;
 } finally {
+  if (reportDirectory) await writeTestSummary(reportDirectory, process.env.GITHUB_STEP_SUMMARY);
   await chmod(isolatedHome, 0o700).catch(() => undefined);
   await rm(stateRoot, { recursive: true, force: true });
 }
@@ -135,7 +131,16 @@ function executableAvailable(executable) {
   return spawnSync(lookup, [executable], { stdio: "ignore" }).status === 0;
 }
 
-function runCommand(command, args, environment) {
+async function runCommand(command, args, environment) {
+  if (reportDirectory) {
+    const phase = args.includes("--import") ? suiteName : "documentation";
+    const reporters = await prepareTestReport(reportDirectory, phase, {
+      suite: suiteName, testedSha,
+      candidateSha: process.env.FRAMEKIT_HEADLESS_RELEASE_GATE_CANDIDATE_SHA,
+      selectedFiles: args.filter(argument => /\.test\.(?:ts|mjs)$/.test(argument)),
+    });
+    args = [...reporters, ...args];
+  }
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd: repositoryRoot, env: environment, stdio: "inherit" });
     child.once("error", reject);
