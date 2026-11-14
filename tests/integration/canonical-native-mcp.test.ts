@@ -870,6 +870,40 @@ test("uncertain Blade readback blocks subsequent native edits", async () => {
   }
 });
 
+test("uncertain placement outcomes block subsequent native edits", async () => {
+  for (const [tool, method, operation] of [
+    ["editor.native.media.append.execute", "executeAppendMedia", "native.executeappendmedia"],
+    ["editor.native.media.insert.execute", "executeInsertMedia", "native.executeinsertmedia"],
+  ] as const) {
+    for (const outcome of ["error", "unverified"] as const) {
+      const directory = await mkdtemp(join(tmpdir(), "framekit-placement-uncertain-"));
+      const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+      let edits = 0;
+      const nativeEditor = {
+        capabilities: () => ({}),
+        [method]: async () => {
+          if (outcome === "error") throw new Error("FINAL_CUT_NATIVE_PLACEMENT_OUTCOME_UNCERTAIN: recovery is required");
+          return { operationId: "placement-1", verification: { verified: false } };
+        },
+        edit: async () => { edits++; return { verification: { verified: true } }; },
+      } as unknown as NativeFinalCutEditor;
+      const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, nativeEditor });
+      try {
+        await client.callTool({ name: tool, arguments: { previewToken: "placement-preview" } });
+        assert.equal((await guard.inspectNativeReservation())?.operation, operation, `${tool} ${outcome}`);
+        const edit = await client.callTool({ name: "editor.native.edit", arguments: { type: "add-marker-at-playhead", name: "Review" } });
+        assert.equal(edit.isError, true, `${tool} ${outcome}`);
+        assert.match(textFrom(edit), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+        assert.equal(edits, 0);
+      } finally {
+        await client.close();
+        await server.close();
+        await rm(directory, { recursive: true, force: true });
+      }
+    }
+  }
+});
+
 test("a tracker that defers native search cannot release its reservation", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-native-deferred-search-"));
   const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));

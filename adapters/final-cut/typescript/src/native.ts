@@ -2803,11 +2803,15 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       if (preview.selectionMode === "handle") await this.selectMediaNative(preview.mediaHandle);
       await this.focusTimelineForMediaInsertion();
       this.validateMediaInsertionBinding(preview, await this.requireLiveState());
+    } catch (error) {
+      throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
+    }
+    try {
       // A transport or focus error can arrive after the shortcut was issued.
       // Without a receiver completion receipt, retrying can duplicate the edit.
       await this.executeNativeScript(mediaInsertionScript(preview.operation));
     } catch (error) {
-      throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
+      throw new Error(`FINAL_CUT_NATIVE_PLACEMENT_OUTCOME_UNCERTAIN: placement may have been applied; recovery is required before retry: ${String(error)}`);
     }
     const operationId = opaqueHandle(`native-${preview.operation}-media`);
     let after: NativeFinalCutContext | undefined;
