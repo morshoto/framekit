@@ -9,6 +9,8 @@ The headless path works without a running Final Cut Pro session. Framekit owns t
 3. Register media against the expected revision. Use `headless.media.search` with the project ID to find registered sources by ID, name or path; same-name results remain separate. Then preview an edit before executing it.
 4. Reopen and inspect the exact project revision before rendering. Verify the resulting output independently.
 
+Use `headless.fcpxml.export` to compile a specific project and sequence revision into a new FCPXML file. Supply an explicit destination identity; the tool refuses to overwrite an existing file. Headless exports and renders reject destinations inside Framekit state or aliasing registered source media; rough-cut render and FCPXML destinations must also be distinct. The resulting artifact is a manual handoff candidate, not evidence that Final Cut Pro imported or verified it.
+
 A stale revision or unavailable provider requires a fresh inspection or a structured failure. Framekit does not silently substitute a native operation or external renderer. The [video production runbook](https://github.com/morshoto/framekit/blob/main/plugins/framekit/references/tests/codex-video-production-e2e.md) shows a detailed workflow and its evidence boundaries.
 
 If rough-cut execution returns `HEADLESS_ROUGH_CUT_HISTORY_UNCONFIRMED`, the project edit has already committed, but no execution or publish proof was returned. The error includes the project, sequence, execution ID, and committed revision. Reinspect the project before retrying; an error response does not mean the edit was rolled back.
