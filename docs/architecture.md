@@ -44,7 +44,7 @@ cycle checks follow runtime edges.
 | Source layer | Allowed workspace dependencies | External packages |
 | --- | --- | --- |
 | `packages/runtime` (domain and application) | None | Node built-ins only. |
-| `packages/headless-application` | Runtime and Final Cut document adapter | Node built-ins only. |
+| `packages/headless-application` | Runtime and FCPXML document entrypoint | Node built-ins only. |
 | `packages/testkit` | `packages/runtime` | Node built-ins only. |
 | TypeScript adapters | `packages/runtime` | `adapters/final-cut/typescript`: `fast-xml-parser`; headless adapter: Node built-ins only. |
 | `apps/mcp-server` | Runtime, headless application, and both TypeScript adapters | `@modelcontextprotocol/sdk`, `zod`, and Node built-ins. |
@@ -366,3 +366,15 @@ verify an occurrence gain change: normalization reports an unavailable
 occurrence measurement, and a source-only post-write response causes verified
 rollback rather than an output-loudness claim. Reusable source analysis and
 occurrence/output measurements remain distinct.
+
+### FCPXML document interchange
+
+Headless project workflows import `@framekit/final-cut/fcpxml`, which exposes
+`FcpxmlDocumentAdapter`, `resolveMediaSource`, and the existing Timeline IR
+compiler and its types. Installed npm consumers use `@morshoto/framekit/fcpxml`.
+These document APIs read, validate, edit, and compile selected FCPXML artifacts
+without a Final Cut process or native provider. Existing adapter exports remain
+compatible. The import-graph check restricts this entrypoint and headless
+application workflows to document modules within the Final Cut adapter,
+including transitive and type-only imports. Artifact round trips establish
+document compatibility; native acceptance still requires separate evidence.
