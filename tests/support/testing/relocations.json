@@ -3139,6 +3139,10 @@
       "`${kind} rejects a source replaced while its provider is running`",
       "`${kind} analyzes matching source content without changing media or timeline`",
       "`command audio rejects invalid ${label}`"
+    ],
+    "tests/speech/revision-bound-analysis.test.ts": [
+      "\"speech binding retains an unavailable VAD reason without inventing activity\"",
+      "\"speech binding rejects conflicting VAD availability evidence\""
     ]
   },
   "identityDiscoveryCorrections": {
@@ -3280,6 +3284,18 @@
       "addedTestNames": {
         "tests/integration/semantic-media.test.ts": [
           "\"audio requests reject contradictory rational ranges before provider dispatch\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        738
+      ],
+      "reason": "Retain independent VAD unavailability and reject contradictory activity evidence; no baseline identities removed.",
+      "addedTestNames": {
+        "tests/speech/revision-bound-analysis.test.ts": [
+          "\"speech binding retains an unavailable VAD reason without inventing activity\"",
+          "\"speech binding rejects conflicting VAD availability evidence\""
         ]
       }
     }
