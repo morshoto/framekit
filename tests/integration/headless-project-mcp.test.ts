@@ -167,6 +167,8 @@ test("headless project media can be understood and planned without a Final Cut c
     assert.equal(executed.committed, true);
     assert.deepEqual(executed.render.outcome.render.projectRevision, executed.after.timeline.revision);
     assert.deepEqual(executed.fcpxml.provenance.revision, executed.after.timeline.revision);
+    const projects = payload(await client.callTool({ name: "headless.project.list", arguments: {} }));
+    assert.ok(projects.some((project: any) => project.projectId === projectId));
   } finally {
     await client?.close();
     await transport?.close();
