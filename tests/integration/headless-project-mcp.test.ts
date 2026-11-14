@@ -775,7 +775,7 @@ test("rough-cut history failure reports the committed revision without execution
     let message = "";
     await assert.rejects(service.executeRoughCut({ ...request, approved: true, planDigest: preview.planDigest }), (error: unknown) => {
       message = String(error);
-      return /HEADLESS_ROUGH_CUT_HISTORY_UNRECORDED/.test(message);
+      return /HEADLESS_ROUGH_CUT_HISTORY_UNCONFIRMED/.test(message);
     });
     assert.match(message, /reinspect.*before retry/i);
     assert.match(message, /no execution.*publish proof/i);
