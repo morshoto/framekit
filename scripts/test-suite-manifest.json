@@ -333,6 +333,16 @@
       ]
     },
     {
+      "path": "tests/integration/dialogue-native-review.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration",
+        "native"
+      ],
+      "requires": []
+    },
+    {
       "path": "tests/integration/dialogue-normalization-skill.test.ts",
       "owner": "shared",
       "tags": [
