@@ -56,6 +56,10 @@ export function mapSpeechAnalysisToOccurrence(
   options: SpeechMappingOptions,
 ): SpeechOccurrenceMapping {
   validateOccurrence(occurrence);
+  validateRange(analysis.observedRange, "observed speech range");
+  if (!containsRange(analysis.observedRange, occurrence.sourceRange)) {
+    throw new Error("AMBIGUOUS_MAPPING: observed speech range does not cover the occurrence source range");
+  }
   if (analysis.mediaId !== occurrence.mediaId) {
     throw new Error("TARGET_MISMATCH: speech analysis media does not match the timeline occurrence");
   }
@@ -205,6 +209,18 @@ function validateSequenceRationalRange(range: TimeRange): RationalTime {
 function validateRange(range: TimeRange, label: string): void {
   if (!Number.isFinite(range.start) || !Number.isFinite(range.end) || range.start < 0 || range.end <= range.start) {
     throw new Error(`ANALYSIS_INVALID: ${label} is invalid`);
+  }
+  if (range.startTime) {
+    const start = validateRational(range.startTime, "ANALYSIS_INVALID", `${label} start time`);
+    if (Math.abs(rationalToNumber(start) - range.start) > 0.000000001) {
+      throw new Error(`AMBIGUOUS_MAPPING: ${label} seconds and rational start time differ`);
+    }
+  }
+  if (range.durationTime) {
+    const duration = validatePositiveRational(range.durationTime, "ANALYSIS_INVALID", `${label} duration time`);
+    if (Math.abs(rationalToNumber(duration) - (range.end - range.start)) > 0.000000001) {
+      throw new Error(`AMBIGUOUS_MAPPING: ${label} seconds and rational duration differ`);
+    }
   }
 }
 
