@@ -74,6 +74,14 @@ test("reorder preview rejects an unaccounted primary story element", () => {
   assert.throws(() => previewPrimaryStorylineReorder(input, "a", { kind: "end" }), /REORDER_(INVALID|UNSUPPORTED).*story/i);
 });
 
+test("reorder preview rejects story timing that contradicts the occurrence", () => {
+  for (const change of ["start", "duration"] as const) {
+    const input = fixture();
+    input.timeline.storyElements[1]![change] += 1;
+    assert.throws(() => previewPrimaryStorylineReorder(input, "a", { kind: "end" }), /REORDER_INVALID.*timing/, change);
+  }
+});
+
 
 test("reorder preview rejects stale target, revision, source and outside-span edits", () => {
   const original = fixture();
