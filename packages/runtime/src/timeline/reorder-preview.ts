@@ -118,6 +118,8 @@ export function previewPrimaryStorylineReorder(
       || (element.lane !== undefined && element.lane !== 0) || element.attachedTo) {
       throw new Error("REORDER_UNSUPPORTED: story element does not match a primary occurrence");
     }
+    assertNumericTime(element.start, element.startTime);
+    assertNumericTime(element.duration, element.durationTime);
     storyIds.add(element.id);
   }
   const oldIndex = clips.findIndex((clip) => clip.id === occurrenceId);
