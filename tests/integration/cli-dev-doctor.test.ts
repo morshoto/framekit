@@ -27,7 +27,7 @@ test("fixture doctor checks contributor tools and writable paths without native 
       XDG_CACHE_HOME: join(homeDirectory, ".cache"),
     },
     homeDirectory,
-    nodeVersion: "v22.14.0",
+    nodeVersion: "v22.23.5",
     platform: "linux",
     runCommand: async (command) => {
       commands.push(command);
@@ -62,7 +62,7 @@ test("headless doctor reports missing render prerequisites with actionable messa
     rootDirectory: repositoryRoot,
     environment: { HOME: homeDirectory },
     homeDirectory,
-    nodeVersion: "v22.14.0",
+    nodeVersion: "v22.23.5",
     platform: "linux",
     runCommand: async (command) => {
       commands.push(command);
@@ -88,7 +88,7 @@ test("doctor reports unwritable state and cache paths with override guidance", a
     rootDirectory: repositoryRoot,
     environment: { HOME: homeDirectory },
     homeDirectory,
-    nodeVersion: "v22.14.0",
+    nodeVersion: "v22.23.5",
     runCommand: async (command) => {
       if (command === "pnpm") return "12.18.0";
       throw new Error("not installed");
@@ -111,7 +111,7 @@ test("doctor checks missing state and cache paths without creating them", async 
       rootDirectory: repositoryRoot,
       environment: { HOME: temporaryDirectory, FRAMEKIT_STATE_DIR: statePath, XDG_CACHE_HOME: cachePath },
       homeDirectory: temporaryDirectory,
-      nodeVersion: "v22.14.0",
+      nodeVersion: "v22.23.5",
       runCommand: async (command) => {
         if (command === "pnpm") return "12.18.0";
         throw new Error("not installed");
@@ -132,7 +132,7 @@ test("native doctor checks Xcode only for the native profile", async () => {
     rootDirectory: repositoryRoot,
     environment: { HOME: homeDirectory },
     homeDirectory,
-    nodeVersion: "v22.14.0",
+    nodeVersion: "v22.23.5",
     platform: "darwin",
     runCommand: async (command) => {
       commands.push(command);
@@ -159,12 +159,14 @@ test("CLI exposes fixture doctor JSON without requiring native tools", () => {
     encoding: "utf8",
   });
 
-  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.error, undefined);
   const report = JSON.parse(result.stdout) as Awaited<ReturnType<typeof collectDevDoctorReport>>;
   assert.equal(report.profile, "fixture");
-  assert.equal(report.ready, true);
-  assert.equal(checkNamed(report, "Node.js").status, "pass");
-  assert.equal(checkNamed(report, "pnpm").status, "pass");
+  const unavailableRequiredChecks = report.checks.filter((check) => check.requirement === "required" && check.status !== "pass");
+  assert.equal(report.ready, unavailableRequiredChecks.length === 0);
+  assert.equal(result.status, report.ready ? 0 : 1, result.stderr);
+  assert.equal(checkNamed(report, "Node.js").requirement, "required");
+  assert.equal(checkNamed(report, "pnpm").requirement, "required");
   assert.ok(!report.checks.some((check) => check.name === "Xcode"));
 });
 

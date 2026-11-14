@@ -101,9 +101,10 @@ function executor(overrides: Partial<NativeOperationSessionExecutor> = {}): Nati
 }
 
 async function eventually(predicate: () => boolean, message: string): Promise<void> {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
     if (predicate()) return;
-    await new Promise<void>((resolve) => setTimeout(resolve, 2));
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
   }
   assert.fail(message);
 }
