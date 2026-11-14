@@ -709,6 +709,9 @@ export function createFinalCutNativeTargetResolver(
     }
     try { rationalParts(clip.startTime); rationalParts(clip.durationTime); }
     catch { throw new Error(`TARGET_MISMATCH: invalid timeline coordinates for ${clip.id}`); }
+    if (compareRational(clip.durationTime, zeroRational()) <= 0) {
+      throw new Error(`TARGET_MISMATCH: nonpositive timeline duration for ${clip.id}`);
+    }
     if (!clip.mediaId) throw new Error(`TARGET_MISMATCH: occurrence ${clip.id} has no media binding`);
     const media = snapshot.media.find(({ mediaId }) => mediaId === clip.mediaId);
     if (!media?.source) throw new Error(`TARGET_MISMATCH: media ${clip.mediaId} has no source binding`);
@@ -737,7 +740,7 @@ export function createFinalCutNativeTargetResolver(
       if (sameRational(other.startTime, clip.startTime) && sameRational(other.durationTime, clip.durationTime)) {
         throw new Error(`AMBIGUOUS_PROJECT_TARGET: timeline occurrence coordinates are not unique for ${clip.id}`);
       }
-      if (compareRational(clip.durationTime, zeroRational()) <= 0 || compareRational(other.durationTime, zeroRational()) <= 0) {
+      if (compareRational(other.durationTime, zeroRational()) <= 0) {
         throw new Error("AMBIGUOUS_PROJECT_TARGET: timeline occurrence coordinates have nonpositive duration");
       }
       if (compareRational(clip.startTime, addRational(other.startTime, other.durationTime)) < 0
