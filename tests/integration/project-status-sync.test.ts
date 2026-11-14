@@ -400,6 +400,7 @@ test('workflow uses the dedicated project token and supports event sync plus bac
 		/github\.event_name == 'issues' \|\| github\.event_name == 'workflow_dispatch'/,
 	);
 	assert.match(workflow, /github\.event\.action == 'opened'/);
-	assert.match(workflow, /node scripts\/sync-project-status\.mjs/);
+	assert.match(workflow, /node scripts\/sync-project-status\.mjs[\s\S]*?FRAMEKIT_PROJECT_TOKEN:\s*\$\{\{\s*secrets\.GH_TOKEN_FRAMEKIT_PRJ\s*\}\}/);
+	assert.match(workflow, /if \[ -z \"\$GH_TOKEN_FRAMEKIT_PRJ\" \]/);
 	assert.match(workflow, /cancel-in-progress:\s+false/);
 });

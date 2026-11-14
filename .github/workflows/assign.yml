@@ -105,7 +105,7 @@ jobs:
               env:
                   FRAMEKIT_PROJECT_OWNER: morshoto
                   FRAMEKIT_PROJECT_NUMBER: '3'
-                  GH_TOKEN_FRAMEKIT_PRJ: ${{ secrets.GH_TOKEN_FRAMEKIT_PRJ }}
+                  FRAMEKIT_PROJECT_TOKEN: ${{ secrets.GH_TOKEN_FRAMEKIT_PRJ }}
                   GITHUB_API_URL: ${{ github.api_url }}
                   GITHUB_EVENT_PATH: ${{ github.event_path }}
                   GITHUB_REPOSITORY: ${{ github.repository }}
