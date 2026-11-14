@@ -32,7 +32,7 @@ test('Docs checks run once and both export profiles remain covered', () => {
   const exports = job('docs-export');
   assert.doesNotMatch(foundation, /matrix:/);
   assert.match(foundation, /@framekit\/docs typecheck/);
-  assert.match(foundation, /@framekit\/docs test\s*$/m);
+  assert.match(foundation, /@framekit\/docs test(?: --reporter[^\n]*)?\s*$/m);
   assert.doesNotMatch(exports, /@framekit\/docs typecheck|@framekit\/docs test\s*$/m);
   assert.match(exports, /profile: root/);
   assert.match(exports, /profile: project/);
@@ -65,4 +65,15 @@ test('dependency setup is shared and workflow syntax is checked', () => {
   assert.match(setup, /pnpm install --frozen-lockfile/);
   assert.match(setup, /GITHUB_STEP_SUMMARY/);
   assert.match(readFileSync('.github/action/lint-static/action.yml', 'utf8'), /pnpm run check:workflows/);
+});
+
+test('Docs and package smoke retain failure diagnostics', () => {
+  const foundation = job('docs-foundation');
+  assert.match(foundation, /--reporter=json/);
+  assert.match(foundation, /--reporter=junit/);
+  assert.match(foundation, /if:.*always\(\)[\s\S]*actions\/upload-artifact@/);
+  assert.match(job('docs-export'), /if:.*failure\(\)[\s\S]*actions\/upload-artifact@/);
+  const consumer = readFileSync('.github/action/consumer-runtime/action.yml', 'utf8');
+  assert.match(consumer, /tee.*consumer-runtime.log/);
+  assert.match(consumer, /if:.*always\(\)[\s\S]*actions\/upload-artifact@/);
 });

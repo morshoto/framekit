@@ -23,7 +23,7 @@ jobs:
   lint:
     name: Lint / static checks
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -89,7 +89,18 @@ jobs:
       - name: Typecheck
         run: pnpm --filter @framekit/docs typecheck
       - name: Docs unit tests
-        run: pnpm --filter @framekit/docs test
+        run: pnpm --filter @framekit/docs test --reporter=default --reporter=json --reporter=junit --outputFile.json="$RUNNER_TEMP/docs-unit.json" --outputFile.junit="$RUNNER_TEMP/docs-unit.xml"
+      - name: Summarize Docs tests
+        if: always()
+        run: node scripts/ci/summarize-docs.mjs "$RUNNER_TEMP/docs-unit.json"
+      - name: Upload Docs unit results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: docs-unit-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/docs-unit.*
+          if-no-files-found: warn
+          retention-days: 14
 
   docs-export:
     name: Docs static export (${{ matrix.profile }})
@@ -116,6 +127,14 @@ jobs:
         run: pnpm --filter @framekit/docs build
       - name: Verify export
         run: pnpm --filter @framekit/docs test:export
+      - name: Upload failed export diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: docs-export-${{ matrix.profile }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: apps/docs/.next/diagnostics/
+          if-no-files-found: warn
+          retention-days: 14
 
   nix-fixture:
     name: Linux Nix fixture bootstrap
@@ -142,7 +161,7 @@ jobs:
   consumer-runtime:
     name: Published package consumer minimum
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -156,7 +175,7 @@ jobs:
   swift:
     name: Swift type-check
     runs-on: macos-26
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

@@ -48,3 +48,34 @@ test('reports an interrupted phase as incomplete without inventing totals', asyn
     assert.match(await readFile(summary, 'utf8'), /incomplete/);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test('keeps all phase rows together before commit provenance', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ci-reports-'));
+  try {
+    for (const phase of ['a', 'b']) {
+      await prepareTestReport(dir, phase, { suite: 'all', testedSha: 'sha', selectedFiles: [] });
+      await writeFile(join(dir, `${phase}.json`), JSON.stringify({ success: true, counts: { passed: 1, failed: 0, skipped: 0 }, duration_ms: 1 }));
+    }
+    const summary = join(dir, 'summary.md');
+    await writeTestSummary(dir, summary);
+    const markdown = await readFile(summary, 'utf8');
+    assert.ok(markdown.indexOf('| b / all') < markdown.indexOf('Tested commit'));
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('summarizes actual Docs totals and failure status', async () => {
+  const { writeVitestSummary } = await import('../../scripts/ci/test-reports.mjs');
+  const dir = await mkdtemp(join(tmpdir(), 'ci-reports-'));
+  try {
+    const report = join(dir, 'docs.json');
+    const summary = join(dir, 'summary.md');
+    await writeFile(report, JSON.stringify({ numTotalTests: 8, numPassedTests: 6, numFailedTests: 1, numPendingTests: 1, success: false }));
+    await writeVitestSummary(report, summary);
+    const markdown = await readFile(summary, 'utf8');
+    assert.match(markdown, /8 tests/);
+    assert.match(markdown, /6 passed/);
+    assert.match(markdown, /1 failed/);
+    assert.match(markdown, /1 skipped/);
+    assert.match(markdown, /failed/);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});

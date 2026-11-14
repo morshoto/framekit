@@ -121,9 +121,12 @@ try {
   const exitCode = await runCommand(process.execPath, ["--import", "tsx", "--test", ...testFiles], environment);
   process.exitCode = exitCode;
 } finally {
-  if (reportDirectory) await writeTestSummary(reportDirectory, process.env.GITHUB_STEP_SUMMARY);
-  await chmod(isolatedHome, 0o700).catch(() => undefined);
-  await rm(stateRoot, { recursive: true, force: true });
+  try {
+    if (reportDirectory) await writeTestSummary(reportDirectory, process.env.GITHUB_STEP_SUMMARY);
+  } finally {
+    await chmod(isolatedHome, 0o700).catch(() => undefined);
+    await rm(stateRoot, { recursive: true, force: true });
+  }
 }
 
 function executableAvailable(executable) {
