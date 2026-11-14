@@ -1431,6 +1431,15 @@
       "requires": []
     },
     {
+      "path": "tests/integration/speech-cleanup-workflow.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
       "path": "tests/integration/staged-content.test.ts",
       "owner": "shared",
       "tags": [
@@ -1479,6 +1488,15 @@
     },
     {
       "path": "tests/integration/timeline-targets.test.ts",
+      "owner": "shared",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": []
+    },
+    {
+      "path": "tests/integration/transaction-undo-lineage.test.ts",
       "owner": "shared",
       "tags": [
         "fixture-e2e",

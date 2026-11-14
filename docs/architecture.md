@@ -95,6 +95,13 @@ The legacy `speech.filler.remove.preview` and `speech.filler.remove.execute` rou
 composite support and both transaction methods. It submits the complete approved
 descending-cut list through one provider transaction; it never substitutes a
 loop of independently applied edits or a preview without a predicted diff.
+Within one runtime, verified Undo or compensating restoration can rebind an
+immediately preceding transaction to the new revision when target, canonical
+content and artifact-file identity match its recorded state. This permits staged
+restoration on providers that retain the required snapshots. External edits,
+same-content external restores and failed restoration checks do not rebind Undo;
+a dispatched Undo cannot be replayed. This runtime history does not create
+additional native Undo checkpoints or enable native composite capability.
 A provider advertising
 `markerIdentityMode: "editor-assigned"` may return a different ID for a uniquely
 added marker; verification still checks its semantics and all other changes. Canonical Final Cut reads reject

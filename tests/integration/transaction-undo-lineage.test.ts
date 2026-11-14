@@ -114,3 +114,12 @@ test("artifact Undo chaining retains the exact source-file guard", async t => {
   await appendFile(path, '\n<!-- external edit without changing timeline semantics -->');
   await assert.rejects(runtime.undo(first.id), /ARTIFACT_SOURCE_CHANGED/);
 });
+
+test("same-revision restoration cannot authorize the earlier Undo", async () => {
+  const { adapter, runtime, gain } = fixture(); const first = await gain(1); const second = await gain(2);
+  const read = adapter.readProject.bind(adapter); const restore = adapter.restore.bind(adapter); let restored = false;
+  adapter.restore = async (...args) => { await restore(...args); restored = true; };
+  adapter.readProject = async () => { const value = await read(); if (restored) value.revision = second.after.revision; return value; };
+  await assert.rejects(runtime.undo(second.id), /ROLLBACK_FAILED: restoration did not advance/);
+  await assert.rejects(runtime.undo(first.id), /STALE_CONTEXT/);
+});

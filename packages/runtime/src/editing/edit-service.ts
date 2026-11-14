@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { resolve as resolvePath } from "node:path";
 import { diffSnapshots } from "../timeline/snapshot-diff.js";
 import { canonicalSnapshotDigest } from "../timeline/snapshot-digest.js";
@@ -17,7 +18,7 @@ import type {
 } from "../domain/editing.js";
 import { assertValidMaskConfiguration } from "../domain/editing.js";
 import type { ProjectSnapshot } from "../domain/project.js";
-import type { RationalTime } from "../domain/primitives.js";
+import type { ContextRevision, RationalTime } from "../domain/primitives.js";
 import type { TimelineDiff } from "../domain/diff.js";
 import type { VerificationCheck, VerificationEngine, VerificationPolicy } from "../domain/verification.js";
 import { sameRevision } from "../context/revision.js";
@@ -30,6 +31,11 @@ import { assertValidVerificationPolicy } from "../verification/verification.js";
 
 export class EditService {
   private readonly editPreviews = new Map<string, CompositeEditPreview>();
+  // Historical transaction snapshots stay immutable. Only an observed, verified
+  // restoration can rebind an earlier Undo to the newly advanced revision.
+  private readonly undoGuards = new Map<string, { target: EditTarget; revision: ContextRevision; digest: string; artifactDigest?: string }>();
+  private readonly undoBaselines = new Map<string, string | undefined>();
+  private readonly consumedUndos = new Set<string>();
 
   public constructor(
     private readonly adapter: EditorPort,
@@ -89,14 +95,14 @@ export class EditService {
     if (!capabilities.editor.timelineSnapshotRead || !capabilities.editor.readAfterWrite || !capabilities.editor.rollback) {
       throw new Error(`CAPABILITY_UNAVAILABLE: ${target.kind === "artifact" ? "artifact" : "editor timeline"} mutation requires snapshot, read-after-write, and rollback`);
     }
+    const beforeArtifactDigest = await this.readArtifactDigest(target);
     const appliedRevision = await this.adapter.apply(operation, before.revision);
     let attemptedAfter: ProjectSnapshot;
     try {
       attemptedAfter = await this.project.inspectProject();
     } catch (readError) {
       try {
-        await this.adapter.restore(before, appliedRevision);
-        this.assertRestored(before, await this.project.inspectProject());
+        await this.restoreAndVerify(before, appliedRevision, target, beforeArtifactDigest);
       } catch (rollbackError) {
         throw new Error(`READ_AFTER_WRITE_FAILED: compensating rollback failed (${String(readError)}; ${String(rollbackError)})`);
       }
@@ -122,8 +128,7 @@ export class EditService {
     try {
       await this.reanalyzeForVerification(transaction, verificationPolicy);
     } catch (error) {
-      await this.adapter.restore(before, attemptedAfter.revision);
-      this.assertRestored(before, await this.project.inspectProject());
+      await this.restoreAndVerify(before, attemptedAfter.revision, target, beforeArtifactDigest);
       throw new Error(`ANALYSIS_FAILED: post-write verification analysis failed (${String(error)})`);
     }
     try {
@@ -133,8 +138,7 @@ export class EditService {
       };
     } catch (verificationError) {
       try {
-        await this.adapter.restore(before, attemptedAfter.revision);
-        this.assertRestored(before, await this.project.inspectProject());
+        await this.restoreAndVerify(before, attemptedAfter.revision, target, beforeArtifactDigest);
       } catch (rollbackError) {
         throw new Error(`VERIFICATION_FAILED: compensating rollback failed (${String(verificationError)}; ${String(rollbackError)})`);
       }
@@ -143,12 +147,10 @@ export class EditService {
     if (transaction.verification.passed) {
       transaction.status = "VERIFIED";
     } else {
-      await this.adapter.restore(before, attemptedAfter.revision);
-      transaction.after = await this.project.inspectProject();
-      this.assertRestored(before, transaction.after);
+      transaction.after = await this.restoreAndVerify(before, attemptedAfter.revision, target, beforeArtifactDigest);
       transaction.status = "ROLLED_BACK";
     }
-    this.transactions.set(transaction);
+    this.rememberTransaction(transaction, beforeArtifactDigest);
     return transaction;
   }
 
@@ -260,7 +262,7 @@ export class EditService {
       const partiallyApplied = await this.project.inspectProject();
       if (!sameRevision(partiallyApplied.revision, before.revision)) {
         try {
-          await this.adapter.restore(before, partiallyApplied.revision);
+          await this.restoreAndVerify(before, partiallyApplied.revision, preview.target, currentArtifactDigest);
         } catch (rollbackError) {
           throw new Error(`TRANSACTION_FAILED: ${String(error)}; rollback failed: ${String(rollbackError)}`);
         }
@@ -305,8 +307,7 @@ export class EditService {
     try {
       await this.reanalyzeForVerification(transaction, verificationPolicy);
     } catch (error) {
-      await this.adapter.restore(before, attemptedAfter.revision);
-      this.assertRestored(before, await this.project.inspectProject());
+      await this.restoreAndVerify(before, attemptedAfter.revision, preview.target, currentArtifactDigest);
       throw new Error(`ANALYSIS_FAILED: post-write verification analysis failed (${String(error)})`);
     }
     try {
@@ -316,8 +317,7 @@ export class EditService {
       };
     } catch (verificationError) {
       try {
-        await this.adapter.restore(before, attemptedAfter.revision);
-        this.assertRestored(before, await this.project.inspectProject());
+        await this.restoreAndVerify(before, attemptedAfter.revision, preview.target, currentArtifactDigest);
       } catch (rollbackError) {
         throw new Error(`VERIFICATION_FAILED: compensating rollback failed (${String(verificationError)}; ${String(rollbackError)})`);
       }
@@ -333,12 +333,10 @@ export class EditService {
     if (transaction.verification.passed) {
       transaction.status = "VERIFIED";
     } else {
-      await this.adapter.restore(before, attemptedAfter.revision);
-      transaction.after = await this.project.inspectProject();
-      this.assertRestored(before, transaction.after);
+      transaction.after = await this.restoreAndVerify(before, attemptedAfter.revision, preview.target, currentArtifactDigest);
       transaction.status = "ROLLED_BACK";
     }
-    this.transactions.set(transaction);
+    this.rememberTransaction(transaction, currentArtifactDigest);
     return transaction;
   }
 
@@ -366,10 +364,15 @@ export class EditService {
 
   public async undo(transactionId: string): Promise<ProjectSnapshot> {
     const transaction = this.getTransaction(transactionId);
+    if (this.consumedUndos.has(transactionId) || transaction.status === "ROLLED_BACK") {
+      throw new Error(`STALE_CONTEXT: transaction ${transactionId} restoration was already attempted`);
+    }
+    const guard = this.undoGuards.get(transactionId);
+    const expectedArtifactDigest = guard?.artifactDigest ?? transaction.artifactDigest;
     const currentArtifactDigest = await this.readArtifactDigest(transaction.target);
     if (transaction.target?.kind === "artifact"
-      && transaction.artifactDigest !== undefined
-      && currentArtifactDigest !== transaction.artifactDigest) {
+      && expectedArtifactDigest !== undefined
+      && currentArtifactDigest !== expectedArtifactDigest) {
       throw new Error("ARTIFACT_SOURCE_CHANGED: FCPXML artifact digest changed after transaction");
     }
     const current = await this.project.inspectProject();
@@ -378,12 +381,46 @@ export class EditService {
         `TARGET_MISMATCH: cannot undo ${transaction.before.projectId}/${transaction.before.timeline.id} while ${current.projectId}/${current.timeline.id} is active`,
       );
     }
-    if (!sameRevision(current.revision, transaction.after.revision)) {
+    if (!sameRevision(current.revision, guard?.revision ?? transaction.after.revision)
+      || canonicalSnapshotDigest(current) !== (guard?.digest ?? canonicalSnapshotDigest(transaction.after))) {
       throw new Error(`STALE_CONTEXT: transaction ${transactionId} changed after edit`);
     }
-    await this.adapter.restore(transaction.before, current.revision);
+    if (this.consumedUndos.has(transactionId)) throw new Error(`STALE_CONTEXT: transaction ${transactionId} restoration was already attempted`);
+    this.consumedUndos.add(transactionId);
+    return this.restoreAndVerify(transaction.before, current.revision, transaction.target, this.undoBaselines.get(transactionId));
+  }
+
+  private rememberTransaction(transaction: EditTransaction, beforeArtifactDigest?: string): void {
+    this.transactions.set(transaction);
+    this.undoBaselines.set(transaction.id, beforeArtifactDigest);
+    if (transaction.status === "VERIFIED" && transaction.target) {
+      this.undoGuards.set(transaction.id, { target: structuredClone(transaction.target), revision: structuredClone(transaction.after.revision),
+        digest: canonicalSnapshotDigest(transaction.after), ...(transaction.artifactDigest ? { artifactDigest: transaction.artifactDigest } : {}) });
+    }
+  }
+
+  private async restoreAndVerify(
+    before: ProjectSnapshot,
+    expectedRevision: ContextRevision,
+    target: EditTarget | undefined,
+    beforeArtifactDigest?: string,
+  ): Promise<ProjectSnapshot> {
+    await this.adapter.restore(before, expectedRevision);
     const restored = await this.project.inspectProject();
-    this.assertRestored(transaction.before, restored);
+    this.assertRestored(before, restored);
+    if (sameRevision(restored.revision, expectedRevision)) {
+      throw new Error("ROLLBACK_FAILED: restoration did not advance the canonical revision");
+    }
+    const artifactDigest = await this.readArtifactDigest(target);
+    const digest = canonicalSnapshotDigest(before);
+    for (const [id, guard] of this.undoGuards) {
+      if (!this.consumedUndos.has(id) && isDeepStrictEqual(guard.target, target)
+        && sameRevision(guard.revision, before.revision) && guard.digest === digest
+        && (target?.kind !== "artifact" || guard.artifactDigest === beforeArtifactDigest)) {
+        this.undoGuards.set(id, { ...guard, revision: structuredClone(restored.revision),
+          ...(artifactDigest ? { artifactDigest } : {}) });
+      }
+    }
     return restored;
   }
 
