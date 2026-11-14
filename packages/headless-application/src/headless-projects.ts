@@ -20,6 +20,7 @@ import {
   type RoughCutPlan,
   type TimelineIrEditOperation,
   type TimelineIr,
+  type TimelineIrResource,
   timelineIrDigest,
 } from "@framekit/runtime";
 import {
@@ -52,6 +53,7 @@ export interface HeadlessProjectWorkflow {
     sourcePath: string,
     expectedRevision?: ContextRevision,
   ): Promise<LocalMediaRegistrationResult>;
+  searchMedia(projectId: string, query: string): Promise<{ revision: ContextRevision; media: TimelineIrResource[] }>;
   previewEdit(
     projectId: string,
     command: HeadlessProjectEditCommand,
@@ -296,6 +298,17 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
   public async registerMedia(projectId: string, sourcePath: string, expectedRevision?: ContextRevision) {
     if (!this.mediaProbe) throw new Error("HEADLESS_MEDIA_PROBE_UNAVAILABLE: no local media metadata probe is configured");
     return new LocalMediaRegistrar(this.store(projectId), this.mediaProbe, { clock: this.clock }).register(sourcePath, expectedRevision);
+  }
+
+  public async searchMedia(projectId: string, query: string): Promise<{ revision: ContextRevision; media: TimelineIrResource[] }> {
+    const project = await this.open(projectId);
+    const needle = query.toLowerCase();
+    return {
+      revision: structuredClone(project.timeline.revision),
+      media: project.timeline.resources.filter((resource) =>
+        [resource.id, resource.name, resource.source].some((value) => value?.toLowerCase().includes(needle)),
+      ).map((resource) => structuredClone(resource)),
+    };
   }
 
   public async previewEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string) {
