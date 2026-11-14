@@ -140,9 +140,16 @@ test("responsive themes and enlarged text stay readable and accessible", async (
       await expect(
         page.getByRole("link", { name: /^Get started/ }),
       ).toBeVisible();
-      const figureWidth = await page.getByRole('figure').evaluate(element => element.getBoundingClientRect().width);
-      const heroWidth = await page.locator('section[aria-labelledby="hero-title"]').evaluate(element => element.getBoundingClientRect().width);
-      expect(Math.abs(figureWidth - heroWidth), 'demo uses the available content width').toBeLessThan(2);
+      const figureWidth = await page
+        .getByRole("figure")
+        .evaluate((element) => element.getBoundingClientRect().width);
+      const heroWidth = await page
+        .locator('section[aria-labelledby="hero-title"]')
+        .evaluate((element) => element.getBoundingClientRect().width);
+      expect(
+        Math.abs(figureWidth - heroWidth),
+        "demo uses the available content width",
+      ).toBeLessThan(2);
       if ([375, 1440].includes(width)) {
         expect((await new AxeBuilder({ page }).analyze()).violations).toEqual(
           [],
@@ -158,7 +165,10 @@ test("responsive themes and enlarged text stay readable and accessible", async (
     }
   }
   await page.setViewportSize({ width: 375, height: 800 });
+  const description = page.getByText(/Bring your video workflow into Codex/);
+  const before = await description.evaluate(element => parseFloat(getComputedStyle(element).fontSize));
   await page.evaluate(() => (document.documentElement.style.fontSize = "200%"));
+  expect(await description.evaluate(element => parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(before * 1.9);
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,
