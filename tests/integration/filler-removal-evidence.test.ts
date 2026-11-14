@@ -52,12 +52,18 @@ test("filler native gate rejects missing scenarios, source-only continuity and u
 });
 
 test("one headed filler diagnostic cannot promote native acceptance", () => {
-  const raw = fillerNativeEvidence();
+  const base = fillerNativeEvidence();
+  const hashes = [{ mediaId: "media-filler", sha256: "a".repeat(64) }];
+  const raw = { ...base, before: { media: [{ mediaId: "media-filler" }] },
+    sourceIntegrity: { before: hashes, after: hashes, restored: hashes } };
   const diagnostic = sanitizeFillerRemovalDiagnostic(raw, raw.environment);
   assert.equal(diagnostic.passed, false);
   assert.equal(diagnostic.outcome, "NO_GO");
   assert.equal(diagnostic.removal.continuityVerified, false);
+  assert.deepEqual(diagnostic.sourceMediaIntegrity, { sourceCount: 1, digests: ["a".repeat(64)] });
   assert.throws(() => summarizeHeadedEvidence(diagnostic, loadNativeEditingManifest().workflows.find(item => item.id === "filler-removal")!), /did not pass/);
+  raw.sourceIntegrity.after = [{ mediaId: "media-filler", sha256: "b".repeat(64) }];
+  assert.throws(() => sanitizeFillerRemovalDiagnostic(raw, raw.environment), /source media hashes changed/);
 });
 
 test("independent filler semantics compare exact source ranges without generated clip IDs", () => {
