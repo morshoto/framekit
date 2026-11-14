@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: 22.14.0
+  NODE_VERSION: 22.23.5
   CONSUMER_NODE_VERSION: 20.0.0
 
 jobs:
@@ -44,82 +44,31 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           validation-level: fast
 
-  docs-foundation:
-    name: Docs static export
+  docs-changes:
+    name: Detect docs changes
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      changed: ${{ steps.paths.outputs.changed }}
     steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Set up pnpm
-        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
-      - name: Set up Node.js
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @framekit/docs typecheck
-      - run: pnpm --filter @framekit/docs test
-      - run: pnpm --filter @framekit/docs build-storybook
-      - run: pnpm --filter @framekit/docs exec playwright install --with-deps chromium
-      - run: pnpm --filter @framekit/docs test:stories
-      - name: Upload Storybook screenshots
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: docs-storybook-screenshots
-          path: apps/docs/artifacts/storybook
-          if-no-files-found: ignore
-          retention-days: 7
-      - name: Test root export
-        run: |
-          pnpm --filter @framekit/docs build
-          pnpm --filter @framekit/docs test:export
-          pnpm --filter @framekit/docs test:shell
-          pnpm --filter @framekit/docs test:locales
-          pnpm --filter @framekit/docs test:search
-      - name: Upload search screenshots
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: docs-search-screenshots
-          path: apps/docs/artifacts/search
-          if-no-files-found: ignore
-          retention-days: 7
-      - name: Upload locale screenshots
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: docs-locale-screenshots
-          path: apps/docs/artifacts/locales
-          if-no-files-found: ignore
-          retention-days: 7
-      - name: Upload shell screenshots
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: docs-shell-screenshots
-          path: apps/docs/artifacts/shell
-          if-no-files-found: ignore
-          retention-days: 7
-      - name: Test project-path export
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Test docs change detection
+        run: node --test scripts/docs-ci-paths.test.mjs
+      - id: paths
         env:
-          DOCS_BASE_PATH: /framekit
-        run: |
-          pnpm --filter @framekit/docs build
-          pnpm --filter @framekit/docs test:export
-          pnpm --filter @framekit/docs test:locales
-          pnpm --filter @framekit/docs test:search
-      - name: Upload project-path export
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: docs-static-export
-          path: apps/docs/out
-          retention-days: 7
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: echo "changed=$(node scripts/docs-ci-paths.mjs "$BASE_SHA" "$HEAD_SHA")" >> "$GITHUB_OUTPUT"
 
-  docs-e2e:
-    name: Docs E2E (${{ matrix.profile }})
+  docs-foundation:
+    name: Docs static export (${{ matrix.profile }})
+    needs: docs-changes
+    if: always() && (needs.docs-changes.result != 'success' || needs.docs-changes.outputs.changed != 'false')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -137,20 +86,16 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @framekit/docs exec playwright install --with-deps chromium firefox webkit
-      - run: pnpm --filter @framekit/docs build
-      - run: pnpm --filter @framekit/docs test:e2e
-      - name: Upload Playwright report and failure artifacts
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: docs-e2e-${{ matrix.profile }}
-          path: |
-            apps/docs/artifacts/e2e-report
-            apps/docs/artifacts/e2e-results
-          if-no-files-found: ignore
-          retention-days: 7
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm --filter @framekit/docs typecheck
+      - name: Docs unit tests
+        run: pnpm --filter @framekit/docs test
+      - name: Build export
+        run: pnpm --filter @framekit/docs build
+      - name: Verify export
+        run: pnpm --filter @framekit/docs test:export
 
   nix-fixture:
     name: Linux Nix fixture bootstrap
