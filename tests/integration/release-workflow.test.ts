@@ -15,6 +15,7 @@ test('release publication requires the headless artifact workflow suite', async 
 	const headless = publish.indexOf('pnpm run test:headless');
 	const npmCheck = publish.indexOf('- id: npm-status');
 	assert.ok(ffmpeg >= 0 && headless > ffmpeg && npmCheck > headless);
+	assert.match(publish, /FRAMEKIT_TEST_MCP_ENTRYPOINT:.*dist-package\/apps\/mcp-server\/src\/main\.js/);
 });
 
 const expectedReleaseCategories = [

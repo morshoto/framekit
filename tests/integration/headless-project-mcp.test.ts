@@ -1330,7 +1330,9 @@ function toolErrorText(result: unknown): string {
 async function connectProductionClient(here: string, environment: Record<string, string>): Promise<{ client: Client; transport: StdioClientTransport }> {
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: ["--import", "tsx", join(here, "../../apps/mcp-server/src/main.ts")],
+    args: process.env.FRAMEKIT_TEST_MCP_ENTRYPOINT
+      ? [process.env.FRAMEKIT_TEST_MCP_ENTRYPOINT]
+      : ["--import", "tsx", join(here, "../../apps/mcp-server/src/main.ts")],
     env: environment,
     stderr: "pipe",
   });

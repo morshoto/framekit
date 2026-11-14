@@ -324,6 +324,8 @@ jobs:
               run: node scripts/validate-mcp-server-version.mjs
 
             - name: Verify artifact-first headless workflows
+              env:
+                  FRAMEKIT_TEST_MCP_ENTRYPOINT: ${{ github.workspace }}/dist-package/apps/mcp-server/src/main.js
               run: pnpm run test:headless
 
             - name: Run v0.1.6 native-editing release gate
