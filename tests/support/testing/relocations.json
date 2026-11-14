@@ -3129,17 +3129,22 @@
       "\"source audio analysis cannot authorize an occurrence gain edit\"",
       "\"source audio results explicitly identify the measured signal\"",
       "\"audio measurements reject a different occurrence before previewing edits\"",
+      "\"production MCP rejects malformed audio while transcription stays available\"",
+      "\"media understanding does not publish provider-rejected audio as analyzed evidence\"",
+      "\"audio occurrence measurement retains declared source clock and signal format\"",
       "\"semantic cache requires content identity before reusing source analysis\"",
       "\"semantic cache cannot relabel partial source analysis as whole-source evidence\"",
       "\"semantic cache does not preserve analysis from a removed provider\"",
       "\"semantic cache reuses unchanged source evidence after a timeline-only revision\"",
       "`semantic cache invalidates when provider ${changedField} changes`",
-      "\"semantic cache cannot rebind occurrence loudness as reusable source analysis\""
+      "\"semantic cache cannot rebind occurrence loudness as reusable source analysis\"",
+      "\"cached audio payloads cannot bypass analysis validation\""
     ],
     "tests/speech/command-analyzer.test.ts": [
       "`${kind} rejects replaced source bytes before starting the provider`",
       "`${kind} rejects a source replaced while its provider is running`",
       "`${kind} analyzes matching source content without changing media or timeline`",
+      "`command audio rejects invalid ${label}`",
       "\"command speech identity changes with effective model configuration\"",
       "\"command audio identity distinguishes executable and provider version\"",
       "\"command provider executes the environment bound to its analysis identity\"",
@@ -3279,6 +3284,22 @@
     },
     {
       "pullRequests": [
+        738
+      ],
+      "reason": "Add production MCP audio payload and declared signal provenance regressions; no baseline identities removed.",
+      "addedTestNames": {
+        "tests/integration/semantic-media.test.ts": [
+          "\"production MCP rejects malformed audio while transcription stays available\"",
+          "\"media understanding does not publish provider-rejected audio as analyzed evidence\"",
+          "\"audio occurrence measurement retains declared source clock and signal format\""
+        ],
+        "tests/speech/command-analyzer.test.ts": [
+          "`command audio rejects invalid ${label}`"
+        ]
+      }
+    },
+    {
+      "pullRequests": [
         740
       ],
       "reason": "Add reviewed cache, provenance, physical-source validation and rational mapping regressions; no baseline identities removed.",
@@ -3312,6 +3333,17 @@
         "tests/speech/revision-bound-analysis.test.ts": [
           "\"speech binding preserves configured model and configuration provenance\"",
           "`speech binding rejects mismatched configured provider ${Object.keys(change)[0]}`"
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        740
+      ],
+      "reason": "Add persisted audio payload/provenance validation across understanding, indexing and timeline context; no baseline test identities removed.",
+      "addedTestNames": {
+        "tests/integration/semantic-media.test.ts": [
+          "\"cached audio payloads cannot bypass analysis validation\""
         ]
       }
     }

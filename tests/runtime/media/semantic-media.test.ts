@@ -13,7 +13,7 @@ import {
   FixtureVisualAnalyzer,
   InMemoryEditorAdapter,
 } from "@framekit/testkit";
-import { AgentVideoRuntime, DIALOGUE_NORMALIZATION_DEFAULTS, InMemorySemanticMediaIndexStore, JsonSemanticMediaIndexStore, type MediaContext } from "@framekit/runtime";
+import { AgentVideoRuntime, DIALOGUE_NORMALIZATION_DEFAULTS, InMemorySemanticMediaIndexStore, JsonSemanticMediaIndexStore, type MediaContext, type AudioAnalysis } from "@framekit/runtime";
 import { createMcpServer } from "../../../apps/mcp-server/src/server.js";
 
 function textFrom(result: unknown): string {
@@ -880,6 +880,12 @@ test("cached audio payloads cannot bypass analysis validation", async (t) => {
   const cases = [
     ["nonfinite measurement", { integratedLufs: NaN }],
     ["provider-rejected measurement", { valid: false, invalidReason: "signal was not measured" }],
+    ["different media identity", { mediaId: "other-media" }],
+    ["different source identity", { sourceIdentity: {
+      mediaId: "media-semantic-1", source: "/fixtures/other.mov", sourceDigest: "other-source", mediaKind: "video", duration: 12,
+    } }],
+    ["different provider identity", { provider: { id: "other.audio", provider: "fixture", version: "99" } }],
+    ["different revision identity", { revision: { id: "foreign", sequence: 9, timestamp: "1970-01-01T00:00:00.000Z" } }],
     ["invalid source clock", { sourceTimebase: { value: "1", timescale: "0" } }],
     ["invalid signal format", { signalFormat: { sampleRate: 48000, channels: 0 } }],
     ["contradictory range", { measuredRange: {
@@ -925,4 +931,112 @@ test("cached audio payloads cannot bypass analysis validation", async (t) => {
       });
     }
   }
+});
+
+test("production MCP rejects malformed audio while transcription stays available", async (t) => {
+  const fixture = semanticFixture();
+  const base = { integratedLufs: -18, truePeakDb: -1, silenceMs: 0 };
+  let output: unknown = base;
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    speechAnalyzer: new FixtureSpeechAnalyzer(),
+    audioAnalyzer: { analyze: async () => output as AudioAnalysis },
+  });
+  const server = createMcpServer(runtime);
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "audio-validation-regression", version: "1" });
+  const before = await fixture.adapter.readProject();
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const cases: Array<[string, unknown]> = [
+      ["infinite loudness", { ...base, integratedLufs: Infinity }],
+      ["nonfinite peak", { ...base, truePeakDb: -Infinity }],
+      ["negative silence", { ...base, silenceMs: -1 }],
+      ["nonfinite duration", { ...base, analyzedDurationSeconds: NaN }],
+      ["fractional sample count", { ...base, audibleSamples: 1.5 }],
+      ["invalid source clock", { ...base, sourceTimebase: { value: "1", timescale: "0" } }],
+      ["nonpositive source clock", { ...base, sourceTimebase: { value: "0", timescale: "48000" } }],
+      ["contradictory measured start", { ...base, measuredRange: {
+        start: 2, end: 5, startTime: { value: "200", timescale: "1" },
+      } }],
+      ["contradictory measured duration", { ...base, measuredRange: {
+        start: 2, end: 5, durationTime: { value: "4", timescale: "1" },
+      } }],
+      ["zero channels", { ...base, signalFormat: { sampleRate: 48000, channels: 0 } }],
+      ["nonfinite sample rate", { ...base, signalFormat: { sampleRate: Infinity, channels: 2 } }],
+      ["malformed channel layout", { ...base, signalFormat: { sampleRate: 48000, channels: 2, channelLayout: "" } }],
+      ["invalid validity flag", { ...base, valid: "false" }],
+      ["invalid dialogue flag", { ...base, dialoguePresent: "yes" }],
+      ["invalid diagnostic type", { ...base, invalidReason: 12 }],
+      ["null response", null],
+      ["array response", []],
+      ["missing loudness", { truePeakDb: -1, silenceMs: 0 }],
+    ];
+    for (const [label, value] of cases) {
+      await t.test(label, async () => {
+        output = value;
+        const result = await client.callTool({
+          name: "audio.analyze", arguments: { mediaId: "media-semantic-1", range: { start: 2, end: 5 } },
+        });
+        assert.equal(result.isError, true, label);
+        assert.match(textFrom(result), /ANALYSIS_INVALID/);
+        const understanding = JSON.parse(textFrom(await client.callTool({
+          name: "media.understand", arguments: { mediaId: "media-semantic-1" },
+        })));
+        assert.equal(understanding.audio, undefined);
+        assert.equal(understanding.analysis.find((status: { capability: string }) => status.capability === "audio")?.status, "unavailable");
+        assert.match(understanding.analysis.find((status: { capability: string }) => status.capability === "audio")?.reason ?? "", /ANALYSIS_INVALID/);
+        assert.equal(understanding.speech.capability, "transcription-only");
+        assert.equal(understanding.speech.vadSegments, undefined);
+        assert.equal(understanding.analysis.find((status: { capability: string }) => status.capability === "speech")?.status, "analyzed");
+        assert.deepEqual(await fixture.adapter.readProject(), before);
+      });
+    }
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("media understanding does not publish provider-rejected audio as analyzed evidence", async () => {
+  const fixture = semanticFixture();
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    speechAnalyzer: new FixtureSpeechAnalyzer(),
+    audioAnalyzer: { analyze: async () => ({
+      integratedLufs: -18, truePeakDb: -1, silenceMs: 0,
+      valid: false, invalidReason: "provider could not measure the requested signal",
+    }) },
+  });
+  const result = await runtime.understandMedia("media-semantic-1");
+  assert.equal(result.audio, undefined);
+  const audio = result.analysis.find((entry) => entry.capability === "audio");
+  assert.equal(audio?.status, "unavailable");
+  assert.match(audio?.reason ?? "", /provider could not measure/);
+  assert.equal(result.analysis.find((entry) => entry.capability === "speech")?.status, "analyzed");
+});
+
+test("audio occurrence measurement retains declared source clock and signal format", async () => {
+  const fixture = semanticFixture();
+  const format = { sampleRate: 48000, channels: 2, channelLayout: "stereo" };
+  const clock = { value: "1", timescale: "48000" };
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    audioAnalyzer: { analyze: async ({ occurrenceId }) => ({
+      signalScope: "occurrence" as const, occurrenceId,
+      integratedLufs: -20, truePeakDb: -6, silenceMs: 0, dialoguePresent: true,
+      signalFormat: format, sourceTimebase: clock,
+    }) },
+  });
+  const before = await runtime.inspectProject();
+  const preview = await runtime.previewDialogueNormalization({
+    ...DIALOGUE_NORMALIZATION_DEFAULTS,
+    mediaId: "media-semantic-1", occurrenceId: "clip-semantic-1", baseRevision: before.revision,
+  });
+  assert.deepEqual(preview.measurement.signalFormat, format);
+  assert.deepEqual(preview.measurement.sourceTimebase, clock);
+  assert.equal(preview.plan.decision, "APPLY");
+  format.channels = 9;
+  clock.timescale = "1";
+  assert.equal(preview.measurement.signalFormat?.channels, 2);
+  assert.equal(preview.measurement.sourceTimebase?.timescale, "48000");
+  assert.deepEqual(await fixture.adapter.readProject(), before);
 });

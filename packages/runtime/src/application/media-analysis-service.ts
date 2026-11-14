@@ -33,6 +33,7 @@ import type { RuntimeOptions } from "./runtime-options.js";
 import { CapabilityUnavailableError } from "../domain/capabilities.js";
 import { planRoughCut } from "../planning/rough-cut.js";
 import { bindSpeechAnalysis } from "../speech/analysis.js";
+import { validateAudioAnalysisPayload } from "../audio/analysis.js";
 import { parseRational } from "../timeline/rational-time.js";
 
 export interface PostWriteAnalysisRequirements {
@@ -100,6 +101,8 @@ export class MediaAnalysisService {
       occurrenceId,
       signalScope,
       sourceIdentity: sourceIdentityOf(media),
+      ...(analysis.sourceTimebase ? { sourceTimebase: structuredClone(analysis.sourceTimebase) } : {}),
+      ...(analysis.signalFormat ? { signalFormat: structuredClone(analysis.signalFormat) } : {}),
       requestedRange,
       measuredRange,
       revision: project.revision,
@@ -180,7 +183,14 @@ export class MediaAnalysisService {
     const input = { project, media };
     const [speechResult, audioResult, noiseResult, visualResult, metadataResult] = await Promise.all([
       settle(() => this.options.speechAnalyzer ? this.analyzeSpeechForProject(project, media) : undefined),
-      settle(() => this.options.audioAnalyzer ? this.analyzeAudioForProject(project, media) : undefined),
+      settle(async () => {
+        if (!this.options.audioAnalyzer) return undefined;
+        const result = await this.analyzeAudioForProject(project, media);
+        if (result.valid === false) {
+          throw new Error(`ANALYSIS_INVALID: ${result.invalidReason?.trim() || "audio provider rejected the measurement"}`);
+        }
+        return result;
+      }),
       settle(() => this.options.noiseAnalyzer?.analyze(input)),
       settle(() => this.options.visualAnalyzer?.analyze(input)),
       settle(() => this.options.metadataAnalyzer?.analyze(input)),
@@ -516,6 +526,7 @@ export class MediaAnalysisService {
     const requestedRange = range ?? (media.duration === undefined ? undefined : { start: 0, end: media.duration });
     validateRequestedAudioRange(requestedRange, media.duration, "requested audio range");
     const analysis = await analyzer.analyze({ project, media, ...(occurrenceId ? { occurrenceId } : {}) }, requestedRange);
+    validateAudioAnalysisPayload(analysis);
     validateAudioProvenance(analysis, {
       media,
       mediaId: media.mediaId,
