@@ -157,6 +157,7 @@ function sourcePreservingEditor(f: Awaited<ReturnType<typeof fixture>>, original
       startTime: time(start), sourceStartTime: time(sourceStart), durationTime: time(duration) });
     const left = clip("selected-left", 0, 0, range.start);
     const right = clip("selected-right", range.start, range.end, 4 - range.end);
+    if (fault === "rational-source-mismatch") right.sourceStartTime = time(right.sourceStart - 0.2);
     if (fault === "wrong-source") { right.sourceStart -= 0.2; right.sourceStartTime = time(right.sourceStart); }
     const pieces = fault === "missing-piece" ? [left] : [left, right];
     if (fault === "ambiguous-piece") pieces.push({ ...right, id: "duplicate-right" });
@@ -172,7 +173,7 @@ function sourcePreservingEditor(f: Awaited<ReturnType<typeof fixture>>, original
   };
 }
 
-for (const fault of [undefined, "wrong-source", "missing-piece", "ambiguous-piece"]) {
+for (const fault of [undefined, "wrong-source", "missing-piece", "ambiguous-piece", "rational-source-mismatch"]) {
   test(`full filler Skill validates source-preserving split: ${fault ?? "valid mapping"}`, async t => {
     const f = await fixture(t); const original = await f.inspect();
     sourcePreservingEditor(f, original, fault);
