@@ -822,7 +822,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly occurrenceHandles = new Map<string, NativeFinalCutOccurrence>();
   private readonly ambiguousMediaHandles = new Set<string>();
   private readonly mediaImportDirectoryPreviews = new Map<string, NativeFinalCutMediaImportDirectoryPreviewRecord>();
-  private readonly bladePreviews = new Map<string, { occurrence: NativeFinalCutOccurrence; expiresAt: number }>();
+  private readonly bladePreviews = new Map<string, { occurrence: NativeFinalCutOccurrence; media?: NativeFinalCutMediaMatch; context: NativeFinalCutContext; live?: EditorLiveState; expiresAt: number }>();
   private readonly maskPreviews = new Map<string, {
     occurrence: NativeFinalCutOccurrence;
     mask: NativeFinalCutMaskConfiguration;
@@ -1205,11 +1205,26 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const operation = this.operations.get(operationId);
     if (!operation) throw new Error(`FINAL_CUT_NATIVE_UNDO_UNAVAILABLE: unknown operation ${operationId}`);
     if (this.latestOperationId !== operationId) throw new Error("FINAL_CUT_NATIVE_UNDO_STALE: operation is no longer the latest native edit");
+    if (operation.kind === "blade" && operation.undoDispatched) {
+      throw new Error("FINAL_CUT_NATIVE_UNDO_OUTCOME_UNCERTAIN: Blade Undo may already have been dispatched; recovery is required");
+    }
     if (operation.kind === "media-insertion" && operation.undoDispatched) {
       throw new Error("FINAL_CUT_NATIVE_UNDO_UNCERTAIN: placement Undo may already have been dispatched");
     }
     const before = await this.requireTimelineContext();
     const currentLive = await this.readLiveState();
+    if (operation.kind === "blade") {
+      const projectId = operation.beforeLive?.project?.id;
+      const sequenceId = operation.beforeLive?.sequence?.id;
+      if (!projectId || !sequenceId || operation.afterLive?.project?.id !== projectId
+        || operation.afterLive?.sequence?.id !== sequenceId || currentLive?.project?.id !== projectId
+        || currentLive?.sequence?.id !== sequenceId || before.target.projectId !== projectId
+        || before.target.sequenceId !== sequenceId || before.target.revision?.id !== currentLive?.revision.id
+        || before.target.revision?.sequence !== currentLive?.revision.sequence
+        || operation.afterLive.revision.sequence !== currentLive?.revision.sequence) {
+        throw new Error("FINAL_CUT_NATIVE_UNDO_TARGET_CHANGED: Blade target or revision is unavailable or changed");
+      }
+    }
     if (operation.kind === "media-insertion") {
       const expectedProject = operation.beforeLive?.project?.id;
       const expectedSequence = operation.beforeLive?.sequence?.id;
@@ -1237,7 +1252,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       throw new Error("FINAL_CUT_NATIVE_UNDO_COMMAND_CHANGED: Final Cut's current Undo command does not match the native edit");
     }
     try {
-      if (operation.kind === "media-insertion") {
+      if (operation.kind === "blade" || operation.kind === "media-insertion") {
         // Once invocation begins, neither an error nor stale readback proves Undo did not run.
         operation.undoDispatched = true;
         await this.executeNativeScript(undoScript(operation.undoCommand));
@@ -1250,7 +1265,11 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         });
       }
     } catch (error) {
+      if (operation.kind === "blade") throw new Error(`FINAL_CUT_NATIVE_UNDO_OUTCOME_UNCERTAIN: Blade Undo may have been applied; recovery is required: ${String(error)}`);
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
+    }
+    if (operation.kind === "blade") {
+      throw new Error("FINAL_CUT_NATIVE_UNDO_VERIFICATION_FAILED: canonical restoration and source coverage are unavailable; recovery is required");
     }
     const after = await this.requireTimelineContext();
     const afterLive = await this.waitForUndo(operation);
@@ -1808,9 +1827,11 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     }
     await this.validateOccurrenceBinding(occurrence);
     if (!context.bladeAvailable) throw new Error("FINAL_CUT_NATIVE_PLAYHEAD_OUTSIDE_OCCURRENCE: Final Cut has disabled Blade for the current selection/playhead");
+    const live = await this.readLiveState();
+    const media = this.mediaHandles.get(occurrence.mediaHandle);
     const expiresAtMs = this.now() + 30_000;
     const previewToken = opaqueHandle("blade-preview");
-    this.bladePreviews.set(previewToken, { occurrence, expiresAt: expiresAtMs });
+    this.bladePreviews.set(previewToken, { occurrence: structuredClone(occurrence), ...(media ? { media: structuredClone(media) } : {}), context: structuredClone(context), ...(live ? { live: structuredClone(live) } : {}), expiresAt: expiresAtMs });
     return {
       previewToken,
       occurrence,
@@ -1982,50 +2003,89 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (before.target.name && before.target.name !== preview.occurrence.name) {
       throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: selected timeline occurrence changed");
     }
+    this.assertBladePreviewBinding(preview, before, beforeLive);
     await this.validateOccurrenceBinding(preview.occurrence);
-    if (!before.bladeAvailable) throw new Error("FINAL_CUT_NATIVE_PLAYHEAD_OUTSIDE_OCCURRENCE: Final Cut has disabled Blade for the current selection/playhead");
+    const finalContext = await this.requireNativeWriteContext();
+    const finalLive = await this.readLiveState();
+    this.assertBladePreviewBinding(preview, finalContext, finalLive);
+    if (!finalContext.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
+    if (!finalContext.bladeAvailable) throw new Error("FINAL_CUT_NATIVE_PLAYHEAD_OUTSIDE_OCCURRENCE: Final Cut has disabled Blade for the current selection/playhead");
+    const media = this.mediaHandles.get(preview.occurrence.mediaHandle);
+    if (!preview.media || !media || media.name !== preview.occurrence.name || media.name !== preview.media.name
+      || !browserMediaIdentity(media) || browserMediaIdentity(media) !== browserMediaIdentity(preview.media)) {
+      throw new Error("FINAL_CUT_NATIVE_MEDIA_HANDLE_STALE: Blade Browser identity is unavailable or changed");
+    }
     try {
-      await this.executeNativeCommand(bladeScript(), async (recovered) => {
-        this.assertRetryContext(before, recovered, true);
-        await this.validateOccurrenceBinding(preview.occurrence);
-        if (!recovered.bladeAvailable) throw new Error("FINAL_CUT_NATIVE_PLAYHEAD_OUTSIDE_OCCURRENCE: Final Cut has disabled Blade for the current selection/playhead");
-      });
+      await this.executeNativeScript(bladeScript());
     } catch (error) {
-      throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
+      throw new Error(`FINAL_CUT_NATIVE_BLADE_OUTCOME_UNCERTAIN: Blade may have been applied; do not retry without recovery: ${String(error)}`);
     }
-    const after = await this.requireTimelineContext();
-    if (!after.frontmost) throw new Error("FINAL_CUT_NATIVE_VERIFICATION_FAILED: Final Cut changed focus during Blade");
-    const afterLive = await this.readLiveState();
-    const resultingSegments = parseOccurrences(
-      await this.executeNativeScript(locateOccurrenceScript({ handle: preview.occurrence.mediaHandle, name: preview.occurrence.name }, true)),
-      preview.occurrence.mediaHandle,
-    );
-    normalizeOccurrenceTimes(resultingSegments, afterLive?.sequence);
-    if (resultingSegments.length < 2) {
-      throw new Error("FINAL_CUT_NATIVE_VERIFICATION_FAILED: Final Cut did not expose two resulting timeline segments after Blade");
+    try {
+      const after = await this.requireTimelineContext();
+      if (!after.frontmost) throw new Error("FINAL_CUT_NATIVE_VERIFICATION_FAILED: Final Cut changed focus during Blade");
+      const afterLive = await this.readLiveState();
+      const resultingSegments = parseOccurrences(
+        await this.executeNativeScript(locateOccurrenceScript(media, true)),
+        preview.occurrence.mediaHandle,
+      );
+      normalizeOccurrenceTimes(resultingSegments, afterLive?.sequence);
+      if (resultingSegments.length < 2) {
+        throw new Error("FINAL_CUT_NATIVE_VERIFICATION_FAILED: Final Cut did not expose two resulting timeline segments after Blade");
+      }
+      const operationId = opaqueHandle("native-blade");
+      const operation = {
+        kind: "blade" as const,
+        before: finalContext,
+        after,
+        beforeLive: finalLive,
+        afterLive,
+        undoCommand: after.undoCommand,
+      } satisfies NativeOperationRecord;
+      this.rememberOperation(operationId, operation);
+      this.assertNativeRollbackReady(operationId, "Blade", operation);
+      return {
+        operationId,
+        previewToken,
+        occurrence: preview.occurrence,
+        resultingSegments,
+        before: finalContext,
+        after,
+        verification: { verified: false, detail: "Final Cut exposed UI rows after Blade; original source and canonical split remain unverified; do not retry without recovery" },
+        undoAvailable: after.undoAvailable,
+        ...(after.undoCommand ? { undoCommand: after.undoCommand } : {}),
+      };
+    } catch (error) {
+      if (error instanceof NativeFinalCutPartialMutationError) throw error;
+      throw new Error(`FINAL_CUT_NATIVE_BLADE_OUTCOME_UNCERTAIN: Blade may have been applied; do not retry without recovery: ${String(error)}`);
     }
-    const operationId = opaqueHandle("native-blade");
-    const operation = {
-      kind: "blade" as const,
-      before,
-      after,
-      beforeLive,
-      afterLive,
-      undoCommand: after.undoCommand,
-    } satisfies NativeOperationRecord;
-    this.rememberOperation(operationId, operation);
-    this.assertNativeRollbackReady(operationId, "Blade", operation);
-    return {
-      operationId,
-      previewToken,
-      occurrence: preview.occurrence,
-      resultingSegments,
-      before,
-      after,
-      verification: { verified: true, detail: "Final Cut accepted the Blade command while the target remained frontmost" },
-      undoAvailable: after.undoAvailable,
-      ...(after.undoCommand ? { undoCommand: after.undoCommand } : {}),
-    };
+  }
+
+  private assertBladePreviewBinding(
+    preview: { context: NativeFinalCutContext; live?: EditorLiveState },
+    before: NativeFinalCutContext,
+    beforeLive: EditorLiveState | undefined,
+  ): void {
+    const original = preview.live;
+    const originalScope = preview.context.target;
+    const currentScope = before.target;
+    if (!original?.project?.id || !original.sequence?.id || !original.playheadTime
+      || !beforeLive?.project?.id || !beforeLive.sequence?.id || !beforeLive.playheadTime
+      || !preview.context.playheadTime || !before.playheadTime
+      || currentScope.kind !== "selected-clip" || !originalScope.identity || currentScope.identity !== originalScope.identity
+      || currentScope.name !== originalScope.name
+      || originalScope.projectId !== original.project.id || originalScope.sequenceId !== original.sequence.id
+      || originalScope.revision?.id !== original.revision.id || originalScope.revision?.sequence !== original.revision.sequence
+      || currentScope.projectId !== beforeLive.project.id || currentScope.sequenceId !== beforeLive.sequence.id
+      || currentScope.revision?.id !== beforeLive.revision.id || currentScope.revision?.sequence !== beforeLive.revision.sequence
+      || original.project.id !== beforeLive.project.id || original.sequence.id !== beforeLive.sequence.id
+      || original.revision.id !== beforeLive.revision.id || original.revision.sequence !== beforeLive.revision.sequence
+      || compareRational(parseRationalString(preview.context.playheadTime, "preview playhead"), original.playheadTime) !== 0
+      || compareRational(parseRationalString(before.playheadTime, "current playhead"), beforeLive.playheadTime) !== 0
+      || compareRational(original.playheadTime, beforeLive.playheadTime) !== 0
+      || compareRational(original.sequence.startTime, beforeLive.sequence.startTime) !== 0
+      || compareRational(original.sequence.frameDuration, beforeLive.sequence.frameDuration) !== 0) {
+      throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: Blade target, frame grid, revision, or playhead changed or is unavailable");
+    }
   }
 
   public async previewDeleteRange(range: NativeFinalCutRange, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutRangePreview> {

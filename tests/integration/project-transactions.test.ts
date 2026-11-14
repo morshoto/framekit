@@ -241,6 +241,140 @@ test("splits an occurrence without fabricating a provider binding for the new ri
   }
 });
 
+test("previews and applies a fractional-frame split without changing another use of the source", async () => {
+  const { directory, store, initial, service } = await createService();
+  try {
+    initial.timeline.sequence.frameDuration = { value: "1001", timescale: "24000" };
+    initial.timeline.sequence.durationTime = { value: "5", timescale: "1" };
+    const first = initial.timeline.sequence.occurrences[0]!;
+    first.startTime = { value: "1001", timescale: "24000" };
+    first.durationTime = { value: "1001", timescale: "3000" };
+    first.sourceStartTime = { value: "1", timescale: "3" };
+    const repeated = {
+      id: "repeat", name: "Repeated source", track: 0, mediaId: "media-1",
+      startTime: { value: "3", timescale: "1" }, durationTime: { value: "1", timescale: "1" },
+      sourceStartTime: { value: "2", timescale: "1" },
+    };
+    initial.timeline.sequence.occurrences.push(repeated);
+    await store.save(initial);
+    const split = command(initial, "unused", [{
+      type: "split-occurrence", occurrenceId: "occurrence-1",
+      splitOffsetTime: { value: "1001", timescale: "12000" }, newOccurrenceId: "occurrence-1-right",
+    }]);
+    const preview = await service.preview(split);
+    assert.deepEqual(await store.load(), initial);
+    const [left, right, other] = preview.after.timeline.sequence.occurrences;
+    assert.equal(left?.id, "occurrence-1");
+    assert.equal(right?.id, "occurrence-1-right");
+    assert.equal(left?.mediaId, "media-1");
+    assert.equal(right?.mediaId, "media-1");
+    assert.deepEqual(left?.sourceStartTime, { value: "1", timescale: "3" });
+    assert.deepEqual(left?.durationTime, { value: "1001", timescale: "12000" });
+    assert.deepEqual(right?.sourceStartTime, { value: "1667", timescale: "4000" });
+    assert.deepEqual(right?.startTime, { value: "1001", timescale: "8000" });
+    assert.deepEqual(right?.durationTime, { value: "1001", timescale: "4000" });
+    assert.deepEqual(other, repeated);
+    assert.deepEqual(preview.after.timeline.sequence.durationTime, initial.timeline.sequence.durationTime);
+    const result = await service.execute(split);
+    assert.deepEqual(result.after.timeline.sequence.occurrences, preview.after.timeline.sequence.occurrences);
+    await assert.rejects(service.execute(split), (error: unknown) => error instanceof Error
+      && (error as Error & { code?: string }).code === "PROJECT_EDIT_STALE_REVISION");
+    assert.deepEqual(await store.load(), result.after);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("split preview uses an explicit nonzero fractional frame grid without rounding", async () => {
+  const { directory, store, initial, service } = await createService();
+  try {
+    initial.timeline.sequence.frameDuration = { value: "1001", timescale: "24000" };
+    initial.timeline.sequence.frameGridOrigin = { value: "1001", timescale: "48000" };
+    const occurrence = initial.timeline.sequence.occurrences[0]!;
+    occurrence.startTime = { value: "3003", timescale: "48000" };
+    occurrence.durationTime = { value: "1001", timescale: "3000" };
+    occurrence.sourceStartTime = { value: "1", timescale: "3" };
+    await store.save(initial);
+    const split = (offset: { value: string; timescale: string }) => command(initial, "unused", [{
+      type: "split-occurrence", occurrenceId: "occurrence-1", splitOffsetTime: offset, newOccurrenceId: "right",
+    }]);
+    const invalid = split({ value: "1001", timescale: "48000" });
+    await assert.rejects(service.preview(invalid), /frame.*align/i);
+    await assert.rejects(service.execute(invalid), /frame.*align/i);
+    assert.deepEqual(await store.load(), initial);
+    const valid = split({ value: "1001", timescale: "12000" });
+    const preview = await service.preview(valid);
+    const result = await service.execute(valid);
+    assert.deepEqual(result.after.timeline.sequence.occurrences, preview.after.timeline.sequence.occurrences);
+    assert.deepEqual(result.after.timeline.sequence.occurrences[1]!.sourceStartTime, { value: "1667", timescale: "4000" });
+    assert.deepEqual(result.after.timeline.sequence.frameGridOrigin, initial.timeline.sequence.frameGridOrigin);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("rejects splitting clips with fades before changing the project", async () => {
+  for (const fade of [{ fadeIn: 0.25 }, { fadeOut: 0.25 }]) {
+    const { directory, store, initial, service } = await createService();
+    try {
+      Object.assign(initial.timeline.sequence.occurrences[0]!, fade);
+      await store.save(initial);
+      const split = command(initial, "unused", [{
+        type: "split-occurrence",
+        occurrenceId: "occurrence-1",
+        splitOffsetTime: { value: "1", timescale: "2" },
+        newOccurrenceId: "occurrence-1-right",
+      }]);
+      await assert.rejects(service.preview(split), /fade/i);
+      await assert.rejects(service.execute(split), /fade/i);
+      assert.deepEqual(await store.load(), initial);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+});
+
+test("rejects a split when a connected occurrence cannot be safely remapped", async () => {
+  const { directory, store, initial, service } = await createService();
+  try {
+    initial.timeline.sequence.occurrences.push({
+      id: "connected", name: "Connected", track: 1, mediaId: "media-1",
+      startTime: { value: "1", timescale: "1" }, durationTime: { value: "1", timescale: "2" },
+      attachedTo: "occurrence-1",
+    });
+    await store.save(initial);
+    const split = command(initial, "unused", [{
+      type: "split-occurrence", occurrenceId: "occurrence-1",
+      splitOffsetTime: { value: "1", timescale: "2" }, newOccurrenceId: "occurrence-1-right",
+    }]);
+    await assert.rejects(service.preview(split), /attach|connect/i);
+    await assert.rejects(service.execute(split), /attach|connect/i);
+    assert.deepEqual(await store.load(), initial);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("rejects splitting an occurrence referenced by a story element", async () => {
+  const { directory, store, initial, service } = await createService();
+  try {
+    initial.timeline.sequence.storyElements.push({
+      id: "story-1", kind: "clip", occurrenceId: "occurrence-1",
+      startTime: { value: "0", timescale: "1" }, durationTime: { value: "2", timescale: "1" },
+    });
+    await store.save(initial);
+    const split = command(initial, "unused", [{
+      type: "split-occurrence", occurrenceId: "occurrence-1",
+      splitOffsetTime: { value: "1", timescale: "2" }, newOccurrenceId: "occurrence-1-right",
+    }]);
+    await assert.rejects(service.preview(split), /story element/i);
+    await assert.rejects(service.execute(split), /story element/i);
+    assert.deepEqual(await store.load(), initial);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("moves and removes occurrences while preserving deterministic order", async () => {
   const { directory, initial, service } = await createService();
   try {

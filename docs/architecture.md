@@ -76,7 +76,24 @@ validation and reconciliation contracts beyond this gate's scope.
 Operations bind to stable project and sequence identities,
 revision, and the affected media or occurrence identity when applicable.
 `TimelineTarget` carries those stable identities and revision; rational
-`frameDuration` and timeline times preserve frame-accurate values.
+`frameDuration` and timeline times preserve frame-accurate values. An explicit
+FCPXML sequence `tcStart` is retained as `timecodeStart` in snapshots and
+Timeline IR; absence remains unknown. Explicit nonzero timecode origins cannot
+yet be compiled or rendered from Timeline IR because their handling is not established. This
+artifact value is not proof of the live sequence origin or target freshness.
+Timeline targets can bind a provider-supplied `frameGridOrigin` in sequence
+coordinates; resolution and readback reject a changed origin or frame duration.
+They also reject a change in whether the origin was supplied, including an
+explicit zero becoming absent. The target's presence marker records only what
+the snapshot supplied; it does not establish independent native observation.
+Snapshots without that field retain the existing zero-origin targeting policy,
+which is not evidence of a live Final Cut frame grid. FCPXML `tcStart` is not
+automatically treated as `frameGridOrigin`.
+Timeline IR retains a supplied grid origin and rejects split points off that
+grid using exact rational arithmetic. Without an explicit grid origin, the
+existing generic split behavior remains unchanged; it is not native frame-grid
+proof. Nonzero grid origins are not yet supported by FCPXML compilation or the
+headless renderer.
 `playheadTime` describes the editor playhead; it is not a substitute for a
 stable target or timeline revision. Read-after-write verifies a mutation
 against the same target and revision contract. Canonical native rename, trim,
@@ -105,6 +122,17 @@ Equal-named Browser items are distinguishable only when every candidate has an
 observed source and exactly one matches the canonical path.
 An incomplete Accessibility occurrence scan fails rather than treating its
 partial results as a complete or unique match.
+Direct Blade execution checks the previewed project, sequence, revision,
+selected UI identity, frame timing and playhead again before dispatch. A
+command or readback failure after dispatch is reported as an uncertain Blade
+outcome without automatically retrying it.
+The Browser handle must remain available and unchanged for the post-command UI
+scan. That scan is name-based and its result is explicitly unverified; the
+Browser identity is not evidence of the timeline occurrence's original source.
+Blade Undo checks the original project and sequence. Once dispatched, it remains
+unverified and requires recovery because canonical restoration and source
+coverage cannot currently be read back; the in-process operation cannot retry.
+These checks do not establish canonical source binding or verified split/Undo.
 
 The current source-binding decision is **NO-GO** for the bundled adapter:
 
@@ -329,6 +357,9 @@ result of its dispatch step.
 ## Persistence and synchronization
 
 Framekit-owned projects persist provider-neutral Timeline IR and revision history.
+Timeline IR split operations reject occurrences with fades, connected occurrences,
+or story-element references until those relationships can be preserved across
+both results.
 External editor state is synchronized through an adapter and reconciled
 against the bound revision before applying edits. A conflict, stale revision,
 or uncertain source state blocks materialization and publication until the

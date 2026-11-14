@@ -90,3 +90,25 @@ test("missing original media paths are not invented from resource names or IDs",
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("FCPXML snapshots preserve explicit sequence timecode origin without inventing one", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-sequence-origin-"));
+  try {
+    const read = async (attribute: string) => {
+      const path = join(directory, attribute ? "explicit.fcpxml" : "missing.fcpxml");
+      await writeFile(path, `<fcpxml version="1.11"><resources><format id="f" frameDuration="1001/24000s"/><asset id="a" duration="2s" hasVideo="1"><media-rep kind="original-media" src="file:///fixtures/a.mov"/></asset></resources><library><event><project uid="project" name="QA"><sequence uid="sequence" format="f" duration="2s" ${attribute}><spine><asset-clip ref="a" offset="3600s" start="0s" duration="2s"/></spine></sequence></project></event></library></fcpxml>`);
+      return new FcpxmlDocumentAdapter(path).readProject();
+    };
+    const explicit = await read('tcStart="3600s"');
+    const missing = await read("");
+    assert.deepEqual(explicit.timeline.timecodeStart, { value: "3600", timescale: "1" });
+    assert.equal(missing.timeline.timecodeStart, undefined);
+    assert.notEqual(canonicalSnapshotDigest(explicit), canonicalSnapshotDigest(missing));
+    const { createTimelineIrFromProjectSnapshot } = await import("@framekit/runtime");
+    assert.deepEqual(createTimelineIrFromProjectSnapshot(explicit).sequence.timecodeStart, { value: "3600", timescale: "1" });
+    assert.equal(createTimelineIrFromProjectSnapshot(missing).sequence.timecodeStart, undefined);
+    await assert.rejects(read('tcStart="bad"'), /FCPXML_INVALID_TIME/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

@@ -145,6 +145,10 @@ export interface TimelineIr {
     id: string;
     name: string;
     durationTime: RationalTime;
+    /** Explicit source timecode origin; absence is not a zero-origin assertion. */
+    timecodeStart?: RationalTime;
+    /** Provider-supplied origin for the sequence-coordinate frame grid. */
+    frameGridOrigin?: RationalTime;
     frameDuration: RationalTime;
     occurrences: TimelineIrOccurrence[];
     storyElements: TimelineIrStoryElement[];
@@ -463,6 +467,8 @@ export function createTimelineIrFromProjectSnapshot(
       id: snapshot.timeline.id,
       name: snapshot.timeline.name,
       durationTime: requiredRational(snapshot.timeline.durationTime, "timeline durationTime"),
+      ...(snapshot.timeline.timecodeStart ? { timecodeStart: normalizeRationalTime(snapshot.timeline.timecodeStart) } : {}),
+      ...(snapshot.timeline.frameGridOrigin ? { frameGridOrigin: normalizeRationalTime(snapshot.timeline.frameGridOrigin) } : {}),
       frameDuration: requiredRational(snapshot.timeline.frameDuration, "timeline frameDuration"),
       occurrences,
       storyElements,
@@ -493,6 +499,8 @@ export function validateTimelineIr(timeline: TimelineIr): void {
   requireText(timeline.sequence?.id, "sequence.id");
   requireText(timeline.sequence?.name, "sequence.name");
   validateRational(timeline.sequence.durationTime, "sequence.durationTime", false);
+  if (timeline.sequence.timecodeStart) parseRational(timeline.sequence.timecodeStart, "TIMELINE_IR_INVALID");
+  if (timeline.sequence.frameGridOrigin) parseRational(timeline.sequence.frameGridOrigin, "TIMELINE_IR_INVALID");
   validateRational(timeline.sequence.frameDuration, "sequence.frameDuration", true);
   validateRevision(timeline.revision);
   validateBinding(timeline.project.binding, "project.binding");
@@ -695,6 +703,15 @@ function applyOperation(timeline: TimelineIr, operation: TimelineIrEditOperation
       canonicalizeOccurrences(timeline);
       return;
     case "split-occurrence": {
+      if (occurrence!.fadeIn !== undefined || occurrence!.fadeOut !== undefined) {
+        throw new Error("TIMELINE_IR_OPERATION_INVALID: splitting an occurrence with fades is unsupported");
+      }
+      if (occurrence!.attachedTo || timeline.sequence.occurrences.some((item) => item.attachedTo === occurrenceId)) {
+        throw new Error("TIMELINE_IR_OPERATION_INVALID: splitting attached occurrences is unsupported");
+      }
+      if (timeline.sequence.storyElements.some((element) => element.occurrenceId === occurrenceId || element.attachedTo === occurrenceId)) {
+        throw new Error("TIMELINE_IR_OPERATION_INVALID: splitting an occurrence referenced by a story element is unsupported");
+      }
       requireText(operation.newOccurrenceId, "operation.newOccurrenceId");
       if (timeline.sequence.occurrences.some(({ id }) => id === operation.newOccurrenceId)) {
         throw new Error(`TIMELINE_IR_OPERATION_INVALID: occurrence already exists: ${operation.newOccurrenceId}`);
@@ -703,6 +720,14 @@ function applyOperation(timeline: TimelineIr, operation: TimelineIrEditOperation
       validateRational(splitOffsetTime, "operation.splitOffsetTime", true);
       if (compareRational(splitOffsetTime, occurrence!.durationTime) >= 0) {
         throw new Error("TIMELINE_IR_OPERATION_INVALID: splitOffsetTime must be inside the occurrence duration");
+      }
+      if (timeline.sequence.frameGridOrigin) {
+        const cut = addRationalTimes(occurrence!.startTime, splitOffsetTime, "TIMELINE_IR_OPERATION_INVALID");
+        const delta = parseRational(subtractRationalTimes(cut, timeline.sequence.frameGridOrigin, "TIMELINE_IR_OPERATION_INVALID"), "TIMELINE_IR_OPERATION_INVALID");
+        const frame = parseRational(timeline.sequence.frameDuration, "TIMELINE_IR_OPERATION_INVALID");
+        if ((delta.value * frame.timescale) % (delta.timescale * frame.value) !== 0n) {
+          throw new Error("TIMELINE_IR_OPERATION_INVALID: split point is not frame aligned");
+        }
       }
       const right = structuredClone(occurrence!);
       right.id = operation.newOccurrenceId;

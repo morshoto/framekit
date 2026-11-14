@@ -964,7 +964,7 @@ test("native range mutation establishes operation Undo after the first command",
   assert.deepEqual((await liveState()).sequence.duration, { value: "20", timescale: "1" });
 });
 
-test("native Blade undo uses Final Cut's Undo Blade command", async () => {
+test("native Blade undo requires canonical restoration even when revision advances", async () => {
   const recordSeparator = String.fromCharCode(30);
   const scripts: string[] = [];
   let bladed = false;
@@ -993,17 +993,210 @@ test("native Blade undo uses Final Cut's Undo Blade command", async () => {
       return "";
     },
   });
-  const media = { handle: "media-1", name: "Interview" };
+  const media = { handle: "media-1", name: "Interview", sourceIdentity: "browser-source" };
   const occurrence = { handle: "occurrence-1", mediaHandle: media.handle, name: media.name };
   (adapter as unknown as { mediaHandles: Map<string, unknown>; occurrenceHandles: Map<string, unknown> }).mediaHandles.set(media.handle, media);
   (adapter as unknown as { mediaHandles: Map<string, unknown>; occurrenceHandles: Map<string, unknown> }).occurrenceHandles.set(occurrence.handle, occurrence);
   const preview = await adapter.previewBlade(occurrence.handle);
   const result = await adapter.executeBlade(preview.previewToken);
   assert.equal(result.undoCommand, "Undo Blade");
-  const undone = await adapter.undo(result.operationId);
-  assert.equal(undone.undone, true);
-  assert.equal(undone.verification.verified, true);
-  assert.equal(scripts.some((script) => script.includes('click menu item "Undo Blade" of menu "Edit"')), true);
+  await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_VERIFICATION_FAILED:.*canonical.*recovery/i);
+  await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_OUTCOME_UNCERTAIN/);
+  assert.equal(scripts.filter((script) => script.includes('click menu item "Undo Blade" of menu "Edit"')).length, 1);
+});
+
+test("native Blade passes the Browser identity to its post-command scan", async () => {
+  let bladed = false;
+  const current = boundNativeLiveState();
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => structuredClone(current),
+    executor: async (script) => {
+      if (script.includes('click menu item "Blade" of menu "Trim"')) {
+        bladed = true;
+        current.revision = { ...current.revision, id: "rev-2", sequence: 2 };
+      }
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, bladed ? "Undo Blade" : "Undo Existing Change");
+      if (script.includes("collectTimelineClipMatches")) {
+        if (!script.includes('set sourceIdentity to "browser-source"')) throw new Error("FINAL_CUT_NATIVE_MEDIA_ID_UNAVAILABLE: timeline lookup requires a shared source-media identifier");
+        return `Interview${separator}AXRow${separator}${separator}800${separator}0/1${separator}10/1${String.fromCharCode(30)}Interview${separator}AXRow${separator}${separator}900${separator}10/1${separator}10/1${String.fromCharCode(30)}`;
+      }
+      return "";
+    },
+  });
+  const occurrence = { handle: "occurrence-1", mediaHandle: "media-1", name: "Interview" };
+  const state = adapter as unknown as { occurrenceHandles: Map<string, unknown>; mediaHandles: Map<string, unknown> };
+  state.occurrenceHandles.set(occurrence.handle, occurrence);
+  state.mediaHandles.set("media-1", { handle: "media-1", name: "Interview", sourceIdentity: "browser-source" });
+  const preview = await adapter.previewBlade(occurrence.handle);
+  const result = await adapter.executeBlade(preview.previewToken);
+  assert.equal(result.verification.verified, false);
+  assert.match(result.verification.detail, /source.*unverified/i);
+  assert.match(result.verification.detail, /do not retry.*recovery/i);
+});
+
+test("native Blade rejects missing Browser identity before dispatch", async () => {
+  let bladeCalls = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => boundNativeLiveState(),
+    executor: async (script) => {
+      if (script.includes('click menu item "Blade"')) bladeCalls++;
+      return script.includes('set frontWindow to window "Final Cut Pro"') ? context(true, "Final Cut Pro", "Interview", 1, true) : "";
+    },
+  });
+  const occurrence = { handle: "occurrence-1", mediaHandle: "media-1", name: "Interview" };
+  (adapter as unknown as { occurrenceHandles: Map<string, unknown> }).occurrenceHandles.set(occurrence.handle, occurrence);
+  const preview = await adapter.previewBlade(occurrence.handle);
+  await assert.rejects(adapter.executeBlade(preview.previewToken), /FINAL_CUT_NATIVE_MEDIA_HANDLE_STALE/);
+  assert.equal(bladeCalls, 0);
+});
+
+test("native Blade rejects a changed Browser identity after preview", async () => {
+  let bladeCalls = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => boundNativeLiveState(),
+    executor: async (script) => {
+      if (script.includes('click menu item "Blade"')) bladeCalls++;
+      return script.includes('set frontWindow to window "Final Cut Pro"') ? context(true, "Final Cut Pro", "Interview", 1, true) : "";
+    },
+  });
+  const occurrence = { handle: "occurrence-1", mediaHandle: "media-1", name: "Interview" };
+  const state = adapter as unknown as { occurrenceHandles: Map<string, unknown>; mediaHandles: Map<string, unknown> };
+  state.occurrenceHandles.set(occurrence.handle, occurrence);
+  state.mediaHandles.set("media-1", { handle: "media-1", name: "Interview", sourceIdentity: "browser-source" });
+  const preview = await adapter.previewBlade(occurrence.handle);
+  state.mediaHandles.set("media-1", { handle: "media-1", name: "Interview", sourceIdentity: "different-source" });
+  await assert.rejects(adapter.executeBlade(preview.previewToken), /FINAL_CUT_NATIVE_MEDIA_HANDLE_STALE/);
+  assert.equal(bladeCalls, 0);
+});
+
+test("native Blade reports recovery required when post-dispatch readback fails", async () => {
+  for (const mode of ["scan-error", "incomplete-result"] as const) {
+    let bladeCalls = 0;
+    let bladed = false;
+    const current = boundNativeLiveState();
+    const adapter = new FinalCutNativeAutomationAdapter({
+      enabled: true,
+      liveState: async () => structuredClone(current),
+      executor: async (script) => {
+        if (script.includes('click menu item "Blade" of menu "Trim"')) {
+          bladeCalls++;
+          bladed = true;
+          current.revision = { ...current.revision, id: "rev-2", sequence: 2 };
+        }
+        if (script.includes('set frontWindow to window "Final Cut Pro"')) {
+          return context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, bladed ? "Undo Blade" : "Undo Existing Change");
+        }
+        if (script.includes("collectTimelineClipMatches")) {
+          if (mode === "scan-error") throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_SCAN_INCOMPLETE: inaccessible node");
+          return `Interview${separator}AXRow${separator}${separator}800${separator}0/1${separator}10/1${String.fromCharCode(30)}`;
+        }
+        return "";
+      },
+    });
+    const occurrence = { handle: "occurrence-1", mediaHandle: "media-1", name: "Interview" };
+    const state = adapter as unknown as { occurrenceHandles: Map<string, unknown>; mediaHandles: Map<string, unknown> };
+    state.occurrenceHandles.set(occurrence.handle, occurrence);
+    state.mediaHandles.set("media-1", { handle: "media-1", name: "Interview", sourceIdentity: "browser-source" });
+    const preview = await adapter.previewBlade(occurrence.handle);
+    await assert.rejects(adapter.executeBlade(preview.previewToken), /BLADE_OUTCOME_UNCERTAIN.*do not retry.*(?:SCAN_INCOMPLETE|VERIFICATION_FAILED)/, mode);
+    assert.equal(bladeCalls, 1, mode);
+    await assert.rejects(adapter.executeBlade(preview.previewToken), /PREVIEW_STALE/, mode);
+  }
+});
+
+test("native Blade preserves structured recovery details when Undo is unbound", async () => {
+  const current = boundNativeLiveState();
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => structuredClone(current),
+    executor: async (script) => {
+      if (script.includes('click menu item "Blade" of menu "Trim"')) current.revision = { ...current.revision, id: "rev-2", sequence: 2 };
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, "Undo Existing Change");
+      if (script.includes("collectTimelineClipMatches")) return `Interview${separator}AXRow${separator}${separator}800${separator}0/1${separator}10/1${String.fromCharCode(30)}Interview${separator}AXRow${separator}${separator}900${separator}10/1${separator}10/1${String.fromCharCode(30)}`;
+      return "";
+    },
+  });
+  const occurrence = { handle: "occurrence-1", mediaHandle: "media-1", name: "Interview" };
+  const state = adapter as unknown as { occurrenceHandles: Map<string, unknown>; mediaHandles: Map<string, unknown> };
+  state.occurrenceHandles.set(occurrence.handle, occurrence);
+  state.mediaHandles.set("media-1", { handle: "media-1", name: "Interview", sourceIdentity: "browser-source" });
+  const preview = await adapter.previewBlade(occurrence.handle);
+  await assert.rejects(adapter.executeBlade(preview.previewToken), (error: unknown) => {
+    assert.ok(error instanceof NativeFinalCutPartialMutationError);
+    assert.equal(error.details.safeToRetry, false);
+    assert.ok(error.details.operationId);
+    return true;
+  });
+});
+
+test("native Blade Undo rejects another project or sequence before dispatch", async () => {
+  for (const change of ["project", "sequence"] as const) {
+    let bladed = false;
+    let undoCalls = 0;
+    const current = boundNativeLiveState();
+    const adapter = new FinalCutNativeAutomationAdapter({
+      enabled: true,
+      liveState: async () => structuredClone(current),
+      executor: async (script) => {
+        if (script.includes('click menu item "Blade" of menu "Trim"')) {
+          bladed = true;
+          current.revision = { ...current.revision, id: "rev-2", sequence: 2 };
+        }
+        if (script.includes('click menu item "Undo Blade"')) undoCalls++;
+        if (script.includes('set frontWindow to window "Final Cut Pro"')) {
+          return context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, bladed ? "Undo Blade" : "Undo Existing Change");
+        }
+        if (script.includes("collectTimelineClipMatches")) return `Interview${separator}AXRow${separator}source${separator}800${separator}0/1${separator}10/1${String.fromCharCode(30)}Interview${separator}AXRow${separator}source${separator}900${separator}10/1${separator}10/1${String.fromCharCode(30)}`;
+        return "";
+      },
+    });
+    const occurrence = { handle: "occurrence-1", mediaHandle: "media-1", name: "Interview" };
+    (adapter as unknown as { occurrenceHandles: Map<string, unknown> }).occurrenceHandles.set(occurrence.handle, occurrence);
+    (adapter as unknown as { mediaHandles: Map<string, unknown> }).mediaHandles.set("media-1", { handle: "media-1", name: "Interview", sourceIdentity: "browser-source" });
+    const preview = await adapter.previewBlade(occurrence.handle);
+    const result = await adapter.executeBlade(preview.previewToken);
+    if (change === "project") current.project.id = "other-project";
+    else current.sequence.id = "other-sequence";
+    await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_TARGET_CHANGED/, change);
+    assert.equal(undoCalls, 0, change);
+  }
+});
+
+test("native Blade Undo is never replayed after an uncertain dispatch", async () => {
+  let bladed = false;
+  let undoCalls = 0;
+  const current = boundNativeLiveState();
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => structuredClone(current),
+    executor: async (script) => {
+      if (script.includes('click menu item "Blade" of menu "Trim"')) {
+        bladed = true;
+        current.revision = { ...current.revision, id: "rev-2", sequence: 2 };
+      }
+      if (script.includes('click menu item "Undo Blade"')) {
+        undoCalls++;
+        throw new Error("execution error: Final Cut is not frontmost (-1719)");
+      }
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) {
+        return context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, bladed ? "Undo Blade" : "Undo Existing Change");
+      }
+      if (script.includes("collectTimelineClipMatches")) return `Interview${separator}AXRow${separator}source${separator}800${separator}0/1${separator}10/1${String.fromCharCode(30)}Interview${separator}AXRow${separator}source${separator}900${separator}10/1${separator}10/1${String.fromCharCode(30)}`;
+      return "";
+    },
+  });
+  const occurrence = { handle: "occurrence-1", mediaHandle: "media-1", name: "Interview" };
+  (adapter as unknown as { occurrenceHandles: Map<string, unknown> }).occurrenceHandles.set(occurrence.handle, occurrence);
+    (adapter as unknown as { mediaHandles: Map<string, unknown> }).mediaHandles.set("media-1", { handle: "media-1", name: "Interview", sourceIdentity: "browser-source" });
+  const preview = await adapter.previewBlade(occurrence.handle);
+  const result = await adapter.executeBlade(preview.previewToken);
+  await assert.rejects(adapter.undo(result.operationId), /UNDO_OUTCOME_UNCERTAIN.*-1719/);
+  assert.equal(undoCalls, 1);
+  await assert.rejects(adapter.undo(result.operationId), /UNDO_OUTCOME_UNCERTAIN/);
+  assert.equal(undoCalls, 1);
 });
 
 test("native edit fails closed when operation Undo is unavailable after mutation", async () => {
@@ -2271,7 +2464,7 @@ test("native Final Cut adapter searches, locates, previews, and verifies a Blade
   const preview = await adapter.previewBlade(occurrences.occurrences[0].handle);
   assert.equal(preview.command, "Blade at playhead");
   const result = await adapter.executeBlade(preview.previewToken);
-  assert.equal(result.verification.verified, true);
+  assert.equal(result.verification.verified, false);
   assert.equal(result.resultingSegments.length, 2);
   assert.deepEqual(result.resultingSegments.map(({ start, duration }) => ({ start, duration })), [
     { start: "0/1", duration: "5/24" },
@@ -3088,6 +3281,84 @@ test("native Final Cut refuses a Blade write without live target scope", async (
 
   const preview = await adapter.previewBlade(occurrence.handle);
   await assert.rejects(adapter.executeBlade(preview.previewToken), /FINAL_CUT_NATIVE_TARGET_BINDING_UNAVAILABLE/);
+  assert.equal(bladeCalls, 0);
+});
+
+test("native Blade rejects changed preview scope and playhead before dispatch", async () => {
+  for (const change of ["playhead", "project", "sequence", "revision", "selection"] as const) {
+    let bladeCalls = 0;
+    let current = boundNativeLiveState();
+    let identity = "clip-1";
+    const adapter = new FinalCutNativeAutomationAdapter({
+      enabled: true,
+      liveState: async () => structuredClone(current),
+      executor: async (script) => {
+        if (script.includes('click menu item "Blade"')) bladeCalls++;
+        return script.includes('set frontWindow to window "Final Cut Pro"')
+          ? context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, "Undo", identity)
+          : "";
+      },
+    });
+    const occurrence = { handle: "occurrence-1", mediaHandle: "media-1", name: "Interview" };
+    (adapter as unknown as { occurrenceHandles: Map<string, unknown> }).occurrenceHandles.set(occurrence.handle, occurrence);
+    const preview = await adapter.previewBlade(occurrence.handle);
+    if (change === "playhead") current.playheadTime = { value: "1", timescale: "1" };
+    if (change === "project") current.project.id = "project-2";
+    if (change === "sequence") current.sequence.id = "sequence-2";
+    if (change === "revision") current.revision = { ...current.revision, id: "rev-2", sequence: 2 };
+    if (change === "selection") identity = "clip-2";
+    await assert.rejects(adapter.executeBlade(preview.previewToken), /FINAL_CUT_NATIVE_PREVIEW_STALE/, change);
+    assert.equal(bladeCalls, 0, change);
+  }
+});
+
+test("native Blade never retries an uncertain dispatched command", async () => {
+  let bladeCalls = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => boundNativeLiveState(),
+    executor: async (script) => {
+      if (script.includes('click menu item "Blade"')) {
+        bladeCalls++;
+        throw new Error("execution error: Final Cut is not frontmost (-1719)");
+      }
+      return script.includes('set frontWindow to window "Final Cut Pro"')
+        ? context(true, "Final Cut Pro", "Interview", 1, true)
+        : "";
+    },
+  });
+  const occurrence = { handle: "occurrence-1", mediaHandle: "media-1", name: "Interview" };
+  (adapter as unknown as { occurrenceHandles: Map<string, unknown> }).occurrenceHandles.set(occurrence.handle, occurrence);
+    (adapter as unknown as { mediaHandles: Map<string, unknown> }).mediaHandles.set("media-1", { handle: "media-1", name: "Interview", sourceIdentity: "browser-source" });
+  const preview = await adapter.previewBlade(occurrence.handle);
+  await assert.rejects(adapter.executeBlade(preview.previewToken), /BLADE_OUTCOME_UNCERTAIN.*do not retry.*-1719/);
+  assert.equal(bladeCalls, 1);
+  await assert.rejects(adapter.executeBlade(preview.previewToken), /PREVIEW_STALE/);
+});
+
+test("native Blade rechecks the playhead after occurrence validation", async () => {
+  let executing = false;
+  let executionReads = 0;
+  let bladeCalls = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => {
+      const state = boundNativeLiveState();
+      state.playheadTime = { value: executing && ++executionReads >= 4 ? "2" : "1", timescale: "1" };
+      return state;
+    },
+    executor: async (script) => {
+      if (script.includes('click menu item "Blade"')) bladeCalls++;
+      return script.includes('set frontWindow to window "Final Cut Pro"')
+        ? context(true, "Final Cut Pro", "Interview", 1, true)
+        : "";
+    },
+  });
+  const occurrence = { handle: "occurrence-1", mediaHandle: "media-1", name: "Interview", revision: "rev-1", sequenceId: "sequence-1", start: "0/1", duration: "10/1" };
+  (adapter as unknown as { occurrenceHandles: Map<string, unknown> }).occurrenceHandles.set(occurrence.handle, occurrence);
+  const preview = await adapter.previewBlade(occurrence.handle);
+  executing = true;
+  await assert.rejects(adapter.executeBlade(preview.previewToken), /FINAL_CUT_NATIVE_PREVIEW_STALE/);
   assert.equal(bladeCalls, 0);
 });
 

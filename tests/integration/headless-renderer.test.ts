@@ -511,6 +511,27 @@ test("FFmpeg renderer reports unsupported required semantics before rendering", 
   assert.throws(() => createFramekitRenderPlan(request, renderer.capabilities(request)), /RENDER_CAPABILITY_UNAVAILABLE/);
 });
 
+test("FFmpeg renderer rejects an explicit nonzero sequence timecode origin", () => {
+  const source = timelineWithoutMedia();
+  const renderer = new FfmpegTimelineRenderer();
+  const capabilities = () => {
+    const request = createFramekitRenderRequest({
+      timeline: source,
+      target: { projectId: source.project.id, sequenceId: source.sequence.id },
+      parameters: parameters("/tmp/origin.mp4"),
+    });
+    return renderer.capabilities(request);
+  };
+
+  source.sequence.timecodeStart = { value: "0", timescale: "30" };
+  assert.equal(capabilities().features["structural-edits"], "supported");
+  source.sequence.timecodeStart = { value: "3600", timescale: "1" };
+  assert.equal(capabilities().features["structural-edits"], "unsupported");
+  source.sequence.timecodeStart = { value: "0", timescale: "1" };
+  source.sequence.frameGridOrigin = { value: "1", timescale: "48" };
+  assert.equal(capabilities().features["structural-edits"], "unsupported");
+});
+
 test("FFmpeg renderer commits no-clobber output atomically", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-renderer-output-race-"));
   try {

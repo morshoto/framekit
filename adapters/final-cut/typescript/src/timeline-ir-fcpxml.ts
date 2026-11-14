@@ -101,6 +101,12 @@ export function compileTimelineIrToFcpxml(
   options: TimelineIrToFcpxmlOptions,
 ): TimelineIrToFcpxmlResult {
   validateTimelineIr(timeline);
+  if (timeline.sequence.timecodeStart && parseExactRational(timeline.sequence.timecodeStart).value !== 0n) {
+    throw new Error("FCPXML_UNSUPPORTED_TIMELINE_FEATURE: nonzero timecode origin requires verified frame-grid handling");
+  }
+  if (timeline.sequence.frameGridOrigin && parseExactRational(timeline.sequence.frameGridOrigin).value !== 0n) {
+    throw new Error("FCPXML_UNSUPPORTED_TIMELINE_FEATURE: nonzero frame-grid origin requires verified handling");
+  }
   const version = options.version ?? FRAMEKIT_FCPXML_VERSION;
   if (version !== FRAMEKIT_FCPXML_VERSION) {
     throw new Error(`FCPXML_VERSION_UNSUPPORTED: ${String(version)}`);
@@ -152,7 +158,7 @@ export function compileTimelineIrToFcpxml(
     "  <library>",
     `    <event uid="${xmlEscape(options.target.eventUid)}" name="${xmlEscape(options.target.eventName ?? "Framekit Event")}">`,
     `      <project uid="${xmlEscape(destination.projectUid)}" name="${xmlEscape(destination.projectName)}">`,
-    `        <sequence format="${formatId}" duration="${formatRational(timeline.sequence.durationTime, "sequence.durationTime")}">`,
+    `        <sequence format="${formatId}" duration="${formatRational(timeline.sequence.durationTime, "sequence.durationTime")}"${timeline.sequence.timecodeStart ? ` tcStart="${formatRational(timeline.sequence.timecodeStart, "sequence.timecodeStart")}"` : ""}>`,
     "          <spine>",
     ...renderElements(elements),
     "          </spine>",
