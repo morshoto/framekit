@@ -16,6 +16,7 @@ import type {
   NoiseAnalysis,
   NoiseMeasurement,
   SpeechAnalysis,
+  SpeechOccurrenceMapping,
   RevisionBoundSpeechAnalysis,
   TimelineSemanticContext,
   TimelineSemanticContextQuery,
@@ -33,8 +34,9 @@ import type { RuntimeOptions } from "./runtime-options.js";
 import { CapabilityUnavailableError } from "../domain/capabilities.js";
 import { planRoughCut } from "../planning/rough-cut.js";
 import { bindSpeechAnalysis } from "../speech/analysis.js";
+import { mapSpeechAnalysisToOccurrence } from "../speech/mapping.js";
 import { validateAudioAnalysisPayload, validateAudioAnalysisRange } from "../audio/analysis.js";
-import { parseRational } from "../timeline/rational-time.js";
+import { addRationalTimes, parseRational } from "../timeline/rational-time.js";
 
 export interface PostWriteAnalysisRequirements {
   speech?: boolean;
@@ -292,7 +294,9 @@ export class MediaAnalysisService {
     const sourceDuration = clip.durationTime ? rationalSeconds(clip.durationTime) : clip.duration;
     const sourceRange: TimeRange = {
       start: sourceStart,
-      end: sourceStart + sourceDuration,
+      end: clip.sourceStartTime && clip.durationTime
+        ? rationalSeconds(addRationalTimes(clip.sourceStartTime, clip.durationTime))
+        : sourceStart + sourceDuration,
       ...(clip.sourceStartTime ? { startTime: structuredClone(clip.sourceStartTime) } : {}),
       durationTime: structuredClone(clip.durationTime),
     };
@@ -320,6 +324,14 @@ export class MediaAnalysisService {
     if (!understanding) {
       return unavailableTimelineOccurrence(clip.id, "source-bound semantic index entry is unavailable", clip.mediaId, sourceRange, sourceIdentity);
     }
+    let speechMapping: SpeechOccurrenceMapping | undefined;
+    if (query.includeSpeechMappings) {
+      try {
+        speechMapping = mapTimelineSpeech(understanding, project, media, clip, sourceRange);
+      } catch (error) {
+        return unavailableTimelineOccurrence(clip.id, String(error), clip.mediaId, sourceRange, sourceIdentity);
+      }
+    }
     const observations = timelineSemanticObservations(understanding, sourceRange);
     const filtered = query.query
       ? observations.filter((observation) => timelineObservationMatches(observation, query.query!))
@@ -333,6 +345,7 @@ export class MediaAnalysisService {
       observations: filtered,
       analysis: structuredClone(understanding.analysis),
       analysisRevision: understanding.analysisRevision.id,
+      ...(speechMapping ? { speechMapping } : {}),
     };
   }
 
@@ -733,6 +746,49 @@ function understandingFromMediaContext(
       timestamp: revision.timestamp,
     },
   };
+}
+
+function mapTimelineSpeech(
+  understanding: MediaUnderstanding,
+  project: ProjectSnapshot,
+  media: MediaContext,
+  clip: ProjectSnapshot["timeline"]["clips"][number],
+  sourceRange: TimeRange,
+): SpeechOccurrenceMapping {
+  const speech = understanding.speech;
+  const provenance = understanding.analysis.find((entry) => entry.capability === "speech" && entry.status === "analyzed")?.provenance;
+  if (!speech || !provenance) {
+    throw new Error("CAPABILITY_UNAVAILABLE: source-bound speech analysis is required for occurrence mapping");
+  }
+  const sourceIdentity = sourceIdentityOf(media);
+  if (!sameMediaSourceIdentity(understanding.sourceIdentity, sourceIdentity)
+    || !sameMediaSourceIdentity(provenance.source, sourceIdentity)) {
+    throw new Error("ANALYSIS_INVALID: cached speech provenance does not match the current source");
+  }
+  if (!speech.sourceTimebase || !speech.observedRange) {
+    throw new Error("ANALYSIS_INVALID: occurrence mapping requires declared speech clock and observed coverage");
+  }
+  const sourceStartTime = clip.sourceStartTime
+    ?? (clip.sourceStart === undefined || clip.sourceStart === 0 ? { value: "0", timescale: "1" } : undefined);
+  if (!sourceStartTime || !clip.startTime || !clip.durationTime || !project.timeline.frameDuration) {
+    throw new Error("AMBIGUOUS_MAPPING: occurrence mapping requires exact source and sequence timing");
+  }
+  // Validate the original record before rebinding reusable source evidence.
+  const bound = bindSpeechAnalysis(speech, {
+    input: { project: { ...project, revision: understanding.analysisRevision }, media },
+    provider: provenance.analyzer,
+  });
+  const start = rationalSeconds(clip.startTime);
+  return mapSpeechAnalysisToOccurrence({ ...bound, revision: structuredClone(project.revision) }, {
+    occurrenceId: clip.id,
+    mediaId: media.mediaId,
+    revision: project.revision,
+    sourceRange: { ...sourceRange, startTime: sourceStartTime },
+    sequenceRange: {
+      start, end: rationalSeconds(addRationalTimes(clip.startTime, clip.durationTime)),
+      startTime: clip.startTime, durationTime: clip.durationTime,
+    },
+  }, { sequenceFrameDuration: project.timeline.frameDuration });
 }
 
 function timelineSemanticObservations(

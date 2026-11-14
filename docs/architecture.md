@@ -398,6 +398,16 @@ The restart/cache matrix verifies trim, reorder, split and repeated-source
 mapping against independently stated rational positions in deterministic
 snapshots; native acceptance remains separate.
 
+`timeline.semantic.inspect` accepts `includeSpeechMappings: true` to return a
+`speechMapping` for each available occurrence, including source, sequence and
+frame-aligned word/activity ranges. This read-only path validates stored source,
+provider and revision provenance before rebinding source evidence to the current
+canonical revision. It requires declared speech clock/coverage and exact
+occurrence timing; the canonical zero-source-start default remains supported.
+Missing, conflicting, off-clock or boundary-crossing evidence makes that
+occurrence unavailable with a reason. The option does not run an analyzer or
+authorize an edit. Omitting it retains the source-range semantic response.
+
 The shared runtime audio payload gate validates metrics, counters, flags,
 declared source clocks, rational source ranges and signal-format metadata for
 both command adapters and application provider ports. This prevents nonfinite

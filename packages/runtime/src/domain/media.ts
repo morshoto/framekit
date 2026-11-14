@@ -189,7 +189,37 @@ export interface RoughCutPlan {
   warnings: string[];
 }
 
+export interface MappedSpeechWord {
+  word: SpeechWord;
+  sourceRange: TimeRange;
+  sequenceRange: TimeRange;
+  frameAlignedRange: TimeRange;
+}
+
+export interface MappedSpeechSegment {
+  segment: SpeechSegment;
+  sourceRange: TimeRange;
+  sequenceRange: TimeRange;
+  frameAlignedRange: TimeRange;
+}
+
+export interface SpeechOccurrenceMapping {
+  occurrenceId: string;
+  mediaId: string;
+  revision: ContextRevision;
+  sourceRange: TimeRange;
+  sequenceRange: TimeRange;
+  sourceTimebase: RationalTime;
+  sequenceFrameDuration: RationalTime;
+  capability: RevisionBoundSpeechAnalysis["capability"];
+  words: MappedSpeechWord[];
+  vadSegments?: MappedSpeechSegment[];
+  silenceSegments?: MappedSpeechSegment[];
+  protectedSegments?: MappedSpeechSegment[];
+}
+
 export interface TimelineSemanticContextQuery {
+  includeSpeechMappings?: boolean;
   query?: string;
   occurrenceIds?: string[];
 }
@@ -204,6 +234,7 @@ export interface TimelineSemanticObservation {
 }
 
 export interface TimelineSemanticOccurrenceContext {
+  speechMapping?: SpeechOccurrenceMapping;
   occurrenceId: string;
   status: "available" | "unavailable";
   mediaId?: string;
