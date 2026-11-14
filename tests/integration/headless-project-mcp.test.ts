@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { chmod, mkdir, readFile, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, mkdtemp, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { dirname } from "node:path";
 import { tmpdir } from "node:os";
@@ -17,6 +18,103 @@ import { type TimelineIr } from "@framekit/runtime";
 import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer } from "../../adapters/headless/typescript/src/index.js";
 
 const execFileAsync = promisify(execFile);
+
+test("artifact-first production MCP edits, restores, exports and renders fractional-frame media", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-artifact-first-e2e-"));
+  const here = dirname(fileURLToPath(import.meta.url));
+  const environment: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1",
+    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0", FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing-final-cut.sock"),
+    FRAMEKIT_STATE_DIR: join(directory, "state"),
+  };
+  let client: Client | undefined;
+  let transport: StdioClientTransport | undefined;
+  try {
+    const paths = [join(directory, "a", "same.mp4"), join(directory, "b", "same.mp4")];
+    await mkdir(dirname(paths[0]!), { recursive: true });
+    await mkdir(dirname(paths[1]!), { recursive: true });
+    await generateSegmentedSource(paths[0]!, [{ color: "red", duration: 4 }], 440);
+    await generateSegmentedSource(paths[1]!, [{ color: "blue", duration: 4 }], 660);
+    const sha = async (path: string) => createHash("sha256").update(await readFile(path)).digest("hex");
+    const sourceDigests = await Promise.all(paths.map(sha));
+    const reservationPath = join(directory, "state", "canonical-recovery", "pending.json");
+    const reservation = JSON.stringify({ version: 2, kind: "native-operation", owner: "00000000-0000-4000-8000-000000000001", operation: "native.searchmedia" }) + "\n";
+    await mkdir(dirname(reservationPath), { recursive: true });
+    await writeFile(reservationPath, reservation);
+    ({ client, transport } = await connectProductionClient(here, environment));
+    const timeline = emptyTimeline();
+    timeline.sequence.frameDuration = { value: "1001", timescale: "24000" };
+    const created = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline } }));
+    const projectId = created.timeline.project.id;
+    const sequenceId = created.timeline.sequence.id;
+    const a = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: paths[0], expectedRevision: created.timeline.revision } }));
+    const b = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: paths[1], expectedRevision: a.project.timeline.revision } }));
+    const search = payload(await client.callTool({ name: "headless.media.search", arguments: { projectId, query: "same.mp4" } }));
+    assert.deepEqual(search.media.map((item: any) => item.id).sort(), [a.resource.id, b.resource.id].sort());
+    const frame = (count: number) => ({ value: String(count * 1001), timescale: "24000" });
+    const shot = (id: string, mediaId: string, sourceFrame: number) => ({ ...occurrence(id, mediaId), durationTime: frame(24), sourceStartTime: frame(sourceFrame) });
+    const placements = [shot("a", a.resource.id, 12), shot("b", b.resource.id, 0), shot("repeat-a", a.resource.id, 36)];
+    const placed = payload(await client.callTool({ name: "headless.edit.execute", arguments: {
+      projectId, sequenceId, expectedRevision: b.project.timeline.revision,
+      operations: placements.map((item) => ({ type: "insert-occurrence", placement: "append", occurrence: item })),
+    } }));
+    const split = payload(await client.callTool({ name: "headless.edit.execute", arguments: {
+      projectId, sequenceId, expectedRevision: placed.after.timeline.revision,
+      operations: [{ type: "split-occurrence", occurrenceId: "a", splitOffsetTime: frame(12), newOccurrenceId: "a-right" }],
+    } }));
+    const reorderOps = [
+      { type: "move-occurrence", occurrenceId: "repeat-a", startTime: frame(24) },
+      { type: "move-occurrence", occurrenceId: "b", startTime: frame(48) },
+    ];
+    const stale = await client.callTool({ name: "headless.edit.execute", arguments: { projectId, sequenceId, expectedRevision: placed.after.timeline.revision, operations: reorderOps } });
+    assert.match(toolErrorText(stale), /STALE/);
+    const moved = payload(await client.callTool({ name: "headless.edit.execute", arguments: { projectId, sequenceId, expectedRevision: split.after.timeline.revision, operations: reorderOps } }));
+    const undone = payload(await client.callTool({ name: "headless.edit.undo", arguments: { projectId, sequenceId, undoId: moved.undoId, expectedRevision: moved.after.timeline.revision } }));
+    assert.equal(undone.verification.verified, true);
+    assert.deepEqual(undone.project.timeline.sequence, split.after.timeline.sequence);
+    const redone = payload(await client.callTool({ name: "headless.edit.execute", arguments: { projectId, sequenceId, expectedRevision: undone.project.timeline.revision, operations: reorderOps } }));
+    const revision = redone.after.timeline.revision;
+    const outputPath = join(directory, "final.mp4");
+    const xmlPath = join(directory, "final.fcpxml");
+    const target = { provider: "final-cut", libraryUid: "library", eventUid: "event", projectUid: "project", sequenceUid: "sequence", materialization: "versioned" };
+    const exported = payload(await client.callTool({ name: "headless.fcpxml.export", arguments: { projectId, sequenceId, expectedRevision: revision, outputPath: xmlPath, target } }));
+    assert.equal(exported.artifact.verified, true);
+    const render = payload(await client.callTool({ name: "headless.render", arguments: { projectId, sequenceId, expectedRevision: revision, parameters: { outputPath, format: "mp4", width: 320, height: 180, frameRate: { value: "24000", timescale: "1001" } } } }));
+    assert.equal(render.status, "passed");
+    const parsed = await new FcpxmlDocumentAdapter(xmlPath).readProject();
+    const sourceFor = (id: string | undefined) => parsed.media.find((item) => item.mediaId === id)?.source;
+    assert.deepEqual(parsed.timeline.clips.map((clip) => sourceFor(clip.mediaId)), [paths[0], paths[0], paths[0], paths[1]]);
+    assert.ok(Math.abs((parsed.timeline.clips[0]!.sourceStart ?? NaN) - 0.5005) < 0.001);
+    assert.ok(Math.abs((parsed.timeline.clips[1]!.sourceStart ?? NaN) - 1.001) < 0.001);
+    assert.ok(Math.abs((parsed.timeline.clips[2]!.sourceStart ?? NaN) - 1.5015) < 0.001);
+    assert.ok(Math.abs(parsed.timeline.clips[3]!.start - 2.002) < 0.001);
+    const redFrame = await readVideoFrame(outputPath, 1.5);
+    const blueFrame = await readVideoFrame(outputPath, 2.5);
+    const pixel = (buffer: Buffer) => [buffer[0]!, buffer[1]!, buffer[2]!];
+    const [r1, g1, b1] = pixel(redFrame);
+    const [r2, g2, b2] = pixel(blueFrame);
+    assert.ok(r1! > g1! + 100 && r1! > b1! + 100, `expected red frame: ${pixel(redFrame)}`);
+    assert.ok(b2! > r2! + 100 && b2! > g2! + 100, `expected blue frame: ${pixel(blueFrame)}`);
+    const probe = JSON.parse((await execFileAsync("ffprobe", ["-v", "error", "-show_entries", "format=duration:stream=r_frame_rate", "-of", "json", outputPath])).stdout);
+    assert.ok(Math.abs(Number(probe.format.duration) - 3.003) < 0.1);
+    assert.ok(probe.streams.some((stream: any) => stream.r_frame_rate === "24000/1001"));
+    const hiddenPath = `${paths[1]!}.missing`;
+    await rename(paths[1]!, hiddenPath);
+    try {
+      const missing = await client.callTool({ name: "headless.project.inspect", arguments: { projectId } });
+      assert.match(toolErrorText(missing), /MEDIA_MISSING/);
+    } finally {
+      await rename(hiddenPath, paths[1]!);
+    }
+    assert.deepEqual(await Promise.all(paths.map(sha)), sourceDigests);
+    assert.equal(await readFile(reservationPath, "utf8"), reservation);
+  } finally {
+    await client?.close();
+    await transport?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 test("headless media search returns both registered same-name sources through production MCP", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-headless-media-search-"));
