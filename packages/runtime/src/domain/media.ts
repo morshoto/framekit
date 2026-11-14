@@ -361,6 +361,8 @@ export interface TimelineFrameCapture {
 export interface MediaContext {
   mediaId: string;
   source: string;
+  /** Exact source-coordinate bounds supplied by the snapshot provider, when available. */
+  sourceRange?: { start: RationalTime; duration: RationalTime };
   mediaKind?: "video" | "audio";
   duration?: number;
   sourceDigest?: string;

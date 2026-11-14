@@ -104,6 +104,17 @@ export function previewPrimaryStorylineReorder(
     assertNumericTime(clip.duration, clip.durationTime);
     if (clip.sourceStart !== undefined) assertNumericTime(clip.sourceStart, clip.sourceStartTime);
     if (compare(clip.durationTime, { value: "0", timescale: "1" }) <= 0) throw new Error("REORDER_INVALID: duration must be positive");
+    const sourceRange = snapshot.media.find((media) => media.mediaId === clip.mediaId)?.sourceRange;
+    if (sourceRange !== undefined) {
+      if (!sourceRange || typeof sourceRange !== "object" || !sourceRange.start || !sourceRange.duration) {
+        throw new Error("REORDER_INVALID: supplied source range is malformed");
+      }
+      if (parseRational(sourceRange.duration, "REORDER_INVALID").value <= 0n
+        || compare(clip.sourceStartTime, sourceRange.start) < 0
+        || compare(addRationalTimes(clip.sourceStartTime, clip.durationTime, "REORDER_INVALID"), addRationalTimes(sourceRange.start, sourceRange.duration, "REORDER_INVALID")) > 0) {
+        throw new Error("REORDER_INVALID: occurrence exceeds supplied source range");
+      }
+    }
     if (index > 0 && compare(addRationalTimes(clips[index - 1]!.startTime, clips[index - 1]!.durationTime), clip.startTime) !== 0) {
       throw new Error("REORDER_UNSUPPORTED: primary storyline is not contiguous");
     }
