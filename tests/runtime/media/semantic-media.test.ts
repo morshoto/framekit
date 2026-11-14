@@ -875,3 +875,54 @@ test("semantic cache cannot rebind occurrence loudness as reusable source analys
   assert.equal(result.audio?.signalScope, "source");
   assert.equal(result.audio?.occurrenceId, undefined);
 });
+
+test("cached audio payloads cannot bypass analysis validation", async (t) => {
+  const cases = [
+    ["nonfinite measurement", { integratedLufs: NaN }],
+    ["provider-rejected measurement", { valid: false, invalidReason: "signal was not measured" }],
+    ["invalid source clock", { sourceTimebase: { value: "1", timescale: "0" } }],
+    ["invalid signal format", { signalFormat: { sampleRate: 48000, channels: 0 } }],
+    ["contradictory range", { measuredRange: {
+      start: 0, end: 12, durationTime: { value: "20", timescale: "1" },
+    } }],
+  ] as const;
+  for (const [label, patch] of cases) {
+    for (const entrypoint of ["understanding", "index", "timeline context"]) {
+      await t.test(label + " / " + entrypoint, async () => {
+        const fixture = semanticFixture();
+        const store = new InMemorySemanticMediaIndexStore();
+        let calls = 0;
+        const analyzer = {
+          descriptor: { id: "fixture.cache-audio", provider: "fixture", version: "1" },
+          analyze: async () => {
+            calls += 1;
+            return { integratedLufs: -18, truePeakDb: -1, silenceMs: 0 };
+          },
+        };
+        const createRuntime = () => new AgentVideoRuntime(fixture.adapter, {
+          audioAnalyzer: analyzer, semanticMediaIndexStore: store,
+        });
+        const original = await createRuntime().understandMedia("media-semantic-1");
+        original.audio = { ...original.audio!, ...patch };
+        await store.save(original);
+        const before = await fixture.adapter.readProject();
+        const runtime = createRuntime();
+        if (entrypoint === "understanding") {
+          const result = await runtime.understandMedia("media-semantic-1");
+          assert.equal(calls, 2, "incompatible cached audio must be analyzed again");
+          assert.equal(result.audio?.integratedLufs, -18);
+          assert.notEqual(result.audio?.valid, false);
+        } else if (entrypoint === "index") {
+          const entries = await runtime.indexMedia();
+          assert.equal(entries.some((entry) => entry.audio !== undefined), false);
+          assert.equal(entries.some((entry) => entry.semantic.audio?.present), false);
+        } else {
+          const context = await runtime.inspectTimelineSemanticContext({ occurrenceIds: ["clip-semantic-1"] });
+          assert.equal(context.occurrences[0]?.status, "unavailable");
+          assert.deepEqual(context.occurrences[0]?.observations, []);
+        }
+        assert.deepEqual(await fixture.adapter.readProject(), before);
+      });
+    }
+  }
+});
