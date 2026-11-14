@@ -4327,6 +4327,6 @@ test("native Browser search marks unscanned descendants at its traversal limit",
   });
   assert.deepEqual(await adapter.searchMedia("missing"), []);
   const traversal = searchScript.slice(searchScript.indexOf("on collectBrowserMedia("), searchScript.indexOf("end collectBrowserMedia"));
-  assert.match(traversal, /if depth > maxDepth then[\s\S]*count of (?:remaining|unscanned) (?:children|items)[\s\S]*__FRAMEKIT_BROWSER_SCAN_INCOMPLETE__/i);
+  assert.match(traversal, /if depth > maxDepth then[\s\S]*count of (?:remainingItems|unscannedItems)[\s\S]*__FRAMEKIT_BROWSER_SCAN_INCOMPLETE__/i);
   assert.doesNotMatch(traversal, /if depth > maxDepth then return ""/);
 });

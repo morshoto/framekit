@@ -237,8 +237,9 @@ evidence.
 `*` or `?` return a structured unsupported error before Browser UI access.
 If standalone Browser search automation exceeds its deadline, it reports
 `FINAL_CUT_NATIVE_SEARCH_TIMEOUT`; import discovery retains its separate timeout.
-If Browser traversal reports an inaccessible descendant, search returns
-`FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE` rather than an empty or partial result.
+If Browser traversal reports an inaccessible descendant or unscanned children
+at its depth limit, search returns `FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE` rather
+than an empty or partial result.
 This detection alone does not prove that every native Browser layout is fully observable.
 
 MCP Skills use the generic `skill.list`, `skill.inspect`, `skill.preview`, and

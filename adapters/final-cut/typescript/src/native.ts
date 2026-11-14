@@ -5365,7 +5365,15 @@ function browserMediaTraversalScript(): string {
     on collectBrowserMedia(containerItem, depth, searchQuery, origin, inheritedContext, seenIdentities, browserPath)
       set maxDepth to 12
       if inheritedContext then set maxDepth to 6
-      if depth > maxDepth then return ""
+      if depth > maxDepth then
+        try
+          tell application "System Events" to set remainingItems to UI elements of containerItem
+          if (count of remainingItems) > 0 then return "__FRAMEKIT_BROWSER_SCAN_INCOMPLETE__" & (ASCII character 30)
+          return ""
+        on error
+          return "__FRAMEKIT_BROWSER_SCAN_INCOMPLETE__" & (ASCII character 30)
+        end try
+      end if
       set output to ""
       set mediaContext to my mediaContainer(containerItem, inheritedContext)
       tell application "System Events"
