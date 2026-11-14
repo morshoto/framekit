@@ -90,6 +90,13 @@ declared provider version. Configuration changes invalidate incompatible cached
 analysis. Raw environment values are not included in provenance. Update the
 declared version when executable or model data changes at an unchanged path.
 
+Audio results identify their measured signal with `signalScope`. Existing
+source-file providers default to `source`; those results are useful for source
+analysis but cannot verify timeline gain changes. Occurrence-aware providers
+receive an explicit `occurrenceId` and must return that same ID with
+`signalScope: occurrence`. Source-only or mismatched evidence cannot be used
+as a post-edit occurrence measurement.
+
 Use `connection.status` for connection diagnostics, `editor.inspect` for
 backend and capability details, and `editing.route` for the requested
 operation's selected path. Unsupported operations return a structured

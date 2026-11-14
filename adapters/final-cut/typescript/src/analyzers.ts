@@ -1,5 +1,8 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+
+
+import { createReadStream } from "node:fs";
 import { access } from "node:fs/promises";
 import { bindSpeechAnalysis, sameMediaSourceIdentity } from "@framekit/runtime";
 import type {
@@ -159,13 +162,19 @@ async function runCommand<T>(options: CommandAnalyzerOptions, request: AnalyzerR
     throw new Error(`ANALYZER_MEDIA_UNAVAILABLE: ${kind} source is not readable: ${source}`);
   }
 
+  const initialDigest = await digestAnalyzerSource(source, kind);
+  const expectedDigest = request.media.sourceDigest?.replace(/^sha256:/, "");
+  if (expectedDigest !== undefined && expectedDigest !== initialDigest) {
+    throw new Error(`ANALYZER_SOURCE_CHANGED: ${kind} source bytes do not match the requested source digest`);
+  }
+
   const timeoutMs = options.timeoutMs ?? 120_000;
   const child = spawn(options.command, [], { stdio: ["pipe", "pipe", "pipe"], env: options.environment });
   const stdout: Buffer[] = [];
   const stderr: Buffer[] = [];
   let settled = false;
 
-  return new Promise<T>((resolve, reject) => {
+  const result = await new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
@@ -201,6 +210,20 @@ async function runCommand<T>(options: CommandAnalyzerOptions, request: AnalyzerR
 
     child.stdin.end(JSON.stringify(commandRequest(request, kind)));
   });
+  if (await digestAnalyzerSource(source, kind) !== initialDigest) {
+    throw new Error(`ANALYZER_SOURCE_CHANGED: ${kind} source bytes changed while analysis was running`);
+  }
+  return result;
+}
+
+async function digestAnalyzerSource(source: string, kind: string): Promise<string> {
+  try {
+    const digest = createHash("sha256");
+    for await (const chunk of createReadStream(source)) digest.update(chunk);
+    return digest.digest("hex");
+  } catch {
+    throw new Error(`ANALYZER_MEDIA_UNAVAILABLE: ${kind} source cannot be read for content verification: ${source}`);
+  }
 }
 
 function commandRequest(request: AnalyzerRequest, kind: string): unknown {

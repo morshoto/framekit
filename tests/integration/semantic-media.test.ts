@@ -13,7 +13,7 @@ import {
   FixtureVisualAnalyzer,
   InMemoryEditorAdapter,
 } from "@framekit/testkit";
-import { AgentVideoRuntime, InMemorySemanticMediaIndexStore, JsonSemanticMediaIndexStore, type MediaContext } from "@framekit/runtime";
+import { AgentVideoRuntime, DIALOGUE_NORMALIZATION_DEFAULTS, InMemorySemanticMediaIndexStore, JsonSemanticMediaIndexStore, type MediaContext } from "@framekit/runtime";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 
 function textFrom(result: unknown): string {
@@ -808,3 +808,48 @@ for (const changedField of ["model", "configurationDigest"] as const) {
     assert.equal(calls, 2);
   });
 }
+
+test("source audio analysis cannot authorize an occurrence gain edit", async () => {
+  const fixture = semanticFixture();
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    audioAnalyzer: {
+      analyze: async () => ({ integratedLufs: -20, truePeakDb: -6, silenceMs: 0, dialoguePresent: true }),
+    },
+  });
+  const before = await runtime.inspectProject();
+  const preview = await runtime.previewDialogueNormalization({
+    ...DIALOGUE_NORMALIZATION_DEFAULTS,
+    mediaId: "media-semantic-1", occurrenceId: "clip-semantic-1", baseRevision: before.revision,
+  });
+  assert.equal(preview.measurement.signalScope, "source");
+  assert.equal(preview.measurement.valid, false);
+  assert.equal(preview.measurement.invalidReason, "OCCURRENCE_SIGNAL_UNAVAILABLE");
+  assert.equal(preview.plan.decision, "SKIP");
+  assert.deepEqual(preview.operations, []);
+  assert.deepEqual(await runtime.inspectProject(), before);
+});
+
+test("source audio results explicitly identify the measured signal", async () => {
+  const fixture = semanticFixture();
+  const runtime = new AgentVideoRuntime(fixture.adapter, { audioAnalyzer: new FixtureAudioAnalyzer() });
+  const result = await runtime.analyzeAudio("media-semantic-1", { start: 1, end: 3 });
+  assert.equal(result.signalScope, "source");
+});
+
+test("audio measurements reject a different occurrence before previewing edits", async () => {
+  const fixture = semanticFixture();
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    audioAnalyzer: {
+      analyze: async () => ({
+        signalScope: "occurrence" as const, occurrenceId: "wrong-occurrence",
+        integratedLufs: -20, truePeakDb: -6, silenceMs: 0, dialoguePresent: true,
+      }),
+    },
+  });
+  const before = await runtime.inspectProject();
+  await assert.rejects(runtime.previewDialogueNormalization({
+    ...DIALOGUE_NORMALIZATION_DEFAULTS,
+    mediaId: "media-semantic-1", occurrenceId: "clip-semantic-1", baseRevision: before.revision,
+  }), /TARGET_MISMATCH: audio occurrence/);
+  assert.deepEqual(await runtime.inspectProject(), before);
+});

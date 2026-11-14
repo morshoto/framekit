@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -13,10 +14,10 @@ function createInput(mediaSource: string): AnalysisInput {
       projectId: "project-1",
       projectName: "Command analyzer fixture",
       timeline: { id: "timeline-1", name: "Main", duration: 12, clips: [], storyElements: [], markers: [], captions: [] },
-      media: [{ mediaId: "media-1", source: mediaSource, sourceDigest: "sha256:source", mediaKind: "audio", duration: 12 }],
+      media: [{ mediaId: "media-1", source: mediaSource, sourceDigest: createHash("sha256").update("media").digest("hex"), mediaKind: "audio", duration: 12 }],
       revision: { id: "rev-4", sequence: 4, timestamp: "2026-09-10T00:00:00.000Z" },
     },
-    media: { mediaId: "media-1", source: mediaSource, sourceDigest: "sha256:source", mediaKind: "audio", duration: 12 },
+    media: { mediaId: "media-1", source: mediaSource, sourceDigest: createHash("sha256").update("media").digest("hex"), mediaKind: "audio", duration: 12 },
   };
 }
 
@@ -265,3 +266,50 @@ test("command provider executes the environment bound to its analysis identity",
   assert.deepEqual(result.provider, configuredIdentity);
   assert.doesNotMatch(JSON.stringify(result.provider), /configured-value|different-value/);
 });
+
+for (const kind of ["speech", "audio"] as const) {
+  const output = kind === "speech"
+    ? { words: [{ text: "hello", start: 0, end: 1, confidence: 0.9 }] }
+    : { integratedLufs: -18, truePeakDb: -1, silenceMs: 0 };
+  const analyzer = (command: string) => kind === "speech"
+    ? new CommandSpeechAnalyzer({ command })
+    : new CommandAudioAnalyzer({ command });
+
+  test(`${kind} rejects replaced source bytes before starting the provider`, async (t) => {
+    const directory = await mkdtemp(join(os.tmpdir(), "framekit-source-binding-"));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const mediaPath = join(directory, "source.wav");
+    const capturePath = join(directory, "started.json");
+    await writeFile(mediaPath, "replacement");
+    const command = await createWrapper(directory, output, capturePath);
+    await assert.rejects(analyzer(command).analyze(createInput(mediaPath)), /ANALYZER_SOURCE_CHANGED/);
+    await assert.rejects(readFile(capturePath), { code: "ENOENT" });
+    assert.equal(await readFile(mediaPath, "utf8"), "replacement");
+  });
+
+  test(`${kind} rejects a source replaced while its provider is running`, async (t) => {
+    const directory = await mkdtemp(join(os.tmpdir(), "framekit-source-binding-"));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const mediaPath = join(directory, "source.wav");
+    await writeFile(mediaPath, "media");
+    const command = await createWrapper(directory, output);
+    const wrapper = await readFile(command, "utf8");
+    await writeFile(command, wrapper.replace("const request = JSON.parse(input);",
+      'const request = JSON.parse(input); await writeFile(' + JSON.stringify(mediaPath) + ', "changed");'));
+    await assert.rejects(analyzer(command).analyze(createInput(mediaPath)), /ANALYZER_SOURCE_CHANGED/);
+  });
+
+  test(`${kind} analyzes matching source content without changing media or timeline`, async (t) => {
+    const directory = await mkdtemp(join(os.tmpdir(), "framekit-source-binding-"));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const mediaPath = join(directory, "source.wav");
+    await writeFile(mediaPath, "media");
+    const command = await createWrapper(directory, output);
+    const input = createInput(mediaPath);
+    const baseline = structuredClone(input);
+    const result = await analyzer(command).analyze(input, { start: 0, end: 2 });
+    assert.ok(result);
+    assert.deepEqual(input, baseline);
+    assert.equal(await readFile(mediaPath, "utf8"), "media");
+  });
+}

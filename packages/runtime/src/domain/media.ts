@@ -254,6 +254,10 @@ export interface RevisionBoundSpeechAnalysis extends SpeechAnalysis {
 }
 
 export interface AudioAnalysis {
+  /** Omitted legacy scope means source-file audio, never post-edit output. */
+  signalScope?: "source" | "occurrence";
+  /** Required when signalScope is occurrence; echoes an explicit measurement request. */
+  occurrenceId?: string;
   schemaVersion?: 1;
   mediaId?: string;
   sourceIdentity?: MediaSourceIdentity;
@@ -294,6 +298,8 @@ export interface NoiseMeasurement extends NoiseAnalysis {
 
 /** Revision-bound audio evidence for one complete timeline occurrence. */
 export interface AudioMeasurement {
+  signalScope: "source" | "occurrence";
+  sourceIdentity?: MediaSourceIdentity;
   mediaId: string;
   occurrenceId: string;
   requestedRange: TimeRange;
@@ -401,6 +407,8 @@ export interface MediaUnderstanding {
 }
 
 export interface AnalysisInput {
+  /** Explicit occurrence signal request; absent for source-file analysis. */
+  occurrenceId?: string;
   project: ProjectSnapshot;
   media: MediaContext;
 }
