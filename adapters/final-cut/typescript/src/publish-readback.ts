@@ -100,7 +100,10 @@ function publishTimelineSignature(
   const titles = snapshot.timeline.storyElements.filter(({ kind }) => kind === "title");
   const audioClips = clips.filter((clip) => isAudioClip(clip, audioMediaIds));
   const mediaBindings = referencedMedia
-    .map(({ source, mediaKind, duration }) => ({ source: sourceIdentity(source), mediaKind, duration }))
+    .map(({ source, mediaKind, duration, sourceRange }) => ({
+      source: sourceIdentity(source), mediaKind, duration,
+      ...(sourceRange !== undefined ? { sourceRange: sourceRangeSignature(sourceRange) } : {}),
+    }))
     .sort((left, right) => compareText(stableJson(left), stableJson(right)));
   const representedStoryKinds = new Set(["asset-clip", "audio", "clip", "mc-clip", "ref-clip", "sync-clip", "title", "video"]);
 
@@ -226,6 +229,17 @@ function rationalSignature(value: RationalTime | undefined): string | undefined 
   const positiveDenominator = denominator * sign;
   const divisor = greatestCommonDivisor(signedNumerator, positiveDenominator);
   return `${signedNumerator / divisor}/${positiveDenominator / divisor}`;
+}
+
+function sourceRangeSignature(range: { start: RationalTime; duration: RationalTime }): { start: string; duration: string } {
+  const validTime = (time: RationalTime | undefined): time is RationalTime => Boolean(time
+    && typeof time.value === "string" && /^-?\d+$/.test(time.value)
+    && typeof time.timescale === "string" && /^\d+$/.test(time.timescale)
+    && BigInt(time.timescale) > 0n);
+  if (!range || !validTime(range.start) || !validTime(range.duration) || BigInt(range.duration.value) <= 0n) {
+    throw new Error("FINAL_CUT_PUBLISH_READBACK_INVALID: source range must have valid bounds and positive duration");
+  }
+  return { start: rationalSignature(range.start)!, duration: rationalSignature(range.duration)! };
 }
 
 function zeroRational(): RationalTime {

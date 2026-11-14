@@ -122,6 +122,9 @@ Timeline IR preserves supplied bounds and FCPXML compilation preserves them,
 rejecting a clip if frame rounding would move it outside those bounds. The
 FFmpeg renderer rejects nonzero source origins until their seek semantics are
 established.
+Publish readback compares supplied source bounds by exact rational value and
+rejects missing, changed or malformed bounds; that comparison does not prove
+receiver quiescence.
 | Read-only Accessibility scan | The adapter observes accessible timeline elements and their exposed attributes without selecting them. | The current scan does not independently expose their original source. Names, timing, ordering, and a requested Browser item are not proof of the mapping, including when occurrences repeat or names collide. |
 | Generated or imported FCPXML | A proposal or import describes intended content. | It is not native readback and cannot prove what the active timeline contains. |
 
