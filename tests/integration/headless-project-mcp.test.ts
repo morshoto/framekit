@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { chmod, link, mkdir, open, readFile, mkdtemp, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, link, mkdir, open, readFile, mkdtemp, rename, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { dirname } from "node:path";
 import { tmpdir } from "node:os";
@@ -456,6 +456,96 @@ test("headless export checks the revision of the media-validated snapshot", asyn
   }
 });
 
+test("headless Undo rejects changed or missing media and a validation race", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headless-undo-media-"));
+  try {
+    const source = join(directory, "source.mov");
+    const bytes = "synthetic original media";
+    await writeFile(source, bytes);
+    const options = { directory: join(directory, "projects"), mediaProbe: { probe: async () => ({
+      durationTime: { value: "2", timescale: "1" },
+      streams: [{ kind: "video" as const, width: 32, height: 32, frameRate: { value: "30", timescale: "1" } }],
+    }) } };
+    const service = new HeadlessProjectService(options);
+    const initial = await service.create(emptyTimeline());
+    const projectId = initial.timeline.project.id;
+    const sequenceId = initial.timeline.sequence.id;
+    const registered = await service.registerMedia(projectId, source, initial.timeline.revision);
+    const edit = await service.executeEdit(projectId, {
+      schemaVersion: 1, expectedRevision: registered.project.timeline.revision,
+      operations: [{ type: "add-marker", marker: { id: "one", name: "One", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } } }],
+    }, sequenceId);
+    const projectPath = join(options.directory, `${projectId}.json`);
+    const before = await readFile(projectPath, "utf8");
+    const restarted = new HeadlessProjectService(options);
+    await writeFile(source, "changed media");
+    await assert.rejects(restarted.undoEdit(projectId, sequenceId, edit.undoId, edit.after.timeline.revision), /MEDIA_CHANGED/);
+    assert.equal(await readFile(projectPath, "utf8"), before);
+    await rm(source);
+    await assert.rejects(restarted.undoEdit(projectId, sequenceId, edit.undoId, edit.after.timeline.revision), /MEDIA_MISSING/);
+    assert.equal(await readFile(projectPath, "utf8"), before);
+    await writeFile(source, bytes);
+    const newer = structuredClone(edit.after);
+    newer.timeline.revision = { ...newer.timeline.revision, id: "intervening", sequence: newer.timeline.revision.sequence + 1 };
+    let loads = 0;
+    t.mock.method(FramekitProjectStore.prototype, "load", async () => ++loads === 1 ? edit.after : newer);
+    await assert.rejects(restarted.undoEdit(projectId, sequenceId, edit.undoId, edit.after.timeline.revision), /STALE/);
+    t.mock.restoreAll();
+    assert.equal(await readFile(projectPath, "utf8"), before);
+    const restored = await restarted.undoEdit(projectId, sequenceId, edit.undoId, edit.after.timeline.revision);
+    assert.equal(restored.verification.verified, true);
+    assert.deepEqual(restored.project.timeline.sequence, registered.project.timeline.sequence);
+  } finally {
+    t.mock.restoreAll();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("headless Undo reports save and independent readback failures without verified success", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headless-undo-failure-"));
+  try {
+    const service = new HeadlessProjectService({ directory });
+    const initial = await service.create(emptyTimeline());
+    const projectId = initial.timeline.project.id;
+    const sequenceId = initial.timeline.sequence.id;
+    const expectedDigest = timelineIrDigest(initial.timeline);
+    const edit = await service.executeEdit(projectId, {
+      schemaVersion: 1, expectedRevision: initial.timeline.revision,
+      operations: [{ type: "add-marker", marker: { id: "one", name: "One", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } } }],
+    }, sequenceId);
+    const path = join(directory, `${projectId}.json`);
+    const committedBytes = await readFile(path, "utf8");
+    t.mock.method(FramekitProjectStore.prototype, "save", async () => { throw new Error("injected pre-write failure"); });
+    await assert.rejects(service.undoEdit(projectId, sequenceId, edit.undoId, edit.after.timeline.revision), /pre-write failure/);
+    t.mock.restoreAll();
+    assert.equal(await readFile(path, "utf8"), committedBytes);
+    assert.equal(timelineIrDigest((await service.inspect(projectId)).timeline), timelineIrDigest(edit.after.timeline));
+
+    const realSave = FramekitProjectStore.prototype.save;
+    const realLoad = FramekitProjectStore.prototype.load;
+    let saved = false;
+    t.mock.method(FramekitProjectStore.prototype, "save", async function(this: FramekitProjectStore, project: FramekitProjectDocument, revision?: TimelineIr["revision"]) {
+      const result = await realSave.call(this, project, revision);
+      saved = true;
+      return result;
+    });
+    t.mock.method(FramekitProjectStore.prototype, "load", async function(this: FramekitProjectStore) {
+      const project = await realLoad.call(this);
+      if (saved) project.timeline.sequence.markers.push({ id: "unexpected", name: "Unexpected", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } });
+      return project;
+    });
+    await assert.rejects(service.undoEdit(projectId, sequenceId, edit.undoId, edit.after.timeline.revision), /HEADLESS_UNDO_UNVERIFIED/);
+    t.mock.restoreAll();
+    const persisted = await service.inspect(projectId);
+    assert.equal(timelineIrDigest(persisted.timeline), expectedDigest);
+    assert.deepEqual(persisted.timeline.sequence, initial.timeline.sequence);
+    assert.equal(persisted.timeline.revision.sequence, edit.after.timeline.revision.sequence + 1);
+  } finally {
+    t.mock.restoreAll();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("headless project list includes valid project IDs that resemble render records", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-headless-project-list-"));
   try {
@@ -469,6 +559,23 @@ test("headless project list includes valid project IDs that resemble render reco
     assert.deepEqual((await service.list()).map((project) => project.projectId).sort(), ids.sort());
     await writeFile(join(directory, "corrupt.json"), "not-json");
     await assert.rejects(service.list(), /PROJECT_CORRUPT/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("headless project list rejects a project whose stored ID differs from its filename", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headless-project-id-"));
+  try {
+    const service = new HeadlessProjectService({ directory });
+    const timeline = emptyTimeline();
+    timeline.project.id = "actual";
+    await service.create(timeline);
+    const original = await readFile(join(directory, "actual.json"), "utf8");
+    await writeFile(join(directory, "different.json"), original);
+    await assert.rejects(service.list(), /PROJECT.*(IDENTITY|MISMATCH|CORRUPT)/);
+    assert.equal(await readFile(join(directory, "actual.json"), "utf8"), original);
+    assert.equal(await readFile(join(directory, "different.json"), "utf8"), original);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -1050,6 +1157,7 @@ test("headless rough-cut preview and execution preserve provenance and produce v
       mediaProbe: new FfmpegMediaMetadataProbe(),
       renderer: new FfmpegTimelineRenderer(),
       verifier: new FfmpegRenderVerifier(),
+      clock: () => "2026-10-05T00:00:00.000Z",
     });
     const created = await service.create(emptyTimeline());
     const registered = await service.registerMedia(created.timeline.project.id, join(directory, "fixture-red-440hz.mp4"), created.timeline.revision);
@@ -1104,6 +1212,41 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     const reservationSymlink = join(directory, "reservation-symlink.json");
     await link(reservation, reservationHardlink);
     await symlink(reservation, reservationSymlink);
+    // Static aliases beneath protected state are part of the protected subtree.
+    const relocatedState = join(directory, "relocated-state");
+    await mkdir(relocatedState, { recursive: true });
+    const relocatedReservation = join(relocatedState, "pending.mp4");
+    await writeFile(relocatedReservation, "synthetic reservation via directory link");
+    const stateLink = join(directory, "projects", "relocated");
+    await symlink(relocatedState, stateLink);
+    await symlink(join(directory, "projects"), join(relocatedState, "cycle"));
+    for (const path of [relocatedReservation, join(stateLink, "pending.mp4"), join(stateLink, "future.fcpxml")]) {
+      await assert.rejects(service.previewRoughCut({ ...request, render: { ...request.render, outputPath: path, overwrite: true } }), /OUTPUT.*COLLISION/);
+      await assert.rejects(service.render(created.timeline.project.id, created.timeline.sequence.id, { ...request.render, outputPath: path, overwrite: true }, registered.project.timeline.revision), /OUTPUT.*COLLISION/);
+    }
+    assert.equal(await readFile(relocatedReservation, "utf8"), "synthetic reservation via directory link");
+    const unreadableLink = join(directory, "projects", "unresolved-state-link");
+    await symlink(join(directory, "missing-state-target"), unreadableLink);
+    await assert.rejects(service.previewRoughCut(request), /ENOENT/);
+    await unlink(unreadableLink);
+
+    const otherSource = join(directory, "other-project-source.mp4");
+    await generateSegmentedSource(otherSource, [{ color: "blue", duration: 2 }], 440);
+    const otherTimeline = emptyTimeline();
+    otherTimeline.project.id = "other-project";
+    const other = await service.create(otherTimeline);
+    await service.registerMedia(other.timeline.project.id, otherSource, other.timeline.revision);
+    // A valid project record may itself be a static symlink in the store.
+    const otherProjectPath = join(directory, "projects", `${other.timeline.project.id}.json`);
+    const relocatedProject = join(directory, "other-project-record.json");
+    await rename(otherProjectPath, relocatedProject);
+    await symlink(relocatedProject, otherProjectPath);
+    const otherSourceLink = join(directory, "other-project-source-link.mp4");
+    await link(otherSource, otherSourceLink);
+    for (const path of [otherSource, otherSourceLink]) {
+      await assert.rejects(service.previewRoughCut({ ...request, render: { ...request.render, outputPath: path, overwrite: true } }), /OUTPUT.*COLLISION/);
+      await assert.rejects(service.render(created.timeline.project.id, created.timeline.sequence.id, { ...request.render, outputPath: path, overwrite: true }, registered.project.timeline.revision), /OUTPUT.*COLLISION/);
+    }
     const protectedOutputs = [reservation, reservationHardlink, reservationSymlink, join(dirname(reservation), "new-artifact.fcpxml")];
     for (const path of protectedOutputs) {
       await assert.rejects(service.previewRoughCut({ ...request, fcpxml: { ...request.fcpxml, path, overwrite: true } }), /OUTPUT.*COLLISION/);
@@ -1120,6 +1263,17 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     }
     await assert.rejects(service.previewRoughCut({ ...request, render: { ...request.render, outputPath: source.source!, overwrite: true } }), /OUTPUT.*COLLISION/);
     const preview = await service.previewRoughCut(request);
+    const collisionId = `${preview.planDigest}.approval`;
+    const collisionPath = join(directory, "projects", `${collisionId}.json`);
+    await rm(collisionPath);
+    const collisionTimeline = emptyTimeline();
+    collisionTimeline.project.id = collisionId;
+    const collision = await service.create(collisionTimeline);
+    await assert.rejects(service.previewRoughCut(request), /COLLISION|EXISTS/i);
+    assert.deepEqual(await service.open(collisionId), collision);
+    await rm(collisionPath);
+    assert.equal((await service.previewRoughCut(request)).planDigest, preview.planDigest);
+    assert.equal((await service.previewRoughCut(request)).planDigest, preview.planDigest);
     assert.equal(preview.before.timeline.sequence.occurrences.length, 0);
     assert.deepEqual(preview.after.timeline.sequence.occurrences[0]?.sourceStartTime, { value: "4", timescale: "15" });
     assert.equal(preview.after.timeline.sequence.occurrences[0]?.durationTime.value, "1");
@@ -1182,6 +1336,26 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     );
     assert.equal(await readFile(request.fcpxml.path, "utf8"), "tampered FCPXML");
     assert.equal((await service.open(created.timeline.project.id)).timeline.revision.sequence, registered.project.timeline.revision.sequence + 1);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("render and rough-cut execution history cannot replace projects with matching IDs", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-history-collision-"));
+  try {
+    const service = new HeadlessProjectService({ directory });
+    const cases = [
+      { id: "render-00000000-0000-4000-8000-000000000001", method: "saveRender", field: "renderId" },
+      { id: "rough-cut-00000000-0000-4000-8000-000000000002", method: "saveRoughCutExecution", field: "executionId" },
+    ];
+    for (const { id, method, field } of cases) {
+      const timeline = emptyTimeline();
+      timeline.project.id = id;
+      const original = await service.create(timeline);
+      await assert.rejects((service as any)[method]({ [field]: id }), /COLLISION|EXISTS/i);
+      assert.deepEqual(await service.open(id), original);
+    }
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
