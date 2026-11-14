@@ -1,5 +1,40 @@
 # Changelog
 
+## [v0.2.2](https://github.com/morshoto/framekit/compare/v0.2.1...v0.2.2) - 2026-11-14
+
+### New Features
+- test: exercise isolated sender lifecycle by @morshoto in https://github.com/morshoto/framekit/pull/697
+- feat: define multilingual docs structure by @morshoto in https://github.com/morshoto/framekit/pull/694
+- docs: improve onboarding and search by @morshoto in https://github.com/morshoto/framekit/pull/705
+- feat: improve documentation code snippets by @morshoto in https://github.com/morshoto/framekit/pull/708
+- feat: search media in headless projects by @morshoto in https://github.com/morshoto/framekit/pull/726
+- feat: sync issue project status from PR activity by @morshoto in https://github.com/morshoto/framekit/pull/735
+- feat: export headless projects to FCPXML by @morshoto in https://github.com/morshoto/framekit/pull/729
+- feat: verify headless edit restoration by @morshoto in https://github.com/morshoto/framekit/pull/728
+### Bug Fixes
+- fix: distinguish native search timeouts by @morshoto in https://github.com/morshoto/framekit/pull/669
+- fix: scope canonical snapshot reuse by @morshoto in https://github.com/morshoto/framekit/pull/701
+- fix: reject unsafe native occurrence targets by @morshoto in https://github.com/morshoto/framekit/pull/674
+- fix: retain uncertain native dispatch intent by @morshoto in https://github.com/morshoto/framekit/pull/702
+- fix: reject unsupported canonical search queries by @morshoto in https://github.com/morshoto/framekit/pull/712
+- fix: retain uncertain project locks by @morshoto in https://github.com/morshoto/framekit/pull/731
+- fix: reject unsafe headless split structures by @morshoto in https://github.com/morshoto/framekit/pull/730
+- fix: preserve project listing alongside history records by @morshoto in https://github.com/morshoto/framekit/pull/734
+### Documentation
+- chore: isolate experimental SQLite providers by @morshoto in https://github.com/morshoto/framekit/pull/668
+- chore(deps): update pnpm to v12.18.0 by @renovate[bot] in https://github.com/morshoto/framekit/pull/715
+- chore(deps): update node.js to v22.23.5 by @renovate[bot] in https://github.com/morshoto/framekit/pull/710
+- fix: make PR CI coverage explicit by @morshoto in https://github.com/morshoto/framekit/pull/727
+- test: gate artifact-first editing workflow by @morshoto in https://github.com/morshoto/framekit/pull/732
+### Chores
+- chore(deps): update dev dependencies by @renovate[bot] in https://github.com/morshoto/framekit/pull/700
+- chore(deps): update github actions by @renovate[bot] in https://github.com/morshoto/framekit/pull/699
+- chore(deps): update dependency @babel/parser to v7.29.13 by @renovate[bot] in https://github.com/morshoto/framekit/pull/714
+- chore(deps): lock file maintenance by @renovate[bot] in https://github.com/morshoto/framekit/pull/716
+### Other changes
+- fix: preserve plain dialogue audio roles by @morshoto in https://github.com/morshoto/framekit/pull/717
+- chore: consolidate project status workflow by @morshoto in https://github.com/morshoto/framekit/pull/722
+
 ## [v0.2.1](https://github.com/morshoto/framekit/compare/v0.2.0...v0.2.1) - 2026-11-04
 
 ### New Features
