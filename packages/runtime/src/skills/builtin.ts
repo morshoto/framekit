@@ -648,7 +648,17 @@ async function planDialogueSkill(context: SkillPlanningContext, input: Record<st
   }
   const existingGainDb = clip.gainDb ?? 0;
   if (!Number.isFinite(existingGainDb)) throw new Error(`INVALID_OPERATION: occurrence ${request.occurrenceId} has an invalid gain`);
-  const measurement = await context.measureAudio(request.mediaId, request.occurrenceId);
+  let measurement: AudioMeasurement;
+  try {
+    measurement = await context.measureAudio(request.mediaId, request.occurrenceId);
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.startsWith("SILENT_SIGNAL:")) throw error;
+    return {
+      operations: [], affectedRanges: [], warnings: ["SILENCE"], decision: "SKIP" as const,
+      details: { occurrenceId: request.occurrenceId, mediaId: request.mediaId, existingGainDb,
+        reasonCodes: ["SILENCE"], measurementUnavailable: { code: "SILENT_SIGNAL", detail: error.message } },
+    };
+  }
   const plan = planDialogueGain(measurement, request);
   const targetGainDb = Number((existingGainDb + plan.clampedGainDb).toFixed(6));
   const verification = plan.decision === "APPLY" ? {
@@ -699,7 +709,7 @@ async function verifyDialogueMeasurement(
       passed: false,
       status: "unavailable",
       reason: "AUDIO_MEASUREMENT_UNAVAILABLE",
-      detail: "selected dialogue occurrence cannot be measured after the write",
+      detail: "selected dialogue occurrence cannot supply fresh execution measurement",
     }];
   }
 
@@ -711,7 +721,7 @@ async function verifyDialogueMeasurement(
       name: "dialogue-measurement",
       passed: false,
       status: "failed",
-      reason: "POST_WRITE_MEASUREMENT_FAILED",
+      reason: plan.decision === "NO_OP" ? "NO_OP_MEASUREMENT_FAILED" : "POST_WRITE_MEASUREMENT_FAILED",
       detail: String(error),
     }];
   }
@@ -738,7 +748,10 @@ async function verifyDialogueMeasurement(
       && sameRange(measurement.requestedRange, expectedRange)
       && sameRange(measurement.measuredRange, expectedRange))
     && Boolean(measurement.provider?.id && measurement.provider.provider);
-  const measurementPassed = measurement.valid && targetBound && freshSignal && consistentProvider;
+  const validSignal = measurement.valid && measurement.dialoguePresent
+    && measurement.analyzedDurationSeconds >= input.minDialogueDurationSeconds
+    && measurement.silenceMs >= 0 && measurement.silenceMs < measurement.analyzedDurationSeconds * 1000;
+  const measurementPassed = validSignal && targetBound && freshSignal && consistentProvider;
   const measurementCheck = {
     name: "dialogue-measurement",
     passed: measurementPassed,
@@ -751,10 +764,10 @@ async function verifyDialogueMeasurement(
     },
     observed: measurement,
     ...(measurementPassed ? {} : { reason: !freshSignal || !consistentProvider ? "MEASUREMENT_EVIDENCE_CHANGED"
-      : measurement.valid ? "MEASUREMENT_TARGET_MISMATCH" : "MEASUREMENT_INVALID" }),
+      : validSignal ? "MEASUREMENT_TARGET_MISMATCH" : "MEASUREMENT_INVALID" }),
     detail: measurementPassed
-      ? "post-write dialogue measurement is valid and bound to the selected occurrence"
-      : "post-write dialogue measurement is invalid or not bound to the selected occurrence",
+      ? "fresh dialogue measurement is valid and bound to the selected occurrence"
+      : "fresh dialogue measurement is invalid or not bound to the selected occurrence",
   };
   const loudnessPassed = measurementPassed
     && Math.abs(measurement.integratedLufs - input.targetLufs) <= input.toleranceDb;

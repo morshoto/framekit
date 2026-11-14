@@ -406,6 +406,9 @@ source, analyzer, exporter and meter identities. It checks measured LUFS and
 true peak against the approved policy and rolls back failed verification through
 the guarded edit transaction. A verified NO_OP also requires fresh measurement
 at execution; peak-unsafe targets are skipped even when loudness is in tolerance.
+Confirmed silent output produces a non-mutating SKIP without invented loudness
+values. Missing or malformed export evidence still fails explicitly; post-write
+loss of dialogue or invalid silence evidence fails verification.
 Fixture runtimes may still use simulated analyzers without claiming native
 acceptance. The native exporter, set-gain readback/recovery and disposable native
 QA remain required before production normalization can be accepted.

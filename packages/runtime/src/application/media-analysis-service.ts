@@ -94,6 +94,7 @@ export class MediaAnalysisService {
       && Number.isFinite(analysis.integratedLufs)
       && Number.isFinite(analysis.truePeakDb)
       && Number.isFinite(analysis.silenceMs)
+      && analysis.silenceMs >= 0 && analysis.silenceMs <= analyzedDurationSeconds * 1000
       && Number.isFinite(analyzedDurationSeconds)
       && analyzedDurationSeconds > 0;
     return {

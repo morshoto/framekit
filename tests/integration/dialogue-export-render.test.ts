@@ -260,6 +260,7 @@ test("lost dialogue or invalid silence evidence cannot verify a gain edit", asyn
     const before = await f.adapter.readProject();
     const result = await f.runtime.executeSkill((await f.preview()).previewToken);
     assert.equal(result.status, "ROLLED_BACK", mode);
+    assert.equal(result.verification?.checks.find(check => check.name === "dialogue-measurement")?.reason, "MEASUREMENT_INVALID");
     assert.equal(canonicalSnapshotDigest(await f.adapter.readProject()), canonicalSnapshotDigest(before));
   }
 });
