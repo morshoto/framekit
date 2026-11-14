@@ -3,13 +3,31 @@ import { createReadStream } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { XMLParser, XMLValidator } from "fast-xml-parser";
 import { FcpxmlDocumentAdapter, verifyFinalCutPublishReadback } from "@framekit/final-cut";
-import type { ProjectSnapshot } from "@framekit/runtime";
+import type { ProjectSnapshot, RationalTime } from "@framekit/runtime";
+
+function canonicalTime(time: RationalTime | undefined): string {
+  if (!time) throw new Error("Ambiguous occurrence: exact timing unavailable");
+  let numerator = BigInt(time.value);
+  let denominator = BigInt(time.timescale);
+  if (denominator <= 0n) throw new Error("Ambiguous occurrence: invalid timebase");
+  let a = numerator < 0n ? -numerator : numerator;
+  let b = denominator;
+  while (b !== 0n) [a, b] = [b, a % b];
+  const divisor = a || 1n;
+  numerator /= divisor;
+  denominator /= divisor;
+  return `${numerator}/${denominator}`;
+}
 
 async function sourceDigests(snapshot: ProjectSnapshot): Promise<{ source: string; sha256: string }[]> {
   const mediaIds = new Set(snapshot.media.map(({ mediaId }) => mediaId));
   if (mediaIds.size !== snapshot.media.length) throw new Error("Ambiguous duplicate media binding");
+  const occurrences = new Set<string>();
   for (const clip of snapshot.timeline.clips) {
     if (!clip.mediaId || !mediaIds.has(clip.mediaId)) throw new Error("Unresolved clip media reference");
+    const identity = JSON.stringify([clip.mediaId, clip.track, canonicalTime(clip.startTime), canonicalTime(clip.durationTime), canonicalTime(clip.sourceStartTime)]);
+    if (occurrences.has(identity)) throw new Error("Ambiguous repeated clip occurrence");
+    occurrences.add(identity);
   }
   const digests = await Promise.all(snapshot.media.map(async ({ source }) => {
     if (!source || !source.startsWith("/")) throw new Error("Expected a local original-media source path");
