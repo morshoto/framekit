@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.2.3](https://github.com/morshoto/framekit/compare/v0.2.2...v0.2.3) - 2026-11-14
+
+### New Features
+- design: refresh English documentation overview by @morshoto in https://github.com/morshoto/framekit/pull/741
+### Documentation
+- perf: improve test confidence and organization by @morshoto in https://github.com/morshoto/framekit/pull/737
+- refactor: isolate FCPXML document interchange by @morshoto in https://github.com/morshoto/framekit/pull/736
+
 ## [v0.2.2](https://github.com/morshoto/framekit/compare/v0.2.1...v0.2.2) - 2026-11-14
 
 ### New Features
