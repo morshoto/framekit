@@ -62,9 +62,9 @@ async function fixture(t: test.TestContext, failOutput = false) {
     return JSON.parse(text as string);
   };
   const inspect = () => call("project.inspect");
-  const normalize = async () => call("skill.preview", { skill: "dialogue-normalization", arguments: {
-    baseRevision: (await inspect()).revision, mediaId: "speech", occurrenceId: "selected", targetLufs: -20, toleranceDb: 0.2 } });
-  return { call, inspect, normalize, writes: () => writes, exports: () => exports };
+  const normalize = async (occurrenceId = "selected") => call("skill.preview", { skill: "dialogue-normalization", arguments: {
+    baseRevision: (await inspect()).revision, mediaId: "speech", occurrenceId, targetLufs: -20, toleranceDb: 0.2 } });
+  return { adapter, audio, runtime, call, inspect, normalize, writes: () => writes, exports: () => exports };
 }
 
 for (const failOutput of [false, true]) test(`filler then measured normalization ${failOutput ? "recovers its stage" : "verifies"} and restores both stages`, async t => {
@@ -94,5 +94,53 @@ for (const failOutput of [false, true]) test(`filler then measured normalization
   if (!failOutput) await f.call("edit.undo", { transactionId: normalization.transactionIds[0] });
   assert.equal(canonicalSnapshotDigest(await f.inspect()), canonicalSnapshotDigest(cut));
   await f.call("edit.undo", { transactionId: removal.transactionIds[0] });
+  assert.equal(canonicalSnapshotDigest(await f.inspect()), canonicalSnapshotDigest(original));
+});
+
+
+test("source-preserving remap rejects old occurrence context and cached measurements", async t => {
+  const f = await fixture(t); const original = await f.inspect(); const old = await f.normalize();
+  const frame = 1001 / 24000; const range = { start: 23 * frame, end: 32 * frame };
+  const time = (seconds: number) => ({ value: String(Math.round(seconds * 24000)), timescale: "24000" });
+  // Controlled provider readback of a source-preserving split. This is not the
+  // production native split implementation or edited-speech verification.
+  const remapped = structuredClone(original);
+  const selected = remapped.timeline.clips.find((clip: any) => clip.id === "selected");
+  const clip = (id: string, start: number, sourceStart: number, duration: number) => ({ ...selected, id, start, sourceStart, duration,
+    startTime: time(start), sourceStartTime: time(sourceStart), durationTime: time(duration) });
+  remapped.timeline.clips = [clip("selected-left", 0, 0, range.start), clip("selected-right", range.start, range.end, 4 - range.end),
+    { ...remapped.timeline.clips[1], start: 4 - (range.end - range.start), startTime: time(4 - (range.end - range.start)) }];
+  remapped.timeline.storyElements = remapped.timeline.clips.map((item: any) => ({ ...original.timeline.storyElements[0], ...item, kind: "asset-clip" }));
+  remapped.timeline.duration -= range.end - range.start; remapped.timeline.durationTime = time(remapped.timeline.duration);
+  const preview = f.adapter.previewTransaction.bind(f.adapter); const apply = f.adapter.applyTransaction.bind(f.adapter);
+  f.adapter.previewTransaction = async (operations, revision) => operations[0]?.type === "ripple-delete" ? structuredClone(remapped) : preview(operations, revision);
+  f.adapter.applyTransaction = async (operations, revision) => {
+    if (operations[0]?.type === "ripple-delete") await f.adapter.restore(remapped, revision);
+    else await apply(operations, revision);
+  };
+  const cutPreview = await f.runtime.previewEdit({ baseRevision: original.revision, operations: [{ type: "ripple-delete", timelineId: original.timeline.id, range }] });
+  const cut = await f.runtime.executeEdit(cutPreview.previewToken); assert.equal(cut.status, "VERIFIED");
+  const intermediate = await f.inspect();
+  await assert.rejects(f.call("skill.execute", { previewToken: old.previewToken }), /STALE_CONTEXT/);
+  const exports = f.exports();
+  await assert.rejects(f.normalize(), /OCCURRENCE_NOT_FOUND/);
+  assert.equal(f.exports(), exports);
+  const analyze = f.audio.analyze.bind(f.audio);
+  f.audio.analyze = async () => structuredClone(old.plan.details.measurement);
+  await assert.rejects(f.normalize("selected-right"), /ANALYSIS_INVALID|ANALYSIS_STALE|TARGET_MISMATCH/);
+  assert.equal(canonicalSnapshotDigest(await f.inspect()), canonicalSnapshotDigest(intermediate));
+  f.audio.analyze = analyze;
+  const fresh = await f.normalize("selected-right");
+  assert.equal(fresh.plan.details.measurement.occurrenceId, "selected-right");
+  assert.ok(Math.abs(fresh.plan.details.measurement.measuredRange.start - range.end) < 1e-6);
+  assert.equal(fresh.plan.details.measurement.measuredRange.end, 4);
+  assert.equal(fresh.plan.normalizedInput.targetLufs, -20);
+  assert.equal(fresh.plan.normalizedInput.toleranceDb, 0.2);
+  const gain = await f.call("skill.execute", { previewToken: fresh.previewToken }); assert.equal(gain.status, "VERIFIED");
+  const normalized = await f.inspect();
+  assert.deepEqual(normalized.timeline.clips.filter((item: any) => item.id !== "selected-right"), intermediate.timeline.clips.filter((item: any) => item.id !== "selected-right"));
+  await f.call("edit.undo", { transactionId: gain.transactionIds[0] });
+  assert.equal(canonicalSnapshotDigest(await f.inspect()), canonicalSnapshotDigest(intermediate));
+  await f.call("edit.undo", { transactionId: cut.id });
   assert.equal(canonicalSnapshotDigest(await f.inspect()), canonicalSnapshotDigest(original));
 });
