@@ -1,5 +1,6 @@
 import type { NextConfig } from 'next';
 import createMDX from '@next/mdx';
+import { resolve } from 'node:path';
 
 const basePath = process.env.DOCS_BASE_PATH ?? '';
 const config: NextConfig = {
@@ -11,4 +12,4 @@ const config: NextConfig = {
   basePath,
   env: { NEXT_PUBLIC_DOCS_BASE_PATH: basePath },
 };
-export default createMDX({ options: { remarkPlugins: ['remark-gfm'], rehypePlugins: ['rehype-slug'] } })(config);
+export default createMDX({ options: { remarkPlugins: ['remark-gfm', resolve(process.cwd(), 'remark-code-metadata.mjs')], rehypePlugins: ['rehype-slug'] } })(config);
