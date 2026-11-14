@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { chmod, link, mkdir, open, readFile, mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, link, mkdir, open, readFile, mkdtemp, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { dirname } from "node:path";
 import { tmpdir } from "node:os";
@@ -796,6 +796,36 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     const reservationSymlink = join(directory, "reservation-symlink.json");
     await link(reservation, reservationHardlink);
     await symlink(reservation, reservationSymlink);
+    // Static aliases beneath protected state are part of the protected subtree.
+    const relocatedState = join(directory, "relocated-state");
+    await mkdir(relocatedState, { recursive: true });
+    const relocatedReservation = join(relocatedState, "pending.mp4");
+    await writeFile(relocatedReservation, "synthetic reservation via directory link");
+    const stateLink = join(directory, "projects", "relocated");
+    await symlink(relocatedState, stateLink);
+    await symlink(join(directory, "projects"), join(relocatedState, "cycle"));
+    for (const path of [relocatedReservation, join(stateLink, "pending.mp4"), join(stateLink, "future.fcpxml")]) {
+      await assert.rejects(service.previewRoughCut({ ...request, render: { ...request.render, outputPath: path, overwrite: true } }), /OUTPUT.*COLLISION/);
+      await assert.rejects(service.render(created.timeline.project.id, created.timeline.sequence.id, { ...request.render, outputPath: path, overwrite: true }, registered.project.timeline.revision), /OUTPUT.*COLLISION/);
+    }
+    assert.equal(await readFile(relocatedReservation, "utf8"), "synthetic reservation via directory link");
+    const unreadableLink = join(directory, "projects", "unresolved-state-link");
+    await symlink(join(directory, "missing-state-target"), unreadableLink);
+    await assert.rejects(service.previewRoughCut(request), /ENOENT/);
+    await unlink(unreadableLink);
+
+    const otherSource = join(directory, "other-project-source.mp4");
+    await generateSegmentedSource(otherSource, [{ color: "blue", duration: 2 }], 440);
+    const otherTimeline = emptyTimeline();
+    otherTimeline.project.id = "other-project";
+    const other = await service.create(otherTimeline);
+    await service.registerMedia(other.timeline.project.id, otherSource, other.timeline.revision);
+    const otherSourceLink = join(directory, "other-project-source-link.mp4");
+    await link(otherSource, otherSourceLink);
+    for (const path of [otherSource, otherSourceLink]) {
+      await assert.rejects(service.previewRoughCut({ ...request, render: { ...request.render, outputPath: path, overwrite: true } }), /OUTPUT.*COLLISION/);
+      await assert.rejects(service.render(created.timeline.project.id, created.timeline.sequence.id, { ...request.render, outputPath: path, overwrite: true }, registered.project.timeline.revision), /OUTPUT.*COLLISION/);
+    }
     const protectedOutputs = [reservation, reservationHardlink, reservationSymlink, join(dirname(reservation), "new-artifact.fcpxml")];
     for (const path of protectedOutputs) {
       await assert.rejects(service.previewRoughCut({ ...request, fcpxml: { ...request.fcpxml, path, overwrite: true } }), /OUTPUT.*COLLISION/);
