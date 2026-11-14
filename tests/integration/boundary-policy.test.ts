@@ -373,7 +373,7 @@ for (const statement of [
 ]) {
   test(`document import restrictions reject transitive native reachability: ${statement}`, async (t) => {
     const fixture = await createFixture({
-      "adapters/native/src/value.ts": statement,
+      "adapters/native/src/value.ts": statement + (statement.startsWith("export type") ? " export const localValue = 1;" : ""),
       "adapters/native/src/native-control.ts": "export const localValue = 1; export interface NativeControl { active: boolean }",
     });
     t.after(() => rm(fixture.rootDir, { recursive: true, force: true }));

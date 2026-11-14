@@ -29,7 +29,7 @@ import {
   resolveMediaSource,
   type TimelineIrToFcpxmlResult,
   type TimelineIrToFcpxmlTarget,
-} from "@framekit/final-cut";
+} from "@framekit/final-cut/fcpxml";
 
 export interface HeadlessProjectServiceOptions {
   directory: string;

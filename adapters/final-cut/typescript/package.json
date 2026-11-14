@@ -11,6 +11,10 @@
     "./experimental": {
       "types": "./src/experimental.ts",
       "import": "./src/experimental.ts"
+    },
+    "./fcpxml": {
+      "types": "./src/documents.ts",
+      "import": "./src/documents.ts"
     }
   },
   "dependencies": {

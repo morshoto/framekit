@@ -58,6 +58,8 @@ test("published package contains the runnable Framekit CLI and MCP sources", asy
     "dist-package/apps/mcp-server/runtime/whisper-speech-backend.py",
     "dist-package/packages/runtime/src/index.js",
     "dist-package/adapters/final-cut/typescript/src/index.js",
+    "dist-package/adapters/final-cut/typescript/src/documents.js",
+    "dist-package/adapters/final-cut/typescript/src/documents.d.ts",
   ]) {
     assert.ok(paths.includes(requiredPath), `${requiredPath} must be included in the npm package`);
   }

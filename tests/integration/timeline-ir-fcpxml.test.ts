@@ -10,7 +10,7 @@ import {
   FcpxmlDocumentAdapter,
   compileTimelineIrToFcpxml,
   type TimelineIrToFcpxmlTarget,
-} from "@framekit/final-cut";
+} from "@framekit/final-cut/fcpxml";
 import type { TimelineIr } from "@framekit/runtime";
 
 function timeline(): TimelineIr {
