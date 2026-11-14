@@ -19,10 +19,10 @@ printed by the guard before retrying.
 
 Requirements:
 
-Contributor toolchain: Node.js 22.23.5 and pnpm 12.14.0.
+Contributor toolchain: Node.js 22.23.5 and pnpm 12.18.0.
 Consumer runtime: Node.js >=20.
 CI tests this contributor pair; the pre-commit hook accepts Node.js 22.23 or newer.
-Install pnpm 12.14.0 using Corepack or your preferred package manager.
+Install pnpm 12.18.0 using Corepack or your preferred package manager.
 
 Xcode 16.4 and the macOS 15.5 SDK are required for native work.
 

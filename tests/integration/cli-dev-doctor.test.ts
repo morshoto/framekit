@@ -31,7 +31,7 @@ test("fixture doctor checks contributor tools and writable paths without native 
     platform: "linux",
     runCommand: async (command) => {
       commands.push(command);
-      if (command === "pnpm") return "12.14.0";
+      if (command === "pnpm") return "12.18.0";
       throw new Error("not installed");
     },
     isPathWritable: async (path) => {
@@ -66,7 +66,7 @@ test("headless doctor reports missing render prerequisites with actionable messa
     platform: "linux",
     runCommand: async (command) => {
       commands.push(command);
-      if (command === "pnpm") return "12.14.0";
+      if (command === "pnpm") return "12.18.0";
       if (command === "ffprobe") return "ffprobe version 7.1";
       throw new Error("not installed");
     },
@@ -90,7 +90,7 @@ test("doctor reports unwritable state and cache paths with override guidance", a
     homeDirectory,
     nodeVersion: "v22.23.5",
     runCommand: async (command) => {
-      if (command === "pnpm") return "12.14.0";
+      if (command === "pnpm") return "12.18.0";
       throw new Error("not installed");
     },
     isPathWritable: async () => false,
@@ -113,7 +113,7 @@ test("doctor checks missing state and cache paths without creating them", async 
       homeDirectory: temporaryDirectory,
       nodeVersion: "v22.23.5",
       runCommand: async (command) => {
-        if (command === "pnpm") return "12.14.0";
+        if (command === "pnpm") return "12.18.0";
         throw new Error("not installed");
       },
     });
@@ -136,7 +136,7 @@ test("native doctor checks Xcode only for the native profile", async () => {
     platform: "darwin",
     runCommand: async (command) => {
       commands.push(command);
-      if (command === "pnpm") return "12.14.0";
+      if (command === "pnpm") return "12.18.0";
       if (command === "ffmpeg" || command === "ffprobe" || command === "sqlite3" || command === "xcodebuild") return "available";
       throw new Error("not installed");
     },
