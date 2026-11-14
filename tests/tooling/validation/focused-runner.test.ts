@@ -69,6 +69,8 @@ test("unknown flags, empty matches, unregistered files and failure status fail c
     await assert.rejects(run(args), /TEST_ARGUMENT|TEST_SUITE_UNKNOWN|TEST_FILE_UNKNOWN/);
   }
   await assert.rejects(run(["--file", files[0]!, "--test-name-pattern", "no-match"]), /TEST_NAME_NO_MATCH/);
+  await assert.rejects(run(["--file", files[0]!, "--test-name-pattern", "["]), (error: any) =>
+    error.code !== 0 && /--test-name-pattern|regular expression/i.test(error.stderr));
   await assert.rejects(run(["--file", files[0]!]), (error: any) => error.code === 1 && /UNWANTED/.test(error.stdout));
   const { env } = JSON.parse(await readFile(join(root, "observed.json"), "utf8"));
   assert.equal(existsSync(env.FRAMEKIT_TEST_STATE_DIR), false);
