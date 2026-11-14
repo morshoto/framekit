@@ -61,6 +61,10 @@ export function bindSpeechAnalysis(
 
   const words = validateWords(record.words, observedRange, context.input.media.duration);
   const vadSegments = validateOptionalSegments(record.vadSegments, "VAD", observedRange, context.input.media.duration);
+  const vadUnavailableReason = optionalString(record.vadUnavailableReason, "VAD unavailable reason");
+  if (vadUnavailableReason !== undefined && vadSegments !== undefined) {
+    throw new Error("ANALYSIS_INVALID: VAD evidence conflicts with its unavailable status");
+  }
   const silenceSegments = validateOptionalSegments(record.silenceSegments, "silence", observedRange, context.input.media.duration);
   const protectedSegments = validateOptionalSegments(record.protectedSegments, "protected", observedRange, context.input.media.duration);
   const capability = validateCapability(record.capability, vadSegments);
@@ -80,6 +84,7 @@ export function bindSpeechAnalysis(
     capability,
     words,
     ...(vadSegments ? { vadSegments } : {}),
+    ...(vadUnavailableReason !== undefined ? { vadUnavailableReason } : {}),
     ...(silenceSegments ? { silenceSegments } : {}),
     ...(protectedSegments ? { protectedSegments } : {}),
   };
