@@ -219,6 +219,68 @@ production occurrence exporter remain prerequisites; the current diagnostic
 reports `passed: false` and `NO_GO`. Synthetic validator fixtures must never be
 published as native receipts. Schema validation cannot authenticate acquisition.
 
+The filler command currently emits a `headed-native-filler-removal-diagnostic`
+with `passed: false` and `NO_GO`, even when its one reviewed edit and Undo
+succeed. It cannot supply the complete native scenario suite or independent
+edited-output speech observations. A diagnostic or legacy boolean-only filler
+record cannot promote the release gate to PASS.
+
+Before invoking that command, provide the authorized disposable project name,
+project/sequence IDs, revision ID, occurrence ID, candidate commit and mutation
+consent through the corresponding `FRAMEKIT_FINAL_CUT_E2E_*` variables. Also set
+`FRAMEKIT_FINAL_CUT_E2E_APPROVED_CUTS` to a JSON array of reviewed
+`{ "candidateId": "…", "startFrame": 24, "endFrame": 36 }` entries. These are
+absolute sequence frame indexes, with an exclusive end. The runner requires a
+clean matching checkout and loaded component alignment, re-previews exactly
+those candidates, checks frame/source mappings and unchanged preview state,
+and hashes source files before, after and following Undo.
+
+Complete filler acceptance uses schema v2, validated by
+`scripts/final-cut-filler-acceptance.mjs`. Every required scenario must carry
+candidate/component identities, scoped approval, an independent reference
+fixed before execution, reviewed and executed cut sets, canonical observations,
+source integrity, and explicit restoration or non-mutation evidence. Edited
+speech must describe exported timeline output bound to the after revision and
+canonical digest, with a provider version, output digest and independent content
+comparison. Unchanged source transcription is insufficient. The reference's
+`expectedAfterDigest` uses `fillerTimelineSemanticDigest`: exact timebase,
+duration, source ranges, ordering, lanes, enablement, gain and roles, excluding
+newly assigned clip IDs. Full canonical digests separately prove restoration.
+Reference approval binds SHA-256 of the validator's ordered JSON reference;
+references must not be reconstructed afterward to fit observed results.
+Synthetic validator fixtures test rejection logic only. The native suite
+collector, edited-signal acquisition and authorized execution remain outstanding;
+schema validation does not authenticate how an external observation was acquired.
+
+For v0.2.4, compose complete filler and dialogue acceptance with the observed
+combined-run receipt. This gate reads evidence only; it does not execute native
+operations or authorize a target:
+
+```sh
+pnpm run release-gate:speech-cleanup --candidate-commit "$FRAMEKIT_FINAL_CUT_E2E_CANDIDATE_COMMIT" --filler artifacts/final-cut-headed/filler-removal.json --dialogue artifacts/final-cut-headed/dialogue-normalization.json --combined artifacts/final-cut-headed/speech-cleanup.json
+```
+
+The combined schema-v1 receipt identifies `success` and
+`normalization-failure` cases by their distinct scenario IDs in both complete
+suites. Each case records the pre-cut preview token digest and measurement
+request, non-mutating rejection of that old token/mapping/measurement, refreshed
+source-preserving occurrence mappings, and the measurement attached to the new
+approved normalization preview. The gate checks mapping ranges against the
+approved frame cuts, loaded-component/candidate agreement, post-filler baseline
+continuity and chronological Undo: normalization returns to the post-filler
+state before filler Undo restores the original state. The failure case must
+restore only the normalization stage and preserve the filler edit. Source and
+unrelated-project integrity must remain bound across the sequence.
+
+Missing suites, diagnostics, stale measurements, mismatched targets or incomplete
+restoration produce `NO_GO` and exit status 1. Complete consistent receipts
+produce `PASS`; receipt consistency does not authenticate native acquisition.
+The native combined collector and separately authorized execution remain
+required. The older versioned native-editing manifest alone does not establish
+this combined v0.2.4 acceptance. Deterministic cleanup tests use controlled
+speech/export providers and actual PCM metering; the remap test uses controlled
+source-preserving provider readback, not a native split or speech observation.
+
 The headed candidate must be a full lowercase commit SHA; every headed record
 must match it. Missing, mismatched, or incomplete headed evidence makes the
 command fail. This compares declared identities and does not authenticate files.

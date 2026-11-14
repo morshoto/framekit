@@ -28,6 +28,7 @@ export function sanitizePictureInPictureEvidence(run: unknown, environment: Evid
 export function sanitizeNativeTitleEvidence(run: unknown, environment: EvidenceEnvironment): any;
 export function sanitizeMaskEvidence(run: unknown, environment: EvidenceEnvironment): any;
 export function sanitizeFillerRemovalEvidence(run: unknown, environment: EvidenceEnvironment): any;
+export function sanitizeFillerRemovalDiagnostic(run: unknown, environment: EvidenceEnvironment): any;
 export function sanitizeDialogueNormalizationEvidence(run: unknown, environment: EvidenceEnvironment): any;
 export function sanitizeRoughCutEvidence(run: unknown, environment: EvidenceEnvironment): any;
 export function sanitizeCanonicalReadEvidence(run: unknown, environment: EvidenceEnvironment): unknown;
