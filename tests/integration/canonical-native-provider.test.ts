@@ -3304,3 +3304,16 @@ test("ripple source observation preserves checkpoint when discovery may dispatch
     assert.deepEqual(calls, dispatched ? ["begin", "resolve"] : ["begin", "resolve", "complete"]);
   }
 });
+
+test("canonical resolver rejects unrecorded overlapping native occurrences before selection", async () => {
+  const project = snapshot("Original");
+  const selected: string[] = [];
+  const candidate = { handle: "first", mediaHandle: "media", name: "Original", identity: "item", sourceIdentity: "source", start: "0/24", duration: "96/24", sequenceId: project.timeline.id };
+  const native = {
+    searchMedia: async () => [{ handle: "media", name: "clip.mov", sourceIdentity: "source", source: "/tmp/clip.mov" }],
+    locateOccurrence: async () => ({ status: "ambiguous" as const, occurrences: [candidate, { ...candidate, handle: "second", identity: "item-2", start: "72/24", duration: "48/24" }] }),
+    selectOccurrence: async (handle: string) => { selected.push(handle); return { target: { kind: "selected-clip", identity: "item" } } as never; },
+  };
+  await assert.rejects(createFinalCutNativeTargetResolver(native)(project.timeline.clips[0]!, project), /AMBIGUOUS_PROJECT_TARGET.*overlap/i);
+  assert.deepEqual(selected, []);
+});
