@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { chmod, mkdir, readFile, mkdtemp, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, open, readFile, mkdtemp, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { dirname } from "node:path";
 import { tmpdir } from "node:os";
@@ -301,8 +301,31 @@ test("production MCP exports an edited headless project as FCPXML without a roug
     assert.equal(parsed.timeline.clips[0]?.sourceStart, 0.5);
     assert.equal(parsed.timeline.clips[0]?.duration, 1);
     assert.equal(parsed.media.find((item) => item.mediaId === parsed.timeline.clips[0]?.mediaId)?.source, sourcePath);
+    const originalXml = await readFile(outputPath, "utf8");
     const duplicate = await client.callTool({ name: "headless.fcpxml.export", arguments: { ...args, expectedRevision: edit.after.timeline.revision } });
     assert.match(toolErrorText(duplicate), /EXIST|OVERWRITE/);
+    assert.equal(await readFile(outputPath, "utf8"), originalXml);
+    const fifo = join(directory, "existing.fifo");
+    await execFileAsync("mkfifo", [fifo]);
+    const fifoRequest = client.callTool({ name: "headless.fcpxml.export", arguments: { ...args, outputPath: fifo, expectedRevision: edit.after.timeline.revision } });
+    let cancelFifoTimer = () => {};
+    const fifoResult = await Promise.race([
+      fifoRequest,
+      new Promise<undefined>((resolve) => {
+        const timer = setTimeout(resolve, 5000);
+        cancelFifoTimer = () => clearTimeout(timer);
+      }),
+    ]);
+    cancelFifoTimer();
+    if (!fifoResult) {
+      // Unblock a regressed implementation before failing the test.
+      const writer = await open(fifo, "w");
+      await writer.close();
+      await fifoRequest;
+    }
+    assert.ok(fifoResult, "existing FIFO must be rejected without reading it");
+    assert.match(toolErrorText(fifoResult), /EXIST|OVERWRITE/);
+    assert.equal((await stat(fifo)).isFIFO(), true);
     const concurrentArgs = { ...args, outputPath: join(directory, "concurrent.fcpxml"), expectedRevision: edit.after.timeline.revision };
     const concurrent = await Promise.all([
       client.callTool({ name: "headless.fcpxml.export", arguments: concurrentArgs }),

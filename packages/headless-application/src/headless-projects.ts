@@ -1077,14 +1077,6 @@ function selectFcpxmlMetadata(result: TimelineIrToFcpxmlResult): HeadlessRoughCu
 
 async function writeVerifiedFcpxml(path: string, xml: string, digest: string, overwrite: boolean): Promise<{ path: string; digest: string; bytes: number; verified: true }> {
   await mkdir(dirname(path), { recursive: true });
-  if (!overwrite) {
-    try {
-      await readFile(path);
-      throw new Error(`HEADLESS_ROUGH_CUT_FCPXML_EXISTS: refusing to overwrite ${path}`);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-  }
   const temporary = `${path}.${randomUUID()}.tmp`;
   await writeFile(temporary, xml, { encoding: "utf8", flag: "wx" });
   try {
