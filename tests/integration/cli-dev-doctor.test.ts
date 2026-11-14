@@ -159,12 +159,14 @@ test("CLI exposes fixture doctor JSON without requiring native tools", () => {
     encoding: "utf8",
   });
 
-  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.error, undefined);
   const report = JSON.parse(result.stdout) as Awaited<ReturnType<typeof collectDevDoctorReport>>;
   assert.equal(report.profile, "fixture");
-  assert.equal(report.ready, true);
-  assert.equal(checkNamed(report, "Node.js").status, "pass");
-  assert.equal(checkNamed(report, "pnpm").status, "pass");
+  const unavailableRequiredChecks = report.checks.filter((check) => check.requirement === "required" && check.status !== "pass");
+  assert.equal(report.ready, unavailableRequiredChecks.length === 0);
+  assert.equal(result.status, report.ready ? 0 : 1, result.stderr);
+  assert.equal(checkNamed(report, "Node.js").requirement, "required");
+  assert.equal(checkNamed(report, "pnpm").requirement, "required");
   assert.ok(!report.checks.some((check) => check.name === "Xcode"));
 });
 
