@@ -846,7 +846,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     beforeDuration: RationalTime;
     insertionTime: RationalTime;
     projectId: string;
-    sequenceId?: string;
+    sequenceId: string;
     revision: string;
     expiresAt: number;
   }>();
@@ -2662,6 +2662,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
     const live = await this.requireLiveState();
     if (!live.project?.id) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project identity is required for media insertion");
+    if (!live.sequence?.id) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut sequence identity is required for media insertion");
     const sequenceStart = live.sequenceTimeRange?.start ?? live.sequence?.startTime;
     const beforeDuration = live.sequenceTimeRange?.duration ?? live.sequence?.duration;
     if (!sequenceStart || !beforeDuration) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut sequence duration is unavailable");
@@ -2678,7 +2679,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       beforeDuration,
       insertionTime,
       projectId: live.project.id,
-      sequenceId: live.sequence?.id,
+      sequenceId: live.sequence.id,
       revision: live.revision.id,
       expiresAt,
     });
@@ -2974,15 +2975,19 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   }
 
   private validateMediaInsertionBinding(
-    preview: { projectId: string; sequenceId?: string; revision: string; beforeDuration: RationalTime; insertionTime: RationalTime; operation: NativeFinalCutMediaInsertionOperation },
+    preview: { projectId: string; sequenceId: string; revision: string; beforeDuration: RationalTime; insertionTime: RationalTime; operation: NativeFinalCutMediaInsertionOperation },
     live: EditorLiveState,
   ): void {
     if (live.project?.id !== preview.projectId) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: active project changed");
-    if (preview.sequenceId && live.sequence?.id !== preview.sequenceId) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: active sequence changed");
+    if (live.sequence?.id !== preview.sequenceId) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: active sequence changed");
     if (live.revision.id !== preview.revision) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: playhead or timeline revision changed");
     const currentDuration = live.sequenceTimeRange?.duration ?? live.sequence?.duration;
     if (!currentDuration || compareRational(currentDuration, preview.beforeDuration) !== 0) {
       throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: sequence duration changed");
+    }
+    const currentStart = live.sequenceTimeRange?.start ?? live.sequence?.startTime;
+    if (preview.operation === "append" && (!currentStart || compareRational(addRational(currentStart, currentDuration), preview.insertionTime) !== 0)) {
+      throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: append insertion position changed");
     }
     if (preview.operation === "insert" && (!live.playheadTime || compareRational(live.playheadTime, preview.insertionTime) !== 0)) {
       throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: playhead changed");
