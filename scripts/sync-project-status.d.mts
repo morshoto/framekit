@@ -21,6 +21,14 @@ export interface ProjectStatusItem {
 	fieldValues: { nodes: Array<{ field?: { id: string } | null; name: string }> };
 }
 
+export interface ProjectStatusIssue {
+	number: number;
+	node_id: string;
+	state: string;
+	pull_request?: unknown;
+	labels: Array<{ name: string }>;
+}
+
 export interface ProjectStatusClient {
 	getProject(): Promise<{
 		id: string;
@@ -28,7 +36,8 @@ export interface ProjectStatusClient {
 		options: Map<string, string>;
 		items: ProjectStatusItem[];
 	}>;
-	readIssue(number: number): Promise<{ number: number; node_id: string; labels: Array<{ name: string }> }>;
+	readIssue(number: number): Promise<ProjectStatusIssue>;
+	readIssue(number: number, options: { allowNotFound: true }): Promise<ProjectStatusIssue | null>;
 	setIssueStatusLabel(issue: { number: number; labels: Array<{ name: string }> }, status: ProjectStatus): Promise<void>;
 	setProjectStatus(project: Awaited<ReturnType<ProjectStatusClient['getProject']>>, itemId: string, status: ProjectStatus, previousStatus: string | null): Promise<boolean>;
 	projectItemForIssue(project: Awaited<ReturnType<ProjectStatusClient['getProject']>>, issueNodeId: string): ProjectStatusItem | undefined;
