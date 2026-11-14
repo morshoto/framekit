@@ -267,6 +267,8 @@ export interface SpeechAnalysis {
   capability?: SpeechAnalysisCapability;
   words: SpeechWord[];
   vadSegments?: SpeechSegment[];
+  /** Optional detector failure; transcription can remain available independently. */
+  vadUnavailableReason?: string;
   silenceSegments?: SpeechSegment[];
   protectedSegments?: SpeechSegment[];
 }

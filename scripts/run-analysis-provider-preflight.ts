@@ -49,7 +49,7 @@ export interface AnalysisProviderPreflight {
     sourceDigest: string;
     requestedRange: TimeRange;
     speech: SpeechResult;
-    vad: CapabilityResult & { segmentCount?: number };
+    vad: CapabilityResult & { segmentCount?: number; activityPresent?: boolean; segments?: RevisionBoundSpeechAnalysis["vadSegments"] };
     audio: AudioResult;
   }>;
 }
@@ -94,7 +94,7 @@ export async function runAnalysisProviderPreflight(options: {
       const range = { start: clip.requestedRange[0], end: clip.requestedRange[1] };
       const args = { mediaId: "preflight-" + clip.id, range };
       let speech: SpeechResult = unavailable(options.speechAnalyzer ? "provider-version-unpinned" : "provider-unconfigured");
-      let vad: CapabilityResult & { segmentCount?: number } = unavailable("speech-unavailable");
+      let vad: AnalysisProviderPreflight["assets"][number]["vad"] = unavailable("speech-unavailable");
       if (options.speechAnalyzer?.descriptor?.version?.trim()) {
         const result = await analyze<RevisionBoundSpeechAnalysis>(client, "speech.analyze", args);
         if (result.value) {
@@ -107,8 +107,9 @@ export async function runAnalysisProviderPreflight(options: {
             sourceTimebase: value.sourceTimebase, requestedRange: value.requestedRange, observedRange: value.observedRange,
           };
           const segments = value.vadSegments?.filter((segment) => segment.kind === "speech") ?? [];
-          vad = value.capability === "transcription-plus-vad" && segments.length > 0
-            ? { status: "available", segmentCount: segments.length } : unavailable("required-vad-unavailable");
+          vad = value.capability === "transcription-plus-vad"
+            ? { status: "available", segmentCount: segments.length, activityPresent: segments.length > 0, segments }
+            : unavailable(value.vadUnavailableReason ?? "required-vad-unavailable");
         } else speech = unavailable(result.reason!);
       }
       let audio: AudioResult = unavailable(options.audioAnalyzer ? "provider-version-unpinned" : "provider-unconfigured");
@@ -136,7 +137,7 @@ export async function runAnalysisProviderPreflight(options: {
   return {
     schemaVersion: 1, evidence: "headless-command-provider", nativeAcceptance: "not-run",
     status: assets.every((asset) => asset.speech.status === "available" && asset.speech.expectedTokensMatched
-      && asset.vad.status === "available" && asset.audio.status === "available") ? "ready" : "blocked",
+      && asset.vad.status === "available" && asset.vad.activityPresent && asset.audio.status === "available") ? "ready" : "blocked",
     sourceIntegrity: "unchanged", fixtureSpecDigest: createHash("sha256").update(specBytes).digest("hex"), assets,
   };
 }
@@ -160,6 +161,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const providers = createCommandAnalyzers({
       speechCommand: process.env.FRAMEKIT_SPEECH_ANALYZER,
       speechProviderVersion: process.env.FRAMEKIT_SPEECH_ANALYZER_VERSION,
+      speechRequireVad: process.env.FRAMEKIT_SPEECH_REQUIRE_VAD === "1",
       audioCommand: process.env.FRAMEKIT_AUDIO_ANALYZER,
       audioProviderVersion: process.env.FRAMEKIT_AUDIO_ANALYZER_VERSION,
       timeoutMs: Number(process.env.FRAMEKIT_ANALYZER_TIMEOUT_MS ?? 120000),

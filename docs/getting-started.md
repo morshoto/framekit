@@ -118,6 +118,23 @@ streams, short/silent or truncated signals and invalid tool output are
 unavailable. Occurrence/output requests are rejected before media tools run;
 this source measurement cannot verify a timeline gain change.
 
+The existing Whisper backend can optionally run local Silero VAD. Install
+`silero-vad`/PyTorch and provide a local JIT model through
+`FRAMEKIT_SILERO_VAD_MODEL` plus its required SHA-256 in
+`FRAMEKIT_SILERO_VAD_SHA256`; the backend never downloads a model. Include the
+package/model/backend revisions in `FRAMEKIT_SPEECH_ANALYZER_VERSION`.
+FFmpeg decodes the first audio stream to mono 16 kHz. The detector uses threshold
+0.5, 250 ms minimum speech, 100 ms minimum silence and 30 ms speech padding.
+Detected sample intervals are validated and clipped to the requested source
+range; ASR word or segment timestamps are never substituted for VAD.
+
+With optional VAD, detector failure leaves transcription available and reports
+`vadUnavailableReason` without activity segments. `FRAMEKIT_SPEECH_REQUIRE_VAD=1`
+instead rejects a combined result if VAD is unavailable. Successful results
+retain request/source/revision/provider provenance and a 1/16000 analysis clock.
+These source-file capabilities do not establish native source observation,
+sample-accurate activity reference labels or edit/Undo acceptance.
+
 Use `connection.status` for connection diagnostics, `editor.inspect` for
 backend and capability details, and `editing.route` for the requested
 operation's selected path. Unsupported operations return a structured

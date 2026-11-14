@@ -43,6 +43,17 @@ const provider: AnalyzerDescriptor = {
   version: "2.1.0",
 };
 
+test("speech binding retains an unavailable VAD reason without inventing activity", () => {
+  const result = bindSpeechAnalysis({ words: [], vadUnavailableReason: "SILERO_VAD_MODEL_MISMATCH" }, { input, provider });
+  assert.equal(result.capability, "transcription-only");
+  assert.equal(result.vadSegments, undefined);
+  assert.equal(result.vadUnavailableReason, "SILERO_VAD_MODEL_MISMATCH");
+});
+
+test("speech binding rejects conflicting VAD availability evidence", () => {
+  assert.throws(() => bindSpeechAnalysis({ words: [], vadSegments: [], vadUnavailableReason: "failed" }, { input, provider }), /ANALYSIS_INVALID/);
+});
+
 test("speech binding attaches revision, range, identity, provider, and source timebase", () => {
   const result = bindSpeechAnalysis({
     mediaId: sourceIdentity.mediaId,

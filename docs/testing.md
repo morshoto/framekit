@@ -174,6 +174,10 @@ and observed speech ranges, and compares transcription with tokens declared in
 the fixture specification before inference. Transcription, required VAD and
 source-audio measurements have independent availability. Unconfigured or
 unversioned providers remain unavailable; missing VAD is never synthesized.
+The preflight honors `FRAMEKIT_SPEECH_REQUIRE_VAD`, retains detector intervals
+and explicit failure reasons, and distinguishes valid empty detection from an
+unavailable detector. Generated speech fixtures still require some detected
+activity for readiness; interval presence alone is not an accuracy assessment.
 
 Exit code 0 means provider readiness only; code 2 records a blocked preflight,
 and code 1 reports an execution or fixture-integrity failure. Every report keeps
