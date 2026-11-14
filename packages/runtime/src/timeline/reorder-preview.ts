@@ -127,3 +127,54 @@ export function previewPrimaryStorylineReorder(
   });
   return result;
 }
+
+function comparable(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(comparable);
+  if (!value || typeof value !== "object") return value;
+  const object = value as Record<string, unknown>;
+  if (Object.keys(object).length === 2 && typeof object.value === "string" && typeof object.timescale === "string") {
+    const { value: numerator, timescale: denominator } = parseRational({ value: object.value, timescale: object.timescale }, "REORDER_READBACK_FAILED");
+    let a = numerator < 0n ? -numerator : numerator;
+    let b = denominator;
+    while (b !== 0n) [a, b] = [b, a % b];
+    const divisor = a || 1n;
+    return { value: String(numerator / divisor), timescale: String(denominator / divisor) };
+  }
+  return Object.fromEntries(Object.entries(object).map(([key, child]) => [key, comparable(child)]));
+}
+
+/** Compare the entire supported snapshot with the approved reorder projection. */
+export function verifyPrimaryStorylineReorder(
+  preview: PrimaryStorylineReorderPreview,
+  before: ProjectSnapshot,
+  after: ProjectSnapshot,
+): void {
+  try {
+    assertReorderPreviewCurrent(preview, before);
+    if (!preview.noOp && (after.revision.id === before.revision.id || after.revision.sequence <= before.revision.sequence)) {
+      throw new Error("revision did not advance");
+    }
+    const expected = structuredClone(before);
+    if (!preview.noOp) {
+      const moved = new Map(preview.after.map((item) => [item.id, item]));
+      expected.timeline.clips = expected.timeline.clips.map((item) => structuredClone(moved.get(item.id) ?? item));
+      expected.timeline.storyElements = expected.timeline.storyElements.map((element) => {
+        const updated = moved.get(element.id);
+        return updated ? { ...element, start: updated.start, startTime: structuredClone(updated.startTime) } : element;
+      });
+      expected.revision = structuredClone(after.revision);
+    }
+    const actual = structuredClone(after);
+    const byStart = (a: { id: string; startTime?: RationalTime }, b: { id: string; startTime?: RationalTime }): number => {
+      if (!a.startTime || !b.startTime) throw new Error("exact timing unavailable");
+      return compare(a.startTime, b.startTime) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    };
+    expected.timeline.clips.sort(byStart);
+    expected.timeline.storyElements.sort(byStart);
+    actual.timeline.clips.sort(byStart);
+    actual.timeline.storyElements.sort(byStart);
+    if (!isDeepStrictEqual(comparable(expected), comparable(actual))) throw new Error("snapshot differs from approved reorder");
+  } catch (error) {
+    throw new Error("REORDER_READBACK_FAILED: complete snapshot did not match the approved reorder", { cause: error });
+  }
+}
