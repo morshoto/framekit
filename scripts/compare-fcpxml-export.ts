@@ -11,12 +11,16 @@ async function sourceDigests(snapshot: ProjectSnapshot): Promise<{ source: strin
   for (const clip of snapshot.timeline.clips) {
     if (!clip.mediaId || !mediaIds.has(clip.mediaId)) throw new Error("Unresolved clip media reference");
   }
-  return Promise.all(snapshot.media.map(async ({ source }) => {
+  const digests = await Promise.all(snapshot.media.map(async ({ source }) => {
     if (!source || !source.startsWith("/")) throw new Error("Expected a local original-media source path");
     const hash = createHash("sha256");
     for await (const chunk of createReadStream(source)) hash.update(chunk);
     return { source, sha256: hash.digest("hex") };
   }));
+  if (new Set(digests.map(({ sha256 }) => sha256)).size !== digests.length) {
+    throw new Error("Ambiguous media binding: multiple resources have identical content");
+  }
+  return digests;
 }
 
 async function rejectUnsupportedStructure(path: string): Promise<void> {
