@@ -6,12 +6,13 @@ on:
       - opened
       - synchronize
       - reopened
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number }}
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 env:
@@ -22,6 +23,7 @@ jobs:
   lint:
     name: Lint / static checks
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -34,6 +36,7 @@ jobs:
   test:
     name: Unit / integration tests
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -42,7 +45,7 @@ jobs:
         uses: ./.github/action/test
         with:
           node-version: ${{ env.NODE_VERSION }}
-          validation-level: fast
+          validation-level: deterministic
 
   docs-changes:
     name: Detect docs changes
@@ -54,16 +57,45 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
       - name: Test docs change detection
         run: node --test scripts/docs-ci-paths.test.mjs
       - id: paths
         env:
+          EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: echo "changed=$(node scripts/docs-ci-paths.mjs "$BASE_SHA" "$HEAD_SHA")" >> "$GITHUB_OUTPUT"
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=$(node scripts/docs-ci-paths.mjs "$BASE_SHA" "$HEAD_SHA")" >> "$GITHUB_OUTPUT"
+          fi
 
   docs-foundation:
+    name: Docs typecheck / unit tests
+    needs: docs-changes
+    if: always() && (needs.docs-changes.result != 'success' || needs.docs-changes.outputs.changed != 'false')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm --filter @framekit/docs typecheck
+      - name: Docs unit tests
+        run: pnpm --filter @framekit/docs test
+
+  docs-export:
     name: Docs static export (${{ matrix.profile }})
     needs: docs-changes
     if: always() && (needs.docs-changes.result != 'success' || needs.docs-changes.outputs.changed != 'false')
@@ -88,10 +120,6 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Typecheck
-        run: pnpm --filter @framekit/docs typecheck
-      - name: Docs unit tests
-        run: pnpm --filter @framekit/docs test
       - name: Build export
         run: pnpm --filter @framekit/docs build
       - name: Verify export
@@ -100,6 +128,7 @@ jobs:
   nix-fixture:
     name: Linux Nix fixture bootstrap
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -121,6 +150,7 @@ jobs:
   consumer-runtime:
     name: Published package consumer minimum
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -134,9 +164,28 @@ jobs:
   swift:
     name: Swift type-check
     runs-on: macos-26
+    timeout-minutes: 10
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Validate Swift Workflow Extension
         uses: ./.github/action/swift
+
+  ci-passed:
+    name: CI passed
+    needs: [lint, test, nix-fixture, consumer-runtime, swift, docs-changes, docs-foundation, docs-export]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Verify every expected result
+        env:
+          CI_JOB_RESULTS: ${{ toJSON(needs) }}
+        run: node scripts/ci/check-results.mjs
