@@ -13,6 +13,6 @@ The headless path works without a running Final Cut Pro session. Framekit owns t
 
 A stale revision or unavailable provider requires a fresh inspection or a structured failure. Framekit does not silently substitute a native operation or external renderer. The [video production runbook](https://github.com/morshoto/framekit/blob/main/plugins/framekit/references/tests/codex-video-production-e2e.md) shows a detailed workflow and its evidence boundaries.
 
-Project writes do not automatically remove an existing project lock, even if its recorded process has exited. An interrupted writer can therefore leave later writes blocked. Before an operator clears such a lock, they must independently establish that no writer can still use it; elapsed time, an empty file, or a PID alone does not prove that.
+Project writes do not automatically remove an existing project lock, even if its recorded process has exited. This protection requires every writer using the project state to include this behavior. Before sharing state with upgraded writers, stop and drain older writers: they may remove an initializing or replaced lock and allow concurrent writes. An interrupted writer can leave later writes blocked. Before an operator clears such a lock, they must independently establish that no writer can still use it; elapsed time, an empty file, or a PID alone does not prove that.
 
 See [Projects & Timeline IR](/en/docs/projects-and-timeline/) and [Revisions & Safety](/en/docs/revisions-and-safety/).
