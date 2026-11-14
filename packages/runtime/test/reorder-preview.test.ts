@@ -40,3 +40,12 @@ test("self and unchanged destination are explicit no-ops", () => {
     assert.deepEqual(preview.after, []);
   }
 });
+
+test("no-op preview identifies the exact source and range", () => {
+  const preview = previewPrimaryStorylineReorder(fixture(), "b", { kind: "after", occurrenceId: "a" });
+  assert.equal(preview.noOp, true);
+  assert.equal(preview.moving.id, "b");
+  assert.equal(preview.source, "/media/two.mov");
+  assert.deepEqual(preview.moving.sourceStartTime, { value: "5005", timescale: "24000" });
+  assert.deepEqual(preview.moving.durationTime, { value: "4004", timescale: "24000" });
+});
