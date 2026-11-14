@@ -734,6 +734,13 @@ export function createFinalCutNativeTargetResolver(
       if (sameRational(other.startTime, clip.startTime) && sameRational(other.durationTime, clip.durationTime)) {
         throw new Error(`AMBIGUOUS_PROJECT_TARGET: timeline occurrence coordinates are not unique for ${clip.id}`);
       }
+      if (compareRational(clip.durationTime, zeroRational()) <= 0 || compareRational(other.durationTime, zeroRational()) <= 0) {
+        throw new Error("AMBIGUOUS_PROJECT_TARGET: timeline occurrence coordinates have nonpositive duration");
+      }
+      if (compareRational(clip.startTime, addRational(other.startTime, other.durationTime)) < 0
+        && compareRational(other.startTime, addRational(clip.startTime, clip.durationTime)) < 0) {
+        throw new Error(`AMBIGUOUS_PROJECT_TARGET: same-source timeline occurrences overlap for ${clip.id}`);
+      }
     }
 
     const searchMedia = native.searchMediaForCanonicalTarget ?? native.searchMedia;

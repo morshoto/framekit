@@ -3243,3 +3243,17 @@ test("canonical resolver rejects overlapping same-source occurrences before disc
     assert.deepEqual(calls, []);
   }
 });
+
+test("canonical resolver permits adjacent repeated source occurrences", async () => {
+  const project = snapshot("Original");
+  const target = project.timeline.clips[0]!;
+  project.timeline.clips.push({ ...target, id: "adjacent", startTime: { value: "192", timescale: "48" }, durationTime: { value: "96", timescale: "24" } });
+  const selected: string[] = [];
+  const native = {
+    searchMedia: async () => [{ handle: "media", name: "clip.mov", sourceIdentity: "source", source: "/tmp/clip.mov" }],
+    locateOccurrence: async () => ({ status: "unique" as const, occurrences: [{ handle: "occ", mediaHandle: "media", name: "Original", identity: "item", sourceIdentity: "source", start: "0/24", duration: "96/24", sequenceId: project.timeline.id }] }),
+    selectOccurrence: async (handle: string) => { selected.push(handle); return { target: { kind: "selected-clip", identity: "item" } } as never; },
+  };
+  await createFinalCutNativeTargetResolver(native)(target, project);
+  assert.deepEqual(selected, ["occ"]);
+});
