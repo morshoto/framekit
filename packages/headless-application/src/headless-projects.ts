@@ -334,10 +334,10 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       target: command.target ?? { projectId, sequenceId },
     };
     const preview = await transaction.preview(editCommand);
-    const undoId = `undo-${randomUUID()}`;
+    const recordId = `undo-${randomUUID()}`;
     const afterDigest = timelineIrDigest(preview.after.timeline);
     const record = {
-      version: 1 as const, undoId, projectId, sequenceId,
+      version: 1 as const, undoId: recordId, projectId, sequenceId,
       before: preview.before,
       beforeDigest: timelineIrDigest(preview.before.timeline),
       afterDigest,
@@ -345,7 +345,10 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     };
     const directory = join(this.directory, "undo");
     await mkdir(directory, { recursive: true });
-    await writeFile(join(directory, `${undoId}.json`), JSON.stringify({ ...record, checksum: hash(stableJson(record)) }), { encoding: "utf8", flag: "wx" });
+    const serialized = JSON.stringify({ ...record, checksum: hash(stableJson(record)) });
+    // The client retains this commitment independently of the stored record.
+    const undoId = `${recordId}-${hash(serialized)}`;
+    await writeFile(join(directory, `${recordId}.json`), serialized, { encoding: "utf8", flag: "wx" });
     const result = await transaction.execute(editCommand);
     if (!sameRevision(result.after.timeline.revision, record.afterRevision) || timelineIrDigest(result.after.timeline) !== afterDigest) {
       throw new Error("HEADLESS_EDIT_UNCERTAIN: committed edit differs from the recorded Undo state");
@@ -354,14 +357,17 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
   }
 
   public async undoEdit(projectId: string, sequenceId: string, undoId: string, expectedRevision: ContextRevision): Promise<HeadlessUndoResult> {
-    if (!/^undo-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(undoId)) {
+    const handle = /^(undo-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})-([0-9a-f]{64})$/.exec(undoId);
+    if (!handle) {
       throw new Error("HEADLESS_UNDO_INVALID: invalid Undo identifier");
     }
     let record: HeadlessUndoRecord;
     try {
-      record = JSON.parse(await readFile(join(this.directory, "undo", `${undoId}.json`), "utf8")) as HeadlessUndoRecord;
+      const serialized = await readFile(join(this.directory, "undo", `${handle[1]}.json`), "utf8");
+      if (hash(serialized) !== handle[2]) throw new Error("record does not match client commitment");
+      record = JSON.parse(serialized) as HeadlessUndoRecord;
       const { checksum, ...content } = record;
-      if (record.version !== 1 || record.undoId !== undoId || checksum !== hash(stableJson(content))
+      if (record.version !== 1 || record.undoId !== handle[1] || checksum !== hash(stableJson(content))
         || record.projectId !== projectId || record.sequenceId !== sequenceId
         || record.before.timeline.project.id !== projectId || record.before.timeline.sequence.id !== sequenceId
         || timelineIrDigest(record.before.timeline) !== record.beforeDigest) throw new Error("invalid record");

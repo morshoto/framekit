@@ -52,9 +52,11 @@ test("headless edit Undo survives MCP restart and verifies the restored project"
     assert.match(toolErrorText(wrongTarget), /HEADLESS_UNDO_INVALID|MISMATCH/);
     const wrongRevision = await client.callTool({ name: "headless.edit.undo", arguments: { ...undoArgs, expectedRevision: initial.timeline.revision } });
     assert.match(toolErrorText(wrongRevision), /HEADLESS_UNDO_STALE/);
-    const missing = await client.callTool({ name: "headless.edit.undo", arguments: { ...undoArgs, undoId: "undo-00000000-0000-4000-8000-000000000001" } });
+    const missing = await client.callTool({ name: "headless.edit.undo", arguments: { ...undoArgs, undoId: `undo-00000000-0000-4000-8000-000000000001-${"0".repeat(64)}` } });
     assert.match(toolErrorText(missing), /HEADLESS_UNDO_INVALID/);
-    const historyPath = join(directory, "state", "projects", "undo", `${edit.undoId}.json`);
+    const malformed = await client.callTool({ name: "headless.edit.undo", arguments: { ...undoArgs, undoId: "../undo-invalid" } });
+    assert.match(toolErrorText(malformed), /HEADLESS_UNDO_INVALID/);
+    const historyPath = join(directory, "state", "projects", "undo", `${edit.undoId.slice(0, 41)}.json`);
     const history = await readFile(historyPath, "utf8");
     const damaged = JSON.parse(history);
     damaged.before.timeline.sequence.markers.push({ id: "forged", name: "Forged", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } });
@@ -87,6 +89,15 @@ test("headless edit Undo survives MCP restart and verifies the restored project"
       projectId, sequenceId, expectedRevision: inspected.timeline.revision,
       operations: [{ type: "add-marker", marker: { id: "marker-2", name: "Second", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } } }],
     } }));
+    const nextHistoryPath = join(directory, "state", "projects", "undo", `${next.undoId.slice(0, 41)}.json`);
+    const nextHistory = await readFile(nextHistoryPath, "utf8");
+    await writeFile(nextHistoryPath, history);
+    const substituted = await client.callTool({ name: "headless.edit.undo", arguments: {
+      projectId, sequenceId, undoId: next.undoId, expectedRevision: next.after.timeline.revision,
+    } });
+    assert.match(toolErrorText(substituted), /HEADLESS_UNDO_INVALID/);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, next.after.timeline);
+    await writeFile(nextHistoryPath, nextHistory);
     const later = payload(await client.callTool({ name: "headless.edit.execute", arguments: {
       projectId, sequenceId, expectedRevision: next.after.timeline.revision,
       operations: [{ type: "add-marker", marker: { id: "marker-3", name: "Third", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } } }],
