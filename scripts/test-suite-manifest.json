@@ -2010,6 +2010,27 @@
       "network": "none"
     },
     {
+      "path": "tests/runtime/editing/generated-sequences.test.ts",
+      "owner": "packages/runtime",
+      "tags": [
+        "integration",
+        "fixture-e2e",
+        "fast-integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "packages/runtime",
+        "packages/testkit",
+        "adapters/final-cut/typescript"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
       "path": "tests/runtime/editing/masking-evidence.test.ts",
       "owner": "scripts",
       "tags": [
