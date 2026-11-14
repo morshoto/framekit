@@ -1119,7 +1119,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
       : undefined;
     const clip = clipTarget?.clip;
     const rippleTarget = supported.type === "ripple-delete" ? canonicalTargetForOperation(before, supported) : undefined;
-    const targetClip = clip;
+    const targetClip = clip ?? rippleTarget?.clip;
     const trimDuration = supported.type === "trim-clip"
       ? validateCanonicalTrim(supported, clip!, before)
       : undefined;
