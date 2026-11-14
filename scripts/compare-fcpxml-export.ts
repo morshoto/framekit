@@ -25,12 +25,14 @@ async function rejectUnsupportedStructure(path: string): Promise<void> {
   const document = new XMLParser({ preserveOrder: true, ignoreAttributes: false }).parse(xml) as unknown;
   let projects = 0;
   let sequences = 0;
-  const unsupported = new Set(["ref-clip", "mc-clip", "sync-clip", "audition", "multicam", "compound-clip"]);
+  // Reject unmodeled elements rather than silently comparing partial snapshots.
+  // Attribute semantics still require independent review; this is not native proof.
+  const supported = new Set(["?xml", "#text", "fcpxml", "resources", "format", "effect", "asset", "media-rep", "library", "event", "project", "sequence", "spine", "asset-clip", "adjust-volume", "metadata", "md", "title", "text", "text-style"]);
   function visit(value: unknown): void {
     if (Array.isArray(value)) { for (const item of value) visit(item); return; }
     if (!value || typeof value !== "object") return;
     for (const [key, child] of Object.entries(value)) {
-      if (unsupported.has(key)) throw new Error(`Unsupported FCPXML structure: ${key}`);
+      if (key !== ":@" && !supported.has(key)) throw new Error(`Unsupported FCPXML structure: ${key}`);
       if (key === "project") projects++;
       if (key === "sequence") sequences++;
       if (key !== ":@") visit(child);
