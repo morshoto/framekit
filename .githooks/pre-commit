@@ -5,11 +5,11 @@ repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
 # pnpm 12 requires Node.js >=18, while the repository's CI and native tooling
-# use Node.js >=22.14. Git hooks often inherit a narrower PATH than an
+# use Node.js >=22.23. Git hooks often inherit a narrower PATH than an
 # interactive shell, so select a compatible Node installation before invoking
 # pnpm.
 minimum_node_major=22
-minimum_node_minor=14
+minimum_node_minor=23
 node_bin=""
 while IFS= read -r candidate; do
   [[ -x "$candidate" ]] || continue
@@ -23,7 +23,7 @@ while IFS= read -r candidate; do
 done < <(type -a -p node 2>/dev/null | awk '!seen[$0]++')
 
 if [[ -z "$node_bin" ]]; then
-  echo "Framekit pre-commit: Node.js >=22.14 is required by the repository toolchain." >&2
+  echo "Framekit pre-commit: Node.js >=22.23 is required by the repository toolchain." >&2
   echo "Install a compatible Node.js version and retry the commit." >&2
   exit 1
 fi
