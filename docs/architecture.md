@@ -388,3 +388,12 @@ independent unavailable reasons. Occurrence loudness is not a source-cache
 entry. A provider without a physical-source validator still relies on its
 current canonical source-identity contract; this does not supply missing
 native occurrence/source observation.
+
+Speech occurrence mapping requires observed source coverage for the complete
+occurrence and rejects conflicting numeric/rational source coordinates. It
+represents speech boundaries on the provider's declared source clock before
+sequence-frame alignment, preserving exact fractional offsets instead of
+rounding them to microseconds. Off-clock evidence is explicitly ambiguous.
+The restart/cache matrix verifies trim, reorder, split and repeated-source
+mapping against independently stated rational positions in deterministic
+snapshots; native acceptance remains separate.

@@ -3124,12 +3124,38 @@
     "tests/integration/semantic-media.test.ts": [
       "\"source audio analysis cannot authorize an occurrence gain edit\"",
       "\"source audio results explicitly identify the measured signal\"",
-      "\"audio measurements reject a different occurrence before previewing edits\""
+      "\"audio measurements reject a different occurrence before previewing edits\"",
+      "\"semantic cache requires content identity before reusing source analysis\"",
+      "\"semantic cache cannot relabel partial source analysis as whole-source evidence\"",
+      "\"semantic cache does not preserve analysis from a removed provider\"",
+      "\"semantic cache reuses unchanged source evidence after a timeline-only revision\"",
+      "`semantic cache invalidates when provider ${changedField} changes`",
+      "\"semantic cache cannot rebind occurrence loudness as reusable source analysis\""
     ],
     "tests/speech/command-analyzer.test.ts": [
       "`${kind} rejects replaced source bytes before starting the provider`",
       "`${kind} rejects a source replaced while its provider is running`",
-      "`${kind} analyzes matching source content without changing media or timeline`"
+      "`${kind} analyzes matching source content without changing media or timeline`",
+      "\"command speech identity changes with effective model configuration\"",
+      "\"command audio identity distinguishes executable and provider version\"",
+      "\"command provider executes the environment bound to its analysis identity\"",
+      "`persisted ${kind} cache rechecks source bytes after restart`"
+    ],
+    "tests/integration/timeline-semantic-context.test.ts": [
+      "\"timeline semantic context uses authoritative rational source coordinates\"",
+      "\"timeline semantic context rejects cached evidence from a different configured provider\""
+    ],
+    "tests/speech/mapping.test.ts": [
+      "\"speech occurrence mapping refuses unobserved source coverage\"",
+      "`speech mapping rejects contradictory ${label} timing`",
+      "\"source range translation rejects conflicting exact evidence coordinates\"",
+      "\"speech mapping retains the declared source clock at fractional frame offsets\"",
+      "\"speech mapping rejects evidence outside its declared source clock\"",
+      "\"cached speech remaps rational trim reorder and split snapshots after restart\""
+    ],
+    "tests/speech/revision-bound-analysis.test.ts": [
+      "\"speech binding preserves configured model and configuration provenance\"",
+      "`speech binding rejects mismatched configured provider ${Object.keys(change)[0]}`"
     ]
   },
   "identityDiscoveryCorrections": {
@@ -3244,6 +3270,44 @@
           "`${kind} rejects replaced source bytes before starting the provider`",
           "`${kind} rejects a source replaced while its provider is running`",
           "`${kind} analyzes matching source content without changing media or timeline`"
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        740
+      ],
+      "reason": "Add reviewed cache, provenance, physical-source validation and rational mapping regressions; no baseline identities removed.",
+      "addedTestNames": {
+        "tests/integration/semantic-media.test.ts": [
+          "\"semantic cache requires content identity before reusing source analysis\"",
+          "\"semantic cache cannot relabel partial source analysis as whole-source evidence\"",
+          "\"semantic cache does not preserve analysis from a removed provider\"",
+          "\"semantic cache reuses unchanged source evidence after a timeline-only revision\"",
+          "`semantic cache invalidates when provider ${changedField} changes`",
+          "\"semantic cache cannot rebind occurrence loudness as reusable source analysis\""
+        ],
+        "tests/integration/timeline-semantic-context.test.ts": [
+          "\"timeline semantic context uses authoritative rational source coordinates\"",
+          "\"timeline semantic context rejects cached evidence from a different configured provider\""
+        ],
+        "tests/speech/command-analyzer.test.ts": [
+          "\"command speech identity changes with effective model configuration\"",
+          "\"command audio identity distinguishes executable and provider version\"",
+          "\"command provider executes the environment bound to its analysis identity\"",
+          "`persisted ${kind} cache rechecks source bytes after restart`"
+        ],
+        "tests/speech/mapping.test.ts": [
+          "\"speech occurrence mapping refuses unobserved source coverage\"",
+          "`speech mapping rejects contradictory ${label} timing`",
+          "\"source range translation rejects conflicting exact evidence coordinates\"",
+          "\"speech mapping retains the declared source clock at fractional frame offsets\"",
+          "\"speech mapping rejects evidence outside its declared source clock\"",
+          "\"cached speech remaps rational trim reorder and split snapshots after restart\""
+        ],
+        "tests/speech/revision-bound-analysis.test.ts": [
+          "\"speech binding preserves configured model and configuration provenance\"",
+          "`speech binding rejects mismatched configured provider ${Object.keys(change)[0]}`"
         ]
       }
     }

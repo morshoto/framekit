@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { InMemoryEditorAdapter } from "@framekit/testkit";
 import {
+  AgentVideoRuntime,
+  JsonSemanticMediaIndexStore,
+  bindSpeechAnalysis,
+  type ProjectSnapshot,
   mapSourceRangeToSequenceRange,
   mapSpeechAnalysisToOccurrence,
   type RevisionBoundSpeechAnalysis,
@@ -200,4 +208,126 @@ test("speech mapping rejects evidence outside its declared source clock", () => 
     vadSegments: undefined,
   }, occurrence(30), { sequenceFrameDuration: { value: "1", timescale: "10" } }),
   /AMBIGUOUS_MAPPING.*source clock/);
+});
+
+
+test("cached speech remaps rational trim reorder and split snapshots after restart", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-rational-speech-matrix-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const frame = { value: "1001", timescale: "24000" };
+  const seconds = (frames: number) => frames * 1001 / 24000;
+  const exact = (frames: number) => {
+    let numerator = BigInt(frames) * 1001n;
+    let denominator = 24000n;
+    let a = numerator, b = denominator;
+    while (b) [a, b] = [b, a % b];
+    numerator /= a; denominator /= a;
+    return { value: numerator.toString(), timescale: denominator.toString() };
+  };
+  const source = {
+    mediaId: "matrix-source", source: "/fixtures/known-source.mov",
+    sourceDigest: "fixture-content-identity", mediaKind: "video" as const, duration: 60,
+  };
+  // Independently stated source/sequence frame coordinates and expected word starts.
+  const stages = [
+    { name: "baseline", total: 48, rows: [
+      { id: "a", source: 0, length: 24, sequence: 0, word: "first", mapped: 12 },
+      { id: "b", source: 240, length: 24, sequence: 24, word: "second", mapped: 36 },
+    ] },
+    { name: "trimmed", total: 40, rows: [
+      { id: "a", source: 8, length: 16, sequence: 0, word: "first", mapped: 4 },
+      { id: "b", source: 240, length: 24, sequence: 16, word: "second", mapped: 28 },
+    ] },
+    { name: "reordered", total: 40, rows: [
+      { id: "b", source: 240, length: 24, sequence: 0, word: "second", mapped: 12 },
+      { id: "a", source: 8, length: 16, sequence: 24, word: "first", mapped: 28 },
+    ] },
+    { name: "split", total: 40, rows: [
+      { id: "b-left", source: 240, length: 12, sequence: 0, word: undefined, mapped: undefined },
+      { id: "b-right", source: 252, length: 12, sequence: 12, word: "second", mapped: 12 },
+      { id: "a", source: 8, length: 16, sequence: 24, word: "first", mapped: 28 },
+    ] },
+  ];
+  let current: ProjectSnapshot;
+  class SnapshotAdapter extends InMemoryEditorAdapter {
+    public override async readProject() { return structuredClone(current); }
+  }
+  const adapter = new SnapshotAdapter({
+    projectId: "matrix-project", projectName: "Matrix",
+    timelineId: "matrix-sequence", timelineName: "Main",
+    clips: [], media: [source],
+  });
+  let providerCalls = 0;
+  const provider = {
+    descriptor: { id: "fixture.matrix-speech", provider: "fixture", version: "1" },
+    analyze: async () => {
+      providerCalls += 1;
+      return {
+        sourceTimebase: { value: "1", timescale: "24000" },
+        words: [
+          { text: "first", start: seconds(12), end: seconds(14), confidence: 1 },
+          { text: "second", start: seconds(252), end: seconds(254), confidence: 1 },
+        ],
+      };
+    },
+  };
+  let previous: RevisionBoundSpeechAnalysis | undefined;
+  for (const [index, stage] of stages.entries()) {
+    current = {
+      projectId: "matrix-project", projectName: "Matrix",
+      timeline: {
+        id: "matrix-sequence", name: "Main", duration: seconds(stage.total),
+        durationTime: exact(stage.total), frameDuration: frame,
+        clips: stage.rows.map((row) => ({
+          id: row.id, name: row.id, mediaId: source.mediaId, track: 0,
+          start: seconds(row.sequence), startTime: exact(row.sequence),
+          duration: seconds(row.length), durationTime: exact(row.length),
+          sourceStart: seconds(row.source), sourceStartTime: exact(row.source),
+        })),
+        storyElements: [], markers: [], captions: [],
+      },
+      media: [source],
+      revision: { id: "canonical:" + stage.name, sequence: index, timestamp: new Date(index).toISOString() },
+    };
+    const before = structuredClone(current);
+    // Every stage uses a new runtime and a reopened JSON store, not attached context.
+    const runtime = new AgentVideoRuntime(adapter, {
+      speechAnalyzer: provider, semanticMediaIndexStore: new JsonSemanticMediaIndexStore(join(directory, "index.json")),
+    });
+    const understanding = await runtime.understandMedia(source.mediaId);
+    assert.equal(providerCalls, 1, stage.name);
+    assert.deepEqual(understanding.speech?.revision, current.revision, stage.name);
+    const bound = bindSpeechAnalysis(understanding.speech, {
+      input: { project: current, media: source }, provider: provider.descriptor,
+    });
+    for (const [rowIndex, row] of stage.rows.entries()) {
+      const clip = current.timeline.clips[rowIndex]!;
+      const occurrence: SpeechOccurrence = {
+        occurrenceId: clip.id, mediaId: source.mediaId, revision: current.revision,
+        sourceTimebase: { value: "1", timescale: "24000" },
+        sourceRange: {
+          start: seconds(row.source), end: seconds(row.source + row.length),
+          startTime: exact(row.source), durationTime: exact(row.length),
+        },
+        sequenceRange: {
+          start: seconds(row.sequence), end: seconds(row.sequence + row.length),
+          startTime: exact(row.sequence), durationTime: exact(row.length),
+        },
+      };
+      if (previous) {
+        assert.throws(() => mapSpeechAnalysisToOccurrence(previous!, occurrence, { sequenceFrameDuration: frame }), /STALE_CONTEXT/);
+      }
+      const mapped = mapSpeechAnalysisToOccurrence(bound, occurrence, { sequenceFrameDuration: frame });
+      assert.deepEqual(mapped.revision, current.revision);
+      assert.deepEqual(mapped.words.map(({ word }) => word.text), row.word ? [row.word] : []);
+      if (row.mapped !== undefined) {
+        assert.deepEqual(mapped.words[0]?.sequenceRange.startTime, exact(row.mapped), stage.name + "/" + row.id);
+        assert.deepEqual(mapped.words[0]?.sequenceRange.durationTime, exact(2));
+        assert.deepEqual(mapped.words[0]?.frameAlignedRange.startTime, exact(row.mapped));
+        assert.deepEqual(mapped.words[0]?.frameAlignedRange.durationTime, exact(2));
+      }
+    }
+    assert.deepEqual(current, before, "analysis and mapping must not change canonical fixture state");
+    previous = bound;
+  }
 });
