@@ -147,6 +147,7 @@ function contextWithFocus(
 }
 
 test("native Final Cut adapter edits the active selection and uses native undo", async () => {
+  let clock = 0;
   const scripts: string[] = [];
   const contextOutputs = [
     context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 0, "Undo Existing Change"),
@@ -156,6 +157,8 @@ test("native Final Cut adapter edits the active selection and uses native undo",
   ];
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    now: () => clock,
+    sleep: async milliseconds => { clock += milliseconds; },
     liveState: async () => boundNativeLiveState(),
     executor: async (script) => {
       scripts.push(script);
@@ -180,6 +183,7 @@ test("native Final Cut adapter edits the active selection and uses native undo",
   assert.equal(undone.context.target.name, "Interview");
   assert.equal(scripts.some((script) => script.includes('click menu item "Undo Rename" of menu "Edit"')), true);
   assert.equal(scripts.filter((script) => script.includes("timelineWindowAvailable")).length >= 4, true);
+  assert.ok(clock >= 5_000, "the simulated revision polling still reaches its deadline");
 });
 
 test("headed clip rename uses Final Cut's native Rename Clip action and Unicode input", async () => {
@@ -212,9 +216,12 @@ test("headed clip rename uses Final Cut's native Rename Clip action and Unicode 
 });
 
 test("native Final Cut adapter allows the first edit to establish operation Undo", async () => {
+  let clock = 0;
   let renamed = false;
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    now: () => clock,
+    sleep: async milliseconds => { clock += milliseconds; },
     liveState: async () => boundNativeLiveState(),
     executor: async (script) => {
       if (script.includes("Apply Custom Name")) renamed = true;
@@ -231,6 +238,7 @@ test("native Final Cut adapter allows the first edit to establish operation Undo
   const undone = await adapter.undo(result.operationId);
   assert.equal(undone.undone, true);
   assert.equal(undone.context.target.name, "Interview");
+  assert.ok(clock >= 5_000, "the simulated revision polling still reaches its deadline");
 });
 
 test("native Final Cut adapter trims a selected clip to an exact canonical range", async () => {
@@ -842,11 +850,14 @@ test("native title previews bind explicit selected ranges and reject incompatibl
 });
 
 test("native Final Cut Undo recovers when frontmost is lost after preflight", async () => {
+  let clock = 0;
   let preflightCalls = 0;
   let undoCalls = 0;
   let renamed = false;
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
+    now: () => clock,
+    sleep: async milliseconds => { clock += milliseconds; },
     liveState: async () => boundNativeLiveState(),
     executor: async (script) => {
       if (script.includes("on selectedTimelineOccurrenceIndex")) {
@@ -875,6 +886,7 @@ test("native Final Cut Undo recovers when frontmost is lost after preflight", as
   assert.equal(undone.context.target.name, "Interview");
   assert.equal(undoCalls, 2);
   assert.equal(preflightCalls >= 5, true);
+  assert.ok(clock >= 5_000, "the simulated revision polling still reaches its deadline");
 });
 
 test("native range undo uses Final Cut's Undo Delete Range command and restores duration", async () => {
