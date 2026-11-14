@@ -225,3 +225,41 @@ test("MCP Skill preview and execute preserve exported measurement evidence", asy
     await server.close();
   }
 });
+
+test("silent exported audio is a non-mutating SKIP without invented loudness", async t => {
+  const f = await fixture(t);
+  f.exporter.export = async ({ binding, outputPath }) => {
+    const bytes = pcm(0); await writeFile(outputPath, bytes);
+    return { binding, outputDigest: digest(bytes) };
+  };
+  const before = await f.adapter.readProject();
+  const preview = await f.preview();
+  assert.equal(preview.plan.decision, "SKIP");
+  assert.ok(preview.plan.warnings.includes("SILENCE"));
+  assert.equal(preview.plan.details?.measurement, undefined);
+  const result = await f.runtime.executeSkill(preview.previewToken);
+  assert.equal(result.status, "SKIPPED");
+  assert.deepEqual(result.transactionIds, []);
+  assert.equal(canonicalSnapshotDigest(await f.adapter.readProject()), canonicalSnapshotDigest(before));
+  assert.deepEqual(await readdir(f.root), ["source.wav"]);
+});
+
+test("lost dialogue or invalid silence evidence cannot verify a gain edit", async t => {
+  for (const mode of ["dialogue", "silence", "negative-silence"]) {
+    const f = await fixture(t);
+    const original = f.analyzer.analyze;
+    let calls = 0;
+    f.analyzer.analyze = async (input, range) => {
+      const measured = await original(input, range);
+      if (++calls === 2) {
+        if (mode === "dialogue") measured.dialoguePresent = false;
+        else measured.silenceMs = mode === "silence" ? 2000 : -1;
+      }
+      return measured;
+    };
+    const before = await f.adapter.readProject();
+    const result = await f.runtime.executeSkill((await f.preview()).previewToken);
+    assert.equal(result.status, "ROLLED_BACK", mode);
+    assert.equal(canonicalSnapshotDigest(await f.adapter.readProject()), canonicalSnapshotDigest(before));
+  }
+});
