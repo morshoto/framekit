@@ -3096,6 +3096,57 @@ test("native Final Cut refuses a Blade write without live target scope", async (
   assert.equal(bladeCalls, 0);
 });
 
+test("native Blade rejects changed preview scope and playhead before dispatch", async () => {
+  for (const change of ["playhead", "project", "sequence", "revision", "selection"] as const) {
+    let bladeCalls = 0;
+    let current = boundNativeLiveState();
+    let identity = "clip-1";
+    const adapter = new FinalCutNativeAutomationAdapter({
+      enabled: true,
+      liveState: async () => structuredClone(current),
+      executor: async (script) => {
+        if (script.includes('click menu item "Blade"')) bladeCalls++;
+        return script.includes('set frontWindow to window "Final Cut Pro"')
+          ? context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, "Undo", identity)
+          : "";
+      },
+    });
+    const occurrence = { handle: "occurrence-1", mediaHandle: "media-1", name: "Interview" };
+    (adapter as unknown as { occurrenceHandles: Map<string, unknown> }).occurrenceHandles.set(occurrence.handle, occurrence);
+    const preview = await adapter.previewBlade(occurrence.handle);
+    if (change === "playhead") current.playheadTime = { value: "1", timescale: "1" };
+    if (change === "project") current.project.id = "project-2";
+    if (change === "sequence") current.sequence.id = "sequence-2";
+    if (change === "revision") current.revision = { ...current.revision, id: "rev-2", sequence: 2 };
+    if (change === "selection") identity = "clip-2";
+    await assert.rejects(adapter.executeBlade(preview.previewToken), /FINAL_CUT_NATIVE_PREVIEW_STALE/, change);
+    assert.equal(bladeCalls, 0, change);
+  }
+});
+
+test("native Blade never retries an uncertain dispatched command", async () => {
+  let bladeCalls = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => boundNativeLiveState(),
+    executor: async (script) => {
+      if (script.includes('click menu item "Blade"')) {
+        bladeCalls++;
+        throw new Error("execution error: Final Cut is not frontmost (-1719)");
+      }
+      return script.includes('set frontWindow to window "Final Cut Pro"')
+        ? context(true, "Final Cut Pro", "Interview", 1, true)
+        : "";
+    },
+  });
+  const occurrence = { handle: "occurrence-1", mediaHandle: "media-1", name: "Interview" };
+  (adapter as unknown as { occurrenceHandles: Map<string, unknown> }).occurrenceHandles.set(occurrence.handle, occurrence);
+  const preview = await adapter.previewBlade(occurrence.handle);
+  await assert.rejects(adapter.executeBlade(preview.previewToken), /-1719/);
+  assert.equal(bladeCalls, 1);
+  await assert.rejects(adapter.executeBlade(preview.previewToken), /PREVIEW_STALE/);
+});
+
 test("native Final Cut media selection refocuses Final Cut without closing the extension window", async () => {
   const scripts: string[] = [];
   const adapter = new FinalCutNativeAutomationAdapter({
