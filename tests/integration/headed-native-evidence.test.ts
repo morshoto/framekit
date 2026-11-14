@@ -1,3 +1,4 @@
+import { fillerNativeEvidence } from "../release-gate/filler-native-fixture.js";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -184,66 +185,14 @@ test("headed masking evidence keeps the stable occurrence identity", () => {
   assert.deepEqual(evidence.verification, { execute: true, undo: true });
 });
 
-test("headed filler evidence keeps rollback proof without private state", () => {
-  const evidence = sanitizeFillerRemovalEvidence({
-    passed: true,
-    recordedAt: "2026-09-11T00:00:00.000Z",
-    editor: { name: "Final Cut Pro", version: "10.7.1", backend: "final-cut-live" },
-    capabilities: {
-      editor: {
-        canonicalTimelineMode: "canonical-write",
-        projectRead: true,
-        timelineSnapshotRead: true,
-        timelineWrite: true,
-        readAfterWrite: true,
-        rollback: true,
-        projectCatalogRead: true,
-        projectSelection: true,
-        privateDiagnostic: "/Users/private/diagnostic.log",
-      },
-      analyzers: { speechTranscribe: true },
-    },
-    project: {
-      id: "project-filler",
-      name: "Disposable Filler",
-      sequenceId: "sequence-filler",
-      occurrenceId: "occurrence-filler",
-    },
-    selection: { start: 2, end: 4 },
-    toolResults: [
-      { name: "editor.inspect", status: "passed" },
-      { name: "editor.live.inspect", status: "passed" },
-      { name: "speech.filler.remove.preview", status: "passed" },
-      { name: "speech.filler.remove.execute", status: "VERIFIED" },
-      { name: "edit.undo", status: "passed" },
-    ],
-    removal: {
-      status: "VERIFIED",
-      candidateCount: 1,
-      operationCount: 1,
-      removedDurationSeconds: 0.5,
-      affectedRangeCount: 1,
-      continuityVerified: true,
-      beforeRevision: { id: "rev-10" },
-      afterRevision: { id: "rev-11" },
-      operationId: "private-operation",
-    },
-    restoration: {
-      status: "VERIFIED",
-      restored: true,
-      restoredRevision: { id: "rev-12" },
-      rawSnapshot: { source: "/private/media/audio.wav" },
-    },
-  }, environment);
-
-  assert.deepEqual(evidence.target, {
-    project: "Disposable Filler",
-    projectId: "project-filler",
-    sequenceId: "sequence-filler",
-    occurrenceId: "occurrence-filler",
-  });
-  assert.deepEqual(evidence.revisions, { before: "rev-10", after: "rev-11", restored: "rev-12" });
-  assert.doesNotMatch(JSON.stringify(evidence), /private-operation|privateDiagnostic|\/private\/media/);
+test("headed filler evidence keeps complete acceptance without private state", () => {
+  const raw = fillerNativeEvidence();
+  Object.assign(raw, { privateDiagnostic: "private-debug-payload" });
+  Object.assign(raw.acceptance.scenarios[0]!, { privateSnapshot: "private-example-media" });
+  const evidence = sanitizeFillerRemovalEvidence(raw, raw.environment);
+  assert.equal(evidence.target.occurrenceId, "occurrence-filler");
+  assert.equal(evidence.acceptance.scenarios.length, 12);
+  assert.doesNotMatch(JSON.stringify(evidence), /privateSnapshot|privateDiagnostic|\/private\/media/);
 });
 
 test("headed dialogue evidence keeps measurements and rollback proof", () => {

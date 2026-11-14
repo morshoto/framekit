@@ -6,6 +6,7 @@ import os from "node:os";
 import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { validateFillerNativeAcceptance } from "./final-cut-filler-acceptance.mjs";
 
 const execFile = promisify(execFileCallback);
 
@@ -665,6 +666,18 @@ export function sanitizeMaskEvidence(run, environment) {
 }
 
 export function sanitizeFillerRemovalEvidence(run, environment) {
+  const acceptance = validateFillerNativeAcceptance({ ...run, environment });
+  return { ...summarizeFillerMutation(run, environment), schemaVersion: 2, acceptance };
+}
+
+export function sanitizeFillerRemovalDiagnostic(run, environment) {
+  const summary = summarizeFillerMutation(run, environment);
+  return { ...summary, evidenceType: "headed-native-filler-removal-diagnostic", passed: false,
+    outcome: "NO_GO", missing: ["complete-scenario-suite", "independent-edited-speech-evidence"],
+    removal: { ...summary.removal, continuityVerified: false, runtimeContinuityCheckPassed: run.removal.continuityVerified === true } };
+}
+
+function summarizeFillerMutation(run, environment) {
   assert(run?.passed === true, "headed filler-removal run did not pass");
   assert(run.editor && run.project && run.removal && run.restoration, "filler-removal evidence is incomplete");
   assert(run.removal.status === "VERIFIED", "filler-removal mutation was not verified");

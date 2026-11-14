@@ -33,7 +33,7 @@ test("filler native gate rejects missing scenarios, source-only continuity and u
     raw => { raw.acceptance.scenarios[0].review.executedCuts = []; },
     raw => { raw.acceptance.scenarios[0].sourceIntegrity.after = []; },
     raw => { raw.acceptance.components[0].observedCommit = "a".repeat(40); },
-    raw => { raw.acceptance.scenarios[0].authorization.beforeRevisionId = "wrong"; },
+    raw => { raw.acceptance.scenarios[0].approval.beforeRevisionId = "wrong"; },
     raw => { raw.acceptance.scenarios[5].after.digest = "0".repeat(64); },
     raw => { raw.acceptance.scenarios[11].failure.restorationVerified = false; },
   ];

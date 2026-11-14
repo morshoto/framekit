@@ -1,3 +1,4 @@
+import { validateFillerNativeAcceptance } from "../../scripts/final-cut-filler-acceptance.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -143,6 +144,7 @@ export function summarizeHeadedEvidence(
     : undefined;
   const target = extractTarget(raw);
   assertHeadedTarget(target, workflow.id);
+  if (evidenceType === "headed-native-filler-removal") validateFillerNativeAcceptance(raw);
   const revision = extractRevisions(raw);
   const verification = extractVerification(raw);
 

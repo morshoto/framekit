@@ -30,6 +30,8 @@ export function fillerNativeEvidence() {
       scenarios: fillerScenarios.map(id => {
         const changes = ["reviewed-removal", "protected-speech", "repeated-source", "fractional-multiple-cuts", "verification-recovery"].includes(id);
         const cuts = changes ? [{ candidateId: "candidate", occurrenceId: target.occurrenceId, startFrame: 24, endFrame: 36 }] : [];
+        if (id === "fractional-multiple-cuts") cuts.push({ candidateId: "candidate-2", occurrenceId: target.occurrenceId, startFrame: 48, endFrame: 60 });
+        const candidateIds = cuts.map(cut => cut.candidateId);
         const before = { revision: revision(`${id}-before`, 1), digest: hash(`${id}-before`) };
         const after = changes ? { revision: revision(`${id}-after`, 2), digest: hash(`${id}-after`) } : structuredClone(before);
         const restored = changes ? { revision: revision(`${id}-restored`, 3), digest: before.digest } : structuredClone(before);
@@ -38,16 +40,16 @@ export function fillerNativeEvidence() {
           expectedAfterDigest: after.digest, expectedContentDigest: hash("known public reference transcript") };
         const source = [{ mediaId: "media-filler", digest: hash("source bytes") }];
         return { id, target, outcome: id === "verification-recovery" ? "recovered" : changes ? "verified" : id === "no-candidates" ? "no-op" : "rejected",
-          authorization: { candidateCommit: commit, ...target, beforeRevisionId: before.revision.id, referenceDigest: hash(JSON.stringify(reference)),
-            operations: changes ? ["preview", "execute", "verify", "undo"] : ["preview", "verify"] },
+          approval: { candidateCommit: commit, ...target, beforeRevisionId: before.revision.id, referenceDigest: hash(JSON.stringify(reference)),
+            operations: ["preview", "execute", "verify", "undo"] },
           reference, before, after, restored, sourceIntegrity: { before: source, after: source, restored: source },
-          review: { suggestedCandidateIds: changes ? ["candidate"] : [], approvedCandidateIds: changes ? ["candidate"] : [],
-            selectedCandidateIds: changes ? ["candidate"] : [], approvedCuts: cuts, executedCuts: cuts,
+          review: { suggestedCandidateIds: candidateIds, approvedCandidateIds: candidateIds,
+            selectedCandidateIds: candidateIds, approvedCuts: cuts, executedCuts: cuts,
             firstPreviewDigest: before.digest, selectedPreviewDigest: before.digest,
             approvedPreviewDigest: hash(`${id}-approved-token`), executedPreviewDigest: hash(`${id}-approved-token`) },
           ...(changes ? { editedSpeech: { scope: "edited-timeline-output", ...target, revisionId: after.revision.id, canonicalDigest: after.digest,
             outputDigest: hash(`${id}-exported audio`), provider: { id: "real-provider-contract", version: "1" },
-            observedContentDigest: reference.expectedContentDigest } } : {}),
+            observedContentDigest: id === "verification-recovery" ? hash("deliberate speech continuity failure") : reference.expectedContentDigest } } : {}),
           ...(id === "verification-recovery" ? { failure: { code: "CONTINUITY_FAILED", restorationVerified: true } } : {}),
           ...(!changes && id !== "no-candidates" ? { rejectionCode: "REJECTED_AS_EXPECTED" } : {}),
         };
