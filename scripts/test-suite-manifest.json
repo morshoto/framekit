@@ -1938,6 +1938,25 @@
       "network": "none"
     },
     {
+      "path": "tests/runtime/audio/ffmpeg-backend.test.ts",
+      "owner": "apps/mcp-server",
+      "reviewed": true,
+      "tags": [
+        "unit",
+        "contract",
+        "integration"
+      ],
+      "evidence": "process",
+      "dependsOn": [
+        "apps/mcp-server"
+      ],
+      "requires": [],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
       "path": "tests/runtime/editing/background-catalog.test.ts",
       "owner": "adapters/final-cut/typescript",
       "tags": [

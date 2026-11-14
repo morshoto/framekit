@@ -1370,7 +1370,7 @@
       "\"installed Codex plugin does not inherit a source commit when bytes or cleanliness differ\"",
       "\"clean MCP evidence preserves installed Codex plugin content provenance\"",
       "\"clean MCP evidence reports package fingerprints and release artifact GO or NO_GO states\"",
-      "\"clean MCP evidence omits private paths, transaction IDs, and raw diagnostics\"",
+      "\"clean MCP evidence omits private paths, transaction IDs, and raw\u0020diagnostics\"",
       "\"clean MCP evidence rejects prohibited free-text fields\"",
       "\"clean MCP evidence permits ordinary prose mentioning 'key' without actual credentials\"",
       "\"clean MCP evidence still rejects actual whitespace-delimited credentials\"",
@@ -3121,6 +3121,24 @@
     "tests/integration/boundary-policy.test.ts": [
       "\"document entrypoint preserves existing compiler and parser exports without native controls\"",
       "`document import restrictions reject transitive native reachability: ${statement}`"
+    ],
+    "tests/integration/dialogue-normalization-skill.test.ts": [
+      "\"source-only post-write analysis cannot verify an occurrence gain edit\""
+    ],
+    "tests/integration/semantic-media.test.ts": [
+      "\"source audio analysis cannot authorize an occurrence gain edit\"",
+      "\"source audio results explicitly identify the measured signal\"",
+      "\"audio measurements reject a different occurrence before previewing edits\"",
+      "\"production MCP rejects malformed audio while transcription stays available\"",
+      "\"media understanding does not publish provider-rejected audio as analyzed evidence\"",
+      "\"audio occurrence measurement retains declared source clock and signal format\"",
+      "\"audio requests reject contradictory rational ranges before provider dispatch\""
+    ],
+    "tests/speech/command-analyzer.test.ts": [
+      "`${kind} rejects replaced source bytes before starting the provider`",
+      "`${kind} rejects a source replaced while its provider is running`",
+      "`${kind} analyzes matching source content without changing media or timeline`",
+      "`command audio rejects invalid ${label}`"
     ]
   },
   "identityDiscoveryCorrections": {
@@ -3211,6 +3229,57 @@
         ],
         "tests/integration/release-workflow.test.ts": [
           "'release publication requires the headless artifact workflow suite'"
+        ]
+      }
+    }
+  ],
+  "featureIntegrations": [
+    {
+      "pullRequests": [
+        738
+      ],
+      "commit": "fc76990b84b1761f18dfc0dd34ec38e5c18b365a",
+      "reason": "Add source-integrity and signal-scope regressions; no baseline test identities removed.",
+      "addedTestNames": {
+        "tests/integration/dialogue-normalization-skill.test.ts": [
+          "\"source-only post-write analysis cannot verify an occurrence gain edit\""
+        ],
+        "tests/integration/semantic-media.test.ts": [
+          "\"source audio analysis cannot authorize an occurrence gain edit\"",
+          "\"source audio results explicitly identify the measured signal\"",
+          "\"audio measurements reject a different occurrence before previewing edits\""
+        ],
+        "tests/speech/command-analyzer.test.ts": [
+          "`${kind} rejects replaced source bytes before starting the provider`",
+          "`${kind} rejects a source replaced while its provider is running`",
+          "`${kind} analyzes matching source content without changing media or timeline`"
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        738
+      ],
+      "reason": "Add production MCP audio payload and declared signal provenance regressions; no baseline identities removed.",
+      "addedTestNames": {
+        "tests/integration/semantic-media.test.ts": [
+          "\"production MCP rejects malformed audio while transcription stays available\"",
+          "\"media understanding does not publish provider-rejected audio as analyzed evidence\"",
+          "\"audio occurrence measurement retains declared source clock and signal format\""
+        ],
+        "tests/speech/command-analyzer.test.ts": [
+          "`command audio rejects invalid ${label}`"
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        738
+      ],
+      "reason": "Validate direct runtime rational audio requests before provider dispatch; no baseline identities removed.",
+      "addedTestNames": {
+        "tests/integration/semantic-media.test.ts": [
+          "\"audio requests reject contradictory rational ranges before provider dispatch\""
         ]
       }
     }

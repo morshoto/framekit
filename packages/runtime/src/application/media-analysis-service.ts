@@ -33,6 +33,7 @@ import type { RuntimeOptions } from "./runtime-options.js";
 import { CapabilityUnavailableError } from "../domain/capabilities.js";
 import { planRoughCut } from "../planning/rough-cut.js";
 import { bindSpeechAnalysis } from "../speech/analysis.js";
+import { validateAudioAnalysisPayload, validateAudioAnalysisRange } from "../audio/analysis.js";
 import { parseRational } from "../timeline/rational-time.js";
 
 export interface PostWriteAnalysisRequirements {
@@ -79,15 +80,17 @@ export class MediaAnalysisService {
       throw new Error(`TARGET_MISMATCH: occurrence ${occurrenceId} does not reference media ${mediaId}`);
     }
     const media = findMedia(project, mediaId);
-    const sourceStart = clip.sourceStart ?? 0;
-    const requestedRange = { start: sourceStart, end: sourceStart + clip.duration };
-    const analysis = await this.analyzeAudioForProject(project, media, requestedRange);
+    const sourceStart = clip.sourceStartTime ? rationalSeconds(clip.sourceStartTime) : clip.sourceStart ?? 0;
+    const duration = clip.durationTime ? rationalSeconds(clip.durationTime) : clip.duration;
+    const requestedRange = { start: sourceStart, end: sourceStart + duration };
+    const analysis = await this.analyzeAudioForProject(project, media, requestedRange, occurrenceId);
     const measuredRange = analysis.measuredRange ?? requestedRange;
     const analyzedDurationSeconds = analysis.analyzedDurationSeconds ?? measuredRange.end - measuredRange.start;
     if (Math.abs(analyzedDurationSeconds - (measuredRange.end - measuredRange.start)) > 0.000001) {
       throw new Error("ANALYSIS_INVALID: audio measured duration does not match its measured range");
     }
-    const valid = analysis.valid !== false
+    const signalScope = analysis.signalScope ?? "source";
+    const valid = signalScope === "occurrence" && analysis.valid !== false
       && Number.isFinite(analysis.integratedLufs)
       && Number.isFinite(analysis.truePeakDb)
       && Number.isFinite(analysis.silenceMs)
@@ -96,6 +99,10 @@ export class MediaAnalysisService {
     return {
       mediaId,
       occurrenceId,
+      signalScope,
+      sourceIdentity: sourceIdentityOf(media),
+      ...(analysis.sourceTimebase ? { sourceTimebase: structuredClone(analysis.sourceTimebase) } : {}),
+      ...(analysis.signalFormat ? { signalFormat: structuredClone(analysis.signalFormat) } : {}),
       requestedRange,
       measuredRange,
       revision: project.revision,
@@ -107,7 +114,9 @@ export class MediaAnalysisService {
       silenceMs: analysis.silenceMs,
       analyzedDurationSeconds,
       valid,
-      ...(analysis.invalidReason ? { invalidReason: analysis.invalidReason } : {}),
+      ...(signalScope === "source"
+        ? { invalidReason: "OCCURRENCE_SIGNAL_UNAVAILABLE" }
+        : analysis.invalidReason ? { invalidReason: analysis.invalidReason } : {}),
     };
   }
 
@@ -174,7 +183,14 @@ export class MediaAnalysisService {
     const input = { project, media };
     const [speechResult, audioResult, noiseResult, visualResult, metadataResult] = await Promise.all([
       settle(() => this.options.speechAnalyzer ? this.analyzeSpeechForProject(project, media) : undefined),
-      settle(() => this.options.audioAnalyzer ? this.analyzeAudioForProject(project, media) : undefined),
+      settle(async () => {
+        if (!this.options.audioAnalyzer) return undefined;
+        const result = await this.analyzeAudioForProject(project, media);
+        if (result.valid === false) {
+          throw new Error(`ANALYSIS_INVALID: ${result.invalidReason?.trim() || "audio provider rejected the measurement"}`);
+        }
+        return result;
+      }),
       settle(() => this.options.noiseAnalyzer?.analyze(input)),
       settle(() => this.options.visualAnalyzer?.analyze(input)),
       settle(() => this.options.metadataAnalyzer?.analyze(input)),
@@ -457,18 +473,21 @@ export class MediaAnalysisService {
     project: ProjectSnapshot,
     media: MediaContext,
     range?: TimeRange,
+    occurrenceId?: string,
   ): Promise<AudioAnalysis> {
     const analyzer = this.options.audioAnalyzer;
     if (!analyzer) throw new Error("CAPABILITY_UNAVAILABLE: audio analysis");
     const requestedRange = range ?? (media.duration === undefined ? undefined : { start: 0, end: media.duration });
     validateRequestedAudioRange(requestedRange, media.duration, "requested audio range");
-    const analysis = await analyzer.analyze({ project, media }, requestedRange);
+    const analysis = await analyzer.analyze({ project, media, ...(occurrenceId ? { occurrenceId } : {}) }, requestedRange);
+    validateAudioAnalysisPayload(analysis);
     validateAudioProvenance(analysis, {
       media,
       mediaId: media.mediaId,
       project,
       provider: analyzer.descriptor,
       requestedRange,
+      occurrenceId,
     });
     const measuredRange = analysis.measuredRange ?? (requestedRange ? structuredClone(requestedRange) : undefined);
     if (measuredRange && requestedRange) validateAudioRange(measuredRange, requestedRange, "measured audio range");
@@ -482,6 +501,7 @@ export class MediaAnalysisService {
     }
     return {
       ...structuredClone(analysis),
+      signalScope: analysis.signalScope ?? "source",
       schemaVersion: 1,
       mediaId: media.mediaId,
       sourceIdentity: sourceIdentityOf(media),
@@ -926,8 +946,16 @@ function validateAudioProvenance(
     project: ProjectSnapshot;
     provider?: AnalyzerDescriptor;
     requestedRange?: TimeRange;
+    occurrenceId?: string;
   },
 ): void {
+  if (analysis.signalScope !== undefined && analysis.signalScope !== "source" && analysis.signalScope !== "occurrence") {
+    throw new Error("ANALYSIS_INVALID: unsupported audio signal scope");
+  }
+  if (analysis.signalScope === "occurrence"
+    && (!expected.occurrenceId || analysis.occurrenceId !== expected.occurrenceId)) {
+    throw new Error("TARGET_MISMATCH: audio occurrence signal does not match the requested occurrence");
+  }
   if (analysis.schemaVersion !== undefined && analysis.schemaVersion !== 1) {
     throw new Error("ANALYSIS_INVALID: unsupported audio analysis schema version");
   }
@@ -966,6 +994,7 @@ function validateRequestedAudioRange(range: TimeRange | undefined, duration: num
     || (duration !== undefined && range.end > duration)) {
     throw new Error(`ANALYSIS_INVALID: ${label} must be finite, positive, and inside the source duration`);
   }
+  validateAudioAnalysisRange(range, label);
 }
 
 function sameContextRevision(left: { id: string; sequence: number; timestamp: string }, right: { id: string; sequence: number; timestamp: string }): boolean {

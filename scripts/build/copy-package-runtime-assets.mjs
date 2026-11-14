@@ -8,7 +8,7 @@ const packageDirectory = path.join(repositoryRoot, "dist-package/apps/mcp-server
 
 await rm(packageDirectory, { recursive: true, force: true });
 await mkdir(packageDirectory, { recursive: true });
-for (const executable of ["speech-analyzer-wrapper.mjs", "whisper-speech-backend.py"]) {
+for (const executable of ["speech-analyzer-wrapper.mjs", "whisper-speech-backend.py", "ffmpeg-audio-backend.py"]) {
   await cp(path.join(sourceDirectory, executable), path.join(packageDirectory, executable));
   await chmod(path.join(packageDirectory, executable), 0o755);
 }

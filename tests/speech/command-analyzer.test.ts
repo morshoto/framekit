@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { CommandSpeechAnalyzer } from "@framekit/final-cut";
+import { CommandAudioAnalyzer, CommandSpeechAnalyzer } from "@framekit/final-cut";
 import { AgentVideoRuntime, type AnalysisInput } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 
@@ -13,10 +14,10 @@ function createInput(mediaSource: string): AnalysisInput {
       projectId: "project-1",
       projectName: "Command analyzer fixture",
       timeline: { id: "timeline-1", name: "Main", duration: 12, clips: [], storyElements: [], markers: [], captions: [] },
-      media: [{ mediaId: "media-1", source: mediaSource, sourceDigest: "sha256:source", mediaKind: "audio", duration: 12 }],
+      media: [{ mediaId: "media-1", source: mediaSource, sourceDigest: createHash("sha256").update("media").digest("hex"), mediaKind: "audio", duration: 12 }],
       revision: { id: "rev-4", sequence: 4, timestamp: "2026-09-10T00:00:00.000Z" },
     },
-    media: { mediaId: "media-1", source: mediaSource, sourceDigest: "sha256:source", mediaKind: "audio", duration: 12 },
+    media: { mediaId: "media-1", source: mediaSource, sourceDigest: createHash("sha256").update("media").digest("hex"), mediaKind: "audio", duration: 12 },
   };
 }
 
@@ -224,3 +225,74 @@ test("command speech analyzer fails closed for missing executables and malformed
     /ANALYZER_INVALID_OUTPUT: speech analyzer returned invalid JSON or schema/,
   );
 });
+
+for (const kind of ["speech", "audio"] as const) {
+  const output = kind === "speech"
+    ? { words: [{ text: "hello", start: 0, end: 1, confidence: 0.9 }] }
+    : { integratedLufs: -18, truePeakDb: -1, silenceMs: 0 };
+  const analyzer = (command: string) => kind === "speech"
+    ? new CommandSpeechAnalyzer({ command })
+    : new CommandAudioAnalyzer({ command });
+
+  test(`${kind} rejects replaced source bytes before starting the provider`, async (t) => {
+    const directory = await mkdtemp(join(os.tmpdir(), "framekit-source-binding-"));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const mediaPath = join(directory, "source.wav");
+    const capturePath = join(directory, "started.json");
+    await writeFile(mediaPath, "replacement");
+    const command = await createWrapper(directory, output, capturePath);
+    await assert.rejects(analyzer(command).analyze(createInput(mediaPath)), /ANALYZER_SOURCE_CHANGED/);
+    await assert.rejects(readFile(capturePath), { code: "ENOENT" });
+    assert.equal(await readFile(mediaPath, "utf8"), "replacement");
+  });
+
+  test(`${kind} rejects a source replaced while its provider is running`, async (t) => {
+    const directory = await mkdtemp(join(os.tmpdir(), "framekit-source-binding-"));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const mediaPath = join(directory, "source.wav");
+    await writeFile(mediaPath, "media");
+    const command = await createWrapper(directory, output);
+    const wrapper = await readFile(command, "utf8");
+    await writeFile(command, wrapper.replace("const request = JSON.parse(input);",
+      'const request = JSON.parse(input); await writeFile(' + JSON.stringify(mediaPath) + ', "changed");'));
+    await assert.rejects(analyzer(command).analyze(createInput(mediaPath)), /ANALYZER_SOURCE_CHANGED/);
+  });
+
+  test(`${kind} analyzes matching source content without changing media or timeline`, async (t) => {
+    const directory = await mkdtemp(join(os.tmpdir(), "framekit-source-binding-"));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const mediaPath = join(directory, "source.wav");
+    await writeFile(mediaPath, "media");
+    const command = await createWrapper(directory, output);
+    const input = createInput(mediaPath);
+    const baseline = structuredClone(input);
+    const result = await analyzer(command).analyze(input, { start: 0, end: 2 });
+    assert.ok(result);
+    assert.deepEqual(input, baseline);
+    assert.equal(await readFile(mediaPath, "utf8"), "media");
+  });
+}
+
+for (const [label, payload] of [
+  ["overflowing JSON number", '{"integratedLufs":1e999,"truePeakDb":-1,"silenceMs":0}'],
+  ["negative silence", '{"integratedLufs":-18,"truePeakDb":-1,"silenceMs":-1}'],
+  ["fractional sample count", '{"integratedLufs":-18,"truePeakDb":-1,"silenceMs":0,"audibleSamples":1.5}'],
+  ["invalid boolean flag", '{"integratedLufs":-18,"truePeakDb":-1,"silenceMs":0,"valid":"false"}'],
+] as const) {
+  test(`command audio rejects invalid ${label}`, async (t) => {
+    const directory = await mkdtemp(join(os.tmpdir(), "framekit-audio-schema-"));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const source = join(directory, "source.wav");
+    await writeFile(source, "media");
+    const command = join(directory, "audio-wrapper.mjs");
+    await writeFile(command, [
+      "#!/usr/bin/env node",
+      "for await (const chunk of process.stdin) {}",
+      "process.stdout.write(" + JSON.stringify(payload) + ");",
+    ].join("\n"));
+    await chmod(command, 0o755);
+    await assert.rejects(new CommandAudioAnalyzer({ command }).analyze(createInput(source)),
+      /ANALYZER_INVALID_OUTPUT.*audio/);
+    assert.equal(await readFile(source, "utf8"), "media");
+  });
+}

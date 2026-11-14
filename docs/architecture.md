@@ -347,6 +347,35 @@ separate contracts and adapters; the semantic media index already follows this
 pattern, while session persistence can adopt it in its own change without
 changing project storage.
 
+### Local analyzer source verification
+
+Command analyzers stream a SHA-256 check before provider execution and compare
+any supplied source digest (hex or `sha256:`-prefixed hex) with the actual
+source bytes. A mismatch returns `ANALYZER_SOURCE_CHANGED` before starting the
+provider. Successful provider output is accepted only after a second content
+check; a changed or unreadable source invalidates that output. This check
+verifies local source content, not the independent binding between a native
+Final Cut occurrence and that source. Sources without a supplied digest are
+checked for changes during analysis but do not gain cross-run identity evidence.
+
+Audio analysis reports `signalScope: source` by default. An occurrence measurement
+request includes the exact `occurrenceId`; an occurrence-aware provider must echo
+that ID and return `signalScope: occurrence` with its measured signal. A
+mismatched occurrence is rejected. Source-file loudness cannot authorize or
+verify an occurrence gain change: normalization reports an unavailable
+occurrence measurement, and a source-only post-write response causes verified
+rollback rather than an output-loudness claim. Reusable source analysis and
+occurrence/output measurements remain distinct.
+
+The shared runtime audio payload gate validates metrics, counters, flags,
+declared source clocks, rational source ranges and signal-format metadata for
+both command adapters and application provider ports. This prevents nonfinite
+values from becoming successful JSON null measurements. Provider-rejected
+audio is unavailable in semantic understanding without disabling successful
+transcription. Source/occurrence results retain declared clock and sample
+format, while missing metadata remains unknown; shape validation alone does
+not verify a provider's physical measurements.
+
 ### FCPXML document interchange
 
 Headless project workflows import `@framekit/final-cut/fcpxml`, which exposes
