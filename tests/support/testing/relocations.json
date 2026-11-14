@@ -3092,7 +3092,8 @@
       "\"headless edit Undo survives MCP restart and verifies the restored project\"",
       "\"headless Undo rejects changed or missing media and a validation race\"",
       "\"headless Undo reports save and independent readback failures without verified success\"",
-      "\"concurrent headless Undo attempts cannot both restore the same revision\""
+      "\"concurrent headless Undo attempts cannot both restore the same revision\"",
+      "\"artifact-first production MCP edits, restores, exports and renders fractional-frame media\""
     ],
     "tests/integration/project-status-sync.test.ts": [
       "'PR creation starts progress; submitted review comments select review'",
@@ -3113,6 +3114,9 @@
     ],
     "tests/integration/focused-runner.test.ts": [
       "'selection reports do not count a name filter as a selected file'"
+    ],
+    "tests/integration/release-workflow.test.ts": [
+      "'release publication requires the headless artifact workflow suite'"
     ]
   },
   "identityDiscoveryCorrections": {
@@ -3189,6 +3193,20 @@
           "\"headless Undo rejects changed or missing media and a validation race\"",
           "\"headless Undo reports save and independent readback failures without verified success\"",
           "\"concurrent headless Undo attempts cannot both restore the same revision\""
+        ]
+      }
+    },
+    {
+      "commit": "0e1d6bd4329e74d97c13d19e5f1e030f83b683f5",
+      "pullRequests": [
+        732
+      ],
+      "addedTestNames": {
+        "tests/integration/headless-project-mcp.test.ts": [
+          "\"artifact-first production MCP edits, restores, exports and renders fractional-frame media\""
+        ],
+        "tests/integration/release-workflow.test.ts": [
+          "'release publication requires the headless artifact workflow suite'"
         ]
       }
     }
