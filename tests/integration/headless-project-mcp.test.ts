@@ -264,6 +264,51 @@ test("headless edit Undo survives MCP restart and verifies the restored project"
   }
 });
 
+test("headless Undo rejects changed or missing media and a validation race", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headless-undo-media-"));
+  try {
+    const source = join(directory, "source.mov");
+    const bytes = "synthetic original media";
+    await writeFile(source, bytes);
+    const options = { directory: join(directory, "projects"), mediaProbe: { probe: async () => ({
+      durationTime: { value: "2", timescale: "1" },
+      streams: [{ kind: "video" as const, width: 32, height: 32, frameRate: { value: "30", timescale: "1" } }],
+    }) } };
+    const service = new HeadlessProjectService(options);
+    const initial = await service.create(emptyTimeline());
+    const projectId = initial.timeline.project.id;
+    const sequenceId = initial.timeline.sequence.id;
+    const registered = await service.registerMedia(projectId, source, initial.timeline.revision);
+    const edit = await service.executeEdit(projectId, {
+      schemaVersion: 1, expectedRevision: registered.project.timeline.revision,
+      operations: [{ type: "add-marker", marker: { id: "one", name: "One", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } } }],
+    }, sequenceId);
+    const projectPath = join(options.directory, `${projectId}.json`);
+    const before = await readFile(projectPath, "utf8");
+    const restarted = new HeadlessProjectService(options);
+    await writeFile(source, "changed media");
+    await assert.rejects(restarted.undoEdit(projectId, sequenceId, edit.undoId, edit.after.timeline.revision), /MEDIA_CHANGED/);
+    assert.equal(await readFile(projectPath, "utf8"), before);
+    await rm(source);
+    await assert.rejects(restarted.undoEdit(projectId, sequenceId, edit.undoId, edit.after.timeline.revision), /MEDIA_MISSING/);
+    assert.equal(await readFile(projectPath, "utf8"), before);
+    await writeFile(source, bytes);
+    const newer = structuredClone(edit.after);
+    newer.timeline.revision = { ...newer.timeline.revision, id: "intervening", sequence: newer.timeline.revision.sequence + 1 };
+    let loads = 0;
+    t.mock.method(FramekitProjectStore.prototype, "load", async () => ++loads === 1 ? edit.after : newer);
+    await assert.rejects(restarted.undoEdit(projectId, sequenceId, edit.undoId, edit.after.timeline.revision), /STALE/);
+    t.mock.restoreAll();
+    assert.equal(await readFile(projectPath, "utf8"), before);
+    const restored = await restarted.undoEdit(projectId, sequenceId, edit.undoId, edit.after.timeline.revision);
+    assert.equal(restored.verification.verified, true);
+    assert.deepEqual(restored.project.timeline.sequence, registered.project.timeline.sequence);
+  } finally {
+    t.mock.restoreAll();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("concurrent headless Undo attempts cannot both restore the same revision", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-headless-undo-concurrent-"));
   try {
