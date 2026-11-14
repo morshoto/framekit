@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -66,10 +67,57 @@ test("ready provider preflight does not claim native acceptance", async (t) => {
   assert.equal(report.nativeAcceptance, "not-run");
   for (const asset of report.assets) {
     assert.equal(asset.vad.status, "available");
+    assert.equal(asset.vad.activityPresent, true);
+    assert.deepEqual(asset.vad.segments, [{ ...asset.requestedRange, kind: "speech" }]);
     assert.equal(asset.audio.signalScope, "source");
     assert.deepEqual(asset.audio.sourceTimebase, { value: "1", timescale: "48000" });
     assert.deepEqual(asset.audio.signalFormat, { sampleRate: 48000, channels: 1 });
     assert.deepEqual(asset.audio.measuredRange, asset.requestedRange);
+  }
+});
+
+test("provider preflight retains a detector failure separately from transcription", async t => {
+  const original = speech();
+  const report = await runAnalysisProviderPreflight({ fixtures: await fixtures(t), speechAnalyzer: {
+    ...original, analyze: async (input, range) => ({ ...await original.analyze(input, range), vadUnavailableReason: "SILERO_VAD_MODEL_MISMATCH" }),
+  } });
+  for (const asset of report.assets) {
+    assert.equal(asset.speech.status, "available");
+    assert.equal(asset.vad.status, "unavailable");
+    assert.equal(asset.vad.reason, "SILERO_VAD_MODEL_MISMATCH");
+  }
+});
+
+test("provider preflight distinguishes empty activity from unavailable detection", async t => {
+  const original = speech();
+  const report = await runAnalysisProviderPreflight({ fixtures: await fixtures(t), speechAnalyzer: {
+    ...original, analyze: async (input, range) => ({ ...await original.analyze(input, range), vadSegments: [] }),
+  }, audioAnalyzer: audio });
+  assert.equal(report.status, "blocked");
+  for (const asset of report.assets) {
+    assert.equal(asset.vad.status, "available");
+    assert.equal(asset.vad.activityPresent, false);
+    assert.equal(asset.vad.segmentCount, 0);
+  }
+});
+
+test("provider preflight CLI honors required VAD provenance", async t => {
+  const directory = await fixtures(t);
+  const command = join(directory, "incomplete-provider.mjs"), output = join(directory, "report.json");
+  await writeFile(command, '#!/usr/bin/env node\nlet s="";for await(const c of process.stdin)s+=c;const r=JSON.parse(s);process.stdout.write(JSON.stringify({words:[{text:"hello",start:r.range.start,end:r.range.start+1,confidence:1}],vadSegments:[{start:r.range.start,end:r.range.start+1,kind:"speech"}]}));\n');
+  await chmod(command, 0o755);
+  const code = await new Promise<number | null>((resolve, reject) => {
+    const child = spawn(process.execPath, ["--import", "tsx", "scripts/run-analysis-provider-preflight.ts", "--fixtures", directory, "--output", output], {
+      env: { ...process.env, FRAMEKIT_SPEECH_ANALYZER: command, FRAMEKIT_SPEECH_ANALYZER_VERSION: "fixture@1", FRAMEKIT_SPEECH_REQUIRE_VAD: "1", FRAMEKIT_AUDIO_ANALYZER: "" },
+      stdio: "ignore",
+    });
+    child.once("error", reject); child.once("close", resolve);
+  });
+  assert.equal(code, 2);
+  const report = JSON.parse(await readFile(output, "utf8"));
+  for (const asset of report.assets) {
+    assert.equal(asset.speech.status, "unavailable");
+    assert.equal(asset.speech.reason, "ANALYZER_INVALID_OUTPUT");
   }
 });
 
