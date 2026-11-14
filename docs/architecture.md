@@ -82,7 +82,15 @@ stable target or timeline revision. Read-after-write verifies a mutation
 against the same target and revision contract. Canonical native rename, trim,
 marker, ripple-delete, and gain readback reject collateral changes outside the
 supported operation projection and attempt verified recovery. Composite edit
-verification compares equivalent rational times by value. A provider advertising
+verification compares equivalent rational times by value. The canonical native
+provider advertises `singleOperationTransactions` only when its single-operation
+preview, readback, and restoration prerequisites are ready; it reports
+`compositeTransactions: false`. Native Undo currently retains only the latest
+edit, so a snapshot cannot establish recoverable multi-operation execution.
+Single-operation editor previews retain their revision, semantic-operation,
+readback, and rollback gates. Filler and dialogue Skills continue to require
+composite support and remain unavailable on this provider.
+A provider advertising
 `markerIdentityMode: "editor-assigned"` may return a different ID for a uniquely
 added marker; verification still checks its semantics and all other changes. Canonical Final Cut reads reject
 live target or revision changes during export; native edits recheck the live
