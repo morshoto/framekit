@@ -3,6 +3,9 @@ import test from "node:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { createMcpServer } from "../../apps/mcp-server/src/server.js";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import {
   AgentVideoRuntime,
@@ -300,6 +303,26 @@ test("cached speech remaps rational trim reorder and split snapshots after resta
     const bound = bindSpeechAnalysis(understanding.speech, {
       input: { project: current, media: source }, provider: provider.descriptor,
     });
+    const server = createMcpServer(runtime);
+    const client = new Client({ name: "rational-mapping-test", version: "1" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    let mcpContext;
+    try {
+      await server.connect(serverTransport);
+      await client.connect(clientTransport);
+      const response = await client.callTool({
+        name: "timeline.semantic.inspect", arguments: { includeSpeechMappings: true },
+      });
+      assert.notEqual(response.isError, true, JSON.stringify(response));
+      const content = response.content as Array<{ type: string; text: string }>;
+      mcpContext = JSON.parse(content[0]!.text);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+    assert.equal(mcpContext.projectId, current.projectId);
+    assert.equal(mcpContext.timelineId, current.timeline.id);
+    assert.deepEqual(mcpContext.revision, current.revision);
     for (const [rowIndex, row] of stage.rows.entries()) {
       const clip = current.timeline.clips[rowIndex]!;
       const occurrence: SpeechOccurrence = {
@@ -318,6 +341,9 @@ test("cached speech remaps rational trim reorder and split snapshots after resta
         assert.throws(() => mapSpeechAnalysisToOccurrence(previous!, occurrence, { sequenceFrameDuration: frame }), /STALE_CONTEXT/);
       }
       const mapped = mapSpeechAnalysisToOccurrence(bound, occurrence, { sequenceFrameDuration: frame });
+      const actualOccurrence = mcpContext.occurrences.find((value: { occurrenceId: string }) => value.occurrenceId === row.id);
+      assert.equal(actualOccurrence?.status, "available", JSON.stringify(actualOccurrence));
+      assert.deepEqual(actualOccurrence?.speechMapping, mapped, stage.name + "/" + row.id);
       assert.deepEqual(mapped.revision, current.revision);
       assert.deepEqual(mapped.words.map(({ word }) => word.text), row.word ? [row.word] : []);
       if (row.mapped !== undefined) {
@@ -327,6 +353,7 @@ test("cached speech remaps rational trim reorder and split snapshots after resta
         assert.deepEqual(mapped.words[0]?.frameAlignedRange.durationTime, exact(2));
       }
     }
+    assert.equal(providerCalls, 1, "semantic inspection reuses source evidence without running a provider");
     assert.deepEqual(current, before, "analysis and mapping must not change canonical fixture state");
     previous = bound;
   }
