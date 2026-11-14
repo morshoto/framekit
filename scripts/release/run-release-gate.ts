@@ -1,7 +1,7 @@
 import { join, resolve } from "node:path";
-import { renderReleaseGateReport, runReleaseGate } from "../../tests/release-gate/runner.js";
-import { writeReleaseGateArtifacts } from "../../tests/release-gate/artifacts.js";
-import { runRepositoryChecks } from "../../tests/release-gate/repository-checks.js";
+import { renderReleaseGateReport, runReleaseGate } from "./gate/runner.js";
+import { writeReleaseGateArtifacts } from "./gate/artifacts.js";
+import { runRepositoryChecks } from "./gate/repository-checks.js";
 import { parseReleaseGateArgs } from "./run-release-gate-args.js";
 
 const defaultRunId = `${new Date().toISOString().replace(/[^0-9]/g, "")}-${process.pid}`;
