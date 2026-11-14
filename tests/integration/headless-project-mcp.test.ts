@@ -309,6 +309,51 @@ test("headless Undo rejects changed or missing media and a validation race", asy
   }
 });
 
+test("headless Undo reports save and independent readback failures without verified success", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headless-undo-failure-"));
+  try {
+    const service = new HeadlessProjectService({ directory });
+    const initial = await service.create(emptyTimeline());
+    const projectId = initial.timeline.project.id;
+    const sequenceId = initial.timeline.sequence.id;
+    const expectedDigest = timelineIrDigest(initial.timeline);
+    const edit = await service.executeEdit(projectId, {
+      schemaVersion: 1, expectedRevision: initial.timeline.revision,
+      operations: [{ type: "add-marker", marker: { id: "one", name: "One", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } } }],
+    }, sequenceId);
+    const path = join(directory, `${projectId}.json`);
+    const committedBytes = await readFile(path, "utf8");
+    t.mock.method(FramekitProjectStore.prototype, "save", async () => { throw new Error("injected pre-write failure"); });
+    await assert.rejects(service.undoEdit(projectId, sequenceId, edit.undoId, edit.after.timeline.revision), /pre-write failure/);
+    t.mock.restoreAll();
+    assert.equal(await readFile(path, "utf8"), committedBytes);
+    assert.equal(timelineIrDigest((await service.inspect(projectId)).timeline), timelineIrDigest(edit.after.timeline));
+
+    const realSave = FramekitProjectStore.prototype.save;
+    const realLoad = FramekitProjectStore.prototype.load;
+    let saved = false;
+    t.mock.method(FramekitProjectStore.prototype, "save", async function(this: FramekitProjectStore, project: FramekitProjectDocument, revision?: TimelineIr["revision"]) {
+      const result = await realSave.call(this, project, revision);
+      saved = true;
+      return result;
+    });
+    t.mock.method(FramekitProjectStore.prototype, "load", async function(this: FramekitProjectStore) {
+      const project = await realLoad.call(this);
+      if (saved) project.timeline.sequence.markers.push({ id: "unexpected", name: "Unexpected", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } });
+      return project;
+    });
+    await assert.rejects(service.undoEdit(projectId, sequenceId, edit.undoId, edit.after.timeline.revision), /HEADLESS_UNDO_UNVERIFIED/);
+    t.mock.restoreAll();
+    const persisted = await service.inspect(projectId);
+    assert.equal(timelineIrDigest(persisted.timeline), expectedDigest);
+    assert.deepEqual(persisted.timeline.sequence, initial.timeline.sequence);
+    assert.equal(persisted.timeline.revision.sequence, edit.after.timeline.revision.sequence + 1);
+  } finally {
+    t.mock.restoreAll();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("concurrent headless Undo attempts cannot both restore the same revision", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-headless-undo-concurrent-"));
   try {
