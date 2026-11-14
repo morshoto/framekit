@@ -3167,6 +3167,12 @@
     "tests/speech/revision-bound-analysis.test.ts": [
       "\"speech binding preserves configured model and configuration provenance\"",
       "`speech binding rejects mismatched configured provider ${Object.keys(change)[0]}`"
+    ],
+    "tests/integration/canonical-native-provider.test.ts": [
+      "\"canonical single-edit readiness never advertises recoverable batches through MCP\""
+    ],
+    "tests/integration/composite-transactions.test.ts": [
+      "\"single-operation previews require an explicit provider guarantee when batches are unavailable\""
     ]
   },
   "identityDiscoveryCorrections": {
@@ -3368,6 +3374,21 @@
       "addedTestNames": {
         "tests/integration/timeline-semantic-context.test.ts": [
           "\"MCP speech mapping rejects incomplete and contradictory cached evidence\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        743,
+        747
+      ],
+      "reason": "Retain additive composite-capability tests while integrating the reviewed test-layout migration; no baseline identities removed.",
+      "addedTestNames": {
+        "tests/integration/canonical-native-provider.test.ts": [
+          "\"canonical single-edit readiness never advertises recoverable batches through MCP\""
+        ],
+        "tests/integration/composite-transactions.test.ts": [
+          "\"single-operation previews require an explicit provider guarantee when batches are unavailable\""
         ]
       }
     }

@@ -97,6 +97,7 @@ export class MediaAnalysisService {
       && Number.isFinite(analysis.integratedLufs)
       && Number.isFinite(analysis.truePeakDb)
       && Number.isFinite(analysis.silenceMs)
+      && analysis.silenceMs >= 0 && analysis.silenceMs <= analyzedDurationSeconds * 1000
       && Number.isFinite(analyzedDurationSeconds)
       && analyzedDurationSeconds > 0;
     return {
@@ -550,6 +551,12 @@ export class MediaAnalysisService {
       requestedRange,
       occurrenceId,
     });
+    if (occurrenceId && this.options.requireExportedAudioSignal
+      && (analysis.signalScope !== "occurrence" || !analysis.signalProvenance
+        || !analysis.sourceIdentity?.sourceDigest || !/^(sha256:)?[a-f0-9]{64}$/.test(analysis.sourceIdentity.sourceDigest)
+        || !analysis.provider?.version?.trim())) {
+      throw new Error("OCCURRENCE_SIGNAL_UNAVAILABLE: normalization requires bound exported audio evidence");
+    }
     const measuredRange = analysis.measuredRange ?? (requestedRange ? structuredClone(requestedRange) : undefined);
     if (measuredRange && requestedRange) validateAudioRange(measuredRange, requestedRange, "measured audio range");
     if (measuredRange) validateRequestedAudioRange(measuredRange, media.duration, "measured audio source range");

@@ -117,6 +117,32 @@ function textFrom(result: unknown): string {
   return first?.text as string;
 }
 
+test("single-operation previews require an explicit provider guarantee when batches are unavailable", async () => {
+  const { adapter, runtime } = createTrimRuntime();
+  const getCapabilities = adapter.getCapabilities.bind(adapter);
+  let singleOperationTransactions = false;
+  let rollback = true;
+  adapter.getCapabilities = async () => {
+    const capabilities = await getCapabilities();
+    return { ...capabilities, editor: { ...capabilities.editor, compositeTransactions: false, singleOperationTransactions, rollback } };
+  };
+  const before = await runtime.inspectProject();
+  const operation = { type: "trim-clip" as const, clipId: "clip-video", duration: 5 };
+  await assert.rejects(runtime.previewEdit({ baseRevision: before.revision, operations: [operation] }), /CAPABILITY_UNAVAILABLE/);
+  singleOperationTransactions = true;
+  await assert.rejects(runtime.previewEdit({ baseRevision: before.revision, operations: [operation, operation] }), /CAPABILITY_UNAVAILABLE/);
+  const preview = await runtime.previewEdit({ baseRevision: before.revision, operations: [operation] });
+  assert.deepEqual(await runtime.inspectProject(), before);
+  rollback = false;
+  await assert.rejects(runtime.executeEdit(preview.previewToken), /CAPABILITY_UNAVAILABLE/);
+  assert.deepEqual(await runtime.inspectProject(), before);
+  rollback = true;
+  const approved = await runtime.previewEdit({ baseRevision: before.revision, operations: [operation] });
+  const edited = await runtime.executeEdit(approved.previewToken);
+  assert.equal(edited.status, "VERIFIED");
+  assert.deepEqual(projectContent(await runtime.undo(edited.id)), projectContent(before));
+});
+
 test("composite preview is non-mutating and execute applies the ordered MVP workflow once", async () => {
   const { runtime } = createCompositeRuntime();
   const before = await runtime.inspectProject();

@@ -155,8 +155,16 @@ export class SkillRuntime {
       revision: before.revision,
     });
     if (!session.editPreviewToken) {
+      const checks = session.preview.plan.decision === "NO_OP" && definition.handler.verifyNoOp
+        ? await definition.handler.verifyNoOp({
+          plan: structuredClone(session.preview.plan),
+          project: structuredClone(before),
+          measureAudio: (mediaId: string, occurrenceId: string) => this.analysis.measureAudio(mediaId, occurrenceId),
+        }) : undefined;
+      const verification = checks ? { passed: checks.every(check => check.passed), checks } : undefined;
       return {
-        status: session.preview.plan.decision === "NO_OP" || !session.preview.plan.decision ? "VERIFIED" : "SKIPPED",
+        status: verification?.passed === false ? "FAILED"
+          : session.preview.plan.decision === "NO_OP" || !session.preview.plan.decision ? "VERIFIED" : "SKIPPED",
         plan: {
           id: session.preview.plan.id,
           skillId: session.preview.plan.skillId,
@@ -164,6 +172,7 @@ export class SkillRuntime {
           baseRevision: structuredClone(session.preview.plan.baseRevision),
         },
         transactionIds: [],
+        ...(verification ? { verification } : {}),
         ...(session.preview.plan.details ? { details: structuredClone(session.preview.plan.details) } : {}),
         rollback: { attempted: false, succeeded: true, transactionIds: [] },
       };

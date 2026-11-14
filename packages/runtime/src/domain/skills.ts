@@ -56,6 +56,7 @@ export type EditorSkillCapability =
   | "projectCatalogRead"
   | "projectSelection"
   | "compositeTransactions"
+  | "singleOperationTransactions"
   | "videoExport"
   | "mediaImport"
   | "mediaPlacement"
@@ -186,6 +187,8 @@ export interface SkillHandler<Input extends Record<string, unknown> = Record<str
   normalize(input: unknown): Promise<Input> | Input;
   plan(context: SkillPlanningContext, input: Input): Promise<Omit<SkillPlan, "id" | "skillId" | "skillVersion" | "baseRevision" | "normalizedInput">> | Omit<SkillPlan, "id" | "skillId" | "skillVersion" | "baseRevision" | "normalizedInput">;
   verify?(context: SkillVerificationContext): Promise<VerificationCheck[]> | VerificationCheck[];
+  /** Verify a non-mutating NO_OP against fresh observations at execution time. */
+  verifyNoOp?(context: Omit<SkillVerificationContext, "transaction"> & { project: ProjectSnapshot }): Promise<VerificationCheck[]> | VerificationCheck[];
 }
 
 /** Metadata and executable behavior are separate so manifests remain inspectable. */

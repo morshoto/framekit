@@ -399,7 +399,9 @@ export class EditService {
     existingCapabilities?: Awaited<ReturnType<EditorPort["getCapabilities"]>>["editor"],
   ): Promise<void> {
     const capabilities = existingCapabilities ?? (await this.adapter.getCapabilities()).editor;
-    if (!capabilities.compositeTransactions || !capabilities.readAfterWrite || !capabilities.rollback) {
+    const supportedTransaction = capabilities.compositeTransactions
+      || (operations.length === 1 && capabilities.singleOperationTransactions === true);
+    if (!supportedTransaction || !capabilities.readAfterWrite || !capabilities.rollback) {
       throw new Error("CAPABILITY_UNAVAILABLE: editor composite transactions");
     }
     if (operations.some((operation) => operation.type === "media.import") && !capabilities.mediaImport) {
