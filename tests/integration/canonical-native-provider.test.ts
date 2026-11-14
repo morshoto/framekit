@@ -3257,3 +3257,22 @@ test("canonical resolver permits adjacent repeated source occurrences", async ()
   await createFinalCutNativeTargetResolver(native)(target, project);
   assert.deepEqual(selected, ["occ"]);
 });
+
+test("canonical ripple delete requires source observation of the affected occurrence", async () => {
+  const { before } = rippleSnapshots();
+  const calls: string[] = [];
+  const resolveTarget = Object.assign(async () => { calls.push("resolve"); throw new Error("TARGET_MISMATCH: independent occurrence source unavailable"); }, { sourceBindingAvailable: true });
+  const provider = providerFor([before, before, before, before], calls, resolveTarget, liveState(), undefined, {
+    rippleDeleteRange: async () => { calls.push("delete"); return { operationId: "delete-1", undoAvailable: true }; },
+  });
+  const snapshotBefore = await provider.readProject();
+  const operation = {
+    type: "ripple-delete" as const,
+    timelineId: snapshotBefore.timeline.id,
+    range: { start: 2, end: 4, startTime: { value: "48", timescale: "24" }, durationTime: { value: "48", timescale: "24" } },
+    candidateId: "filler-1",
+    reason: "remove verified filler",
+  };
+  await assert.rejects(provider.applyTransaction([operation], snapshotBefore.revision), /TARGET_MISMATCH.*source unavailable/);
+  assert.deepEqual(calls, ["resolve"]);
+});
