@@ -1006,6 +1006,71 @@ test("native Blade undo uses Final Cut's Undo Blade command", async () => {
   assert.equal(scripts.some((script) => script.includes('click menu item "Undo Blade" of menu "Edit"')), true);
 });
 
+test("native Blade Undo rejects another project or sequence before dispatch", async () => {
+  for (const change of ["project", "sequence"] as const) {
+    let bladed = false;
+    let undoCalls = 0;
+    const current = boundNativeLiveState();
+    const adapter = new FinalCutNativeAutomationAdapter({
+      enabled: true,
+      liveState: async () => structuredClone(current),
+      executor: async (script) => {
+        if (script.includes('click menu item "Blade" of menu "Trim"')) {
+          bladed = true;
+          current.revision = { ...current.revision, id: "rev-2", sequence: 2 };
+        }
+        if (script.includes('click menu item "Undo Blade"')) undoCalls++;
+        if (script.includes('set frontWindow to window "Final Cut Pro"')) {
+          return context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, bladed ? "Undo Blade" : "Undo Existing Change");
+        }
+        if (script.includes("collectTimelineClipMatches")) return `Interview${separator}AXRow${separator}source${separator}800${separator}0/1${separator}10/1${String.fromCharCode(30)}Interview${separator}AXRow${separator}source${separator}900${separator}10/1${separator}10/1${String.fromCharCode(30)}`;
+        return "";
+      },
+    });
+    const occurrence = { handle: "occurrence-1", mediaHandle: "media-1", name: "Interview" };
+    (adapter as unknown as { occurrenceHandles: Map<string, unknown> }).occurrenceHandles.set(occurrence.handle, occurrence);
+    const preview = await adapter.previewBlade(occurrence.handle);
+    const result = await adapter.executeBlade(preview.previewToken);
+    if (change === "project") current.project.id = "other-project";
+    else current.sequence.id = "other-sequence";
+    await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_TARGET_CHANGED/, change);
+    assert.equal(undoCalls, 0, change);
+  }
+});
+
+test("native Blade Undo is never replayed after an uncertain dispatch", async () => {
+  let bladed = false;
+  let undoCalls = 0;
+  const current = boundNativeLiveState();
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => structuredClone(current),
+    executor: async (script) => {
+      if (script.includes('click menu item "Blade" of menu "Trim"')) {
+        bladed = true;
+        current.revision = { ...current.revision, id: "rev-2", sequence: 2 };
+      }
+      if (script.includes('click menu item "Undo Blade"')) {
+        undoCalls++;
+        throw new Error("execution error: Final Cut is not frontmost (-1719)");
+      }
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) {
+        return context(true, "Final Cut Pro", "Interview", 1, true, true, true, "timeline", 1, bladed ? "Undo Blade" : "Undo Existing Change");
+      }
+      if (script.includes("collectTimelineClipMatches")) return `Interview${separator}AXRow${separator}source${separator}800${separator}0/1${separator}10/1${String.fromCharCode(30)}Interview${separator}AXRow${separator}source${separator}900${separator}10/1${separator}10/1${String.fromCharCode(30)}`;
+      return "";
+    },
+  });
+  const occurrence = { handle: "occurrence-1", mediaHandle: "media-1", name: "Interview" };
+  (adapter as unknown as { occurrenceHandles: Map<string, unknown> }).occurrenceHandles.set(occurrence.handle, occurrence);
+  const preview = await adapter.previewBlade(occurrence.handle);
+  const result = await adapter.executeBlade(preview.previewToken);
+  await assert.rejects(adapter.undo(result.operationId), /UNDO_OUTCOME_UNCERTAIN.*-1719/);
+  assert.equal(undoCalls, 1);
+  await assert.rejects(adapter.undo(result.operationId), /UNDO_OUTCOME_UNCERTAIN/);
+  assert.equal(undoCalls, 1);
+});
+
 test("native edit fails closed when operation Undo is unavailable after mutation", async () => {
   let renamed = false;
   let failure: unknown;
