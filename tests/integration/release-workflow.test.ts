@@ -8,6 +8,15 @@ import { validateReleaseContract } from '../../scripts/validate-release-contract
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const releaseConfigPath = resolve(repository, '.github/release.yml');
 
+test('release publication requires the headless artifact workflow suite', async () => {
+	const workflow = await readFile(resolve(repository, '.github/workflows/release.yml'), 'utf8');
+	const publish = workflow.slice(workflow.indexOf('publish-npm:'), workflow.indexOf('validate-codex-plugin:'));
+	const ffmpeg = publish.indexOf('Install FFmpeg fixture toolchain');
+	const headless = publish.indexOf('pnpm run test:headless');
+	const npmCheck = publish.indexOf('- id: npm-status');
+	assert.ok(ffmpeg >= 0 && headless > ffmpeg && npmCheck > headless);
+});
+
 const expectedReleaseCategories = [
 	{ title: 'New Features', labels: ['Type: New Feature'] },
 	{ title: 'Bug Fixes', labels: ['Problem: Bug'] },
