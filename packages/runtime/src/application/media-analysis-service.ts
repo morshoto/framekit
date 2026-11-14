@@ -23,7 +23,7 @@ import type {
   TimelineSemanticOccurrenceContext,
   VisualAnalysis,
 } from "../domain/media.js";
-import { sameMediaSourceIdentity } from "../domain/media.js";
+import { sameAnalyzerDescriptor, sameMediaSourceIdentity } from "../domain/media.js";
 import type { EditTransaction } from "../domain/editing.js";
 import type { ProjectSnapshot } from "../domain/project.js";
 import type { TimeRange } from "../domain/primitives.js";
@@ -604,7 +604,7 @@ function mergeRanges(ranges: TimeRange[]): TimeRange[] {
 }
 
 function sameDescriptor(left: AnalyzerDescriptor, right: AnalyzerDescriptor): boolean {
-  return left.id === right.id && left.provider === right.provider && left.version === right.version;
+  return sameAnalyzerDescriptor(left, right);
 }
 
 function sameRational(left: { value: string; timescale: string }, right: { value: string; timescale: string }): boolean {

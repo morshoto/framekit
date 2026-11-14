@@ -333,3 +333,15 @@ used by the runtime. Session persistence and semantic media indexing keep
 separate contracts and adapters; the semantic media index already follows this
 pattern, while session persistence can adopt it in its own change without
 changing project storage.
+
+### Analysis provider identity
+
+Analyzer provenance can include a model identity and a configuration digest.
+Speech binding rejects conflicting configured provider, version, model or
+configuration identities; source cache compatibility checks compare all those
+fields. Command speech/audio providers capture their execution environment,
+use that same environment for subprocesses, and fingerprint the command path,
+environment, declared version and VAD requirement. Only the digest is returned,
+not raw environment values. Executable/model data at unchanged paths must have
+a newly pinned provider version when their contents change. Provider identity
+does not establish native source binding or acceptance.

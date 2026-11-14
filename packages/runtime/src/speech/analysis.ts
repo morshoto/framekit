@@ -9,7 +9,7 @@ import type {
   SpeechSegment,
   SpeechWord,
 } from "../domain/media.js";
-import { sameMediaSourceIdentity } from "../domain/media.js";
+import { sameAnalyzerDescriptor, sameMediaSourceIdentity } from "../domain/media.js";
 import type { RationalTime, TimeRange } from "../domain/primitives.js";
 import { parseRational } from "../timeline/rational-time.js";
 
@@ -52,6 +52,9 @@ export function bindSpeechAnalysis(
   const provider = record.provider === undefined
     ? context.provider ?? { id: "framekit.speech", provider: "unknown" }
     : validateDescriptor(record.provider);
+  if (context.provider && !sameAnalyzerDescriptor(provider, context.provider)) {
+    throw new Error("ANALYSIS_INVALID: speech provider identity does not match the configured analyzer");
+  }
   const requestedRange = resolveRequestedRange(record.requestedRange, context.range, context.input.media, record);
   const observedRange = record.observedRange === undefined
     ? structuredClone(requestedRange)
@@ -290,9 +293,16 @@ function validateDescriptor(value: unknown): AnalyzerDescriptor {
   if (descriptor.version !== undefined && typeof descriptor.version !== "string") {
     throw new Error("ANALYSIS_INVALID: speech provider version is invalid");
   }
+  for (const field of ["model", "configurationDigest"]) {
+    if (descriptor[field] !== undefined && (typeof descriptor[field] !== "string" || !descriptor[field].trim())) {
+      throw new Error(`ANALYSIS_INVALID: speech provider ${field} is invalid`);
+    }
+  }
   return {
     id: descriptor.id,
     provider: descriptor.provider,
+    ...(descriptor.model !== undefined ? { model: descriptor.model as string } : {}),
+    ...(descriptor.configurationDigest !== undefined ? { configurationDigest: descriptor.configurationDigest as string } : {}),
     ...(descriptor.version !== undefined ? { version: descriptor.version } : {}),
   };
 }

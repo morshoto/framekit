@@ -51,6 +51,15 @@ export interface AnalyzerDescriptor {
   id: string;
   provider: string;
   version?: string;
+  model?: string;
+  /** Identity of effective provider settings, including externally pinned model data. */
+  configurationDigest?: string;
+}
+
+/** Compare every declared component of an analyzer's reproducible identity. */
+export function sameAnalyzerDescriptor(left: AnalyzerDescriptor, right: AnalyzerDescriptor): boolean {
+  return left.id === right.id && left.provider === right.provider && left.version === right.version
+    && left.model === right.model && left.configurationDigest === right.configurationDigest;
 }
 
 export interface MediaSourceIdentity {

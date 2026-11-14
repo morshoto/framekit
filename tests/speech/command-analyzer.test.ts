@@ -48,7 +48,8 @@ test("command speech analyzer sends a safe identity-bound request and returns VA
   }, capturePath);
   const input = createInput(mediaPath);
 
-  const result = await new CommandSpeechAnalyzer({ command: wrapper }).analyze(
+  const analyzer = new CommandSpeechAnalyzer({ command: wrapper });
+  const result = await analyzer.analyze(
     input,
     { start: 2, end: 6 },
   );
@@ -65,7 +66,8 @@ test("command speech analyzer sends a safe identity-bound request and returns VA
   assert.deepEqual(result.requestedRange, { start: 2, end: 6 });
   assert.deepEqual(result.observedRange, { start: 2, end: 6 });
   assert.deepEqual(result.revision, input.project.revision);
-  assert.deepEqual(result.provider, { id: "command.speech", provider: "command" });
+  assert.deepEqual(result.provider, analyzer.descriptor);
+  assert.match(result.provider.configurationDigest!, /^[0-9a-f]{64}$/);
   assert.equal(result.capability, "transcription-plus-vad");
 });
 
@@ -112,7 +114,9 @@ test("configured local speech analyzer requires VAD and reports provider version
     id: "command.speech",
     provider: "command",
     version: "local-whisper-vad@1",
+    configurationDigest: analyzer.descriptor.configurationDigest,
   });
+  assert.match(analyzer.descriptor.configurationDigest!, /^[0-9a-f]{64}$/);
   assert.deepEqual(analyzer.capabilities, { transcription: true, vad: true });
   assert.equal(result.provider?.version, "local-whisper-vad@1");
   assert.equal(result.capability, "transcription-plus-vad");
@@ -230,8 +234,7 @@ test("command speech identity changes with effective model configuration", () =>
   const first = new CommandSpeechAnalyzer({ command: "/providers/speech", environment: { FRAMEKIT_WHISPER_MODEL: "model-a" } });
   const second = new CommandSpeechAnalyzer({ command: "/providers/speech", environment: { FRAMEKIT_WHISPER_MODEL: "model-b" } });
   assert.notEqual(first.descriptor.configurationDigest, second.descriptor.configurationDigest);
-  assert.equal(first.descriptor.model, "model-a");
-  assert.equal(second.descriptor.model, "model-b");
+  assert.match(first.descriptor.configurationDigest!, /^[0-9a-f]{64}$/);
 });
 
 test("command audio identity distinguishes executable and provider version", () => {
