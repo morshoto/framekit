@@ -3343,6 +3343,40 @@ test("native import requires the independently observed target to match approval
   }
 });
 
+test("native import stops before dispatch if the approved target changes during Browser discovery", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-import-target-drift-"));
+  const sourcePath = join(directory, "interview.mov");
+  await writeFile(sourcePath, "source fixture");
+  let discovered = false;
+  const scripts: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    mediaImportDiscoveryTimeoutMs: 20,
+    mediaImportPollMs: 1,
+    importSourceObserver: {
+      captureTarget: async () => discovered ? { ...fixtureImportTarget, eventId: "other-event" } : fixtureImportTarget,
+      observeImportedSource: async () => ({ sourceIdentity: "browser-source", originalSourcePath: sourcePath, target: fixtureImportTarget }),
+    },
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
+      if (script.includes("AXBrowserMedia")) discovered = true;
+      return "";
+    },
+  });
+  try {
+    await assert.rejects(adapter.importMedia(sourcePath, { expectedImportTarget: fixtureImportTarget }), (error: unknown) => {
+      assert.ok(error instanceof NativeFinalCutMediaImportError);
+      assert.equal(error.code, "TARGET_MISMATCH");
+      assert.equal(error.details.partialImportPossible, false);
+      return true;
+    });
+    assert.equal(scripts.some((script) => script.includes("FRAMEKIT_IMPORT_MEDIA")), false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("directory preview binds approved import target and rejects missing approval", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-directory-approved-"));
   const sourcePath = join(directory, "interview.mov");
