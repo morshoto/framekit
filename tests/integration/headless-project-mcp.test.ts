@@ -18,6 +18,55 @@ import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer 
 
 const execFileAsync = promisify(execFile);
 
+test("headless edit Undo survives MCP restart and verifies the restored project", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headless-undo-"));
+  const here = dirname(fileURLToPath(import.meta.url));
+  const environment: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    FRAMEKIT_EDITOR: "final-cut-live",
+    FRAMEKIT_AUTO_CONNECT: "0",
+    FRAMEKIT_FINAL_CUT_HEADLESS: "1",
+    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
+    FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing-final-cut.sock"),
+    FRAMEKIT_STATE_DIR: join(directory, "state"),
+  };
+  let client: Client | undefined;
+  let transport: StdioClientTransport | undefined;
+  try {
+    ({ client, transport } = await connectProductionClient(here, environment));
+    const initial = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: emptyTimeline() } }));
+    const projectId = initial.timeline.project.id;
+    const sequenceId = initial.timeline.sequence.id;
+    const edit = payload(await client.callTool({ name: "headless.edit.execute", arguments: {
+      projectId, sequenceId, expectedRevision: initial.timeline.revision,
+      operations: [{ type: "add-marker", marker: { id: "marker-1", name: "Marker", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } } }],
+    } }));
+    assert.equal(typeof edit.undoId, "string");
+    assert.equal(edit.after.timeline.sequence.markers.length, 1);
+    await client.close();
+    await transport.close();
+    ({ client, transport } = await connectProductionClient(here, environment));
+    const restored = payload(await client.callTool({ name: "headless.edit.undo", arguments: {
+      projectId, sequenceId, undoId: edit.undoId, expectedRevision: edit.after.timeline.revision,
+    } }));
+    assert.equal(restored.verification.verified, true);
+    const inspected = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
+    assert.deepEqual(inspected.timeline.sequence, initial.timeline.sequence);
+    assert.deepEqual(inspected.timeline.resources, initial.timeline.resources);
+    assert.equal(inspected.timeline.revision.sequence, edit.after.timeline.revision.sequence + 1);
+    assert.deepEqual(inspected.timeline.revision, restored.project.timeline.revision);
+    const stale = await client.callTool({ name: "headless.edit.undo", arguments: {
+      projectId, sequenceId, undoId: edit.undoId, expectedRevision: edit.after.timeline.revision,
+    } });
+    assert.match(toolErrorText(stale), /STALE|MISMATCH/);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })), inspected);
+  } finally {
+    await client?.close();
+    await transport?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("production rough-cut tools expose digest-bound edit operations", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-rough-cut-operations-"));
   const here = dirname(fileURLToPath(import.meta.url));
