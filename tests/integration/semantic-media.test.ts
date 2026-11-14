@@ -788,3 +788,23 @@ test("semantic cache reuses unchanged source evidence after a timeline-only revi
   assert.deepEqual(second.speech?.revision, (await runtime.inspectProject()).revision);
   assert.deepEqual(second.sourceIdentity, first.sourceIdentity);
 });
+
+for (const changedField of ["model", "configurationDigest"] as const) {
+  test(`semantic cache invalidates when provider ${changedField} changes`, async () => {
+    const fixture = semanticFixture();
+    const store = new InMemorySemanticMediaIndexStore();
+    let calls = 0;
+    const analyzer = (value: string) => ({
+      descriptor: { id: "configured.speech", provider: "local", version: "1", [changedField]: value },
+      analyze: async () => {
+        calls += 1;
+        return { words: [{ text: "configured", start: 1, end: 2, confidence: 0.9 }] };
+      },
+    });
+    await new AgentVideoRuntime(fixture.adapter, { speechAnalyzer: analyzer("first"), semanticMediaIndexStore: store })
+      .understandMedia("media-semantic-1");
+    await new AgentVideoRuntime(fixture.adapter, { speechAnalyzer: analyzer("second"), semanticMediaIndexStore: store })
+      .understandMedia("media-semantic-1");
+    assert.equal(calls, 2);
+  });
+}

@@ -227,3 +227,22 @@ test("runtime rejects stale revisions returned by a speech provider", async () =
 
   await assert.rejects(runtime.analyzeSpeech("media-1"), /STALE_CONTEXT/);
 });
+
+test("speech binding preserves configured model and configuration provenance", () => {
+  const configured = { ...provider, model: "model-a", configurationDigest: "sha256:config-a" };
+  const analysis = bindSpeechAnalysis({
+    words: [{ text: "hello", start: 0, end: 1, confidence: 0.9 }],
+    provider: configured,
+  }, { input, provider: configured });
+  assert.deepEqual(analysis.provider, configured);
+});
+
+for (const change of [{ version: "other-version" }, { model: "other-model" }, { configurationDigest: "sha256:other" }]) {
+  test(`speech binding rejects mismatched configured provider ${Object.keys(change)[0]}`, () => {
+    const configured = { ...provider, model: "model-a", configurationDigest: "sha256:config-a" };
+    assert.throws(() => bindSpeechAnalysis({
+      words: [{ text: "hello", start: 0, end: 1, confidence: 0.9 }],
+      provider: { ...configured, ...change },
+    }, { input, provider: configured }), /provider.*configured/);
+  });
+}
