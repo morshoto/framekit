@@ -382,20 +382,20 @@ test("failed filler continuity verification restores the original timeline", asy
   assert.equal((await runtime.inspectProject()).timeline.clips[0]?.duration, 3);
 });
 
-test("filler removal restores a revision advanced by a failing apply", async () => {
+test("filler removal restores a revision advanced by a failing transaction", async () => {
   const analyzer: SpeechAnalyzer = { analyze: async ({ media }) => structuredClone(media.speech!) };
   const { adapter, runtime } = createFillerRuntime(analyzer);
   const before = await runtime.inspectProject();
   const preview = await runtime.previewFillerRemoval({ baseRevision: before.revision, range: { start: 10, end: 13 } });
-  const apply = adapter.apply.bind(adapter);
-  adapter.apply = async (operation, expectedRevision) => {
-    await apply(operation, expectedRevision);
-    throw new Error("simulated apply failure after mutation");
+  const applyTransaction = adapter.applyTransaction.bind(adapter);
+  adapter.applyTransaction = async (operations, expectedRevision) => {
+    await applyTransaction(operations, expectedRevision);
+    throw new Error("simulated transaction failure after mutation");
   };
 
   await assert.rejects(
     runtime.executeFillerRemoval(preview.previewToken),
-    /FILLER_REMOVAL_FAILED: Error: simulated apply failure after mutation/,
+    /FILLER_REMOVAL_FAILED: Error: simulated transaction failure after mutation/,
   );
   const restored = await adapter.readProject();
   assert.equal(canonicalSnapshotDigest(restored), canonicalSnapshotDigest(before));
