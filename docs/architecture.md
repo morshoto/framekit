@@ -139,6 +139,7 @@ command executions use the reservation through their native verification. Native
 media append and insert require project and sequence identities in the preview,
 recheck the approved insertion position before dispatch, and do not automatically
 retry the insertion command after an error because dispatch may have occurred.
+An error after dispatch begins reports an uncertain outcome and requires recovery.
 A placement Undo is also attempted at most once per in-process operation handle;
 after invocation, an error or inconclusive readback does not permit replay.
 A duration and revision change alone does not verify the inserted source or its
