@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import type { Clip, ProjectSnapshot } from "../domain/project.js";
 import type { ContextRevision, RationalTime } from "../domain/primitives.js";
 import { addRationalTimes, parseRational } from "./rational-time.js";
@@ -12,6 +14,7 @@ export interface PrimaryStorylineReorderPreview {
   projectId: string;
   sequenceId: string;
   revision: ContextRevision;
+  snapshotDigest: string;
   occurrenceId: string;
   moving: Clip;
   source: string;
@@ -26,6 +29,26 @@ function compare(left: RationalTime, right: RationalTime): number {
   const b = parseRational(right, "REORDER_INVALID");
   const difference = a.value * b.timescale - b.value * a.timescale;
   return difference < 0n ? -1 : difference > 0n ? 1 : 0;
+}
+
+function snapshotDigest(snapshot: ProjectSnapshot): string {
+  const json = JSON.stringify(snapshot, (_key, value: unknown) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+    return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0));
+  });
+  return createHash("sha256").update(json).digest("hex");
+}
+
+/** Reject a preview if its complete baseline or planned content has changed. */
+export function assertReorderPreviewCurrent(preview: PrimaryStorylineReorderPreview, snapshot: ProjectSnapshot): void {
+  try {
+    if (preview.snapshotDigest !== snapshotDigest(snapshot)
+      || !isDeepStrictEqual(preview, previewPrimaryStorylineReorder(snapshot, preview.occurrenceId, preview.destination))) {
+      throw new Error("preview mismatch");
+    }
+  } catch (error) {
+    throw new Error("REORDER_PREVIEW_STALE: target, revision, content, or preview changed", { cause: error });
+  }
 }
 
 /** Plan a contiguous primary-storyline reorder without dispatching an editor operation. */
@@ -83,7 +106,7 @@ export function previewPrimaryStorylineReorder(
   }
   const selected = clips[oldIndex]!;
   const source = snapshot.media.find((media) => media.mediaId === selected.mediaId)!.source;
-  const result: PrimaryStorylineReorderPreview = { projectId: snapshot.projectId, sequenceId: snapshot.timeline.id, revision: structuredClone(snapshot.revision), occurrenceId, moving: structuredClone(selected), source, destination: structuredClone(destination), noOp: true, before: [], after: [] };
+  const result: PrimaryStorylineReorderPreview = { projectId: snapshot.projectId, sequenceId: snapshot.timeline.id, revision: structuredClone(snapshot.revision), snapshotDigest: snapshotDigest(snapshot), occurrenceId, moving: structuredClone(selected), source, destination: structuredClone(destination), noOp: true, before: [], after: [] };
   if ((destination.kind === "before" || destination.kind === "after") && destination.occurrenceId === occurrenceId) return result;
   const reordered = [...clips];
   const [moving] = reordered.splice(oldIndex, 1);
