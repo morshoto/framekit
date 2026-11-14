@@ -3131,7 +3131,8 @@
       "\"audio measurements reject a different occurrence before previewing edits\"",
       "\"production MCP rejects malformed audio while transcription stays available\"",
       "\"media understanding does not publish provider-rejected audio as analyzed evidence\"",
-      "\"audio occurrence measurement retains declared source clock and signal format\""
+      "\"audio occurrence measurement retains declared source clock and signal format\"",
+      "\"audio requests reject contradictory rational ranges before provider dispatch\""
     ],
     "tests/speech/command-analyzer.test.ts": [
       "`${kind} rejects replaced source bytes before starting the provider`",
@@ -3268,6 +3269,17 @@
         ],
         "tests/speech/command-analyzer.test.ts": [
           "`command audio rejects invalid ${label}`"
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        738
+      ],
+      "reason": "Validate direct runtime rational audio requests before provider dispatch; no baseline identities removed.",
+      "addedTestNames": {
+        "tests/integration/semantic-media.test.ts": [
+          "\"audio requests reject contradictory rational ranges before provider dispatch\""
         ]
       }
     }
