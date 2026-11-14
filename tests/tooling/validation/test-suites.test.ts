@@ -45,7 +45,7 @@ test("suite tags keep unit, contract, fixture, headless, native, package and rel
 
   assert.ok(selectTestFiles(manifest, "unit").includes("packages/runtime/test/project-store.test.ts"));
   assert.ok(selectTestFiles(manifest, "headless").includes("tests/integration/headless-project-mcp.test.ts"));
-  assert.ok(selectTestFiles(manifest, "contract").includes("tests/integration/skill-mcp-contract.test.ts"));
+  assert.ok(selectTestFiles(manifest, "contract").includes("tests/mcp/tools/skill-mcp-contract.test.ts"));
 });
 
 test("test suites report unavailable prerequisites before execution", async () => {
@@ -97,7 +97,7 @@ test("fast CI and post-merge validation preserve reviewed test coverage", async 
     }
   }
   for (const file of deepOnly) assert.ok(selectTestFiles(manifest, "all").includes(file), file);
-  for (const file of ["tests/integration/basic-editing-mvp.test.ts", "tests/integration/runtime.test.ts", "tests/tooling/ci/codeql-workflow.test.ts"]) {
+  for (const file of ["tests/integration/basic-editing-mvp.test.ts", "tests/runtime/projects/runtime.test.ts", "tests/tooling/ci/codeql-workflow.test.ts"]) {
     assert.ok(fast.includes(file), file);
   }
   assert.ok(selectTestFiles(manifest, "all").length > fast.length);

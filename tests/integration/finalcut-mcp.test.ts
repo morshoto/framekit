@@ -19,7 +19,7 @@ import type { NativeFinalCutEditor } from "@framekit/final-cut";
 import { AgentVideoRuntime } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { createMcpServer } from "../../apps/mcp-server/src/server.js";
-import { finalCutMcpEnvironment } from "./final-cut-test-env.js";
+import { finalCutMcpEnvironment } from "../support/final-cut/test-environment.js";
 
 function textFrom(result: unknown): string {
   const content = (result as { content?: unknown }).content;

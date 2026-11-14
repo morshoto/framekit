@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { basename, dirname, resolve } from "node:path";
 import { hasNativeChanges, isNativePath } from "../../../scripts/staged-native-changes.mjs";
 import { installHooks } from "../../../scripts/install-git-hooks.mjs";
-import { finalCutMcpEnvironment } from "../../integration/final-cut-test-env.js";
+import { finalCutMcpEnvironment } from "../../support/final-cut/test-environment.js";
 
 const exec = promisify(execFile);
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
