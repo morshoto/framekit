@@ -33,5 +33,5 @@ test('exports complete English pages and the docs entry point', async () => {
     assert.doesNotMatch(html, /Synthetic documentation example|Placeholder: this page/);
   }
   const html = await readFile(new URL('../out/en/docs/index.html', import.meta.url), 'utf8');
-  assert.match(html, /Choose your path/);
+  assert.match(html, /Make it fit your workflow/);
 });

@@ -22,5 +22,13 @@
     "swift": "6.1.2",
     "macOSSDK": "15.5",
     "recordedAt": "2026-08-15"
+  },
+  "ci": {
+    "runner": "macos-26",
+    "xcode": {
+      "version": "26.6",
+      "build": "17F113"
+    },
+    "macOSSDK": "26.5"
   }
 }
