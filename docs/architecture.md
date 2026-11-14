@@ -78,8 +78,8 @@ revision, and the affected media or occurrence identity when applicable.
 `TimelineTarget` carries those stable identities and revision; rational
 `frameDuration` and timeline times preserve frame-accurate values. An explicit
 FCPXML sequence `tcStart` is retained as `timecodeStart` in snapshots and
-Timeline IR; absence remains unknown. Nonzero timecode origins cannot yet be
-compiled from Timeline IR because frame-grid handling is not established. This
+Timeline IR; absence remains unknown. Explicit nonzero timecode origins cannot
+yet be compiled or rendered from Timeline IR because their handling is not established. This
 artifact value is not proof of the live sequence origin or target freshness.
 `playheadTime` describes the editor playhead; it is not a substitute for a
 stable target or timeline revision. Read-after-write verifies a mutation
