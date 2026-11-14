@@ -6,6 +6,11 @@ import { FcpxmlDocumentAdapter, verifyFinalCutPublishReadback } from "@framekit/
 import type { ProjectSnapshot } from "@framekit/runtime";
 
 async function sourceDigests(snapshot: ProjectSnapshot): Promise<{ source: string; sha256: string }[]> {
+  const mediaIds = new Set(snapshot.media.map(({ mediaId }) => mediaId));
+  if (mediaIds.size !== snapshot.media.length) throw new Error("Ambiguous duplicate media binding");
+  for (const clip of snapshot.timeline.clips) {
+    if (!clip.mediaId || !mediaIds.has(clip.mediaId)) throw new Error("Unresolved clip media reference");
+  }
   return Promise.all(snapshot.media.map(async ({ source }) => {
     if (!source || !source.startsWith("/")) throw new Error("Expected a local original-media source path");
     const hash = createHash("sha256");
