@@ -97,7 +97,9 @@ export function previewPrimaryStorylineReorder(
     if (!clip.id || ids.has(clip.id) || !clip.mediaId || !mediaIds.has(clip.mediaId)) throw new Error("REORDER_INVALID: occurrence identity or source binding is incomplete");
     ids.add(clip.id);
     if (clip.track !== 0 || clip.attachedTo || !clip.sourceStartTime) throw new Error("REORDER_UNSUPPORTED: primary occurrence or source range is unavailable");
-    parseRational(clip.sourceStartTime, "REORDER_INVALID");
+    if (parseRational(clip.sourceStartTime, "REORDER_INVALID").value < 0n) {
+      throw new Error("REORDER_INVALID: source start must not be negative");
+    }
     assertNumericTime(clip.start, clip.startTime);
     assertNumericTime(clip.duration, clip.durationTime);
     if (clip.sourceStart !== undefined) assertNumericTime(clip.sourceStart, clip.sourceStartTime);
