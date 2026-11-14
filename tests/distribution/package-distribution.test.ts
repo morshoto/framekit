@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { dirname, join, resolve } from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -11,6 +11,24 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 
 const exec = promisify(execFile);
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+
+// One actual prepack/build and immutable archive serve both metadata inspection
+// and independent clean local/global installs. Consumers never reuse installed state.
+let artifact: Promise<{ directory: string; archive: string; files: Array<{ path: string; mode: number }> }> | undefined;
+function packageArtifact() {
+  return artifact ??= (async () => {
+    const directory = await mkdtemp(join(os.tmpdir(), 'framekit-package-artifact-'));
+    try {
+      const { stdout } = await exec('npm', ['pack', '--json', '--pack-destination', directory], { cwd: repository });
+      const [packed] = JSON.parse(stdout) as Array<{ filename: string; files: Array<{ path: string; mode: number }> }>;
+      assert.ok(packed);
+      const archive = join(directory, packed.filename);
+      await chmod(archive, 0o444);
+      return { directory, archive, files: packed.files };
+    } catch (error) { await rm(directory, { recursive: true, force: true }); throw error; }
+  })();
+}
+after(async () => { const built = await artifact?.catch(() => undefined); if (built) await rm(built.directory, { recursive: true, force: true }); });
 
 test("development checkout launcher prefers source over a stale dist package", async t => {
   const root = await mkdtemp(join(os.tmpdir(), 'framekit-launcher-contract-'));
@@ -63,8 +81,7 @@ test("published package contains the runnable Framekit CLI and MCP sources", asy
   assert.equal(manifest.scripts?.prepack, "pnpm run build:package");
   assert.match(manifest.scripts?.["build:package"] ?? "", /write-package-build-identity\.ts/);
 
-  const { stdout } = await exec("npm", ["pack", "--dry-run", "--json"], { cwd: repository });
-  const [packed] = JSON.parse(stdout) as Array<{ files: Array<{ path: string; mode: number }> }>;
+  const packed = await packageArtifact();
   const paths = packed.files.map((file) => file.path);
   for (const requiredPath of [
     "bin/framekit.mjs",
@@ -102,11 +119,7 @@ test("clean local and global installs expose the supported CLI and MCP entrypoin
   let transport: StdioClientTransport | undefined;
 
   try {
-    const { stdout } = await exec("npm", ["pack", "--json", "--pack-destination", directory], {
-      cwd: repository,
-    });
-    const [packed] = JSON.parse(stdout) as Array<{ filename: string }>;
-    const archive = join(directory, packed.filename);
+    const { archive } = await packageArtifact();
     await exec("npm", ["install", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund", archive], { cwd: directory });
     const installedManifest = JSON.parse(
       await readFile(join(directory, "node_modules", "@morshoto", "framekit", "package.json"), "utf8"),
