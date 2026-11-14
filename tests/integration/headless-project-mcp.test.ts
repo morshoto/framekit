@@ -31,6 +31,15 @@ test("artifact-first production MCP edits, restores, exports and renders fractio
   let client: Client | undefined;
   let transport: StdioClientTransport | undefined;
   try {
+    const nativeCalls = join(directory, "native-calls.log");
+    const sentinelBin = join(directory, "sentinel-bin");
+    await mkdir(sentinelBin);
+    for (const command of ["osascript", "swift", "open", "pluginkit"]) {
+      const script = join(sentinelBin, command);
+      await writeFile(script, `#!/usr/bin/env node\nrequire("node:fs").appendFileSync(${JSON.stringify(nativeCalls)}, ${JSON.stringify(`${command}\n`)}); process.exit(77);\n`);
+      await chmod(script, 0o755);
+    }
+    environment.PATH = `${sentinelBin}:${process.env.PATH ?? ""}`;
     const paths = [join(directory, "a", "same.mp4"), join(directory, "b", "same.mp4")];
     await mkdir(dirname(paths[0]!), { recursive: true });
     await mkdir(dirname(paths[1]!), { recursive: true });
@@ -43,6 +52,8 @@ test("artifact-first production MCP edits, restores, exports and renders fractio
     await mkdir(dirname(reservationPath), { recursive: true });
     await writeFile(reservationPath, reservation);
     ({ client, transport } = await connectProductionClient(here, environment));
+    const route = payload(await client.callTool({ name: "editing.route", arguments: { operation: "timeline.edit", path: "headless", editType: "split-occurrence" } }));
+    assert.equal(route.status, "headless-selected");
     const timeline = emptyTimeline();
     timeline.sequence.frameDuration = { value: "1001", timescale: "24000" };
     const created = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline } }));
@@ -109,6 +120,7 @@ test("artifact-first production MCP edits, restores, exports and renders fractio
     }
     assert.deepEqual(await Promise.all(paths.map(sha)), sourceDigests);
     assert.equal(await readFile(reservationPath, "utf8"), reservation);
+    assert.equal(existsSync(nativeCalls), false, "headless workflow must not invoke a native command");
   } finally {
     await client?.close();
     await transport?.close();
