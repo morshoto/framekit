@@ -23,13 +23,15 @@ function pcm(seconds: number, amplitude: number) {
   return bytes;
 }
 const digest = (bytes: Buffer) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
-async function fixture(t: test.TestContext, failOutput = false) {
+async function fixture(t: test.TestContext, failOutput = false, multipleCuts = false) {
   const directory = await mkdtemp(join(tmpdir(), "framekit-cleanup-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const source = join(directory, "speech.wav"); const bytes = pcm(4, 0.1); await writeFile(source, bytes);
   const words = [{ text: "hello", start: 0.2, end: 0.6, confidence: 0.99 },
     { text: "um", start: 1, end: 1.3, confidence: 0.99, filler: true },
     { text: "world", start: 1.6, end: 2.2, confidence: 0.99 }];
+  if (multipleCuts) words.push({ text: "uh", start: 2.5, end: 2.8, confidence: 0.99, filler: true },
+    { text: "end", start: 3.2, end: 3.6, confidence: 0.99 });
   const adapter = new InMemoryEditorAdapter({ projectId: "cleanup", projectName: "Cleanup", timelineId: "sequence", timelineName: "Sequence",
     frameDuration: { value: "1001", timescale: "24000" },
     clips: [{ id: "selected", mediaId: "speech", name: "Selected", start: 0, duration: 4, track: 0, gainDb: 0 },
@@ -150,39 +152,53 @@ function sourcePreservingEditor(f: Awaited<ReturnType<typeof fixture>>, original
   const preview = f.adapter.previewTransaction.bind(f.adapter);
   const apply = f.adapter.applyTransaction.bind(f.adapter);
   const time = (seconds: number) => ({ value: String(Math.round(seconds * 24000)), timescale: "24000" });
-  const split = (range: { start: number; end: number }) => {
+  const split = (cuts: Array<{ start: number; end: number }>) => {
     const result = structuredClone(original);
     const selected = result.timeline.clips[0];
     const clip = (id: string, start: number, sourceStart: number, duration: number) => ({ ...selected, id, start, sourceStart, duration,
       startTime: time(start), sourceStartTime: time(sourceStart), durationTime: time(duration) });
-    const left = clip("selected-left", 0, 0, range.start);
-    const right = clip("selected-right", range.start, range.end, 4 - range.end);
+    // Build the controlled editor's retained source segments independently of
+    // the runtime verifier. All approved cuts are in descending timeline order.
+    let sourceRanges = [{ start: 0, end: 4 }];
+    for (const range of cuts) sourceRanges = sourceRanges.flatMap(piece => range.end <= piece.start || range.start >= piece.end ? [piece] : [
+      ...(piece.start < range.start ? [{ start: piece.start, end: range.start }] : []),
+      ...(range.end < piece.end ? [{ start: range.end, end: piece.end }] : []),
+    ]);
+    let position = 0;
+    const pieces = sourceRanges.map((range, index) => {
+      const id = index === 0 ? (fault === "retained-id" ? "selected" : "selected-left") : index === sourceRanges.length - 1 ? "selected-right" : `selected-middle-${index}`;
+      const item = clip(id, position, range.start, range.end - range.start);
+      position += item.duration;
+      return item;
+    });
+    const right = pieces[pieces.length - 1]!;
     if (fault === "rational-source-mismatch") right.sourceStartTime = time(right.sourceStart - 0.2);
     if (fault === "wrong-source") { right.sourceStart -= 0.2; right.sourceStartTime = time(right.sourceStart); }
-    const pieces = fault === "missing-piece" ? [left] : [left, right];
+    if (fault === "missing-piece") pieces.pop();
     if (fault === "ambiguous-piece") pieces.push({ ...right, id: "duplicate-right" });
-    result.timeline.clips = [...pieces, { ...result.timeline.clips[1], start: 4 - (range.end - range.start), startTime: time(4 - (range.end - range.start)) }];
+    result.timeline.clips = [...pieces, { ...result.timeline.clips[1], start: position, startTime: time(position) }];
     result.timeline.storyElements = result.timeline.clips.map((item: any) => ({ ...original.timeline.storyElements[0], ...item, kind: "asset-clip" }));
-    result.timeline.duration -= range.end - range.start; result.timeline.durationTime = time(result.timeline.duration);
+    result.timeline.duration = position + 4; result.timeline.durationTime = time(result.timeline.duration);
     return result;
   };
-  f.adapter.previewTransaction = async (operations, revision) => operations[0]?.type === "ripple-delete" ? split(operations[0].range) : preview(operations, revision);
+  f.adapter.previewTransaction = async (operations, revision) => operations[0]?.type === "ripple-delete" ? split(operations.map(operation => { assert.equal(operation.type, "ripple-delete"); return (operation as Extract<typeof operation, { type: "ripple-delete" }>).range; })) : preview(operations, revision);
   f.adapter.applyTransaction = async (operations, revision) => {
-    if (operations[0]?.type === "ripple-delete") await f.adapter.restore(split(operations[0].range), revision);
+    if (operations[0]?.type === "ripple-delete") await f.adapter.restore(split(operations.map(operation => { assert.equal(operation.type, "ripple-delete"); return (operation as Extract<typeof operation, { type: "ripple-delete" }>).range; })), revision);
     else await apply(operations, revision);
   };
 }
 
-for (const fault of [undefined, "wrong-source", "missing-piece", "ambiguous-piece", "rational-source-mismatch"]) {
+for (const fault of [undefined, "retained-id", "multiple-cuts", "wrong-source", "missing-piece", "ambiguous-piece", "rational-source-mismatch"]) {
   test(`full filler Skill validates source-preserving split: ${fault ?? "valid mapping"}`, async t => {
-    const f = await fixture(t); const original = await f.inspect();
+    const invalid = fault !== undefined && fault !== "retained-id" && fault !== "multiple-cuts";
+    const f = await fixture(t, false, fault === "multiple-cuts"); const original = await f.inspect();
     sourcePreservingEditor(f, original, fault);
     const args = { baseRevision: original.revision, range: { start: 0, end: 4 } };
     const preview = await f.call("skill.preview", { skill: "filler-removal", arguments: args });
-    const approved = await f.call("skill.preview", { skill: "filler-removal", arguments: { ...args, selectedCandidateIds: [preview.plan.details.candidates[0].id] } });
+    const approved = await f.call("skill.preview", { skill: "filler-removal", arguments: { ...args, selectedCandidateIds: preview.plan.details.candidates.map((candidate: any) => candidate.id) } });
     const cut = await f.call("skill.execute", { previewToken: approved.previewToken });
-    assert.equal(cut.status, fault ? "ROLLED_BACK" : "VERIFIED", JSON.stringify(cut.verification));
-    if (fault) {
+    assert.equal(cut.status, invalid ? "ROLLED_BACK" : "VERIFIED", JSON.stringify(cut.verification));
+    if (invalid) {
       assert.ok(cut.verification.checks.some((check: any) => check.name.includes("speech-continuity") && !check.passed));
     } else {
       const intermediate = await f.inspect();

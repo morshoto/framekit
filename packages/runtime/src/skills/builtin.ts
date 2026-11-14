@@ -7,6 +7,7 @@ import type { AudioMeasurement, SpeechWord } from "../domain/media.js";
 import type { EditTransaction } from "../domain/editing.js";
 import type { TimelineDiff } from "../domain/diff.js";
 import { sameRevision } from "../context/revision.js";
+import { speechContinuityOccurrences, speechWordFitsOccurrences } from "../verification/speech-occurrences.js";
 import { FillerDetector, type FillerCandidate } from "../speech/filler-detector.js";
 import { SafeCutResolver, type SafeCutDecision } from "../speech/safe-cut-resolver.js";
 import {
@@ -284,7 +285,7 @@ function verifySpeechContinuity(
 
   for (const [occurrenceId, items] of byOccurrence) {
     const beforeClip = transaction.before.timeline.clips.find((clip) => clip.id === occurrenceId);
-    const afterClip = transaction.attemptedAfter.timeline.clips.find((clip) => clip.id === occurrenceId);
+    const occurrences = beforeClip ? speechContinuityOccurrences(transaction, beforeClip) : undefined;
     const mediaId = beforeClip?.mediaId;
     const beforeWords = mediaId
       ? transaction.before.media.find((media) => media.mediaId === mediaId)?.speech?.words
@@ -292,7 +293,7 @@ function verifySpeechContinuity(
     const actualWords = mediaId
       ? transaction.attemptedAfter.media.find((media) => media.mediaId === mediaId)?.speech?.words
       : undefined;
-    if (!beforeClip || !afterClip || !beforeWords || !actualWords) {
+    if (!beforeClip || !occurrences || !beforeWords || !actualWords) {
       return {
         name: "filler-speech-continuity",
         passed: false,
@@ -318,7 +319,7 @@ function verifySpeechContinuity(
       const expected = expectedWords[index]!;
       const actual = actualWords[index]!;
       if (!sameSpeechWord(expected, actual)
-        || actual.end > (afterClip.sourceStart ?? 0) + afterClip.duration + 0.02) {
+        || !speechWordFitsOccurrences(actual, occurrences, 0.02)) {
         return {
           name: "filler-speech-continuity",
           passed: false,

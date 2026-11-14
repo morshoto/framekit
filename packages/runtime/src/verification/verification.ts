@@ -1,4 +1,5 @@
 import type { EditTransaction, WorkflowOperation } from "../domain/editing.js";
+import { speechContinuityOccurrences, speechWordFitsOccurrences } from "./speech-occurrences.js";
 import type {
   AudioAudibilityAssertion,
   AudioCoverageAssertion,
@@ -202,10 +203,10 @@ export class DefaultVerificationEngine implements VerificationEngine {
         return Boolean(media?.speech);
       });
       const continuity = beforeSpeechClips.every((beforeClip) => {
-        const afterClip = transaction.attemptedAfter.timeline.clips.find((clip) => clip.id === beforeClip.id);
-        if (!afterClip) return false;
-        const media = transaction.attemptedAfter.media.find((candidate) => candidate.mediaId === afterClip.mediaId);
-        return !media?.speech || media.speech.words.every((word) => word.end <= afterClip.duration);
+        const occurrences = speechContinuityOccurrences(transaction, beforeClip);
+        if (!occurrences) return false;
+        const media = transaction.attemptedAfter.media.find((candidate) => candidate.mediaId === beforeClip.mediaId);
+        return !media?.speech || media.speech.words.every((word) => speechWordFitsOccurrences(word, occurrences));
       });
       checks.push({
         name: "speech-continuity",
