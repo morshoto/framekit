@@ -3227,3 +3227,19 @@ test("MCP canonical operations verify exact semantics and restore after failures
     }
   }
 });
+
+test("canonical resolver rejects overlapping same-source occurrences before discovery", async () => {
+  for (const [start, duration] of [["72", "48"], ["24", "24"], ["-24", "48"]] as const) {
+    const project = snapshot("Original");
+    const target = project.timeline.clips[0]!;
+    project.timeline.clips.push({ ...target, id: "overlapping", track: 1, startTime: { value: start, timescale: "24" }, durationTime: { value: duration, timescale: "24" } });
+    const calls: string[] = [];
+    const native = {
+      searchMedia: async () => { calls.push("search"); return []; },
+      locateOccurrence: async () => { calls.push("locate"); return { status: "none" as const, occurrences: [] }; },
+      selectOccurrence: async () => { calls.push("select"); return {} as never; },
+    };
+    await assert.rejects(createFinalCutNativeTargetResolver(native)(target, project), /AMBIGUOUS_PROJECT_TARGET.*overlap/i);
+    assert.deepEqual(calls, []);
+  }
+});
