@@ -2927,7 +2927,8 @@ test("native media insertion does not retry an uncertain append focus error", as
   const [media] = await adapter.searchMedia("Interview");
   await adapter.selectMedia(media.handle);
   const preview = await adapter.previewAppendMedia(media.handle);
-  await assert.rejects(adapter.executeAppendMedia(preview.previewToken), /-1719/);
+  await assert.rejects(adapter.executeAppendMedia(preview.previewToken), /FINAL_CUT_NATIVE_PLACEMENT_OUTCOME_UNCERTAIN:.*recovery.*-1719/i);
+  await assert.rejects(adapter.executeAppendMedia(preview.previewToken), /PREVIEW_STALE/);
   assert.equal(insertionCalls, 1);
   assert.equal(scripts.filter((script) => script.includes('set targetIdentity to "browser-1"')).length, 2);
 });
@@ -4412,7 +4413,7 @@ test("native media insertion never retries an uncertain focus failure after disp
   const [media] = await adapter.searchMedia("Interview");
   await adapter.selectMedia(media.handle);
   const preview = await adapter.previewInsertMedia(media.handle);
-  await assert.rejects(adapter.executeInsertMedia(preview.previewToken), /-1719/);
+  await assert.rejects(adapter.executeInsertMedia(preview.previewToken), /FINAL_CUT_NATIVE_PLACEMENT_OUTCOME_UNCERTAIN:.*recovery.*-1719/i);
   assert.equal(insertionCalls, 1);
   await assert.rejects(adapter.executeInsertMedia(preview.previewToken), /PREVIEW_STALE/);
 });
