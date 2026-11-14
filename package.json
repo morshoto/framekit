@@ -17,7 +17,11 @@
     "framekit": "./bin/framekit.mjs"
   },
   "exports": {
-    "./bin/framekit.mjs": "./bin/framekit.mjs"
+    "./bin/framekit.mjs": "./bin/framekit.mjs",
+    "./fcpxml": {
+      "types": "./dist-package/adapters/final-cut/typescript/src/documents.d.ts",
+      "import": "./dist-package/adapters/final-cut/typescript/src/documents.js"
+    }
   },
   "publishConfig": {
     "access": "public"
