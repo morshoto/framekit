@@ -806,6 +806,10 @@ test("live canonical snapshots reject malformed exact source bounds", async () =
     const adapter = new FinalCutLiveAdapter(transport);
     await assert.rejects(adapter.readProject(), /FINAL_CUT_LIVE_PROTOCOL:.*source range/i);
   }
+  const transport = new MutableCanonicalLiveTransport(canonicalReadCapabilities);
+  const sourceRange = { start: { value: "10", timescale: "1" }, duration: { value: "1001", timescale: "6000" } };
+  transport.snapshot.media[0]!.sourceRange = sourceRange;
+  assert.deepEqual((await new FinalCutLiveAdapter(transport).readProject()).media[0]!.sourceRange, sourceRange);
 });
 
 test("live canonical snapshots require a non-empty story element kind", async () => {

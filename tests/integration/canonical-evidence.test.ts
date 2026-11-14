@@ -183,6 +183,20 @@ test("evidence and runtime digests agree when exact source bounds are supplied",
   assert.equal(canonicalEvidenceDigest(snapshot), canonicalSnapshotDigest(snapshot as never));
 });
 
+test("headed runner digests retain supplied source bounds", async () => {
+  const before = structuredClone(rawRun.before);
+  const changed = structuredClone(before);
+  Object.assign(changed.media[0]!, { sourceRange: { start: { value: "10", timescale: "1" }, duration: { value: "20", timescale: "1" } } });
+  for (const name of ["disposable-native", "filler-removal", "dialogue-normalization"]) {
+    const script = await readFile(join(process.cwd(), `scripts/final-cut-${name}-headed-e2e.mjs`), "utf8");
+    const digest = script.match(/function canonicalDigest\(snapshot\) \{[\s\S]*?\n\}/)?.[0];
+    const stable = script.match(/function stableJson\(value\) \{[\s\S]*?\n\}/)?.[0];
+    assert.ok(digest && stable, name);
+    const calculate = new Function("createHash", "compareText", `${stable}\n${digest}\nreturn canonicalDigest;`)(createHash, (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0) as (value: unknown) => string;
+    assert.notEqual(calculate(before), calculate(changed), name);
+  }
+});
+
 test("canonical headed evidence requires an exact full Git commit", () => {
   assert.throws(
     () => sanitizeCanonicalEvidence(rawRun, {
