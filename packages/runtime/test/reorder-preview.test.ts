@@ -54,6 +54,19 @@ test("no-op preview identifies the exact source and range", () => {
   assert.deepEqual(preview.moving.durationTime, { value: "4004", timescale: "24000" });
 });
 
+test("no-op readback requires the entire baseline, including revision, to remain unchanged", () => {
+  const before = fixture();
+  const preview = previewPrimaryStorylineReorder(before, "b", { kind: "after", occurrenceId: "a" });
+  assert.doesNotThrow(() => verifyPrimaryStorylineReorder(preview, before, structuredClone(before)));
+  for (const change of ["revision", "source", "other-occurrence"] as const) {
+    const after = structuredClone(before);
+    if (change === "revision") after.revision = { ...after.revision, id: "rev-2", sequence: 2 };
+    if (change === "source") after.media[0]!.source = "/media/replaced.mov";
+    if (change === "other-occurrence") after.timeline.clips[2]!.name = "changed";
+    assert.throws(() => verifyPrimaryStorylineReorder(preview, before, after), /REORDER_READBACK_FAILED/, change);
+  }
+});
+
 test("moving later preserves the full affected order and source bindings", () => {
   const input = fixture();
   const preview = previewPrimaryStorylineReorder(input, "a", { kind: "end" });
