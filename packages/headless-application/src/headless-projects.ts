@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { readdir, readFile, rename, writeFile, mkdir, link, unlink } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { readdir, readFile, rename, writeFile, mkdir, link, unlink, realpath, stat } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   FramekitProjectStore,
   LocalMediaRegistrar,
@@ -17,6 +17,7 @@ import {
   type ProjectEditCommand,
   type ProjectEditPreview,
   type ProjectEditResult,
+  type ProjectStore,
   type RoughCutPlan,
   type TimelineIrEditOperation,
   type TimelineIr,
@@ -32,6 +33,7 @@ import {
 
 export interface HeadlessProjectServiceOptions {
   directory: string;
+  protectedStateDirectory?: string;
   mediaProbe?: LocalMediaMetadataProbe;
   renderer?: FramekitRenderProvider;
   verifier?: FramekitRenderArtifactVerifier;
@@ -245,6 +247,7 @@ interface HeadlessRoughCutApprovalRecord {
 
 export class HeadlessProjectService implements HeadlessProjectWorkflow {
   private readonly directory: string;
+  private readonly protectedStateDirectory: string;
   private readonly mediaProbe?: LocalMediaMetadataProbe;
   private readonly renderer?: FramekitRenderProvider;
   private readonly verifier?: FramekitRenderArtifactVerifier;
@@ -252,6 +255,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
 
   public constructor(options: HeadlessProjectServiceOptions) {
     this.directory = options.directory;
+    this.protectedStateDirectory = options.protectedStateDirectory ?? options.directory;
     this.mediaProbe = options.mediaProbe;
     this.renderer = options.renderer;
     this.verifier = options.verifier;
@@ -300,8 +304,8 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
   }
 
   public async previewEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string) {
-    await this.open(projectId);
-    const transaction = new ProjectTransactionService(this.store(projectId), { clock: this.clock });
+    const project = await this.open(projectId);
+    const transaction = new ProjectTransactionService(this.snapshotStore(projectId, project), { clock: this.clock });
     return transaction.preview({
       ...command,
       target: command.target ?? { projectId, sequenceId },
@@ -309,8 +313,8 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
   }
 
   public async executeEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string) {
-    await this.open(projectId);
-    const transaction = new ProjectTransactionService(this.store(projectId), { clock: this.clock });
+    const project = await this.open(projectId);
+    const transaction = new ProjectTransactionService(this.snapshotStore(projectId, project), { clock: this.clock });
     return transaction.execute({
       ...command,
       target: command.target ?? { projectId, sequenceId },
@@ -322,6 +326,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     if (project.timeline.sequence.id !== sequenceId || !sameRevision(project.timeline.revision, expectedRevision)) {
       throw new Error("HEADLESS_FCPXML_STALE: project target or revision does not match the requested export");
     }
+    await assertOutputSeparation(project, this.protectedStateDirectory, [outputPath]);
     const compiled = compileTimelineIrToFcpxml(project.timeline, { target });
     const artifact = await writeVerifiedFcpxml(resolve(outputPath), compiled.xml, compiled.digest, false);
     return { artifact, provenance: compiled.provenance, coverage: compiled.coverage };
@@ -378,7 +383,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       throw new Error("HEADLESS_ROUGH_CUT_PLAN_MISMATCH: planDigest does not match the submitted rough-cut plan");
     }
 
-    const transaction = new ProjectTransactionService(this.store(request.projectId), {
+    const transaction = new ProjectTransactionService(this.snapshotStore(request.projectId, prepared.project), {
       clock: () => approval.canonicalRevision.timestamp,
     });
     const { preview, fcpxml } = await this.previewPreparedRoughCut(
@@ -391,6 +396,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       || fcpxml.digest !== approval.artifactDigest) {
       throw new Error("HEADLESS_ROUGH_CUT_PLAN_MISMATCH: replayed preview differs from the approved revision or FCPXML digest");
     }
+    await assertOutputSeparation(prepared.project, this.protectedStateDirectory, [request.render.outputPath, request.fcpxml.path]);
     const renderRequest = createFramekitRenderRequest({
       timeline: preview.after.timeline,
       target: { projectId: request.projectId, sequenceId: request.sequenceId },
@@ -415,6 +421,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     if (outcome.status !== "passed") {
       throw new Error(`HEADLESS_ROUGH_CUT_RENDER_FAILED: render verification status was ${outcome.status}; inspect ${renderId}`);
     }
+    await assertOutputSeparation(prepared.project, this.protectedStateDirectory, [request.render.outputPath, request.fcpxml.path]);
     const fcpxmlArtifact = await writeVerifiedFcpxml(
       request.fcpxml.path,
       fcpxml.xml,
@@ -593,6 +600,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
   ): Promise<HeadlessRenderRecord> {
     if (!this.renderer || !this.verifier) throw new Error("HEADLESS_RENDER_UNAVAILABLE: renderer and verifier are not configured");
     const project = await this.open(projectId);
+    await assertOutputSeparation(project, this.protectedStateDirectory, [parameters.outputPath]);
     const request = createFramekitRenderRequest({
       timeline: project.timeline,
       target: { projectId, sequenceId },
@@ -626,6 +634,15 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
 
   private store(projectId: string): FramekitProjectStore {
     return new FramekitProjectStore(this.projectPath(projectId));
+  }
+
+  private snapshotStore(projectId: string, project: FramekitProjectDocument): ProjectStore {
+    const store = this.store(projectId);
+    return {
+      create: (value) => store.create(value),
+      load: async () => structuredClone(project),
+      save: (value, expectedRevision) => store.save(value, expectedRevision),
+    };
   }
 
   private projectPath(projectId: string): string {
@@ -682,14 +699,14 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
   }
 
   private async prepareRoughCut(request: HeadlessRoughCutRequest): Promise<PreparedRoughCut> {
-    await this.open(request.projectId);
-    const project = await this.store(request.projectId).load();
+    const project = await this.open(request.projectId);
     if (project.timeline.sequence.id !== request.sequenceId) {
       throw new Error("HEADLESS_ROUGH_CUT_TARGET_MISMATCH: sequenceId does not match the persisted project");
     }
     if (!sameRevision(project.timeline.revision, request.plan.revision)) {
       throw new Error("HEADLESS_ROUGH_CUT_STALE_REVISION: rough-cut plan revision does not match the persisted project");
     }
+    await assertOutputSeparation(project, this.protectedStateDirectory, [request.render.outputPath, request.fcpxml.path]);
     if (!request.plan.shots.length) throw new Error("HEADLESS_ROUGH_CUT_EMPTY_PLAN: rough-cut plan must contain at least one shot");
     const operations = structuredClone(request.operations ?? []);
     const sourceAudioPolicy = request.sourceAudioPolicy ?? "preserve-and-mix";
@@ -759,14 +776,14 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       expectedRevision: structuredClone(request.plan.revision),
       operations: editOperations,
     };
-    return { command, inputDigest, provenance, outputIntent };
+    return { command, inputDigest, provenance, outputIntent, project };
   }
 
   private async previewPreparedRoughCut(
     request: HeadlessRoughCutRequest,
     prepared: PreparedRoughCut,
     timestamp: string,
-    transaction = new ProjectTransactionService(this.store(request.projectId), { clock: () => timestamp }),
+    transaction = new ProjectTransactionService(this.snapshotStore(request.projectId, prepared.project), { clock: () => timestamp }),
   ): Promise<{ preview: ProjectEditPreview; fcpxml: TimelineIrToFcpxmlResult }> {
     const rawPreview = await transaction.preview(prepared.command);
     const canonicalRevision: ContextRevision = {
@@ -786,6 +803,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
 }
 
 interface PreparedRoughCut {
+  project: FramekitProjectDocument;
   command: ProjectEditCommand;
   inputDigest: string;
   provenance: HeadlessRoughCutShotProvenance[];
@@ -990,6 +1008,70 @@ function selectFcpxmlMetadata(result: TimelineIrToFcpxmlResult): HeadlessRoughCu
     coverage: structuredClone(result.coverage),
     provenance: structuredClone(result.provenance),
   };
+}
+
+// Resolve symlinked ancestors even for a destination that does not exist yet.
+async function canonicalOutputPath(path: string): Promise<string> {
+  const absolute = resolve(path);
+  try {
+    return await realpath(absolute);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    const parent = dirname(absolute);
+    if (parent === absolute) throw error;
+    return join(await canonicalOutputPath(parent), basename(absolute));
+  }
+}
+
+async function sameExistingFile(left: string, right: string): Promise<boolean> {
+  try {
+    const [a, b] = await Promise.all([stat(left), stat(right)]);
+    return a.dev === b.dev && a.ino === b.ino;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+async function stateFiles(directory: string): Promise<string[]> {
+  let entries;
+  try {
+    entries = await readdir(directory, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+  const files: string[] = [];
+  for (const entry of entries) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...await stateFiles(path));
+    else files.push(path);
+  }
+  return files;
+}
+
+async function assertOutputSeparation(project: FramekitProjectDocument, stateDirectory: string, paths: string[]): Promise<void> {
+  const state = await canonicalOutputPath(stateDirectory);
+  const outputs = await Promise.all(paths.map(canonicalOutputPath));
+  const sources = await Promise.all(project.timeline.resources
+    .filter((resource) => resource.sourceKind === "local-file" && resource.source)
+    .map((resource) => canonicalOutputPath(resource.source!)));
+  const protectedFiles = await stateFiles(state);
+  const collides = async (a: string, b: string) => a === b || await sameExistingFile(a, b);
+  for (const output of outputs) {
+    const fromState = relative(state, output);
+    if (!fromState || (!isAbsolute(fromState) && fromState !== ".." && !fromState.startsWith(`..${sep}`))) {
+      throw new Error("HEADLESS_OUTPUT_COLLISION: output is inside Framekit state");
+    }
+    for (const protectedFile of [...sources, ...protectedFiles]) {
+      if (await collides(output, protectedFile)) throw new Error("HEADLESS_OUTPUT_COLLISION: output aliases protected state or registered media");
+    }
+  }
+  for (let i = 0; i < outputs.length; i++) {
+    for (let j = i + 1; j < outputs.length; j++) {
+      if (await collides(outputs[i]!, outputs[j]!)) throw new Error("HEADLESS_OUTPUT_COLLISION: outputs alias each other");
+    }
+  }
 }
 
 async function writeVerifiedFcpxml(path: string, xml: string, digest: string, overwrite: boolean): Promise<{ path: string; digest: string; bytes: number; verified: true }> {
