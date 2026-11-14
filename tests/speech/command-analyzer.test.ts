@@ -5,7 +5,7 @@ import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { CommandAudioAnalyzer, CommandSpeechAnalyzer } from "@framekit/final-cut";
-import { AgentVideoRuntime, type AnalysisInput } from "@framekit/runtime";
+import { AgentVideoRuntime, JsonSemanticMediaIndexStore, type AnalysisInput } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 
 function createInput(mediaSource: string): AnalysisInput {
@@ -311,5 +311,39 @@ for (const kind of ["speech", "audio"] as const) {
     assert.ok(result);
     assert.deepEqual(input, baseline);
     assert.equal(await readFile(mediaPath, "utf8"), "media");
+  });
+}
+
+for (const kind of ["speech", "audio"] as const) {
+  test(`persisted ${kind} cache rechecks source bytes after restart`, async (t) => {
+    const directory = await mkdtemp(join(os.tmpdir(), "framekit-cache-source-"));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const mediaPath = join(directory, "source.wav");
+    await writeFile(mediaPath, "media");
+    const command = await createWrapper(directory, kind === "speech"
+      ? { words: [{ text: "old-source", start: 0, end: 1, confidence: 0.9 }] }
+      : { integratedLufs: -20, truePeakDb: -6, silenceMs: 0 });
+    const input = createInput(mediaPath);
+    const adapter = new InMemoryEditorAdapter({
+      projectId: input.project.projectId, projectName: input.project.projectName,
+      timelineId: input.project.timeline.id, timelineName: input.project.timeline.name,
+      clips: [], media: [input.media],
+    });
+    const analyzers = kind === "speech"
+      ? { speechAnalyzer: new CommandSpeechAnalyzer({ command }) }
+      : { audioAnalyzer: new CommandAudioAnalyzer({ command }) };
+    const storePath = join(directory, "source-index.json");
+    const runtime = () => new AgentVideoRuntime(adapter, {
+      ...analyzers, semanticMediaIndexStore: new JsonSemanticMediaIndexStore(storePath),
+    });
+    const first = await runtime().understandMedia("media-1");
+    assert.equal(first.analysis.find((entry) => entry.capability === kind)?.status, "analyzed");
+    // Simulate source replacement while the editor's logical media identity remains unchanged.
+    await writeFile(mediaPath, "replacement");
+    const second = await runtime().understandMedia("media-1");
+    assert.equal(second[kind], undefined);
+    const status = second.analysis.find((entry) => entry.capability === kind);
+    assert.equal(status?.status, "unavailable");
+    assert.match(status?.reason ?? "", /ANALYZER_SOURCE_CHANGED/);
   });
 }

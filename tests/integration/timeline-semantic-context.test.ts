@@ -193,3 +193,19 @@ test("timeline semantic context uses authoritative rational source coordinates",
   });
   assert.equal(context.occurrences[0]?.observations.find((entry) => entry.capability === "speech")?.text, "second");
 });
+
+test("timeline semantic context rejects cached evidence from a different configured provider", async () => {
+  const store = new InMemorySemanticMediaIndexStore();
+  await store.save(understanding());
+  const runtime = new AgentVideoRuntime(adapterFor(), {
+    semanticMediaIndexStore: store,
+    speechAnalyzer: {
+      descriptor: { id: "fixture.speech", provider: "fixture", version: "changed-version" },
+      analyze: async () => { throw new Error("read-only inspection must not run analysis"); },
+    },
+  });
+  const context = await runtime.inspectTimelineSemanticContext({ occurrenceIds: ["occurrence-first"] });
+  assert.equal(context.occurrences[0]?.status, "unavailable");
+  assert.match(context.occurrences[0]?.reason ?? "", /provenance.*incompatible/);
+  assert.deepEqual(context.occurrences[0]?.observations, []);
+});
