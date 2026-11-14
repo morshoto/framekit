@@ -347,6 +347,18 @@ separate contracts and adapters; the semantic media index already follows this
 pattern, while session persistence can adopt it in its own change without
 changing project storage.
 
+### Analysis provider identity
+
+Analyzer provenance can include a model identity and a configuration digest.
+Speech binding rejects conflicting configured provider, version, model or
+configuration identities; source cache compatibility checks compare all those
+fields. Command speech/audio providers capture their execution environment,
+use that same environment for subprocesses, and fingerprint the command path,
+environment, declared version and VAD requirement. Only the digest is returned,
+not raw environment values. Executable/model data at unchanged paths must have
+a newly pinned provider version when their contents change. Provider identity
+does not establish native source binding or acceptance.
+
 ### Local analyzer source verification
 
 Command analyzers stream a SHA-256 check before provider execution and compare
@@ -367,6 +379,35 @@ occurrence measurement, and a source-only post-write response causes verified
 rollback rather than an output-loudness claim. Reusable source analysis and
 occurrence/output measurements remain distinct.
 
+Persisted source evidence is revalidated through the configured speech/audio
+providers' optional `validateSource` port before understanding, timeline
+semantic context, semantic indexing or rough-cut planning reuses it. Command
+providers compare current local bytes with the registered digest. Replaced or
+offline sources cannot supply cached semantic claims; fresh analysis retains
+independent unavailable reasons. Occurrence loudness is not a source-cache
+entry. A provider without a physical-source validator still relies on its
+current canonical source-identity contract; this does not supply missing
+native occurrence/source observation.
+
+Speech occurrence mapping requires observed source coverage for the complete
+occurrence and rejects conflicting numeric/rational source coordinates. It
+represents speech boundaries on the provider's declared source clock before
+sequence-frame alignment, preserving exact fractional offsets instead of
+rounding them to microseconds. Off-clock evidence is explicitly ambiguous.
+The restart/cache matrix verifies trim, reorder, split and repeated-source
+mapping against independently stated rational positions in deterministic
+snapshots; native acceptance remains separate.
+
+`timeline.semantic.inspect` accepts `includeSpeechMappings: true` to return a
+`speechMapping` for each available occurrence, including source, sequence and
+frame-aligned word/activity ranges. This read-only path validates stored source,
+provider and revision provenance before rebinding source evidence to the current
+canonical revision. It requires declared speech clock/coverage and exact
+occurrence timing; the canonical zero-source-start default remains supported.
+Missing, conflicting, off-clock or boundary-crossing evidence makes that
+occurrence unavailable with a reason. The option does not run an analyzer or
+authorize an edit. Omitting it retains the source-range semantic response.
+
 The shared runtime audio payload gate validates metrics, counters, flags,
 declared source clocks, rational source ranges and signal-format metadata for
 both command adapters and application provider ports. This prevents nonfinite
@@ -375,6 +416,11 @@ audio is unavailable in semantic understanding without disabling successful
 transcription. Source/occurrence results retain declared clock and sample
 format, while missing metadata remains unknown; shape validation alone does
 not verify a provider's physical measurements.
+
+Cached audio passes the same payload gate before understanding, indexing or
+timeline context can reuse it. Provider-rejected measurements and conflicting
+nested media, source, provider or revision identities are excluded before
+rebinding cached evidence to the current snapshot.
 
 ### FCPXML document interchange
 

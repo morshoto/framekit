@@ -51,6 +51,15 @@ export interface AnalyzerDescriptor {
   id: string;
   provider: string;
   version?: string;
+  model?: string;
+  /** Identity of effective provider settings, including externally pinned model data. */
+  configurationDigest?: string;
+}
+
+/** Compare every declared component of an analyzer's reproducible identity. */
+export function sameAnalyzerDescriptor(left: AnalyzerDescriptor, right: AnalyzerDescriptor): boolean {
+  return left.id === right.id && left.provider === right.provider && left.version === right.version
+    && left.model === right.model && left.configurationDigest === right.configurationDigest;
 }
 
 export interface MediaSourceIdentity {
@@ -180,7 +189,37 @@ export interface RoughCutPlan {
   warnings: string[];
 }
 
+export interface MappedSpeechWord {
+  word: SpeechWord;
+  sourceRange: TimeRange;
+  sequenceRange: TimeRange;
+  frameAlignedRange: TimeRange;
+}
+
+export interface MappedSpeechSegment {
+  segment: SpeechSegment;
+  sourceRange: TimeRange;
+  sequenceRange: TimeRange;
+  frameAlignedRange: TimeRange;
+}
+
+export interface SpeechOccurrenceMapping {
+  occurrenceId: string;
+  mediaId: string;
+  revision: ContextRevision;
+  sourceRange: TimeRange;
+  sequenceRange: TimeRange;
+  sourceTimebase: RationalTime;
+  sequenceFrameDuration: RationalTime;
+  capability: RevisionBoundSpeechAnalysis["capability"];
+  words: MappedSpeechWord[];
+  vadSegments?: MappedSpeechSegment[];
+  silenceSegments?: MappedSpeechSegment[];
+  protectedSegments?: MappedSpeechSegment[];
+}
+
 export interface TimelineSemanticContextQuery {
+  includeSpeechMappings?: boolean;
   query?: string;
   occurrenceIds?: string[];
 }
@@ -195,6 +234,7 @@ export interface TimelineSemanticObservation {
 }
 
 export interface TimelineSemanticOccurrenceContext {
+  speechMapping?: SpeechOccurrenceMapping;
   occurrenceId: string;
   status: "available" | "unavailable";
   mediaId?: string;
@@ -418,12 +458,16 @@ export interface AnalysisInput {
 
 export interface SpeechAnalyzer {
   analyze(input: AnalysisInput, range?: TimeRange): Promise<SpeechAnalysis>;
+  /** Revalidate physical source content before reusing persisted evidence. */
+  validateSource?(input: AnalysisInput): Promise<void>;
   readonly descriptor?: AnalyzerDescriptor;
   readonly capabilities?: SpeechAnalyzerCapabilities;
 }
 
 export interface AudioAnalyzer {
   analyze(input: AnalysisInput, range?: TimeRange): Promise<AudioAnalysis>;
+  /** Revalidate physical source content before reusing persisted evidence. */
+  validateSource?(input: AnalysisInput): Promise<void>;
   readonly descriptor?: AnalyzerDescriptor;
 }
 

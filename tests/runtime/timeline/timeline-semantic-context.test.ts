@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { createMcpServer } from "../../../apps/mcp-server/src/server.js";
 import {
   AgentVideoRuntime,
   InMemorySemanticMediaIndexStore,
+  bindSpeechAnalysis,
   type MediaUnderstanding,
+  type ProjectSnapshot,
 } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 
@@ -163,4 +168,137 @@ test("timeline semantic search and source-digest mismatch remain explicit", asyn
   const unavailable = await mismatched.inspectTimelineSemanticContext({ occurrenceIds: ["occurrence-first"] });
   assert.equal(unavailable.occurrences[0]?.status, "unavailable");
   assert.match(unavailable.occurrences[0]?.reason ?? "", /source-bound semantic index entry is unavailable/);
+});
+
+test("timeline semantic context uses authoritative rational source coordinates", async () => {
+  class RationalSourceAdapter extends InMemoryEditorAdapter {
+    public override async readProject() {
+      const snapshot = await super.readProject();
+      const clip = snapshot.timeline.clips[0]!;
+      // The convenience seconds are rounded; the rational source position is exact.
+      clip.sourceStart = 10;
+      clip.sourceStartTime = { value: "1001", timescale: "100" };
+      return snapshot;
+    }
+  }
+  const baseline = await adapterFor().readProject();
+  const adapter = new RationalSourceAdapter({
+    projectId: baseline.projectId, projectName: baseline.projectName,
+    timelineId: baseline.timeline.id, timelineName: baseline.timeline.name,
+    clips: baseline.timeline.clips, media: baseline.media,
+  });
+  const store = new InMemorySemanticMediaIndexStore();
+  await store.save(understanding());
+  const runtime = new AgentVideoRuntime(adapter, { semanticMediaIndexStore: store });
+  const context = await runtime.inspectTimelineSemanticContext({ occurrenceIds: ["occurrence-first"] });
+  assert.deepEqual(context.occurrences[0]?.sourceRange, {
+    start: 10.01, end: 15.01,
+    startTime: { value: "1001", timescale: "100" },
+    durationTime: { value: "5", timescale: "1" },
+  });
+  assert.equal(context.occurrences[0]?.observations.find((entry) => entry.capability === "speech")?.text, "second");
+});
+
+test("timeline semantic context rejects cached evidence from a different configured provider", async () => {
+  const store = new InMemorySemanticMediaIndexStore();
+  await store.save(understanding());
+  const runtime = new AgentVideoRuntime(adapterFor(), {
+    semanticMediaIndexStore: store,
+    speechAnalyzer: {
+      descriptor: { id: "fixture.speech", provider: "fixture", version: "changed-version" },
+      analyze: async () => { throw new Error("read-only inspection must not run analysis"); },
+    },
+  });
+  const context = await runtime.inspectTimelineSemanticContext({ occurrenceIds: ["occurrence-first"] });
+  assert.equal(context.occurrences[0]?.status, "unavailable");
+  assert.match(context.occurrences[0]?.reason ?? "", /provenance.*incompatible/);
+  assert.deepEqual(context.occurrences[0]?.observations, []);
+});
+
+test("MCP speech mapping rejects incomplete and contradictory cached evidence", async (t) => {
+  const cases: Array<{
+    label: string;
+    corrupt: (evidence: MediaUnderstanding, project: ProjectSnapshot) => void;
+    reason: RegExp;
+  }> = [
+    { label: "incomplete observed coverage", corrupt: (evidence) => {
+      evidence.speech!.observedRange = { start: 0, end: 2 };
+      evidence.speech!.words = [evidence.speech!.words[0]!];
+    }, reason: /observed speech range does not cover/ },
+    { label: "missing declared clock", corrupt: (evidence) => { delete evidence.speech!.sourceTimebase; }, reason: /declared speech clock/ },
+    { label: "conflicting nested source", corrupt: (evidence) => { evidence.speech!.sourceIdentity!.source = "/fixtures/different.mov"; }, reason: /source identity/ },
+    { label: "conflicting nested provider", corrupt: (evidence) => { evidence.speech!.provider!.version = "different"; }, reason: /provider/ },
+    { label: "conflicting nested revision", corrupt: (evidence) => { evidence.speech!.revision!.id = "different"; }, reason: /revision/ },
+    { label: "conflicting recorded source", corrupt: (evidence) => {
+      evidence.analysis[0]!.provenance!.source = { ...evidence.sourceIdentity, sourceDigest: "different" };
+    }, reason: /provenance/ },
+    { label: "word crossing source boundary", corrupt: (evidence) => {
+      evidence.speech!.words = [{ text: "crossing", start: 4.5, end: 5.5, confidence: 1 }];
+    }, reason: /crosses the occurrence source boundary/ },
+    { label: "off-clock word", corrupt: (evidence) => {
+      evidence.speech!.words = [{ text: "off-clock", start: 1.0001, end: 2, confidence: 1 }];
+    }, reason: /declared source clock/ },
+    { label: "missing exact occurrence timing", corrupt: (_evidence, project) => {
+      delete (project.timeline.clips[0] as Partial<typeof project.timeline.clips[number]>).startTime;
+    }, reason: /exact source and sequence timing/ },
+    { label: "inexact nonzero source start", corrupt: (_evidence, project) => {
+      project.timeline.clips[0]!.sourceStart = 1;
+      delete project.timeline.clips[0]!.sourceStartTime;
+    }, reason: /exact source and sequence timing/ },
+  ];
+  for (const { label, corrupt, reason } of cases) {
+    await t.test(label, async () => {
+      const project = await adapterFor().readProject();
+      project.timeline.frameDuration = { value: "1", timescale: "25" };
+      project.timeline.clips[0]!.startTime = { value: "0", timescale: "1" };
+      project.timeline.clips[0]!.durationTime = { value: "5", timescale: "1" };
+      const evidence = structuredClone(understanding());
+      const descriptor = evidence.analysis[0]!.provenance!.analyzer;
+      evidence.speech = bindSpeechAnalysis({ ...evidence.speech!, sourceTimebase: { value: "1", timescale: "1000" } }, {
+        input: { project: { ...project, revision: evidence.analysisRevision }, media: project.media[0]! },
+        provider: descriptor,
+      });
+      corrupt(evidence, project);
+      const before = structuredClone(project);
+      class SnapshotAdapter extends InMemoryEditorAdapter {
+        public override async readProject() { return structuredClone(project); }
+      }
+      const adapter = new SnapshotAdapter({
+        projectId: project.projectId, projectName: project.projectName,
+        timelineId: project.timeline.id, timelineName: project.timeline.name,
+        clips: [], media: project.media,
+      });
+      const store = new InMemorySemanticMediaIndexStore();
+      await store.save(evidence);
+      let providerCalls = 0;
+      const runtime = new AgentVideoRuntime(adapter, {
+        semanticMediaIndexStore: store,
+        speechAnalyzer: { descriptor, analyze: async () => { providerCalls++; throw new Error("inspection must not analyze"); } },
+      });
+      const server = createMcpServer(runtime);
+      const client = new Client({ name: "invalid-mapping-test", version: "1" });
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      try {
+        await server.connect(serverTransport);
+        await client.connect(clientTransport);
+        const response = await client.callTool({
+          name: "timeline.semantic.inspect",
+          arguments: { includeSpeechMappings: true, occurrenceIds: ["occurrence-first"] },
+        });
+        assert.notEqual(response.isError, true, JSON.stringify(response));
+        const context = JSON.parse((response.content as Array<{ text: string }>)[0]!.text);
+        assert.equal(context.occurrences.length, 1);
+        const occurrence = context.occurrences[0];
+        assert.equal(occurrence.status, "unavailable", JSON.stringify(occurrence));
+        assert.match(occurrence.reason, reason);
+        assert.equal(occurrence.speechMapping, undefined);
+        assert.deepEqual(occurrence.observations, []);
+        assert.equal(providerCalls, 0);
+        assert.deepEqual(await adapter.readProject(), before);
+      } finally {
+        await client.close();
+        await server.close();
+      }
+    });
+  }
 });

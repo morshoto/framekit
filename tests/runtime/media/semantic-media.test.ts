@@ -749,6 +749,104 @@ test("semantic media index invalidates when analyzer provenance changes", async 
   }
 });
 
+test("semantic cache requires content identity before reusing source analysis", async () => {
+  const fixture = semanticFixture();
+  fixture.adapter.replaceMedia({ sourceDigest: undefined });
+  const delegate = new FixtureSpeechAnalyzer();
+  let calls = 0;
+  const analyzer = {
+    descriptor: delegate.descriptor,
+    analyze: async (...args: Parameters<FixtureSpeechAnalyzer["analyze"]>) => {
+      calls += 1;
+      return delegate.analyze(...args);
+    },
+  };
+  const store = new InMemorySemanticMediaIndexStore();
+  await new AgentVideoRuntime(fixture.adapter, { speechAnalyzer: analyzer, semanticMediaIndexStore: store })
+    .understandMedia("media-semantic-1");
+  await new AgentVideoRuntime(fixture.adapter, { speechAnalyzer: analyzer, semanticMediaIndexStore: store })
+    .understandMedia("media-semantic-1");
+  assert.equal(calls, 2, "a path and revision alone cannot prove unchanged content");
+});
+
+test("semantic cache cannot relabel partial source analysis as whole-source evidence", async () => {
+  const fixture = semanticFixture();
+  const delegate = new FixtureSpeechAnalyzer();
+  let calls = 0;
+  const analyzer = {
+    descriptor: delegate.descriptor,
+    analyze: async (...args: Parameters<FixtureSpeechAnalyzer["analyze"]>) => {
+      calls += 1;
+      return delegate.analyze(...args);
+    },
+  };
+  const store = new InMemorySemanticMediaIndexStore();
+  const first = await new AgentVideoRuntime(fixture.adapter, { speechAnalyzer: analyzer, semanticMediaIndexStore: store })
+    .understandMedia("media-semantic-1");
+  first.speech!.requestedRange = { start: 0, end: 6 };
+  first.speech!.observedRange = { start: 0, end: 6 };
+  await store.save(first);
+  const result = await new AgentVideoRuntime(fixture.adapter, { speechAnalyzer: analyzer, semanticMediaIndexStore: store })
+    .understandMedia("media-semantic-1");
+  assert.equal(calls, 2);
+  assert.deepEqual(result.speech?.requestedRange, { start: 0, end: 12 });
+});
+
+test("semantic cache does not preserve analysis from a removed provider", async () => {
+  const fixture = semanticFixture();
+  const store = new InMemorySemanticMediaIndexStore();
+  await new AgentVideoRuntime(fixture.adapter, {
+    speechAnalyzer: new FixtureSpeechAnalyzer(), semanticMediaIndexStore: store,
+  }).understandMedia("media-semantic-1");
+  const result = await new AgentVideoRuntime(fixture.adapter, { semanticMediaIndexStore: store })
+    .understandMedia("media-semantic-1");
+  assert.equal(result.speech, undefined);
+  assert.equal(result.analysis.find((status) => status.capability === "speech")?.status, "unavailable");
+});
+
+test("semantic cache reuses unchanged source evidence after a timeline-only revision", async () => {
+  const fixture = semanticFixture();
+  const delegate = new FixtureSpeechAnalyzer();
+  let calls = 0;
+  const analyzer = {
+    descriptor: delegate.descriptor,
+    analyze: async (...args: Parameters<FixtureSpeechAnalyzer["analyze"]>) => {
+      calls += 1;
+      return delegate.analyze(...args);
+    },
+  };
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    speechAnalyzer: analyzer, semanticMediaIndexStore: new InMemorySemanticMediaIndexStore(),
+  });
+  const first = await runtime.understandMedia("media-semantic-1");
+  await runtime.edit({ type: "rename-clip", clipId: "clip-semantic-1", name: "Renamed" }, { assertions: [] });
+  const second = await runtime.understandMedia("media-semantic-1");
+  assert.equal(calls, 1, "a timeline-only edit must not discard verified source evidence");
+  assert.notEqual(second.analysisRevision.id, first.analysisRevision.id);
+  assert.deepEqual(second.speech?.revision, (await runtime.inspectProject()).revision);
+  assert.deepEqual(second.sourceIdentity, first.sourceIdentity);
+});
+
+for (const changedField of ["model", "configurationDigest"] as const) {
+  test(`semantic cache invalidates when provider ${changedField} changes`, async () => {
+    const fixture = semanticFixture();
+    const store = new InMemorySemanticMediaIndexStore();
+    let calls = 0;
+    const analyzer = (value: string) => ({
+      descriptor: { id: "configured.speech", provider: "local", version: "1", [changedField]: value },
+      analyze: async () => {
+        calls += 1;
+        return { words: [{ text: "configured", start: 1, end: 2, confidence: 0.9 }] };
+      },
+    });
+    await new AgentVideoRuntime(fixture.adapter, { speechAnalyzer: analyzer("first"), semanticMediaIndexStore: store })
+      .understandMedia("media-semantic-1");
+    await new AgentVideoRuntime(fixture.adapter, { speechAnalyzer: analyzer("second"), semanticMediaIndexStore: store })
+      .understandMedia("media-semantic-1");
+    assert.equal(calls, 2);
+  });
+}
+
 test("source audio analysis cannot authorize an occurrence gain edit", async () => {
   const fixture = semanticFixture();
   const runtime = new AgentVideoRuntime(fixture.adapter, {
@@ -794,6 +892,84 @@ test("audio measurements reject a different occurrence before previewing edits",
   assert.deepEqual(await runtime.inspectProject(), before);
 });
 
+test("semantic cache cannot rebind occurrence loudness as reusable source analysis", async () => {
+  const fixture = semanticFixture();
+  const store = new InMemorySemanticMediaIndexStore();
+  let calls = 0;
+  const analyzer = {
+    descriptor: { id: "fixture.audio", provider: "fixture", version: "1" },
+    analyze: async () => {
+      calls += 1;
+      return { integratedLufs: -20, truePeakDb: -6, silenceMs: 0 };
+    },
+  };
+  const runtime = () => new AgentVideoRuntime(fixture.adapter, { audioAnalyzer: analyzer, semanticMediaIndexStore: store });
+  const first = await runtime().understandMedia("media-semantic-1");
+  first.audio!.signalScope = "occurrence";
+  first.audio!.occurrenceId = "old-occurrence";
+  await store.save(first);
+  const result = await runtime().understandMedia("media-semantic-1");
+  assert.equal(calls, 2);
+  assert.equal(result.audio?.signalScope, "source");
+  assert.equal(result.audio?.occurrenceId, undefined);
+});
+
+test("cached audio payloads cannot bypass analysis validation", async (t) => {
+  const cases = [
+    ["nonfinite measurement", { integratedLufs: NaN }],
+    ["provider-rejected measurement", { valid: false, invalidReason: "signal was not measured" }],
+    ["different media identity", { mediaId: "other-media" }],
+    ["different source identity", { sourceIdentity: {
+      mediaId: "media-semantic-1", source: "/fixtures/other.mov", sourceDigest: "other-source", mediaKind: "video", duration: 12,
+    } }],
+    ["different provider identity", { provider: { id: "other.audio", provider: "fixture", version: "99" } }],
+    ["different revision identity", { revision: { id: "foreign", sequence: 9, timestamp: "1970-01-01T00:00:00.000Z" } }],
+    ["invalid source clock", { sourceTimebase: { value: "1", timescale: "0" } }],
+    ["invalid signal format", { signalFormat: { sampleRate: 48000, channels: 0 } }],
+    ["contradictory range", { measuredRange: {
+      start: 0, end: 12, durationTime: { value: "20", timescale: "1" },
+    } }],
+  ] as const;
+  for (const [label, patch] of cases) {
+    for (const entrypoint of ["understanding", "index", "timeline context"]) {
+      await t.test(label + " / " + entrypoint, async () => {
+        const fixture = semanticFixture();
+        const store = new InMemorySemanticMediaIndexStore();
+        let calls = 0;
+        const analyzer = {
+          descriptor: { id: "fixture.cache-audio", provider: "fixture", version: "1" },
+          analyze: async () => {
+            calls += 1;
+            return { integratedLufs: -18, truePeakDb: -1, silenceMs: 0 };
+          },
+        };
+        const createRuntime = () => new AgentVideoRuntime(fixture.adapter, {
+          audioAnalyzer: analyzer, semanticMediaIndexStore: store,
+        });
+        const original = await createRuntime().understandMedia("media-semantic-1");
+        original.audio = { ...original.audio!, ...patch };
+        await store.save(original);
+        const before = await fixture.adapter.readProject();
+        const runtime = createRuntime();
+        if (entrypoint === "understanding") {
+          const result = await runtime.understandMedia("media-semantic-1");
+          assert.equal(calls, 2, "incompatible cached audio must be analyzed again");
+          assert.equal(result.audio?.integratedLufs, -18);
+          assert.notEqual(result.audio?.valid, false);
+        } else if (entrypoint === "index") {
+          const entries = await runtime.indexMedia();
+          assert.equal(entries.some((entry) => entry.audio !== undefined), false);
+          assert.equal(entries.some((entry) => entry.semantic.audio?.present), false);
+        } else {
+          const context = await runtime.inspectTimelineSemanticContext({ occurrenceIds: ["clip-semantic-1"] });
+          assert.equal(context.occurrences[0]?.status, "unavailable");
+          assert.deepEqual(context.occurrences[0]?.observations, []);
+        }
+        assert.deepEqual(await fixture.adapter.readProject(), before);
+      });
+    }
+  }
+});
 
 test("production MCP rejects malformed audio while transcription stays available", async (t) => {
   const fixture = semanticFixture();
