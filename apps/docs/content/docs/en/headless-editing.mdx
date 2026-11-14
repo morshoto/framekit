@@ -13,6 +13,8 @@ A stale revision or unavailable provider requires a fresh inspection or a struct
 
 If rough-cut execution returns `HEADLESS_ROUGH_CUT_HISTORY_UNCONFIRMED`, the project edit has already committed, but no execution or publish proof was returned. The error includes the project, sequence, execution ID, and committed revision. Reinspect the project before retrying; an error response does not mean the edit was rolled back.
 
+Splitting an occurrence with fades, attachments, or story-element references is unavailable until those structures can be remapped safely. The preview and execution reject such splits without changing the project.
+
 Project writes do not automatically remove an existing project lock, even if its recorded process has exited. This protection requires every writer using the project state to include this behavior. Before sharing state with upgraded writers, stop and drain older writers: they may remove an initializing or replaced lock and allow concurrent writes. An interrupted writer can leave later writes blocked. Before an operator clears such a lock, they must independently establish that no writer can still use it; elapsed time, an empty file, or a PID alone does not prove that.
 
 See [Projects & Timeline IR](/en/docs/projects-and-timeline/) and [Revisions & Safety](/en/docs/revisions-and-safety/).
