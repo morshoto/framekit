@@ -3118,6 +3118,10 @@
     "tests/integration/release-workflow.test.ts": [
       "'release publication requires the headless artifact workflow suite'"
     ],
+    "tests/integration/boundary-policy.test.ts": [
+      "\"document entrypoint preserves existing compiler and parser exports without native controls\"",
+      "`document import restrictions reject transitive native reachability: ${statement}`"
+    ],
     "tests/integration/dialogue-normalization-skill.test.ts": [
       "\"source-only post-write analysis cannot verify an occurrence gain edit\""
     ],

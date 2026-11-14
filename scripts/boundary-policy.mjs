@@ -38,6 +38,18 @@ export const FRAMEKIT_BOUNDARY_POLICY = {
     cli: [],
   },
   productionEntrypoints: ["apps/mcp-server/src/main.ts", "apps/cli/src/main.ts"],
+  restrictedReachability: [{
+    entrypoints: [
+      "adapters/final-cut/typescript/src/documents.ts",
+      "packages/headless-application/src/index.ts",
+    ],
+    targetPackage: "final-cut",
+    allowedModules: [
+      "adapters/final-cut/typescript/src/documents.ts",
+      "adapters/final-cut/typescript/src/fcpxml.ts",
+      "adapters/final-cut/typescript/src/timeline-ir-fcpxml.ts",
+    ],
+  }],
   experimentalModules: [
     "adapters/final-cut/typescript/src/sqlite-inspection.ts",
     "adapters/final-cut/typescript/src/sqlite-wal-observation.ts",
@@ -177,6 +189,23 @@ export async function analyzeWorkspaceBoundaries({ rootDir, packages, policy }) 
     for (const target of reachableFiles(entrypoint, importEdgesBySource)) {
       if (policy.experimentalModules.includes(target)) {
         violations.push(violation("experimental-production-import", entrypoint, `Default production wiring reaches experimental module ${target}`));
+      }
+    }
+  }
+
+  // Use every resolved edge, including type-only imports and re-exports.
+  const allEdgesBySource = new Map(sourceFiles.map((file) => [file.path, []]));
+  for (const edge of edges) allEdgesBySource.get(edge.source).push(edge);
+  for (const restriction of policy.restrictedReachability ?? []) {
+    for (const entrypoint of restriction.entrypoints) {
+      if (!sourceOwners.has(entrypoint)) {
+        violations.push(violation("missing-restricted-entrypoint", entrypoint, "Restricted entrypoint is not in a declared source package"));
+        continue;
+      }
+      for (const target of reachableFiles(entrypoint, allEdgesBySource)) {
+        if (sourceOwners.get(target)?.id === restriction.targetPackage && !restriction.allowedModules.includes(target)) {
+          violations.push(violation("forbidden-reachable-module", entrypoint, `Document-only wiring reaches disallowed module ${target}`));
+        }
       }
     }
   }
