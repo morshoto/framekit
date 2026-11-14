@@ -765,3 +765,26 @@ test("semantic cache does not preserve analysis from a removed provider", async 
   assert.equal(result.speech, undefined);
   assert.equal(result.analysis.find((status) => status.capability === "speech")?.status, "unavailable");
 });
+
+test("semantic cache reuses unchanged source evidence after a timeline-only revision", async () => {
+  const fixture = semanticFixture();
+  const delegate = new FixtureSpeechAnalyzer();
+  let calls = 0;
+  const analyzer = {
+    descriptor: delegate.descriptor,
+    analyze: async (...args: Parameters<FixtureSpeechAnalyzer["analyze"]>) => {
+      calls += 1;
+      return delegate.analyze(...args);
+    },
+  };
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    speechAnalyzer: analyzer, semanticMediaIndexStore: new InMemorySemanticMediaIndexStore(),
+  });
+  const first = await runtime.understandMedia("media-semantic-1");
+  await runtime.edit({ type: "rename-clip", clipId: "clip-semantic-1", name: "Renamed" }, { assertions: [] });
+  const second = await runtime.understandMedia("media-semantic-1");
+  assert.equal(calls, 1, "a timeline-only edit must not discard verified source evidence");
+  assert.notEqual(second.analysisRevision.id, first.analysisRevision.id);
+  assert.deepEqual(second.speech?.revision, (await runtime.inspectProject()).revision);
+  assert.deepEqual(second.sourceIdentity, first.sourceIdentity);
+});

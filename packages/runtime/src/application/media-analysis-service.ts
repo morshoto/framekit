@@ -315,8 +315,14 @@ export class MediaAnalysisService {
   ): Promise<MediaUnderstanding | undefined> {
     const store = this.options.semanticMediaIndexStore;
     if (!store) return undefined;
+    // A path, media label, or timeline revision alone cannot prove unchanged bytes.
+    if (!media.sourceDigest?.trim()) return undefined;
     const cached = await store.load(sourceIdentityOf(media));
     if (!cached || !cacheMatchesAnalyzers(cached, this.options)) return undefined;
+    if (cached.speech && (!coversWholeSource(cached.speech.requestedRange, media.duration)
+      || !coversWholeSource(cached.speech.observedRange, media.duration))) return undefined;
+    if (cached.audio && (!coversWholeSource(cached.audio.requestedRange, media.duration)
+      || !coversWholeSource(cached.audio.measuredRange, media.duration))) return undefined;
     const rebound = structuredClone(cached);
     const sourceIdentity = sourceIdentityOf(media);
     rebound.sourceIdentity = sourceIdentity;
@@ -797,6 +803,11 @@ function indexEntryScore(entry: MediaIndexEntry): number {
     + (entry.semantic.transcript?.trim() ? 1 : 0);
 }
 
+function coversWholeSource(range: TimeRange | undefined, duration: number | undefined): boolean {
+  return duration !== undefined && Number.isFinite(duration) && duration > 0
+    && range !== undefined && range.start === 0 && range.end === duration;
+}
+
 function cacheMatchesAnalyzers(understanding: MediaUnderstanding, options: RuntimeOptions): boolean {
   const configured: Array<[MediaAnalysisCapability, { descriptor?: AnalyzerDescriptor } | undefined]> = [
     ["speech", options.speechAnalyzer],
@@ -806,8 +817,8 @@ function cacheMatchesAnalyzers(understanding: MediaUnderstanding, options: Runti
     ["metadata", options.metadataAnalyzer],
   ];
   return configured.every(([capability, analyzer]) => {
-    if (!analyzer) return true;
     const record = understanding.analysis.find((candidate) => candidate.capability === capability);
+    if (!analyzer) return record?.status !== "analyzed";
     return record?.status === "analyzed"
       && record.provenance?.analyzer !== undefined
       && sameDescriptor(record.provenance.analyzer, analyzer.descriptor ?? { id: `framekit.${capability}`, provider: "unknown" });
