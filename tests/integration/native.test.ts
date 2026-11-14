@@ -4315,3 +4315,18 @@ test("native Browser search rejects incomplete scans instead of reporting empty 
     assert.match(searchScript, /__FRAMEKIT_BROWSER_SCAN_INCOMPLETE__/);
   }
 });
+
+test("native Browser search marks unscanned descendants at its traversal limit", async () => {
+  let searchScript = "";
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      if (script.includes("set value of searchField to searchQuery")) { searchScript = script; return ""; }
+      return script.includes('set frontWindow to window "Final Cut Pro"') ? context(true, "Final Cut Pro", "", 0, true) : "";
+    },
+  });
+  assert.deepEqual(await adapter.searchMedia("missing"), []);
+  const traversal = searchScript.slice(searchScript.indexOf("on collectBrowserMedia("), searchScript.indexOf("end collectBrowserMedia"));
+  assert.match(traversal, /if depth > maxDepth then[\s\S]*count of (?:remaining|unscanned) (?:children|items)[\s\S]*__FRAMEKIT_BROWSER_SCAN_INCOMPLETE__/i);
+  assert.doesNotMatch(traversal, /if depth > maxDepth then return ""/);
+});
