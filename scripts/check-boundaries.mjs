@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { analyzeWorkspaceBoundaries, FRAMEKIT_BOUNDARY_POLICY, FRAMEKIT_PACKAGES } from "./boundary-policy.mjs";
 
-const rootDir = fileURLToPath(new URL("..", import.meta.url));
+const rootDir = fileURLToPath(new URL("../", import.meta.url));
 const { violations, edges } = await analyzeWorkspaceBoundaries({
   rootDir,
   packages: FRAMEKIT_PACKAGES,

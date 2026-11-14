@@ -156,7 +156,7 @@ async function runCommand(command, args, environment) {
       skipPolicy: manifest.tests.filter(entry => testFiles.includes(entry.path)).flatMap(entry =>
         (entry.expectedSkips ?? []).map(rule => ({ ...rule, file: entry.path }))),
       candidateSha: process.env.FRAMEKIT_HEADLESS_RELEASE_GATE_CANDIDATE_SHA,
-      selectedFiles: args.filter(argument => /\.test\.(?:ts|mjs)$/.test(argument)),
+      selectedFiles: testFiles,
     });
     args = [...reporters, ...args];
   }

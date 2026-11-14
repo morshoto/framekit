@@ -88,7 +88,8 @@ report schemas, provenance checks, and evidence eligibility remain intact.
 The reviewed migration map, suite baseline, and declared test identities are
 in `support/testing/relocations.json`. Regression tests check that previous
 suite members still execute exactly once and preserve their test identities,
-with explicit additions and the former headed-test alias recorded separately.
+with explicit additions, the former headed-test alias, and upstream contract
+replacements recorded separately.
 
 ## Adding or moving a test
 

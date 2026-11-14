@@ -3103,6 +3103,9 @@
       "\"rejects a split when a connected occurrence cannot be safely remapped\"",
       "\"rejects splitting an occurrence referenced by a story element\"",
       "\"rejects splitting an attached occurrence without remapping its parent\""
+    ],
+    "tests/integration/focused-runner.test.ts": [
+      "'selection reports do not count a name filter as a selected file'"
     ]
   },
   "identityDiscoveryCorrections": {
