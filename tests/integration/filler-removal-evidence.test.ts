@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { sanitizeFillerRemovalEvidence } from "../../scripts/final-cut-evidence.mjs";
 import { fillerNativeEvidence } from "../release-gate/filler-native-fixture.js";
 import { loadNativeEditingManifest, summarizeHeadedEvidence } from "../release-gate/native-editing.js";
+import { parseFillerApproval, previewApprovedFiller } from "../../scripts/final-cut-filler-review.mjs";
 
 const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -41,6 +42,50 @@ test("filler native gate rejects missing scenarios, source-only continuity and u
     const raw = fillerNativeEvidence(); mutate(raw);
     assert.throws(() => sanitizeFillerRemovalEvidence(raw, raw.environment), /filler/i);
     assert.throws(() => summarizeHeadedEvidence(raw, workflow), /filler/i);
+  }
+});
+
+function reviewFixture() {
+  const env = { FRAMEKIT_FINAL_CUT_E2E_ALLOW_MUTATION: "1", FRAMEKIT_FINAL_CUT_E2E_CANDIDATE_COMMIT: "a".repeat(40),
+    FRAMEKIT_FINAL_CUT_E2E_PROJECT: "Disposable", FRAMEKIT_FINAL_CUT_E2E_PROJECT_ID: "project", FRAMEKIT_FINAL_CUT_E2E_SEQUENCE_ID: "sequence",
+    FRAMEKIT_FINAL_CUT_E2E_REVISION_ID: "before", FRAMEKIT_FINAL_CUT_E2E_OCCURRENCE: "occurrence",
+    FRAMEKIT_FINAL_CUT_E2E_RANGE_START: "0", FRAMEKIT_FINAL_CUT_E2E_RANGE_END: "4",
+    FRAMEKIT_FINAL_CUT_E2E_APPROVED_CUTS: JSON.stringify([{ candidateId: "candidate", startFrame: 24, endFrame: 36 }]) };
+  const before = { projectId: "project", projectName: "Disposable", revision: { id: "before", sequence: 1, timestamp: "2026-11-15T00:00:00.000Z" },
+    timeline: { id: "sequence", duration: 4, frameDuration: { value: "1", timescale: "24" },
+      clips: [{ id: "occurrence", mediaId: "media", start: 0, duration: 4, sourceStart: 2 }] }, media: [{ mediaId: "media", source: "fixture.wav" }] };
+  const preview = { previewToken: "selected-token", expiresAt: "2099-01-01T00:00:00.000Z",
+    plan: { baseRevision: before.revision, operations: [{ type: "ripple-delete", timelineId: "sequence", candidateId: "candidate", range: { start: 1, end: 1.5 } }],
+      details: { candidates: [{ id: "candidate", occurrenceId: "occurrence", mediaId: "media" }],
+        candidateProvenance: [{ candidateId: "candidate", occurrenceId: "occurrence", operationIndex: 0, operationRange: { start: 1, end: 1.5 }, sourceDeleteRange: { start: 3, end: 3.5 } }] } } };
+  return { env, before, preview };
+}
+
+test("filler runner requires scoped approval and re-previews selected exact cuts", async () => {
+  const f = reviewFixture();
+  assert.throws(() => parseFillerApproval({ ...f.env, FRAMEKIT_FINAL_CUT_E2E_ALLOW_MUTATION: "0" }), /APPROVAL_REQUIRED/);
+  assert.throws(() => parseFillerApproval({ ...f.env, FRAMEKIT_FINAL_CUT_E2E_APPROVED_CUTS: "[]" }), /APPROVAL_REQUIRED/);
+  const calls: any[] = [];
+  const result = await previewApprovedFiller(async (name: string, args: any) => { calls.push({ name, args }); return structuredClone(f.preview); },
+    async () => structuredClone(f.before), f.before, parseFillerApproval(f.env));
+  assert.equal(result.previewToken, "selected-token");
+  assert.deepEqual(calls.map(call => call.name), ["skill.preview", "skill.preview"]);
+  assert.deepEqual(calls[1].args.arguments.selectedCandidateIds, ["candidate"]);
+});
+
+test("filler review rejects mutated preview, redirected occurrence or unapproved ranges", async () => {
+  for (const mode of ["mutation", "occurrence", "range", "source-range", "expired"]) {
+    const f = reviewFixture();
+    const preview = structuredClone(f.preview);
+    if (mode === "occurrence") preview.plan.details.candidateProvenance[0]!.occurrenceId = "duplicate";
+    if (mode === "range") preview.plan.operations[0]!.range.end = 2;
+    if (mode === "source-range") preview.plan.details.candidateProvenance[0]!.sourceDeleteRange.start = 0;
+    if (mode === "expired") preview.expiresAt = "2000-01-01T00:00:00.000Z";
+    await assert.rejects(previewApprovedFiller(async () => preview, async () => {
+      const current = structuredClone(f.before);
+      if (mode === "mutation") current.timeline.duration = 3;
+      return current;
+    }, f.before, parseFillerApproval(f.env)), /FILLER_REVIEW/, mode);
   }
 });
 
