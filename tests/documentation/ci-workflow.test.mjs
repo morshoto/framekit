@@ -77,3 +77,17 @@ test('Docs and package smoke retain failure diagnostics', () => {
   assert.match(consumer, /tee.*consumer-runtime.log/);
   assert.match(consumer, /if:.*always\(\)[\s\S]*actions\/upload-artifact@/);
 });
+
+test('Nix smoke validates the environment while required deterministic tests own coverage', () => {
+  const nix = job('nix-fixture');
+  for (const command of ['pnpm install --frozen-lockfile', 'pnpm run build', 'doctor dev --profile fixture', 'pnpm run smoke:fixture-mcp']) assert.ok(nix.includes(command), command);
+  assert.doesNotMatch(nix, /pnpm run test/);
+  assert.match(job('test'), /name: Unit \/ integration tests/);
+  assert.match(job('test'), /validation-level: deterministic/);
+});
+
+test('aggregate dependencies account for every validation job in this workflow', () => {
+  const actual = job('ci-passed').match(/needs: \[([^\]]+)\]/)[1].split(',').map(id => id.trim()).sort();
+  const expected = [...jobs.matchAll(/^  ([\w-]+):$/gm)].map(match => match[1]).filter(id => id !== 'ci-passed').sort();
+  assert.deepEqual(actual, expected);
+});

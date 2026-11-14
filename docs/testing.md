@@ -53,8 +53,9 @@ node scripts/ci/check-required-checks.mjs morshoto/framekit 20905528
 
 The audit exits nonzero until all required contexts and their GitHub Actions
 producer are enforced. Keep existing coverage until its required replacement
-has passed hosted CI. Nix's broad fixture test invocation can then be removed
-while retaining install, build, doctor, and MCP smoke.
+has passed hosted CI. The full deterministic replacement was verified before
+removing Nix's duplicate fixture suite; Nix retains install, build, doctor, and
+MCP smoke.
 
 Hosted Swift validation explicitly selects the `ci` profile in
 `nix/xcode-version.json`: Xcode 26.6 (17F113), macOS SDK 26.5. The default native

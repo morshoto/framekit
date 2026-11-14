@@ -181,7 +181,8 @@ test("CI exercises the Linux Nix fixture bootstrap and stdio smoke", async () =>
   assert.match(workflow, /Linux Nix fixture bootstrap/);
   assert.match(workflow, /nix develop \.\/nix/);
   assert.match(workflow, /doctor dev --profile fixture/);
-  assert.match(workflow, /pnpm run test:fixtures/);
+  assert.doesNotMatch(workflow, /pnpm run test:fixtures/);
+  assert.match(workflow, /validation-level: deterministic/);
   assert.match(workflow, /pnpm run smoke:fixture-mcp/);
   assert.equal(packageJson.scripts?.["smoke:fixture-mcp"], "node scripts/fixture-mcp-smoke.mjs");
   assert.match(nixReadme, /pnpm install --frozen-lockfile/);

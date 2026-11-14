@@ -151,9 +151,13 @@ jobs:
         run: |
           nix develop ./nix --command bash -c '
             set -euo pipefail
+            {
+              echo "## Nix bootstrap environment"
+              echo "Tested commit: $(git rev-parse HEAD)"
+              echo "Node: $(node --version); pnpm: $(pnpm --version)"
+            } >> "$GITHUB_STEP_SUMMARY"
             pnpm install --frozen-lockfile
             pnpm run build
-            pnpm run test:fixtures
             pnpm run framekit -- doctor dev --profile fixture --json
             pnpm run smoke:fixture-mcp
           '
