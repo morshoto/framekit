@@ -1,0 +1,691 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
+import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { validateReleaseContract } from '../../../scripts/validate-release-contract.mjs';
+
+const repository = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+const releaseConfigPath = resolve(repository, '.github/release.yml');
+
+test('release publication requires the headless artifact workflow suite', async () => {
+	const workflow = await readFile(resolve(repository, '.github/workflows/release.yml'), 'utf8');
+	const publish = workflow.slice(workflow.indexOf('publish-npm:'), workflow.indexOf('validate-codex-plugin:'));
+	const ffmpeg = publish.indexOf('Install FFmpeg fixture toolchain');
+	const headless = publish.indexOf('pnpm run test:headless');
+	const npmCheck = publish.indexOf('- id: npm-status');
+	assert.ok(ffmpeg >= 0 && headless > ffmpeg && npmCheck > headless);
+	assert.match(publish, /FRAMEKIT_TEST_MCP_ENTRYPOINT:.*dist-package\/apps\/mcp-server\/src\/main\.js/);
+});
+
+const expectedReleaseCategories = [
+	{ title: 'New Features', labels: ['Type: New Feature'] },
+	{ title: 'Bug Fixes', labels: ['Problem: Bug'] },
+	{ title: 'Documentation', labels: ['Type: Document'] },
+	{ title: 'Chores', labels: ['Type: Chore'] },
+	{ title: 'Other changes', labels: ['*'] },
+];
+
+type ReleaseCategory = {
+	title: string;
+	labels: string[];
+};
+
+function parseReleaseCategories(config: string): ReleaseCategory[] {
+	const categories: ReleaseCategory[] = [];
+	let currentCategory: ReleaseCategory | undefined;
+
+	for (const line of config.split(/\r?\n/)) {
+		const title = line.match(
+			/^\s*- title: (?:"([^"]+)"|'([^']+)'|(.+?))\s*$/,
+		);
+		if (title) {
+			currentCategory = {
+				title: title[1] ?? title[2] ?? title[3],
+				labels: [],
+			};
+			categories.push(currentCategory);
+			continue;
+		}
+
+		const label = line.match(/^\s*- (?:"([^"]+)"|'([^']+)'|(.+?))\s*$/);
+		if (label && currentCategory) {
+			currentCategory.labels.push(label[1] ?? label[2] ?? label[3]);
+		}
+	}
+
+	return categories;
+}
+
+function parseExcludedLabels(config: string): string[] {
+	const categoriesStart = config.search(/^\s*categories:\s*$/m);
+	const exclusions =
+		categoriesStart === -1 ? config : config.slice(0, categoriesStart);
+
+	return exclusions
+		.split(/\r?\n/)
+		.map((line) =>
+			line.match(/^\s*- (?:"([^"]+)"|'([^']+)'|(.+?))\s*$/),
+		)
+		.map((label) => label?.[1] ?? label?.[2] ?? label?.[3])
+		.filter((label): label is string => label !== undefined);
+}
+
+function categorizeRelease(
+	labels: string[],
+	categories: ReleaseCategory[],
+): string | undefined {
+	return categories.find(
+		(category) =>
+			category.labels.includes('*') ||
+			labels.some((label) => category.labels.includes(label)),
+	)?.title;
+}
+
+const canonicalManifest = {
+	name: '@morshoto/framekit',
+	version: '0.1.1',
+	private: false,
+	repository: {
+		type: 'git',
+		url: 'https://github.com/morshoto/framekit.git',
+	},
+	publishConfig: {
+		access: 'public',
+	},
+};
+
+test('release preflight accepts the canonical package and matching tag', () => {
+	assert.doesNotThrow(() =>
+		validateReleaseContract({
+			packageManifest: canonicalManifest,
+			releaseTag: 'v0.1.1',
+			githubRepository: 'morshoto/framekit',
+		}),
+	);
+});
+
+test('release preflight rejects a tag that differs from package version', () => {
+	assert.throws(
+		() =>
+			validateReleaseContract({
+				packageManifest: canonicalManifest,
+				releaseTag: 'v0.1.2',
+				githubRepository: 'morshoto/framekit',
+			}),
+		/version .* does not match release tag/i,
+	);
+});
+
+test('release preflight rejects a package repository mismatch', () => {
+	assert.throws(
+		() =>
+			validateReleaseContract({
+				packageManifest: {
+					...canonicalManifest,
+					repository: {
+						type: 'git',
+						url: 'https://github.com/example/other-repo.git',
+					},
+				},
+				releaseTag: 'v0.1.1',
+				githubRepository: 'morshoto/framekit',
+			}),
+		/repository .* does not match/i,
+	);
+});
+
+test('release preflight rejects a package that is not publicly publishable', () => {
+	assert.throws(
+		() =>
+			validateReleaseContract({
+				packageManifest: {
+					...canonicalManifest,
+					private: true,
+					publishConfig: { access: 'restricted' },
+				},
+				releaseTag: 'v0.1.1',
+				githubRepository: 'morshoto/framekit',
+			}),
+		/public/i,
+	);
+});
+
+test('release preflight rejects a package build fingerprint from another commit', () => {
+	assert.throws(
+		() => validateReleaseContract({
+			packageManifest: canonicalManifest,
+			releaseTag: 'v0.1.1',
+			githubRepository: 'morshoto/framekit',
+			packageBuildIdentity: { schemaVersion: 1, version: '0.1.1', commit: 'a'.repeat(40) },
+			candidateCommit: 'b'.repeat(40),
+		}),
+		/package build identity commit does not match the release tag commit/i,
+	);
+});
+
+test('release preflight rejects a dirty source checkout', () => {
+	assert.throws(
+		() => validateReleaseContract({
+			packageManifest: canonicalManifest,
+			releaseTag: 'v0.1.1',
+			githubRepository: 'morshoto/framekit',
+			sourceClean: false,
+		}),
+		/release checkout contains uncommitted changes/i,
+	);
+});
+
+test('release workflow validates the package before publishing', async () => {
+	const workflow = await readFile(
+		resolve(repository, '.github/workflows/release.yml'),
+		'utf8',
+	);
+	const validation = workflow.indexOf(
+		'node scripts/validate-release-contract.mjs',
+	);
+	const ffmpegFixtureToolchain = workflow.indexOf(
+		'name: Install FFmpeg fixture toolchain',
+	);
+	const releaseGate = workflow.indexOf(
+		'pnpm run release-gate --output-dir',
+	);
+	const publication = workflow.indexOf('npm publish');
+	const packageBuild = workflow.indexOf('pnpm run build:package');
+
+	assert.notEqual(validation, -1);
+	assert.notEqual(packageBuild, -1);
+	assert.notEqual(ffmpegFixtureToolchain, -1);
+	assert.ok(
+		ffmpegFixtureToolchain < releaseGate,
+		'release gate must install its FFmpeg fixture dependency first',
+	);
+	assert.match(
+		workflow,
+		/name: Install FFmpeg fixture toolchain[\s\S]*?sudo apt-get update && sudo apt-get install --no-install-recommends -y ffmpeg/,
+	);
+	assert.ok(
+		validation < publication,
+		'release validation must run before npm publish',
+	);
+	assert.ok(packageBuild < validation, 'the tagged package identity must be generated before release validation');
+	assert.match(workflow, /GITHUB_REPOSITORY: \$\{\{ github\.repository \}\}/);
+	assert.match(
+		workflow,
+		/release-tag: \$\{\{ steps\.requested-tag\.outputs\.tag \|\| steps\.existing-tag\.outputs\.tag \|\| steps\.run-tagpr\.outputs\.tag \}\}/,
+	);
+	const tagDetection = workflow.slice(
+		workflow.indexOf('name: Detect release tag on HEAD'),
+		workflow.indexOf('name: Run tagpr'),
+	);
+	assert.match(tagDetection, /git tag --points-at HEAD --list 'v\*'/);
+	assert.match(tagDetection, /mapfile -t tags/);
+	assert.match(tagDetection, /\$\{#tags\[@\]\} > 1/);
+	assert.match(tagDetection, /Multiple release tags point to HEAD/);
+	assert.doesNotMatch(tagDetection, /head -n 1/);
+	assert.match(workflow, /if: steps\.requested-tag\.outputs\.tag == ''/);
+	assert.match(
+		workflow,
+		/tagpr:[\s\S]*?actions\/checkout@(?:v7|[0-9a-f]{40}[ \t]+# v7)[\s\S]*?token: \$\{\{ secrets\.TAGPR_TOKEN \}\}[\s\S]*?persist-credentials: false/,
+	);
+	assert.match(
+		workflow,
+		/RELEASE_TAG: \$\{\{ needs\.tagpr\.outputs\.release-tag \}\}/,
+	);
+	assert.match(workflow, /releases\/\$\{release_id\}/);
+});
+
+test('published releases package native assets independently of npm publication', async () => {
+	const workflow = await readFile(
+		resolve(repository, '.github/workflows/release.yml'),
+		'utf8',
+	);
+	const verifier = await readFile(
+		resolve(repository, 'scripts/verify-release-provenance.ts'),
+		'utf8',
+	);
+	const gate = workflow.indexOf('pnpm run release-gate --output-dir');
+	const npmPublish = workflow.indexOf('npm publish --access public');
+	const githubRelease = workflow.indexOf('name: Publish GitHub release');
+	const cleanMcp = workflow.indexOf('name: Verify clean published Codex MCP installation');
+	const cleanEvidenceUpload = workflow.indexOf('name: Upload clean MCP release candidate evidence');
+
+	assert.notEqual(gate, -1);
+	assert.notEqual(npmPublish, -1);
+	assert.notEqual(githubRelease, -1);
+	assert.notEqual(cleanMcp, -1);
+	assert.notEqual(cleanEvidenceUpload, -1);
+	assert.ok(gate < npmPublish, 'release gate must run before npm publication');
+	assert.ok(npmPublish < cleanMcp && cleanMcp < githubRelease, 'clean published MCP validation must precede GitHub release');
+	assert.ok(githubRelease < cleanEvidenceUpload, 'clean MCP evidence must upload after the clean test has run');
+	assert.match(workflow, /FRAMEKIT_CLEAN_MCP_EVIDENCE_OUTPUT: artifacts\/release-candidate\/clean-mcp-clients\.json/);
+
+	assert.doesNotMatch(workflow, /release-runner-preflight:/);
+	assert.doesNotMatch(workflow, /actions\/runners\?per_page=100/);
+	assert.doesNotMatch(workflow, /node scripts\/check-release-runner\.mjs/);
+	assert.match(workflow, /release:\s*\n\s*types: \[published\]/);
+	assert.match(workflow, /repository_dispatch:\s*\n\s*types: \[framekit-native-release-published\]/);
+	assert.match(workflow, /name: Dispatch native release packaging/);
+	assert.match(workflow, /repos\/\$\{GITHUB_REPOSITORY\}\/dispatches/);
+	assert.match(workflow, /framekit-native-release-published/);
+	assert.match(workflow, /client_payload/);
+	assert.match(workflow, /dispatch-native-release:[\s\S]*?continue-on-error: true/);
+	assert.match(workflow, /package-native-assets:[\s\S]*?runs-on:\s*\[self-hosted, macOS, framekit-release\]/);
+	assert.match(workflow, /scripts\/package-final-cut-release\.sh/);
+	assert.match(workflow, /name: Upload native release assets/);
+	assert.match(workflow, /name: Verify downloaded native release installation/);
+	assert.match(workflow, /name: Verify complete release provenance/);
+	assert.match(workflow, /pnpm run verify-release-provenance/);
+	assert.match(workflow, /pnpm run test:codex-plugin/);
+	assert.match(
+		await readFile(resolve(repository, 'scripts/validate-release-contract.mjs'), 'utf8'),
+		/git", \["status", "--porcelain", "--untracked-files=all"\]/,
+	);
+	const publishJob = workflow.slice(workflow.indexOf('publish-npm:'), workflow.indexOf('validate-codex-plugin:'));
+	assert.match(
+		publishJob,
+		/publish-npm:[\s\S]*?needs:\s*\n\s+- tagpr\n\s+- validate-codex-plugin\n\s+- milestone-report/,
+	);
+	assert.doesNotMatch(publishJob, /validate-native-release|package-native-assets|verify-release-provenance/);
+
+	assert.match(
+		workflow,
+		/validate-native-release:[\s\S]*?github\.event_name == 'release'[\s\S]*?github\.event_name == 'repository_dispatch'/,
+	);
+	assert.match(workflow, /gh release upload "\$\{RELEASE_TAG\}"/);
+	assert.match(workflow, /--clobber/);
+	assert.match(workflow, /actions:\s*read/);
+	assert.match(workflow, /if: always\(\) && needs\.validate-native-release\.result == 'success'/);
+	assert.doesNotMatch(workflow, /NATIVE_RELEASE_PACKAGING_RESULT/);
+	assert.match(verifier, /"run", "list"/);
+	assert.match(verifier, /GITHUB_RUN_ID/);
+	assert.match(verifier, /Package signed native assets/);
+	assert.match(verifier, /clean-mcp-clients-\$\{releaseTag\}/);
+	assert.match(verifier, /checkedOutTagSha/);
+	assert.match(verifier, /FramekitBuildCommit/);
+	assert.match(verifier, /releaseCandidate: candidate/);
+	assert.match(verifier, /goNoGo: releaseReady \? "GO" : "NO_GO"/);
+});
+
+test('native release verifies the uploaded archive from a clean download before provenance', async () => {
+	const workflow = await readFile(
+		resolve(repository, '.github/workflows/release.yml'),
+		'utf8',
+	);
+	const upload = workflow.indexOf('name: Upload native release assets');
+	const cleanInstall = workflow.indexOf('name: Verify downloaded native release installation');
+	const provenance = workflow.indexOf('verify-release-provenance:');
+
+	assert.ok(upload >= 0 && cleanInstall > upload && provenance > cleanInstall);
+	const verification = workflow.slice(cleanInstall, provenance);
+	assert.match(verification, /gh release download "\$\{RELEASE_TAG\}"/);
+	assert.match(verification, /shasum -a 256 --check/);
+	assert.match(verification, /ditto -x -k/);
+	assert.match(verification, /codesign --verify --deep --strict/);
+	assert.match(verification, /FramekitBuildVersion/);
+	assert.match(verification, /FramekitBuildCommit/);
+	assert.match(verification, /git rev-parse "refs\/tags\/\$\{RELEASE_TAG\}\^\{commit\}"/);
+});
+
+test('native release checksum names the portable archive basename', async () => {
+	const packaging = await readFile(
+		resolve(repository, 'scripts/package-final-cut-release.sh'),
+		'utf8',
+	);
+	assert.match(packaging, /cd "\$output_dir"/);
+	assert.match(packaging, /shasum -a 256 "\$archive_name" > "\$archive_name\.sha256"/);
+	assert.doesNotMatch(packaging, /shasum -a 256 "\$output_dir\/\$archive_name"/);
+});
+
+test('native release is automatic and validates the published tag', async () => {
+	const workflow = await readFile(
+		resolve(repository, '.github/workflows/release.yml'),
+		'utf8',
+	);
+
+	assert.doesNotMatch(workflow, /release-runner-preflight:/);
+	assert.doesNotMatch(workflow, /actions\/runners\?per_page=100/);
+	assert.match(
+		workflow,
+		/concurrency:[\s\S]*?group: native-release-\$\{\{ github\.event_name == 'release' && github\.event\.release\.tag_name/,
+	);
+	assert.match(workflow, /name: Validate release tag/);
+	assert.match(workflow, /gh release view "\$\{RELEASE_TAG\}"/);
+	assert.match(
+		workflow,
+		/git merge-base --is-ancestor "refs\/tags\/\$\{RELEASE_TAG\}\^\{commit\}" origin\/main/,
+	);
+	assert.match(workflow, /gh api --method POST "repos\/\$\{GITHUB_REPOSITORY\}\/dispatches"/);
+	assert.match(workflow, /GH_TOKEN: \$\{\{ github\.token \}\}/);
+	assert.doesNotMatch(workflow, /native-release\.yml/);
+});
+
+test('release workflow can retry an exact existing tag', async () => {
+	const workflow = await readFile(
+		resolve(repository, '.github/workflows/release.yml'),
+		'utf8',
+	);
+
+	assert.match(
+		workflow,
+		/workflow_dispatch:[\s\S]*?release_tag:[\s\S]*?required: true[\s\S]*?type: string/,
+	);
+
+	const requestedTag = workflow.slice(
+		workflow.indexOf('name: Resolve requested release tag'),
+		workflow.indexOf('name: Detect release tag on HEAD'),
+	);
+	assert.match(
+		workflow,
+		/tagpr:[\s\S]*?concurrency:\s+group: release\s+cancel-in-progress: false/,
+	);
+	assert.match(workflow, /fetch-depth: 0/);
+	assert.match(
+		requestedTag,
+		/REQUESTED_TAG: \$\{\{ inputs\.release_tag \}\}/,
+	);
+	assert.match(requestedTag, /refs\/tags\/\$\{REQUESTED_TAG\}\^\{commit\}/);
+	assert.match(
+		requestedTag,
+		/git merge-base --is-ancestor "refs\/tags\/\$\{REQUESTED_TAG\}\^\{commit\}" origin\/main/,
+	);
+	assert.match(
+		requestedTag,
+		/Requested release tag is not reachable from main/,
+	);
+	assert.match(requestedTag, /tag=\$\{REQUESTED_TAG\}/);
+	assert.match(
+		workflow,
+		/if: steps\.requested-tag\.outputs\.tag == '' && steps\.existing-tag\.outputs\.tag == ''/,
+	);
+
+	const publishJob = workflow.slice(workflow.indexOf('publish-npm:'));
+	assert.match(
+		publishJob,
+		/name: Check out repository[\s\S]*?ref: \$\{\{ needs\.tagpr\.outputs\.release-tag \}\}/,
+	);
+});
+
+test('release retries do not republish an existing npm version', async () => {
+	const workflow = await readFile(
+		resolve(repository, '.github/workflows/release.yml'),
+		'utf8',
+	);
+	const statusCheck = workflow.indexOf('name: Check npm publication status');
+	const publication = workflow.indexOf('name: Publish npm package');
+	const verification = workflow.indexOf('name: Verify npm publication');
+
+	assert.notEqual(statusCheck, -1);
+	assert.ok(statusCheck < publication, 'npm status must be checked before publishing');
+	assert.ok(publication < verification, 'npm publication must precede verification');
+
+	const statusStep = workflow.slice(
+		workflow.lastIndexOf('- id: npm-status', statusCheck),
+		publication,
+	);
+	assert.match(statusStep, /id: npm-status/);
+	assert.match(
+		statusStep,
+		/npm view --prefer-online "\$\{package_name\}@\$\{expected_version\}" version/,
+	);
+	assert.match(statusStep, /E404\|404 Not Found/);
+	assert.match(statusStep, /published=true/);
+	assert.match(statusStep, /published=false/);
+
+	const publicationStep = workflow.slice(publication, verification);
+	assert.match(
+		publicationStep,
+		/if: steps\.npm-status\.outputs\.published != 'true'/,
+	);
+});
+
+test('release verification retries transient npm registry visibility', async () => {
+	const workflow = await readFile(
+		resolve(repository, '.github/workflows/release.yml'),
+		'utf8',
+	);
+	const statusCheck = workflow.slice(
+		workflow.indexOf('name: Check npm publication status'),
+		workflow.indexOf('name: Publish npm package'),
+	);
+	const verification = workflow.slice(
+		workflow.indexOf('name: Verify npm publication'),
+		workflow.indexOf('name: Publish GitHub release'),
+	);
+
+	assert.match(
+		statusCheck,
+		/npm view --prefer-online "\$\{package_name\}@\$\{expected_version\}" version/,
+	);
+	assert.match(verification, /max_attempts=17/);
+	assert.match(verification, /retry_delay_seconds=60/);
+	assert.match(
+		verification,
+		/for attempt in \$\(seq 1 "\$\{max_attempts\}"\)/,
+	);
+	assert.match(
+		verification,
+		/npm view --prefer-online "\$\{package_name\}@\$\{expected_version\}" version/,
+	);
+	assert.match(verification, /No match found for version/);
+	assert.match(verification, /sleep "\$\{retry_delay_seconds\}"/);
+});
+
+test('release verification allows npm validation time to complete', async () => {
+	const workflow = await readFile(
+		resolve(repository, '.github/workflows/release.yml'),
+		'utf8',
+	);
+	const verification = workflow.slice(
+		workflow.indexOf('name: Verify npm publication'),
+		workflow.indexOf('name: Publish GitHub release'),
+	);
+	const maxAttempts = Number(
+		verification.match(/max_attempts=(\d+)/)?.[1] ?? 0,
+	);
+	const retryDelaySeconds = Number(
+		verification.match(/retry_delay_seconds=(\d+)/)?.[1] ?? 0,
+	);
+
+	assert.ok(maxAttempts > 1, 'verification should retry after publication');
+	assert.ok(
+		(maxAttempts - 1) * retryDelaySeconds >= 16 * 60,
+		'verification should allow npm validation and a safety buffer',
+	);
+});
+
+test('release verification treats authenticated npm validation as pending', async () => {
+	const workflow = await readFile(
+		resolve(repository, '.github/workflows/release.yml'),
+		'utf8',
+	);
+	const verification = workflow.slice(
+		workflow.indexOf('name: Verify npm publication'),
+		workflow.indexOf('name: Publish GitHub release'),
+	);
+
+	assert.match(
+		verification,
+		/NPM_LIFECYCLE_TOKEN: \$\{\{ secrets\.NPM_LIFECYCLE_TOKEN \}\}/,
+	);
+	assert.match(
+		verification,
+		/version\/\$\{expected_version\}\/status/,
+	);
+	assert.match(
+		verification,
+		/--oauth2-bearer "\$\{NPM_LIFECYCLE_TOKEN\}"/,
+	);
+	assert.match(
+		verification,
+		/\[ "\$\{lifecycle_status\}" = "validating" \]/,
+	);
+	assert.match(verification, /continue/);
+});
+
+test('release lifecycle status requests have a bounded timeout', async () => {
+	const workflow = await readFile(
+		resolve(repository, '.github/workflows/release.yml'),
+		'utf8',
+	);
+	const verification = workflow.slice(
+		workflow.indexOf('name: Verify npm publication'),
+		workflow.indexOf('name: Publish GitHub release'),
+	);
+
+	assert.match(verification, /--max-time 15/);
+});
+
+test('release lifecycle status parsing falls back on malformed responses', async () => {
+	const workflow = await readFile(
+		resolve(repository, '.github/workflows/release.yml'),
+		'utf8',
+	);
+	const verification = workflow.slice(
+		workflow.indexOf('name: Verify npm publication'),
+		workflow.indexOf('name: Publish GitHub release'),
+	);
+
+	assert.match(verification, /if lifecycle_status="\$\(node -e/);
+	assert.match(verification, /try \{/);
+	assert.match(verification, /JSON\.parse\(process\.argv\[1\]\)/);
+	assert.match(verification, /catch \{/);
+	assert.match(verification, /lifecycle_status=""/);
+});
+
+test('release retries tolerate a duplicate npm publish after a visibility race', async () => {
+	const workflow = await readFile(
+		resolve(repository, '.github/workflows/release.yml'),
+		'utf8',
+	);
+	const publication = workflow.indexOf('name: Publish npm package');
+	const verification = workflow.indexOf('name: Verify npm publication');
+	const publicationStep = workflow.slice(publication, verification);
+
+	assert.match(publicationStep, /npm publish --access public/);
+	assert.match(
+		publicationStep,
+		/EPUBLISHCONFLICT|previously published versions/,
+	);
+	assert.match(publicationStep, /verification will confirm/i);
+	assert.match(publicationStep, /exit 0/);
+});
+
+test('release workflow validates the built MCP server version before publishing', async () => {
+	const workflow = await readFile(
+		resolve(repository, '.github/workflows/release.yml'),
+		'utf8',
+	);
+	const build = workflow.indexOf('pnpm run build:package');
+	const validation = workflow.indexOf(
+		'node scripts/validate-mcp-server-version.mjs',
+	);
+	const publication = workflow.indexOf('npm publish');
+
+	assert.notEqual(
+		build,
+		-1,
+		'release workflow must build the package before MCP validation',
+	);
+	assert.notEqual(
+		validation,
+		-1,
+		'release workflow must validate MCP server provenance',
+	);
+	assert.ok(build < validation, 'MCP validation must inspect the built package');
+	assert.ok(validation < publication, 'MCP validation must run before npm publish');
+
+	const documentation = await readFile(
+		resolve(repository, 'docs/release.md'),
+		'utf8',
+	);
+	assert.match(
+		documentation,
+		/node scripts\/validate-mcp-server-version\.mjs/,
+	);
+});
+
+test('release documentation provides the exact npm trust command', async () => {
+	const documentation = await readFile(
+		resolve(repository, 'docs/release.md'),
+		'utf8',
+	);
+	assert.match(documentation, /npm trust github @morshoto\/framekit/);
+	assert.match(documentation, /--repo\s+morshoto\/framekit/);
+	assert.match(documentation, /--file\s+release\.yml/);
+	assert.match(documentation, /--allow-publish/);
+	assert.match(documentation, /--yes/);
+});
+
+test('release documentation explains npm lifecycle verification fallback', async () => {
+	const documentation = await readFile(
+		resolve(repository, 'docs/release.md'),
+		'utf8',
+	);
+
+	assert.match(documentation, /NPM_LIFECYCLE_TOKEN/);
+	assert.match(documentation, /validating/i);
+	assert.match(documentation, /public registry/i);
+	assert.match(documentation, /16\s+minutes/i);
+});
+
+test('release documentation explains automatic native asset packaging', async () => {
+	const documentation = await readFile(
+		resolve(repository, 'docs/release.md'),
+		'utf8',
+	);
+
+	assert.match(documentation, /Native release assets/);
+	assert.match(documentation, /release\.published/);
+	assert.match(documentation, /repository_dispatch/);
+	assert.match(documentation, /self-hosted.*macOS.*framekit-release/s);
+	assert.match(documentation, /does not block/i);
+	assert.match(documentation, /rerun/i);
+	assert.match(documentation, /verify-release-provenance/);
+	assert.doesNotMatch(documentation, /Run `native-release\.yml`/);
+	assert.doesNotMatch(documentation, /RELEASE_RUNNER_UNAVAILABLE/);
+});
+
+test('release notes classify representative v0.1.7 changes by label', async () => {
+	const config = await readFile(releaseConfigPath, 'utf8');
+	const categories = parseReleaseCategories(config);
+
+	assert.deepEqual(categories, expectedReleaseCategories);
+
+	const representativeChanges = [
+		{
+			pullRequest: 220,
+			labels: ['Type: New Feature'],
+			category: 'New Features',
+		},
+		{
+			pullRequest: 228,
+			labels: ['Problem: Bug'],
+			category: 'Bug Fixes',
+		},
+		{
+			pullRequest: 226,
+			labels: ['Type: Document'],
+			category: 'Documentation',
+		},
+		{
+			pullRequest: 247,
+			labels: ['Type: Chore'],
+			category: 'Chores',
+		},
+	];
+
+	for (const change of representativeChanges) {
+		assert.equal(
+			categorizeRelease(change.labels, categories),
+			change.category,
+			`PR #${change.pullRequest} should use its label category`,
+		);
+	}
+});
+
+test('release notes continue excluding Tag PRs', async () => {
+	const config = await readFile(releaseConfigPath, 'utf8');
+
+	assert.deepEqual(parseExcludedLabels(config), ['tagpr']);
+});
