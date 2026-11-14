@@ -846,7 +846,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     selectionMode: "handle" | "selected";
     beforeDuration: RationalTime;
     insertionTime: RationalTime;
-    sequenceId?: string;
+    projectId: string;
+    sequenceId: string;
     revision: string;
     expiresAt: number;
   }>();
@@ -1207,6 +1208,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (operation.kind === "blade" && operation.undoDispatched) {
       throw new Error("FINAL_CUT_NATIVE_UNDO_OUTCOME_UNCERTAIN: Blade Undo may already have been dispatched; recovery is required");
     }
+    if (operation.kind === "media-insertion" && operation.undoDispatched) {
+      throw new Error("FINAL_CUT_NATIVE_UNDO_UNCERTAIN: placement Undo may already have been dispatched");
+    }
     const before = await this.requireTimelineContext();
     const currentLive = await this.readLiveState();
     if (operation.kind === "blade") {
@@ -1219,6 +1223,15 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
         || before.target.revision?.sequence !== currentLive?.revision.sequence
         || operation.afterLive.revision.sequence !== currentLive?.revision.sequence) {
         throw new Error("FINAL_CUT_NATIVE_UNDO_TARGET_CHANGED: Blade target or revision is unavailable or changed");
+      }
+    }
+    if (operation.kind === "media-insertion") {
+      const expectedProject = operation.beforeLive?.project?.id;
+      const expectedSequence = operation.beforeLive?.sequence?.id;
+      if (!expectedProject || !expectedSequence
+        || operation.afterLive?.project?.id !== expectedProject || operation.afterLive?.sequence?.id !== expectedSequence
+        || currentLive?.project?.id !== expectedProject || currentLive?.sequence?.id !== expectedSequence) {
+        throw new Error("FINAL_CUT_NATIVE_UNDO_TARGET_CHANGED: placement target is unavailable or changed");
       }
     }
     if (operation.afterLive && currentLive && operation.afterLive.revision.id !== currentLive.revision.id) {
@@ -1239,7 +1252,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       throw new Error("FINAL_CUT_NATIVE_UNDO_COMMAND_CHANGED: Final Cut's current Undo command does not match the native edit");
     }
     try {
-      if (operation.kind === "blade") {
+      if (operation.kind === "blade" || operation.kind === "media-insertion") {
+        // Once invocation begins, neither an error nor stale readback proves Undo did not run.
         operation.undoDispatched = true;
         await this.executeNativeScript(undoScript(operation.undoCommand));
       } else {
@@ -2726,6 +2740,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     const context = await this.requireTimelineContext();
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's timeline must be frontmost");
     const live = await this.requireLiveState();
+    if (!live.project?.id) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project identity is required for media insertion");
+    if (!live.sequence?.id) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut sequence identity is required for media insertion");
     const sequenceStart = live.sequenceTimeRange?.start ?? live.sequence?.startTime;
     const beforeDuration = live.sequenceTimeRange?.duration ?? live.sequence?.duration;
     if (!sequenceStart || !beforeDuration) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut sequence duration is unavailable");
@@ -2741,7 +2757,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       selectionMode,
       beforeDuration,
       insertionTime,
-      sequenceId: live.sequence?.id,
+      projectId: live.project.id,
+      sequenceId: live.sequence.id,
       revision: live.revision.id,
       expiresAt,
     });
@@ -2785,15 +2802,10 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       // currently has selected after another UI interaction.
       if (preview.selectionMode === "handle") await this.selectMediaNative(preview.mediaHandle);
       await this.focusTimelineForMediaInsertion();
-      await this.executeNativeCommand(mediaInsertionScript(preview.operation), async (recovered) => {
-        this.assertRetryContext(before, recovered, preview.operation === "insert");
-        if (preview.selectionMode === "handle") await this.selectMediaNative(preview.mediaHandle);
-        const refocused = await this.prepareNativeRetry();
-        this.assertRetryContext(before, refocused, preview.operation === "insert");
-        await this.focusTimelineForMediaInsertion();
-        this.validateMediaInsertionBinding(preview, await this.requireLiveState());
-        if (preview.selectionMode === "selected") await this.validateSelectedMediaBinding(media);
-      });
+      this.validateMediaInsertionBinding(preview, await this.requireLiveState());
+      // A transport or focus error can arrive after the shortcut was issued.
+      // Without a receiver completion receipt, retrying can duplicate the edit.
+      await this.executeNativeScript(mediaInsertionScript(preview.operation));
     } catch (error) {
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
@@ -3036,14 +3048,19 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   }
 
   private validateMediaInsertionBinding(
-    preview: { sequenceId?: string; revision: string; beforeDuration: RationalTime; insertionTime: RationalTime; operation: NativeFinalCutMediaInsertionOperation },
+    preview: { projectId: string; sequenceId: string; revision: string; beforeDuration: RationalTime; insertionTime: RationalTime; operation: NativeFinalCutMediaInsertionOperation },
     live: EditorLiveState,
   ): void {
-    if (preview.sequenceId && live.sequence?.id !== preview.sequenceId) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: active sequence changed");
+    if (live.project?.id !== preview.projectId) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: active project changed");
+    if (live.sequence?.id !== preview.sequenceId) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: active sequence changed");
     if (live.revision.id !== preview.revision) throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: playhead or timeline revision changed");
     const currentDuration = live.sequenceTimeRange?.duration ?? live.sequence?.duration;
     if (!currentDuration || compareRational(currentDuration, preview.beforeDuration) !== 0) {
       throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: sequence duration changed");
+    }
+    const currentStart = live.sequenceTimeRange?.start ?? live.sequence?.startTime;
+    if (preview.operation === "append" && (!currentStart || compareRational(addRational(currentStart, currentDuration), preview.insertionTime) !== 0)) {
+      throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: append insertion position changed");
     }
     if (preview.operation === "insert" && (!live.playheadTime || compareRational(live.playheadTime, preview.insertionTime) !== 0)) {
       throw new Error("FINAL_CUT_NATIVE_PREVIEW_STALE: playhead changed");
@@ -3715,6 +3732,13 @@ function verifyNativeUndo(
   after: NativeFinalCutContext,
   afterLive?: EditorLiveState,
 ): NativeFinalCutUndoResult["verification"] {
+  if (operation.kind === "media-insertion") {
+    const expectedProject = operation.beforeLive?.project?.id;
+    const expectedSequence = operation.beforeLive?.sequence?.id;
+    if (!expectedProject || !expectedSequence || afterLive?.project?.id !== expectedProject || afterLive?.sequence?.id !== expectedSequence) {
+      return { verified: false, detail: "project or sequence target changed during Undo" };
+    }
+  }
   const liveRevisionAdvanced = Boolean(
     operation.afterLive
       && afterLive
