@@ -192,7 +192,7 @@ test("relocations preserve declared test identities through the reviewed path ma
       }
     };
     visit(parse(source, { sourceType: 'module', plugins: ['typescript'] }));
-    assert.deepEqual(actual.sort(), [...expected, ...(baseline.addedTestNames?.[old] ?? [])].sort(), current);
+    assert.deepEqual(actual.sort(), [...expected.filter(name => !(baseline.removedTestNames?.[old] ?? []).includes(name)), ...(baseline.addedTestNames?.[old] ?? [])].sort(), current);
   }
 });
 

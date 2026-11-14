@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { readdir, readFile, rename, writeFile, mkdir } from "node:fs/promises";
+import { readdir, readFile, rename, writeFile, mkdir, link, unlink } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import {
   FramekitProjectStore,
@@ -20,6 +20,7 @@ import {
   type RoughCutPlan,
   type TimelineIrEditOperation,
   type TimelineIr,
+  type TimelineIrResource,
   timelineIrDigest,
 } from "@framekit/runtime";
 import {
@@ -52,6 +53,7 @@ export interface HeadlessProjectWorkflow {
     sourcePath: string,
     expectedRevision?: ContextRevision,
   ): Promise<LocalMediaRegistrationResult>;
+  searchMedia(projectId: string, query: string): Promise<{ revision: ContextRevision; media: TimelineIrResource[] }>;
   previewEdit(
     projectId: string,
     command: HeadlessProjectEditCommand,
@@ -271,12 +273,36 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     await mkdir(this.directory, { recursive: true });
     const entries = await readdir(this.directory, { withFileTypes: true });
     const summaries: HeadlessProjectSummary[] = [];
-    for (const entry of entries.filter((candidate) => candidate.isFile() && candidate.name.endsWith(".json") && !candidate.name.startsWith("render-"))) {
+    for (const entry of entries.filter((candidate) => candidate.isFile() && candidate.name.endsWith(".json"))) {
       const projectId = entry.name.slice(0, -".json".length);
+      if (await this.isInternalRecord(entry.name)) continue;
       const project = await this.store(projectId).load();
+      if (project.timeline.project.id !== projectId) {
+        throw new Error("HEADLESS_PROJECT_IDENTITY_MISMATCH: stored project ID differs from its filename");
+      }
       summaries.push(toSummary(project, this.projectPath(projectId)));
     }
     return summaries.sort((left, right) => left.projectId.localeCompare(right.projectId));
+  }
+
+  private async isInternalRecord(name: string): Promise<boolean> {
+    let value: unknown;
+    try {
+      value = JSON.parse(await readFile(join(this.directory, name), "utf8"));
+    } catch {
+      return false;
+    }
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    const record = value as Record<string, unknown>;
+    // A document-shaped file remains a project even when its ID resembles an
+    // internal record. Unknown or corrupt files still fail through the store.
+    if ("timeline" in record || "metadata" in record) return false;
+    const render = /^(render-[0-9a-f-]{36})\.json$/.exec(name);
+    if (render && record.renderId === render[1]) return true;
+    const execution = /^(rough-cut-[0-9a-f-]{36})\.json$/.exec(name);
+    if (execution && record.schemaVersion === 1 && record.executionId === execution[1]) return true;
+    const approval = /^([0-9a-f]{64})\.approval\.json$/.exec(name);
+    return Boolean(approval && record.schemaVersion === 1 && record.planDigest === approval[1]);
   }
 
   public async open(projectId: string): Promise<FramekitProjectDocument> {
@@ -296,6 +322,17 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
   public async registerMedia(projectId: string, sourcePath: string, expectedRevision?: ContextRevision) {
     if (!this.mediaProbe) throw new Error("HEADLESS_MEDIA_PROBE_UNAVAILABLE: no local media metadata probe is configured");
     return new LocalMediaRegistrar(this.store(projectId), this.mediaProbe, { clock: this.clock }).register(sourcePath, expectedRevision);
+  }
+
+  public async searchMedia(projectId: string, query: string): Promise<{ revision: ContextRevision; media: TimelineIrResource[] }> {
+    const project = await this.open(projectId);
+    const needle = query.toLowerCase();
+    return {
+      revision: structuredClone(project.timeline.revision),
+      media: project.timeline.resources.filter((resource) =>
+        [resource.id, resource.name, resource.source].some((value) => value?.toLowerCase().includes(needle)),
+      ).map((resource) => structuredClone(resource)),
+    };
   }
 
   public async previewEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string) {
@@ -412,26 +449,31 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     );
     const committed = await transaction.execute(prepared.command);
     const executionId = `rough-cut-${randomUUID()}`;
-    await this.saveRoughCutExecution({
-      schemaVersion: 1,
-      executionId,
-      approved: true,
-      projectId: request.projectId,
-      sequenceId: request.sequenceId,
-      sourceRevision: structuredClone(request.plan.revision),
-      canonicalRevision: structuredClone(committed.after.timeline.revision),
-      plan: structuredClone(request.plan),
-      operations: structuredClone(request.operations ?? []),
-      outputIntent: structuredClone(prepared.outputIntent),
-      planDigest: approval.planDigest,
-      inputDigest: prepared.inputDigest,
-      renderId,
-      artifactPath: resolve(fcpxmlArtifact.path),
-      artifactDigest: fcpxmlArtifact.digest,
-      artifactBytes: fcpxmlArtifact.bytes,
-      fcpxml: selectFcpxmlMetadata(fcpxml),
-      provenance: structuredClone(prepared.provenance),
-    });
+    try {
+      await this.saveRoughCutExecution({
+        schemaVersion: 1,
+        executionId,
+        approved: true,
+        projectId: request.projectId,
+        sequenceId: request.sequenceId,
+        sourceRevision: structuredClone(request.plan.revision),
+        canonicalRevision: structuredClone(committed.after.timeline.revision),
+        plan: structuredClone(request.plan),
+        operations: structuredClone(request.operations ?? []),
+        outputIntent: structuredClone(prepared.outputIntent),
+        planDigest: approval.planDigest,
+        inputDigest: prepared.inputDigest,
+        renderId,
+        artifactPath: resolve(fcpxmlArtifact.path),
+        artifactDigest: fcpxmlArtifact.digest,
+        artifactBytes: fcpxmlArtifact.bytes,
+        fcpxml: selectFcpxmlMetadata(fcpxml),
+        provenance: structuredClone(prepared.provenance),
+      });
+    } catch (error) {
+      const details = { projectId: request.projectId, sequenceId: request.sequenceId, executionId, committedRevision: committed.after.timeline.revision };
+      throw new Error(`HEADLESS_ROUGH_CUT_HISTORY_UNCONFIRMED: project already committed; no execution or publish proof was returned; reinspect project before retry: ${JSON.stringify(details)}`, { cause: error });
+    }
     return {
       ...preview,
       after: committed.after,
@@ -635,27 +677,21 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
   private async saveRender(record: HeadlessRenderRecord): Promise<void> {
     await mkdir(this.directory, { recursive: true });
     const path = join(this.directory, `${record.renderId}.json`);
-    const temporary = `${path}.${randomUUID()}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(record)}\n`, { encoding: "utf8", flag: "wx" });
-    await rename(temporary, path);
+    await publishHistory(path, `${JSON.stringify(record)}\n`);
   }
 
   private async saveRoughCutExecution(record: Omit<HeadlessRoughCutExecutionRecord, "evidenceDigest">): Promise<void> {
     await mkdir(this.directory, { recursive: true });
     const execution = { ...record, evidenceDigest: hash(stableJson(record)) };
     const path = this.executionPath(record.executionId);
-    const temporary = `${path}.${randomUUID()}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(execution)}\n`, { encoding: "utf8", flag: "wx" });
-    await rename(temporary, path);
+    await publishHistory(path, `${JSON.stringify(execution)}\n`);
   }
 
   private async saveRoughCutApproval(record: Omit<HeadlessRoughCutApprovalRecord, "evidenceDigest">): Promise<void> {
     await mkdir(this.directory, { recursive: true });
     const approval = { ...record, evidenceDigest: hash(stableJson(record)) };
     const path = this.approvalPath(record.planDigest);
-    const temporary = `${path}.${randomUUID()}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(approval)}\n`, { encoding: "utf8", flag: "wx" });
-    await rename(temporary, path);
+    await publishHistory(path, `${JSON.stringify(approval)}\n`, true);
   }
 
   private async readRoughCutApproval(planDigest: string): Promise<HeadlessRoughCutApprovalRecord> {
@@ -771,6 +807,25 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     };
     const fcpxml = compileTimelineIrToFcpxml(canonicalTimeline, { target: request.fcpxml.target });
     return { preview, fcpxml };
+  }
+}
+
+async function publishHistory(path: string, contents: string, allowIdentical = false): Promise<void> {
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, contents, { encoding: "utf8", flag: "wx" });
+    try {
+      // Linking a fully written file fails atomically if the destination exists.
+      await link(temporary, path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if (allowIdentical && await readFile(path, "utf8") === contents) return;
+      throw new Error("HEADLESS_HISTORY_COLLISION: history destination already exists", { cause: error });
+    }
+  } finally {
+    try { await unlink(temporary); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
   }
 }
 

@@ -3072,10 +3072,95 @@
     ],
     "tests/integration/final-cut-library-inspection.test.ts": [
       "\"read-only library inspection preserves frontmost application\""
+    ],
+    "packages/runtime/test/project-store.test.ts": [
+      "\"project creation cannot replace a record published after its absence check\"",
+      "\"a lock left by a dead process remains reserved after restart\"",
+      "\"an empty lock being initialized cannot be stolen by a concurrent writer\"",
+      "\"a failed lock initialization retains its reservation\"",
+      "\"a legacy writer removing an initializing lock can bypass upgraded writer exclusion\""
+    ],
+    "tests/integration/headless-project-mcp.test.ts": [
+      "\"headless media search returns both registered same-name sources through production MCP\"",
+      "\"headless project list includes valid project IDs that resemble render records\"",
+      "\"headless project list rejects a project whose stored ID differs from its filename\"",
+      "\"rough-cut history failure reports the committed revision without execution proof\"",
+      "\"render and rough-cut execution history cannot replace projects with matching IDs\""
+    ],
+    "tests/integration/project-status-sync.test.ts": [
+      "'PR creation starts progress; submitted review comments select review'",
+      "'only failed required CI, conflicts, or behind branches select Pending'",
+      "'issue references include Refs and closing links but exclude other repositories'",
+      "'missing reference targets are skipped without hiding real API failures'",
+      "'PR source paginates links/checks, uses current heads and test-merge results, and skips closed PRs'",
+      "'PR source fails before status writes if GitHub cannot return complete state'",
+      "'reconciliation uses current PR state, keeps closed issues Done, and combines related PRs'",
+      "'PR workflow reacts to lifecycle, review, CI and base changes without executing PR code'",
+      "'delayed PR label events cannot move an already closed issue out of Done'"
+    ],
+    "tests/integration/project-transactions.test.ts": [
+      "\"rejects splitting clips with fades before changing the project\"",
+      "\"rejects a split when a connected occurrence cannot be safely remapped\"",
+      "\"rejects splitting an occurrence referenced by a story element\"",
+      "\"rejects splitting an attached occurrence without remapping its parent\""
     ]
   },
   "identityDiscoveryCorrections": {
     "tests/integration/final-cut-library-inspection.test.ts": "Existing headedLibraryInspectionTest alias now uses an explicit test with a reason; same skipped test identity, ordinary runner forces opt-in off."
   },
-  "baselineNotes": "The pre-migration snapshot records the existing 184 TypeScript files and seven aggregate documentation files, plus the new focused-runner contract file introduced before relocation. Suite tags are preserved; golden/filler aliases add reviewed tags. Recorded at 37a92fa1 before the migration."
+  "baselineNotes": "The pre-migration snapshot records the existing 184 TypeScript files and seven aggregate documentation files, plus the new focused-runner contract file introduced before relocation. Suite tags are preserved; golden/filler aliases add reviewed tags. Recorded at 37a92fa1 before the migration.",
+  "removedTestNames": {
+    "packages/runtime/test/project-store.test.ts": [
+      "\"a stale lock left by a dead process is recovered after restart\""
+    ]
+  },
+  "upstreamReplacements": [
+    {
+      "pullRequest": 731,
+      "reason": "Main deliberately replaced unsafe stale-lock recovery with retained-reservation behavior. The replacement test and initialization/race cases are retained in the integration map."
+    }
+  ],
+  "upstreamIntegration": {
+    "commit": "5548e757c41aeb9178ed406f990c16c5d99e04f4",
+    "pullRequests": [
+      726,
+      730,
+      731,
+      734,
+      735
+    ],
+    "addedTestNames": {
+      "packages/runtime/test/project-store.test.ts": [
+        "\"project creation cannot replace a record published after its absence check\"",
+        "\"a lock left by a dead process remains reserved after restart\"",
+        "\"an empty lock being initialized cannot be stolen by a concurrent writer\"",
+        "\"a failed lock initialization retains its reservation\"",
+        "\"a legacy writer removing an initializing lock can bypass upgraded writer exclusion\""
+      ],
+      "tests/integration/headless-project-mcp.test.ts": [
+        "\"headless media search returns both registered same-name sources through production MCP\"",
+        "\"headless project list includes valid project IDs that resemble render records\"",
+        "\"headless project list rejects a project whose stored ID differs from its filename\"",
+        "\"rough-cut history failure reports the committed revision without execution proof\"",
+        "\"render and rough-cut execution history cannot replace projects with matching IDs\""
+      ],
+      "tests/integration/project-status-sync.test.ts": [
+        "'PR creation starts progress; submitted review comments select review'",
+        "'only failed required CI, conflicts, or behind branches select Pending'",
+        "'issue references include Refs and closing links but exclude other repositories'",
+        "'missing reference targets are skipped without hiding real API failures'",
+        "'PR source paginates links/checks, uses current heads and test-merge results, and skips closed PRs'",
+        "'PR source fails before status writes if GitHub cannot return complete state'",
+        "'reconciliation uses current PR state, keeps closed issues Done, and combines related PRs'",
+        "'PR workflow reacts to lifecycle, review, CI and base changes without executing PR code'",
+        "'delayed PR label events cannot move an already closed issue out of Done'"
+      ],
+      "tests/integration/project-transactions.test.ts": [
+        "\"rejects splitting clips with fades before changing the project\"",
+        "\"rejects a split when a connected occurrence cannot be safely remapped\"",
+        "\"rejects splitting an occurrence referenced by a story element\"",
+        "\"rejects splitting an attached occurrence without remapping its parent\""
+      ]
+    }
+  }
 }

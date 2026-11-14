@@ -18,6 +18,86 @@ import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer 
 
 const execFileAsync = promisify(execFile);
 
+test("headless media search returns both registered same-name sources through production MCP", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headless-media-search-"));
+  const here = dirname(fileURLToPath(import.meta.url));
+  const environment: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    FRAMEKIT_EDITOR: "final-cut-live",
+    FRAMEKIT_AUTO_CONNECT: "0",
+    FRAMEKIT_FINAL_CUT_HEADLESS: "1",
+    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
+    FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing-final-cut.sock"),
+    FRAMEKIT_STATE_DIR: join(directory, "state"),
+  };
+  let client: Client | undefined;
+  let transport: StdioClientTransport | undefined;
+  try {
+    const reservationPath = join(directory, "state", "canonical-recovery", "pending.json");
+    const reservation = JSON.stringify({ version: 2, kind: "native-operation", owner: "00000000-0000-4000-8000-000000000001", operation: "native.searchmedia" }) + "\n";
+    await mkdir(dirname(reservationPath), { recursive: true });
+    await writeFile(reservationPath, reservation);
+    const paths = [join(directory, "a", "same.mp4"), join(directory, "b", "same.mp4")];
+    await mkdir(dirname(paths[0]!), { recursive: true });
+    await mkdir(dirname(paths[1]!), { recursive: true });
+    await generateSegmentedSource(paths[0]!, [{ color: "red", duration: 1 }], 440);
+    await generateSegmentedSource(paths[1]!, [{ color: "blue", duration: 1 }], 660);
+    ({ client, transport } = await connectProductionClient(here, environment));
+    const created = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: emptyTimeline() } }));
+    const projectId = created.timeline.project.id;
+    const first = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: paths[0], expectedRevision: created.timeline.revision } }));
+    const second = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: paths[1], expectedRevision: first.project.timeline.revision } }));
+    const found = payload(await client.callTool({ name: "headless.media.search", arguments: { projectId, query: "same.mp4" } }));
+    assert.deepEqual(found.revision, second.project.timeline.revision);
+    assert.deepEqual(found.media.map((item: any) => item.id).sort(), [first.resource.id, second.resource.id].sort());
+    assert.deepEqual(found.media.map((item: any) => item.source).sort(), paths.sort());
+    const exact = payload(await client.callTool({ name: "headless.media.search", arguments: { projectId, query: first.resource.id } }));
+    assert.deepEqual(exact.media.map((item: any) => item.id), [first.resource.id]);
+    const absent = payload(await client.callTool({ name: "headless.media.search", arguments: { projectId, query: "not-present" } }));
+    assert.deepEqual(absent.media, []);
+    assert.equal(await readFile(reservationPath, "utf8"), reservation);
+  } finally {
+    await client?.close();
+    await transport?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("headless project list includes valid project IDs that resemble render records", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headless-project-list-"));
+  try {
+    const service = new HeadlessProjectService({ directory });
+    const ids = ["render-example", "render-00000000-0000-4000-8000-000000000001", "rough-cut-00000000-0000-4000-8000-000000000002", `${"a".repeat(64)}.approval`];
+    for (const id of ids) {
+      const timeline = emptyTimeline();
+      timeline.project.id = id;
+      await service.create(timeline);
+    }
+    assert.deepEqual((await service.list()).map((project) => project.projectId).sort(), ids.sort());
+    await writeFile(join(directory, "corrupt.json"), "not-json");
+    await assert.rejects(service.list(), /PROJECT_CORRUPT/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("headless project list rejects a project whose stored ID differs from its filename", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headless-project-id-"));
+  try {
+    const service = new HeadlessProjectService({ directory });
+    const timeline = emptyTimeline();
+    timeline.project.id = "actual";
+    await service.create(timeline);
+    const original = await readFile(join(directory, "actual.json"), "utf8");
+    await writeFile(join(directory, "different.json"), original);
+    await assert.rejects(service.list(), /PROJECT.*(IDENTITY|MISMATCH|CORRUPT)/);
+    assert.equal(await readFile(join(directory, "actual.json"), "utf8"), original);
+    assert.equal(await readFile(join(directory, "different.json"), "utf8"), original);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("production rough-cut tools expose digest-bound edit operations", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-rough-cut-operations-"));
   const here = dirname(fileURLToPath(import.meta.url));
@@ -167,6 +247,8 @@ test("headless project media can be understood and planned without a Final Cut c
     assert.equal(executed.committed, true);
     assert.deepEqual(executed.render.outcome.render.projectRevision, executed.after.timeline.revision);
     assert.deepEqual(executed.fcpxml.provenance.revision, executed.after.timeline.revision);
+    const projects = payload(await client.callTool({ name: "headless.project.list", arguments: {} }));
+    assert.ok(projects.some((project: any) => project.projectId === projectId));
   } finally {
     await client?.close();
     await transport?.close();
@@ -592,6 +674,7 @@ test("headless rough-cut preview and execution preserve provenance and produce v
       mediaProbe: new FfmpegMediaMetadataProbe(),
       renderer: new FfmpegTimelineRenderer(),
       verifier: new FfmpegRenderVerifier(),
+      clock: () => "2026-10-05T00:00:00.000Z",
     });
     const created = await service.create(emptyTimeline());
     const registered = await service.registerMedia(created.timeline.project.id, join(directory, "fixture-red-440hz.mp4"), created.timeline.revision);
@@ -639,6 +722,17 @@ test("headless rough-cut preview and execution preserve provenance and produce v
       },
     };
     const preview = await service.previewRoughCut(request);
+    const collisionId = `${preview.planDigest}.approval`;
+    const collisionPath = join(directory, "projects", `${collisionId}.json`);
+    await rm(collisionPath);
+    const collisionTimeline = emptyTimeline();
+    collisionTimeline.project.id = collisionId;
+    const collision = await service.create(collisionTimeline);
+    await assert.rejects(service.previewRoughCut(request), /COLLISION|EXISTS/i);
+    assert.deepEqual(await service.open(collisionId), collision);
+    await rm(collisionPath);
+    assert.equal((await service.previewRoughCut(request)).planDigest, preview.planDigest);
+    assert.equal((await service.previewRoughCut(request)).planDigest, preview.planDigest);
     assert.equal(preview.before.timeline.sequence.occurrences.length, 0);
     assert.deepEqual(preview.after.timeline.sequence.occurrences[0]?.sourceStartTime, { value: "4", timescale: "15" });
     assert.equal(preview.after.timeline.sequence.occurrences[0]?.durationTime.value, "1");
@@ -701,6 +795,63 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     );
     assert.equal(await readFile(request.fcpxml.path, "utf8"), "tampered FCPXML");
     assert.equal((await service.open(created.timeline.project.id)).timeline.revision.sequence, registered.project.timeline.revision.sequence + 1);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("rough-cut history failure reports the committed revision without execution proof", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-rough-cut-history-failure-"));
+  try {
+    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], { cwd: process.cwd(), env: process.env });
+    const projects = join(directory, "projects");
+    const service = new HeadlessProjectService({ directory: projects, mediaProbe: new FfmpegMediaMetadataProbe(), renderer: new FfmpegTimelineRenderer(), verifier: new FfmpegRenderVerifier() });
+    const created = await service.create(emptyTimeline());
+    const registered = await service.registerMedia(created.timeline.project.id, join(directory, "fixture-red-440hz.mp4"), created.timeline.revision);
+    const source = registered.resource;
+    const request = {
+      projectId: created.timeline.project.id, sequenceId: created.timeline.sequence.id,
+      plan: { planner: { id: "framekit.rough-cut", version: 1 }, revision: registered.project.timeline.revision, query: { query: "speech" }, shots: [{ order: 1, sourceIdentity: { mediaId: source.id, source: source.source!, sourceDigest: source.sourceDigest!, mediaKind: "video" as const, duration: 2 }, range: { start: 0.25, end: 1.25 }, confidence: 0.9, matchedProperties: ["query:speech"], rationale: "selected" }], warnings: [] },
+      render: { outputPath: join(directory, "rough-cut.mp4"), format: "mp4" as const, width: 320, height: 180, frameRate: { value: "30", timescale: "1" } },
+      fcpxml: { path: join(directory, "rough-cut.fcpxml"), target: { provider: "final-cut" as const, libraryUid: "library", eventUid: "event", projectUid: "project", sequenceUid: "sequence" } },
+    };
+    const preview = await service.previewRoughCut(request);
+    (service as any).saveRoughCutExecution = async () => { throw new Error("injected history failure"); };
+    let message = "";
+    await assert.rejects(service.executeRoughCut({ ...request, approved: true, planDigest: preview.planDigest }), (error: unknown) => {
+      message = String(error);
+      return /HEADLESS_ROUGH_CUT_HISTORY_UNCONFIRMED/.test(message);
+    });
+    assert.match(message, /reinspect.*before retry/i);
+    assert.match(message, /no execution.*publish proof/i);
+    const details = JSON.parse(message.slice(message.indexOf("{")));
+    assert.equal(details.projectId, request.projectId);
+    assert.equal(details.sequenceId, request.sequenceId);
+    assert.match(details.executionId, /^rough-cut-/);
+    const reopened = await new HeadlessProjectService({ directory: projects, mediaProbe: new FfmpegMediaMetadataProbe() }).open(request.projectId);
+    assert.deepEqual(details.committedRevision, reopened.timeline.revision);
+    assert.equal(reopened.timeline.revision.sequence, registered.project.timeline.revision.sequence + 1);
+    await assert.rejects(service.verifyPublishableRoughCut(details.executionId, request.fcpxml.path), /HEADLESS_ROUGH_CUT_EXECUTION_NOT_FOUND/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("render and rough-cut execution history cannot replace projects with matching IDs", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-history-collision-"));
+  try {
+    const service = new HeadlessProjectService({ directory });
+    const cases = [
+      { id: "render-00000000-0000-4000-8000-000000000001", method: "saveRender", field: "renderId" },
+      { id: "rough-cut-00000000-0000-4000-8000-000000000002", method: "saveRoughCutExecution", field: "executionId" },
+    ];
+    for (const { id, method, field } of cases) {
+      const timeline = emptyTimeline();
+      timeline.project.id = id;
+      const original = await service.create(timeline);
+      await assert.rejects((service as any)[method]({ [field]: id }), /COLLISION|EXISTS/i);
+      assert.deepEqual(await service.open(id), original);
+    }
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

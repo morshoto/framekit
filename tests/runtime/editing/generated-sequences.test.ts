@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { link, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
@@ -43,6 +43,7 @@ for (const seed of seeds) test(`seed ${seed}: generated transactions preserve pe
   const fs: ProjectStoreFileSystem = {
     mkdir: async (p, options) => { await mkdir(p, options); }, readFile,
     writeFile: async (p, data, options) => { if (fault === 'write' && p.endsWith('.tmp')) throw Error('injected write'); await writeFile(p, data, options); },
+    link,
     rename: async (a, b) => { if (fault === 'rename') throw Error('injected rename'); await rename(a, b); },
     unlink: async p => { await rm(p, { force: true }); },
   };
