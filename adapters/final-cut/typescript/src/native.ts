@@ -3672,6 +3672,13 @@ function verifyNativeUndo(
   after: NativeFinalCutContext,
   afterLive?: EditorLiveState,
 ): NativeFinalCutUndoResult["verification"] {
+  if (operation.kind === "media-insertion") {
+    const expectedProject = operation.beforeLive?.project?.id;
+    const expectedSequence = operation.beforeLive?.sequence?.id;
+    if (!expectedProject || !expectedSequence || afterLive?.project?.id !== expectedProject || afterLive?.sequence?.id !== expectedSequence) {
+      return { verified: false, detail: "project or sequence target changed during Undo" };
+    }
+  }
   const liveRevisionAdvanced = Boolean(
     operation.afterLive
       && afterLive
