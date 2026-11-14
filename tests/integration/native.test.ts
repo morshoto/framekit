@@ -2651,9 +2651,10 @@ test("native Final Cut selected-media append fails closed without AX identity or
   await assert.rejects(changedSelection.executeAppendSelectedMedia(preview.previewToken), /FINAL_CUT_NATIVE_MEDIA_SELECTION_CHANGED/);
 });
 
-test("native append duration and revision do not verify placement or Undo", async () => {
+test("native append Undo cannot verify same-duration wrong content", async () => {
   let revision = 1;
   let duration = "10";
+  let actualSources = ["original-source"];
   const scripts: string[] = [];
   const liveState = async () => ({
     project: { id: "project-1", name: "Edit" },
@@ -2676,10 +2677,12 @@ test("native append duration and revision do not verify placement or Undo", asyn
       if (script.includes("keystroke \"e\"")) {
         duration = "15";
         revision = 2;
+        actualSources = ["original-source", "appended-source"];
       }
       if (script.includes('click menu item "Undo Append"')) {
         duration = "10";
         revision = 3;
+        actualSources = ["different-source"];
       }
       if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${String.fromCharCode(30)}`;
       return script.includes("timelineWindowAvailable") || script.includes('set frontWindow to window "Final Cut Pro"')
@@ -2709,6 +2712,7 @@ test("native append duration and revision do not verify placement or Undo", asyn
   await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_VERIFICATION_FAILED.*canonical/);
   await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_UNCERTAIN/);
   assert.deepEqual((await liveState()).sequence?.duration, { value: "10", timescale: "1" });
+  assert.deepEqual(actualSources, ["different-source"]);
   assert.equal(scripts.some((script) => script.includes('click menu item "Undo Append" of menu "Edit"')), true);
 });
 
