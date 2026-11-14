@@ -96,6 +96,9 @@ test("publish readback compares explicit source bounds and rejects lost evidence
   const changed = structuredClone(actual);
   changed.media[0]!.sourceRange!.start.value = "22";
   assert.throws(() => verifyFinalCutPublishReadback(expected, changed), /FINAL_CUT_PUBLISH_SEMANTIC_MISMATCH:.*source-media-bindings/);
+  const invalid = structuredClone(actual);
+  invalid.media[0]!.sourceRange!.duration.value = "-1";
+  assert.throws(() => verifyFinalCutPublishReadback(invalid, invalid), /FINAL_CUT_PUBLISH_READBACK_INVALID.*source range/i);
 });
 
 test("native publish readback binds same-named sources by verified content", () => {
