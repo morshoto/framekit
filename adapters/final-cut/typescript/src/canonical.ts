@@ -719,6 +719,7 @@ export function createFinalCutNativeTargetResolver(
       throw new Error(`TARGET_MISMATCH: independently observed Browser source does not match the canonical source for ${clip.id}`);
     }
 
+    const relatedClips = [clip];
     for (const other of snapshot.timeline.clips) {
       if (other.id === clip.id) continue;
       const otherMedia = snapshot.media.find(({ mediaId }) => mediaId === other.mediaId);
@@ -726,6 +727,8 @@ export function createFinalCutNativeTargetResolver(
       // Discovery is source-scoped. Different resources can still alias one source.
       // Unknown source identity cannot prove that another occurrence is unrelated.
       if (other.mediaId !== clip.mediaId && otherSource && otherSource !== expectedSource) continue;
+      if (!otherSource) throw new Error("AMBIGUOUS_PROJECT_TARGET: timeline occurrence source is incomplete");
+      relatedClips.push(other);
       if (!other.startTime || !other.durationTime) {
         throw new Error("AMBIGUOUS_PROJECT_TARGET: timeline occurrence coordinates are incomplete");
       }
@@ -789,6 +792,11 @@ export function createFinalCutNativeTargetResolver(
         && compareRational(start, addRational(clip.startTime, clip.durationTime)) < 0) {
         throw new Error(`AMBIGUOUS_PROJECT_TARGET: discovered timeline occurrences overlap for ${clip.id}`);
       }
+    }
+    if (located.occurrences.length !== relatedClips.length || relatedClips.some((related) =>
+      located.occurrences.filter((candidate) =>
+        sameRationalText(candidate.start!, related.startTime!) && sameRationalText(candidate.duration!, related.durationTime!)).length !== 1)) {
+      throw new Error("AMBIGUOUS_PROJECT_TARGET: native occurrence discovery is incomplete or inconsistent with the snapshot");
     }
     const occurrenceIdentity = occurrence.identity ?? occurrence.nativeIdentity;
     if (!occurrenceIdentity) {

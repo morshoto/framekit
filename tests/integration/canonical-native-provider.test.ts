@@ -1756,6 +1756,12 @@ test("canonical target resolver selects the coordinate-matching occurrence from 
     startTime: { value: "96", timescale: "24" },
   };
 
+  targetSnapshot.timeline.clips.push({
+    ...targetSnapshot.timeline.clips[0]!,
+    id: "earlier-occurrence",
+    start: 0,
+    startTime: { value: "0", timescale: "24" },
+  });
   const resolver = createFinalCutNativeTargetResolver(native);
   await resolver(targetSnapshot.timeline.clips[0]!, targetSnapshot);
   assert.deepEqual(selected, ["occurrence-target"]);
@@ -3251,7 +3257,10 @@ test("canonical resolver permits adjacent repeated source occurrences", async ()
   const selected: string[] = [];
   const native = {
     searchMedia: async () => [{ handle: "media", name: "clip.mov", sourceIdentity: "source", source: "/tmp/clip.mov" }],
-    locateOccurrence: async () => ({ status: "unique" as const, occurrences: [{ handle: "occ", mediaHandle: "media", name: "Original", identity: "item", sourceIdentity: "source", start: "0/24", duration: "96/24", sequenceId: project.timeline.id }] }),
+    locateOccurrence: async () => ({ status: "ambiguous" as const, occurrences: [
+      { handle: "occ", mediaHandle: "media", name: "Original", identity: "item", sourceIdentity: "source", start: "0/24", duration: "96/24", sequenceId: project.timeline.id },
+      { handle: "occ-2", mediaHandle: "media", name: "Original", identity: "item-2", sourceIdentity: "source", start: "96/24", duration: "96/24", sequenceId: project.timeline.id },
+    ] }),
     selectOccurrence: async (handle: string) => { selected.push(handle); return { target: { kind: "selected-clip", identity: "item" } } as never; },
   };
   await createFinalCutNativeTargetResolver(native)(target, project);
@@ -3330,4 +3339,21 @@ test("canonical resolver rejects a partial scan of repeated source occurrences",
   };
   await assert.rejects(createFinalCutNativeTargetResolver(native)(target, project), /AMBIGUOUS_PROJECT_TARGET.*(incomplete|partial)/i);
   assert.equal(selected, false);
+});
+
+test("canonical resolver rejects unexpected or displaced repeated native occurrences", async () => {
+  for (const mode of ["extra", "displaced"] as const) {
+    const project = snapshot("Original");
+    const target = project.timeline.clips[0]!;
+    if (mode === "displaced") project.timeline.clips.push({ ...target, id: "second", startTime: { value: "96", timescale: "24" }, durationTime: { value: "48", timescale: "24" } });
+    let selected = false;
+    const candidate = { handle: "occ", mediaHandle: "media", name: "Original", identity: "item", sourceIdentity: "source", start: "0/24", duration: "96/24", sequenceId: project.timeline.id };
+    const native = {
+      searchMedia: async () => [{ handle: "media", name: "clip.mov", sourceIdentity: "source", source: "/tmp/clip.mov" }],
+      locateOccurrence: async () => ({ status: "ambiguous" as const, occurrences: [candidate, { ...candidate, handle: "other", identity: "other", start: "144/24", duration: "48/24" }] }),
+      selectOccurrence: async () => { selected = true; return { target: { kind: "selected-clip", identity: "item" } } as never; },
+    };
+    await assert.rejects(createFinalCutNativeTargetResolver(native)(target, project), /AMBIGUOUS_PROJECT_TARGET.*(incomplete|inconsistent)/i, mode);
+    assert.equal(selected, false, mode);
+  }
 });
