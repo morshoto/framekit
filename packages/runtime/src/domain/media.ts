@@ -415,12 +415,16 @@ export interface AnalysisInput {
 
 export interface SpeechAnalyzer {
   analyze(input: AnalysisInput, range?: TimeRange): Promise<SpeechAnalysis>;
+  /** Revalidate physical source content before reusing persisted evidence. */
+  validateSource?(input: AnalysisInput): Promise<void>;
   readonly descriptor?: AnalyzerDescriptor;
   readonly capabilities?: SpeechAnalyzerCapabilities;
 }
 
 export interface AudioAnalyzer {
   analyze(input: AnalysisInput, range?: TimeRange): Promise<AudioAnalysis>;
+  /** Revalidate physical source content before reusing persisted evidence. */
+  validateSource?(input: AnalysisInput): Promise<void>;
   readonly descriptor?: AnalyzerDescriptor;
 }
 

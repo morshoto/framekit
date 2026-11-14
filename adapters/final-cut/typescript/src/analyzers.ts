@@ -76,6 +76,10 @@ export class CommandSpeechAnalyzer implements SpeechAnalyzer {
     this.capabilities = { transcription: true, vad: options.requireVad === true };
   }
 
+  public async validateSource(input: AnalysisInput): Promise<void> {
+    await verifyAnalyzerSource(input.media, "speech");
+  }
+
   public async analyze(input: AnalysisInput, range?: TimeRange): Promise<SpeechAnalysis> {
     const result = await runCommand<unknown>(this.options, { ...input, range }, "speech");
     try {
@@ -99,6 +103,10 @@ export class CommandAudioAnalyzer implements AudioAnalyzer {
   public constructor(private readonly options: CommandAnalyzerOptions) {
     this.options = captureCommandOptions(options);
     this.descriptor = commandDescriptor(this.options, "audio");
+  }
+
+  public async validateSource(input: AnalysisInput): Promise<void> {
+    await verifyAnalyzerSource(input.media, "audio");
   }
 
   public async analyze(input: AnalysisInput, range?: TimeRange): Promise<AudioAnalysis> {
@@ -156,17 +164,7 @@ function withCommandProvenance<T>(value: T, descriptor: AnalyzerDescriptor): T {
 
 async function runCommand<T>(options: CommandAnalyzerOptions, request: AnalyzerRequest, kind: string): Promise<T> {
   const source = request.media.source;
-  try {
-    await access(source);
-  } catch {
-    throw new Error(`ANALYZER_MEDIA_UNAVAILABLE: ${kind} source is not readable: ${source}`);
-  }
-
-  const initialDigest = await digestAnalyzerSource(source, kind);
-  const expectedDigest = request.media.sourceDigest?.replace(/^sha256:/, "");
-  if (expectedDigest !== undefined && expectedDigest !== initialDigest) {
-    throw new Error(`ANALYZER_SOURCE_CHANGED: ${kind} source bytes do not match the requested source digest`);
-  }
+  const initialDigest = await verifyAnalyzerSource(request.media, kind);
 
   const timeoutMs = options.timeoutMs ?? 120_000;
   const child = spawn(options.command, [], { stdio: ["pipe", "pipe", "pipe"], env: options.environment });
@@ -214,6 +212,20 @@ async function runCommand<T>(options: CommandAnalyzerOptions, request: AnalyzerR
     throw new Error(`ANALYZER_SOURCE_CHANGED: ${kind} source bytes changed while analysis was running`);
   }
   return result;
+}
+
+async function verifyAnalyzerSource(media: AnalysisInput["media"], kind: string): Promise<string> {
+  try {
+    await access(media.source);
+  } catch {
+    throw new Error(`ANALYZER_MEDIA_UNAVAILABLE: ${kind} source is not readable: ${media.source}`);
+  }
+  const digest = await digestAnalyzerSource(media.source, kind);
+  const expectedDigest = media.sourceDigest?.replace(/^sha256:/, "");
+  if (expectedDigest !== undefined && expectedDigest !== digest) {
+    throw new Error(`ANALYZER_SOURCE_CHANGED: ${kind} source bytes do not match the requested source digest`);
+  }
+  return digest;
 }
 
 async function digestAnalyzerSource(source: string, kind: string): Promise<string> {

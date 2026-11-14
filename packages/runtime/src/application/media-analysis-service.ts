@@ -226,8 +226,8 @@ export class MediaAnalysisService {
 
   public async indexMedia(query: MediaIndexQuery = {}): Promise<MediaIndexEntry[]> {
     const project = await this.project.inspectProject();
-    const current = this.indexFromProject(project, query);
-    const persisted = await this.persistedIndexEntries(query);
+    const current = await this.indexFromProject(project, query);
+    const persisted = await this.persistedIndexEntries(query, project);
     return mergeIndexEntries(persisted, current);
   }
 
@@ -238,8 +238,8 @@ export class MediaAnalysisService {
 
   public async planRoughCutInProject(request: RoughCutPlanRequest, project: ProjectSnapshot): Promise<RoughCutPlan> {
     const { maxShots: _maxShots, ...query } = request;
-    const current = this.indexFromProject(project, query);
-    const persisted = await this.persistedIndexEntries(query);
+    const current = await this.indexFromProject(project, query);
+    const persisted = await this.persistedIndexEntries(query, project);
     const projectMedia = project.media.map(sourceIdentityOf);
     const matchingPersisted = persisted.filter((entry) => projectMedia.some((source) =>
       sameMediaSourceIdentity(source, entry.sourceIdentity)));
@@ -294,8 +294,19 @@ export class MediaAnalysisService {
     }
 
     const sourceIdentity = sourceIdentityOf(media);
-    const understanding = await this.options.semanticMediaIndexStore?.load(sourceIdentity)
-      ?? understandingFromMediaContext(media, project.revision);
+    try {
+      await this.validateCurrentSource(project, media);
+    } catch (error) {
+      return unavailableTimelineOccurrence(clip.id, String(error), clip.mediaId, sourceRange, sourceIdentity);
+    }
+    const persisted = media.sourceDigest?.trim()
+      ? await this.options.semanticMediaIndexStore?.load(sourceIdentity) : undefined;
+    if (persisted && (!analyzedProvidersMatch(persisted, this.options)
+      || (persisted.audio && persisted.audio.signalScope !== "source"))) {
+      return unavailableTimelineOccurrence(clip.id, "cached analyzer provenance is incompatible with current source analysis",
+        clip.mediaId, sourceRange, sourceIdentity);
+    }
+    const understanding = persisted ?? understandingFromMediaContext(media, project.revision);
     if (!understanding) {
       return unavailableTimelineOccurrence(clip.id, "source-bound semantic index entry is unavailable", clip.mediaId, sourceRange, sourceIdentity);
     }
@@ -315,6 +326,11 @@ export class MediaAnalysisService {
     };
   }
 
+  private async validateCurrentSource(project: ProjectSnapshot, media: MediaContext): Promise<void> {
+    await Promise.all([this.options.speechAnalyzer, this.options.audioAnalyzer]
+      .map((analyzer) => analyzer?.validateSource?.({ project, media })));
+  }
+
   private async loadCachedUnderstanding(
     project: ProjectSnapshot,
     media: MediaContext,
@@ -327,8 +343,15 @@ export class MediaAnalysisService {
     if (!cached || !cacheMatchesAnalyzers(cached, this.options)) return undefined;
     if (cached.speech && (!coversWholeSource(cached.speech.requestedRange, media.duration)
       || !coversWholeSource(cached.speech.observedRange, media.duration))) return undefined;
-    if (cached.audio && (!coversWholeSource(cached.audio.requestedRange, media.duration)
+    if (cached.audio && (cached.audio.signalScope !== "source"
+      || !coversWholeSource(cached.audio.requestedRange, media.duration)
       || !coversWholeSource(cached.audio.measuredRange, media.duration))) return undefined;
+    try {
+      await this.validateCurrentSource(project, media);
+    } catch {
+      // Fresh analyzer calls report independent source/provider unavailability.
+      return undefined;
+    }
     const rebound = structuredClone(cached);
     const sourceIdentity = sourceIdentityOf(media);
     rebound.sourceIdentity = sourceIdentity;
@@ -348,15 +371,31 @@ export class MediaAnalysisService {
     return rebound;
   }
 
-  private async persistedIndexEntries(query: MediaIndexQuery): Promise<MediaIndexEntry[]> {
+  private async persistedIndexEntries(query: MediaIndexQuery, project: ProjectSnapshot): Promise<MediaIndexEntry[]> {
     const entries = await this.options.semanticMediaIndexStore?.list() ?? [];
-    return entries
+    return this.validIndexEntries(entries
+      .filter((entry) => entry.sourceIdentity.sourceDigest?.trim())
       .map(understandingToIndexEntry)
-      .filter((entry) => matchesMediaIndexQuery(entry, query));
+      .filter((entry) => matchesMediaIndexQuery(entry, query)), project);
   }
 
-  private indexFromProject(project: ProjectSnapshot, query: MediaIndexQuery): MediaIndexEntry[] {
-    return project.media
+  private async validIndexEntries(entries: MediaIndexEntry[], project: ProjectSnapshot): Promise<MediaIndexEntry[]> {
+    const valid: MediaIndexEntry[] = [];
+    for (const entry of entries) {
+      if (!analyzedProvidersMatch(entry, this.options)
+        || (entry.audio && entry.audio.signalScope !== "source")) continue;
+      try {
+        await this.validateCurrentSource(project, { ...entry.sourceIdentity });
+        valid.push(entry);
+      } catch {
+        // Read-only semantic indexing must not return evidence for replaced/offline bytes.
+      }
+    }
+    return valid;
+  }
+
+  private async indexFromProject(project: ProjectSnapshot, query: MediaIndexQuery): Promise<MediaIndexEntry[]> {
+    const entries = project.media
       .map((media) => ({
         sourceIdentity: sourceIdentityOf(media),
         semantic: media.semantic ?? emptySemanticDescription(),
@@ -376,6 +415,7 @@ export class MediaAnalysisService {
         ...(media.analysisRevision ? { analysisRevision: media.analysisRevision } : {}),
       }))
       .filter((entry) => matchesMediaIndexQuery(entry, query));
+    return this.validIndexEntries(entries, project);
   }
 
   public async reanalyzeAffectedRanges(
@@ -810,6 +850,19 @@ function indexEntryScore(entry: MediaIndexEntry): number {
   return entry.analysis.filter((record) => record.status === "analyzed").length
     + entry.semantic.usableRanges.length
     + (entry.semantic.transcript?.trim() ? 1 : 0);
+}
+
+function analyzedProvidersMatch(understanding: Pick<MediaUnderstanding, "analysis">, options: RuntimeOptions): boolean {
+  const configured = {
+    speech: options.speechAnalyzer, audio: options.audioAnalyzer, noise: options.noiseAnalyzer,
+    visual: options.visualAnalyzer, metadata: options.metadataAnalyzer,
+  };
+  return understanding.analysis.every((record) => {
+    const analyzer = configured[record.capability];
+    if (record.status !== "analyzed" || !analyzer) return true;
+    return record.provenance?.analyzer !== undefined
+      && sameDescriptor(record.provenance.analyzer, analyzer.descriptor ?? { id: `framekit.${record.capability}`, provider: "unknown" });
+  });
 }
 
 function coversWholeSource(range: TimeRange | undefined, duration: number | undefined): boolean {

@@ -378,3 +378,13 @@ verify an occurrence gain change: normalization reports an unavailable
 occurrence measurement, and a source-only post-write response causes verified
 rollback rather than an output-loudness claim. Reusable source analysis and
 occurrence/output measurements remain distinct.
+
+Persisted source evidence is revalidated through the configured speech/audio
+providers' optional `validateSource` port before understanding, timeline
+semantic context, semantic indexing or rough-cut planning reuses it. Command
+providers compare current local bytes with the registered digest. Replaced or
+offline sources cannot supply cached semantic claims; fresh analysis retains
+independent unavailable reasons. Occurrence loudness is not a source-cache
+entry. A provider without a physical-source validator still relies on its
+current canonical source-identity contract; this does not supply missing
+native occurrence/source observation.
