@@ -336,10 +336,15 @@ for (const kind of ["speech", "audio"] as const) {
     const runtime = () => new AgentVideoRuntime(adapter, {
       ...analyzers, semanticMediaIndexStore: new JsonSemanticMediaIndexStore(storePath),
     });
-    const first = await runtime().understandMedia("media-1");
+    const originalRuntime = runtime();
+    const first = await originalRuntime.understandMedia("media-1");
     assert.equal(first.analysis.find((entry) => entry.capability === kind)?.status, "analyzed");
     // Simulate source replacement while the editor's logical media identity remains unchanged.
     await writeFile(mediaPath, "replacement");
+    const indexed = await runtime().indexMedia();
+    assert.equal(indexed.some((entry) => entry.analysis.some((status) => status.status === "analyzed")), false);
+    const attachedIndex = await originalRuntime.indexMedia();
+    assert.equal(attachedIndex.some((entry) => entry.analysis.some((status) => status.status === "analyzed")), false);
     const second = await runtime().understandMedia("media-1");
     assert.equal(second[kind], undefined);
     const status = second.analysis.find((entry) => entry.capability === kind);
