@@ -87,6 +87,14 @@ test("FCPXML compilation preserves explicit nonzero source bounds", () => {
   assert.match(result.xml, /<asset\b[^>]*start="10s"[^>]*duration="20s"/);
 });
 
+test("FCPXML frame rounding cannot move an occurrence outside source bounds", () => {
+  const value = timeline();
+  value.resources[0]!.metadata = undefined;
+  Object.assign(value.resources[0]!, { sourceRange: { start: { value: "10", timescale: "1" }, duration: { value: "2002", timescale: "24000" } } });
+  value.sequence.occurrences[0]!.sourceStartTime = { value: "10", timescale: "1" };
+  assert.throws(() => compileTimelineIrToFcpxml(value, { target }), /FCPXML_.*SOURCE.*RANGE/i);
+});
+
 test("materialization round trips plain dialogue on a video occurrence", async () => {
   const value = timeline();
   value.sequence.markers = [];
