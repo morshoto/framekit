@@ -57,6 +57,13 @@ test("production MCP exports an edited headless project as FCPXML without a roug
     assert.equal(parsed.media.find((item) => item.mediaId === parsed.timeline.clips[0]?.mediaId)?.source, sourcePath);
     const duplicate = await client.callTool({ name: "headless.fcpxml.export", arguments: { ...args, expectedRevision: edit.after.timeline.revision } });
     assert.match(toolErrorText(duplicate), /EXIST|OVERWRITE/);
+    const concurrentArgs = { ...args, outputPath: join(directory, "concurrent.fcpxml"), expectedRevision: edit.after.timeline.revision };
+    const concurrent = await Promise.all([
+      client.callTool({ name: "headless.fcpxml.export", arguments: concurrentArgs }),
+      client.callTool({ name: "headless.fcpxml.export", arguments: concurrentArgs }),
+    ]);
+    assert.equal(concurrent.filter((result) => !result.isError).length, 1);
+    assert.equal(concurrent.filter((result) => result.isError).length, 1);
   } finally {
     await client?.close();
     await transport?.close();
