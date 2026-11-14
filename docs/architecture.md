@@ -251,6 +251,19 @@ closed or when Final Cut Pro is not installed. The bundled Workflow Extension pr
 only unless a configured provider advertises more. A failed headless operation
 has no implicit headed-native fallback or foreground activation.
 
+The artifact-first workflow uses separate capability and evidence boundaries:
+
+| Surface | Gate and result |
+| --- | --- |
+| Headless editing | A configured Framekit project store and supported, revision-bound operation; no native reservation is required. |
+| Artifact generation | The requested compiler or renderer must support the project and source media; generated FCPXML and verified video are local artifacts. |
+| Manual handoff | A person may review and separately arrange a handoff; generating an artifact does not establish that Final Cut received or accepted it. |
+| Native observation | A separately available native provider must independently identify the target and report sufficient current state. |
+| Native mutation | The native operation requires its own target, authorization, recovery and verification prerequisites; an uncertain reservation continues to block guarded native work. |
+
+An unavailable native surface does not disable a side-effect-free headless
+operation. Evidence from one row does not establish the result of another.
+
 FFmpeg headless renders normalize audio to AAC at 48 kHz mono. Verification
 checks this emitted format while preserving registered source metadata; other
 renderer backends are checked against their source audio metadata.

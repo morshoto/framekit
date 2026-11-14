@@ -47,8 +47,12 @@ npm trust github @morshoto/framekit \
 The native packaging job requires the dedicated self-hosted Mac, Xcode
 command-line tools, Final Cut Pro, and a Developer ID signing identity. Missing
 native assets leave native provenance unverified; they do not delay npm
-publication. The signature, checksum, package, plugin, MCP server, and extension
-identities must match the exact tag before claiming release readiness.
+publication. For artifact-first readiness, the package, plugin and MCP server
+identities, clean-install evidence, and artifact workflow results must match
+the exact release candidate. Native distribution additionally requires the
+extension signature, checksum, version and source identity to match the tag;
+native observation and mutation require their own authorized acceptance
+evidence. Record each readiness verdict separately.
 
 ## Native release assets
 
@@ -79,11 +83,24 @@ Before a release pull request is merged, run the standard checks in
 pnpm run build:package
 node scripts/validate-mcp-server-version.mjs
 npm pack --dry-run
+FRAMEKIT_TEST_MCP_ENTRYPOINT="$PWD/dist-package/apps/mcp-server/src/main.js" pnpm run test:headless
 pnpm run release-gate --output-dir artifacts/release-gate/local-run
 ```
 
-The release workflow runs `node scripts/validate-mcp-server-version.mjs`
-after building the package and before `npm publish`.
+The release workflow runs `node scripts/validate-mcp-server-version.mjs` and
+the headless suite before `npm publish`. The artifact workflow's production
+MCP client starts the built package rather than the source loader. The
+headless suite includes artifact-first editing, verified
+Undo, FCPXML readback, and rendered-output test. Its result does not verify a
+manual handoff or any native Final Cut operation; record those separately.
+
+For v0.2.2, artifact-first editing is the required delivery scope. The
+headless workflow and artifact generation gates must pass on the exact merged
+candidate, with independent restoration and output checks. Manual handoff,
+native observation and native mutation remain independent capabilities. The
+legacy release gate reports deterministic and native tiers separately; an
+unrun native tier provides no native acceptance and does not by itself block
+the artifact-first verdict. Review and release approval are still required.
 
 The hosted workflow owns OIDC publication and public registry verification;
 these local commands do not prove a published release. If a publish fails,

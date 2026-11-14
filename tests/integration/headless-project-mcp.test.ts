@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -13,10 +14,147 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
 import { compileTimelineIrToFcpxml } from "../../adapters/final-cut/typescript/src/timeline-ir-fcpxml.js";
 import { HeadlessProjectService } from "@framekit/headless-application";
-import { FramekitProjectStore, type FramekitProjectDocument, type TimelineIr } from "@framekit/runtime";
+import { FramekitProjectStore, timelineIrDigest, type FramekitProjectDocument, type TimelineIr } from "@framekit/runtime";
 import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer } from "../../adapters/headless/typescript/src/index.js";
 
 const execFileAsync = promisify(execFile);
+
+test("artifact-first production MCP edits, restores, exports and renders fractional-frame media", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-artifact-first-e2e-"));
+  const here = dirname(fileURLToPath(import.meta.url));
+  const environment: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1",
+    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0", FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing-final-cut.sock"),
+    FRAMEKIT_STATE_DIR: join(directory, "state"),
+  };
+  let client: Client | undefined;
+  let transport: StdioClientTransport | undefined;
+  try {
+    const nativeCalls = join(directory, "native-calls.log");
+    const sentinelBin = join(directory, "sentinel-bin");
+    await mkdir(sentinelBin);
+    for (const command of ["osascript", "swift", "open", "pluginkit"]) {
+      const script = join(sentinelBin, command);
+      await writeFile(script, `#!/usr/bin/env node\nrequire("node:fs").appendFileSync(${JSON.stringify(nativeCalls)}, ${JSON.stringify(`${command}\n`)}); process.exit(77);\n`);
+      await chmod(script, 0o755);
+    }
+    environment.PATH = `${sentinelBin}:${process.env.PATH ?? ""}`;
+    const paths = [join(directory, "a", "same.mp4"), join(directory, "b", "same.mp4")];
+    await mkdir(dirname(paths[0]!), { recursive: true });
+    await mkdir(dirname(paths[1]!), { recursive: true });
+    await generateSegmentedSource(paths[0]!, [
+      { color: "red", duration: 1 },
+      { color: "lime", duration: 1 },
+      { color: "yellow", duration: 2 },
+    ], 440);
+    await generateSegmentedSource(paths[1]!, [{ color: "blue", duration: 4 }], 660);
+    const sha = async (path: string) => createHash("sha256").update(await readFile(path)).digest("hex");
+    const sourceDigests = await Promise.all(paths.map(sha));
+    const reservationPath = join(directory, "state", "canonical-recovery", "pending.json");
+    const reservation = JSON.stringify({ version: 2, kind: "native-operation", owner: "00000000-0000-4000-8000-000000000001", operation: "native.searchmedia" }) + "\n";
+    await mkdir(dirname(reservationPath), { recursive: true });
+    await writeFile(reservationPath, reservation);
+    ({ client, transport } = await connectProductionClient(here, environment));
+    const callTool = async (request: { name: string; arguments?: Record<string, unknown> }) => {
+      try {
+        return await client!.callTool(request);
+      } catch (cause) {
+        throw new Error(`artifact MCP ${request.name} failed`, { cause });
+      }
+    };
+    const route = payload(await callTool({ name: "editing.route", arguments: { operation: "timeline.edit", path: "headless", editType: "split-occurrence" } }));
+    assert.equal(route.status, "headless-selected");
+    const timeline = emptyTimeline();
+    timeline.sequence.frameDuration = { value: "1001", timescale: "24000" };
+    const created = payload(await callTool({ name: "headless.project.create", arguments: { timeline } }));
+    const projectId = created.timeline.project.id;
+    const sequenceId = created.timeline.sequence.id;
+    const a = payload(await callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: paths[0], expectedRevision: created.timeline.revision } }));
+    const b = payload(await callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: paths[1], expectedRevision: a.project.timeline.revision } }));
+    const search = payload(await callTool({ name: "headless.media.search", arguments: { projectId, query: "same.mp4" } }));
+    assert.deepEqual(search.media.map((item: any) => item.id).sort(), [a.resource.id, b.resource.id].sort());
+    const frame = (count: number) => ({ value: String(count * 1001), timescale: "24000" });
+    const shot = (id: string, mediaId: string, sourceFrame: number) => ({ ...occurrence(id, mediaId), durationTime: frame(24), sourceStartTime: frame(sourceFrame) });
+    const placements = [shot("a", a.resource.id, 12), shot("b", b.resource.id, 0), shot("repeat-a", a.resource.id, 36)];
+    const placed = payload(await callTool({ name: "headless.edit.execute", arguments: {
+      projectId, sequenceId, expectedRevision: b.project.timeline.revision,
+      operations: placements.map((item) => ({ type: "insert-occurrence", placement: "append", occurrence: item })),
+    } }));
+    const split = payload(await callTool({ name: "headless.edit.execute", arguments: {
+      projectId, sequenceId, expectedRevision: placed.after.timeline.revision,
+      operations: [{ type: "split-occurrence", occurrenceId: "a", splitOffsetTime: frame(12), newOccurrenceId: "a-right" }],
+    } }));
+    const reorderOps = [
+      { type: "move-occurrence", occurrenceId: "repeat-a", startTime: frame(24) },
+      { type: "move-occurrence", occurrenceId: "b", startTime: frame(48) },
+    ];
+    const stale = await callTool({ name: "headless.edit.execute", arguments: { projectId, sequenceId, expectedRevision: placed.after.timeline.revision, operations: reorderOps } });
+    assert.match(toolErrorText(stale), /STALE/);
+    const moved = payload(await callTool({ name: "headless.edit.execute", arguments: { projectId, sequenceId, expectedRevision: split.after.timeline.revision, operations: reorderOps } }));
+    const undone = payload(await callTool({ name: "headless.edit.undo", arguments: { projectId, sequenceId, undoId: moved.undoId, expectedRevision: moved.after.timeline.revision } }));
+    assert.equal(undone.verification.verified, true);
+    assert.deepEqual(undone.project.timeline.sequence, split.after.timeline.sequence);
+    const redone = payload(await callTool({ name: "headless.edit.execute", arguments: { projectId, sequenceId, expectedRevision: undone.project.timeline.revision, operations: reorderOps } }));
+    const revision = redone.after.timeline.revision;
+    const outputPath = join(directory, "final.mp4");
+    const xmlPath = join(directory, "final.fcpxml");
+    const target = { provider: "final-cut", libraryUid: "library", eventUid: "event", projectUid: "project", sequenceUid: "sequence", materialization: "versioned" };
+    const exported = payload(await callTool({ name: "headless.fcpxml.export", arguments: { projectId, sequenceId, expectedRevision: revision, outputPath: xmlPath, target } }));
+    assert.equal(exported.artifact.verified, true);
+    const render = payload(await callTool({ name: "headless.render", arguments: { projectId, sequenceId, expectedRevision: revision, parameters: { outputPath, format: "mp4", width: 320, height: 180, frameRate: { value: "24000", timescale: "1001" } } } }));
+    assert.equal(render.status, "passed");
+    const parsed = await new FcpxmlDocumentAdapter(xmlPath).readProject();
+    const sourceFor = (id: string | undefined) => parsed.media.find((item) => item.mediaId === id)?.source;
+    assert.deepEqual(parsed.timeline.clips.map((clip) => sourceFor(clip.mediaId)), [paths[0], paths[0], paths[0], paths[1]]);
+    assert.ok(Math.abs((parsed.timeline.clips[0]!.sourceStart ?? NaN) - 0.5005) < 0.001);
+    assert.ok(Math.abs((parsed.timeline.clips[1]!.sourceStart ?? NaN) - 1.001) < 0.001);
+    assert.ok(Math.abs((parsed.timeline.clips[2]!.sourceStart ?? NaN) - 1.5015) < 0.001);
+    assert.ok(Math.abs(parsed.timeline.clips[3]!.start - 2.002) < 0.001);
+    const pixel = (buffer: Buffer) => [buffer[0]!, buffer[1]!, buffer[2]!];
+    // These samples are independently stated from the requested source ranges:
+    // a's first half is red, its split right half is green, and repeat-a crosses
+    // from green into yellow before the blue source begins at timeline 2.002s.
+    for (const [time, expected] of [[0.25, "red"], [0.75, "green"], [1.25, "green"], [1.75, "yellow"], [2.5, "blue"]] as const) {
+      const observed = pixel(await readVideoFrame(outputPath, time));
+      const [r, g, b] = observed;
+      const matches = expected === "red" ? r! > g! + 100 && r! > b! + 100
+        : expected === "green" ? g! > r! + 100 && g! > b! + 100
+        : expected === "yellow" ? r! > b! + 100 && g! > b! + 100
+        : b! > r! + 100 && b! > g! + 100;
+      assert.ok(matches, `expected ${expected} at ${time}s, observed ${observed}`);
+    }
+    const probe = JSON.parse((await execFileAsync("ffprobe", ["-v", "error", "-count_frames", "-show_entries", "format=duration:stream=codec_type,r_frame_rate,nb_read_frames,duration", "-of", "json", outputPath])).stdout);
+    assert.ok(Math.abs(Number(probe.format.duration) - 3.003) < 0.1);
+    const video = probe.streams.find((stream: any) => stream.codec_type === "video");
+    assert.equal(video.r_frame_rate, "24000/1001");
+    assert.equal(Number(video.nb_read_frames), 72);
+    assert.ok(Math.abs(Number(video.duration) - 3.003) < 0.002);
+    const hiddenPath = `${paths[1]!}.missing`;
+    await rename(paths[1]!, hiddenPath);
+    try {
+      const missing = await callTool({ name: "headless.project.inspect", arguments: { projectId } });
+      assert.match(toolErrorText(missing), /MEDIA_MISSING/);
+    } finally {
+      await rename(hiddenPath, paths[1]!);
+    }
+    assert.deepEqual(await Promise.all(paths.map(sha)), sourceDigests);
+    assert.equal(await readFile(reservationPath, "utf8"), reservation);
+    assert.equal(existsSync(nativeCalls), false, "headless workflow must not invoke a native command");
+    t.diagnostic(`artifact_evidence=${JSON.stringify({
+      schemaVersion: 1,
+      sources: sourceDigests.map((sha256, index) => ({ fixtureId: index === 0 ? "a" : "b", sha256 })),
+      fcpxml: { sha256: await sha(xmlPath), sourceOrder: ["a", "a", "a", "b"] },
+      video: { sha256: await sha(outputPath), frames: Number(video.nb_read_frames), frameRate: video.r_frame_rate, duration: Number(video.duration) },
+      native: "not-run",
+    })}`);
+  } finally {
+    await client?.close();
+    await transport?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 
 test("headless media search returns both registered same-name sources through production MCP", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-headless-media-search-"));
@@ -244,6 +382,216 @@ test("production MCP exports an edited headless project as FCPXML without a roug
   } finally {
     await client?.close();
     await transport?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("headless edit Undo survives MCP restart and verifies the restored project", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headless-undo-"));
+  const here = dirname(fileURLToPath(import.meta.url));
+  const environment: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    FRAMEKIT_EDITOR: "final-cut-live",
+    FRAMEKIT_AUTO_CONNECT: "0",
+    FRAMEKIT_FINAL_CUT_HEADLESS: "1",
+    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
+    FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing-final-cut.sock"),
+    FRAMEKIT_STATE_DIR: join(directory, "state"),
+  };
+  let client: Client | undefined;
+  let transport: StdioClientTransport | undefined;
+  try {
+    ({ client, transport } = await connectProductionClient(here, environment));
+    const initial = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: emptyTimeline() } }));
+    const projectId = initial.timeline.project.id;
+    const sequenceId = initial.timeline.sequence.id;
+    const edit = payload(await client.callTool({ name: "headless.edit.execute", arguments: {
+      projectId, sequenceId, expectedRevision: initial.timeline.revision,
+      operations: [{ type: "add-marker", marker: { id: "marker-1", name: "Marker", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } } }],
+    } }));
+    assert.equal(typeof edit.undoId, "string");
+    assert.equal(edit.after.timeline.sequence.markers.length, 1);
+    await client.close();
+    await transport.close();
+    ({ client, transport } = await connectProductionClient(here, environment));
+    const undoArgs = { projectId, sequenceId, undoId: edit.undoId, expectedRevision: edit.after.timeline.revision };
+    const wrongTarget = await client.callTool({ name: "headless.edit.undo", arguments: { ...undoArgs, sequenceId: "wrong-sequence" } });
+    assert.match(toolErrorText(wrongTarget), /HEADLESS_UNDO_INVALID|MISMATCH/);
+    const wrongRevision = await client.callTool({ name: "headless.edit.undo", arguments: { ...undoArgs, expectedRevision: initial.timeline.revision } });
+    assert.match(toolErrorText(wrongRevision), /HEADLESS_UNDO_STALE/);
+    const missing = await client.callTool({ name: "headless.edit.undo", arguments: { ...undoArgs, undoId: `undo-00000000-0000-4000-8000-000000000001-${"0".repeat(64)}` } });
+    assert.match(toolErrorText(missing), /HEADLESS_UNDO_INVALID/);
+    const malformed = await client.callTool({ name: "headless.edit.undo", arguments: { ...undoArgs, undoId: "../undo-invalid" } });
+    assert.match(toolErrorText(malformed), /HEADLESS_UNDO_INVALID/);
+    const historyPath = join(directory, "state", "projects", "undo", `${edit.undoId.slice(0, 41)}.json`);
+    const history = await readFile(historyPath, "utf8");
+    const damaged = JSON.parse(history);
+    damaged.before.timeline.sequence.markers.push({ id: "forged", name: "Forged", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } });
+    damaged.beforeDigest = timelineIrDigest(damaged.before.timeline);
+    const { checksum: _checksum, ...content } = damaged;
+    const canonical = (value: any): string => value === null || typeof value !== "object" ? JSON.stringify(value)
+      : Array.isArray(value) ? `[${value.map(canonical).join(",")}]`
+      : `{${Object.entries(value).filter(([, child]) => child !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => `${JSON.stringify(key)}:${canonical(child)}`).join(",")}}`;
+    damaged.checksum = createHash("sha256").update(canonical(content)).digest("hex");
+    await writeFile(historyPath, JSON.stringify(damaged));
+    const corrupt = await client.callTool({ name: "headless.edit.undo", arguments: undoArgs });
+    assert.match(toolErrorText(corrupt), /HEADLESS_UNDO_INVALID/);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, edit.after.timeline);
+    await writeFile(historyPath, history);
+    const restored = payload(await client.callTool({ name: "headless.edit.undo", arguments: {
+      ...undoArgs,
+    } }));
+    assert.equal(restored.verification.verified, true);
+    const inspected = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
+    assert.deepEqual(inspected.timeline.sequence, initial.timeline.sequence);
+    assert.deepEqual(inspected.timeline.resources, initial.timeline.resources);
+    assert.equal(inspected.timeline.revision.sequence, edit.after.timeline.revision.sequence + 1);
+    assert.deepEqual(inspected.timeline.revision, restored.project.timeline.revision);
+    const stale = await client.callTool({ name: "headless.edit.undo", arguments: {
+      projectId, sequenceId, undoId: edit.undoId, expectedRevision: edit.after.timeline.revision,
+    } });
+    assert.match(toolErrorText(stale), /STALE|MISMATCH/);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })), inspected);
+    const next = payload(await client.callTool({ name: "headless.edit.execute", arguments: {
+      projectId, sequenceId, expectedRevision: inspected.timeline.revision,
+      operations: [{ type: "add-marker", marker: { id: "marker-2", name: "Second", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } } }],
+    } }));
+    const nextHistoryPath = join(directory, "state", "projects", "undo", `${next.undoId.slice(0, 41)}.json`);
+    const nextHistory = await readFile(nextHistoryPath, "utf8");
+    await writeFile(nextHistoryPath, history);
+    const substituted = await client.callTool({ name: "headless.edit.undo", arguments: {
+      projectId, sequenceId, undoId: next.undoId, expectedRevision: next.after.timeline.revision,
+    } });
+    assert.match(toolErrorText(substituted), /HEADLESS_UNDO_INVALID/);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, next.after.timeline);
+    await writeFile(nextHistoryPath, nextHistory);
+    const later = payload(await client.callTool({ name: "headless.edit.execute", arguments: {
+      projectId, sequenceId, expectedRevision: next.after.timeline.revision,
+      operations: [{ type: "add-marker", marker: { id: "marker-3", name: "Third", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } } }],
+    } }));
+    const intervening = await client.callTool({ name: "headless.edit.undo", arguments: {
+      projectId, sequenceId, undoId: next.undoId, expectedRevision: later.after.timeline.revision,
+    } });
+    assert.match(toolErrorText(intervening), /HEADLESS_UNDO_STALE/);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, later.after.timeline);
+  } finally {
+    await client?.close();
+    await transport?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("headless Undo rejects changed or missing media and a validation race", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headless-undo-media-"));
+  try {
+    const source = join(directory, "source.mov");
+    const bytes = "synthetic original media";
+    await writeFile(source, bytes);
+    const options = { directory: join(directory, "projects"), mediaProbe: { probe: async () => ({
+      durationTime: { value: "2", timescale: "1" },
+      streams: [{ kind: "video" as const, width: 32, height: 32, frameRate: { value: "30", timescale: "1" } }],
+    }) } };
+    const service = new HeadlessProjectService(options);
+    const initial = await service.create(emptyTimeline());
+    const projectId = initial.timeline.project.id;
+    const sequenceId = initial.timeline.sequence.id;
+    const registered = await service.registerMedia(projectId, source, initial.timeline.revision);
+    const edit = await service.executeEdit(projectId, {
+      schemaVersion: 1, expectedRevision: registered.project.timeline.revision,
+      operations: [{ type: "add-marker", marker: { id: "one", name: "One", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } } }],
+    }, sequenceId);
+    const projectPath = join(options.directory, `${projectId}.json`);
+    const before = await readFile(projectPath, "utf8");
+    const restarted = new HeadlessProjectService(options);
+    await writeFile(source, "changed media");
+    await assert.rejects(restarted.undoEdit(projectId, sequenceId, edit.undoId, edit.after.timeline.revision), /MEDIA_CHANGED/);
+    assert.equal(await readFile(projectPath, "utf8"), before);
+    await rm(source);
+    await assert.rejects(restarted.undoEdit(projectId, sequenceId, edit.undoId, edit.after.timeline.revision), /MEDIA_MISSING/);
+    assert.equal(await readFile(projectPath, "utf8"), before);
+    await writeFile(source, bytes);
+    const newer = structuredClone(edit.after);
+    newer.timeline.revision = { ...newer.timeline.revision, id: "intervening", sequence: newer.timeline.revision.sequence + 1 };
+    let loads = 0;
+    t.mock.method(FramekitProjectStore.prototype, "load", async () => ++loads === 1 ? edit.after : newer);
+    await assert.rejects(restarted.undoEdit(projectId, sequenceId, edit.undoId, edit.after.timeline.revision), /STALE/);
+    t.mock.restoreAll();
+    assert.equal(await readFile(projectPath, "utf8"), before);
+    const restored = await restarted.undoEdit(projectId, sequenceId, edit.undoId, edit.after.timeline.revision);
+    assert.equal(restored.verification.verified, true);
+    assert.deepEqual(restored.project.timeline.sequence, registered.project.timeline.sequence);
+  } finally {
+    t.mock.restoreAll();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("headless Undo reports save and independent readback failures without verified success", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headless-undo-failure-"));
+  try {
+    const service = new HeadlessProjectService({ directory });
+    const initial = await service.create(emptyTimeline());
+    const projectId = initial.timeline.project.id;
+    const sequenceId = initial.timeline.sequence.id;
+    const expectedDigest = timelineIrDigest(initial.timeline);
+    const edit = await service.executeEdit(projectId, {
+      schemaVersion: 1, expectedRevision: initial.timeline.revision,
+      operations: [{ type: "add-marker", marker: { id: "one", name: "One", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } } }],
+    }, sequenceId);
+    const path = join(directory, `${projectId}.json`);
+    const committedBytes = await readFile(path, "utf8");
+    t.mock.method(FramekitProjectStore.prototype, "save", async () => { throw new Error("injected pre-write failure"); });
+    await assert.rejects(service.undoEdit(projectId, sequenceId, edit.undoId, edit.after.timeline.revision), /pre-write failure/);
+    t.mock.restoreAll();
+    assert.equal(await readFile(path, "utf8"), committedBytes);
+    assert.equal(timelineIrDigest((await service.inspect(projectId)).timeline), timelineIrDigest(edit.after.timeline));
+
+    const realSave = FramekitProjectStore.prototype.save;
+    const realLoad = FramekitProjectStore.prototype.load;
+    let saved = false;
+    t.mock.method(FramekitProjectStore.prototype, "save", async function(this: FramekitProjectStore, project: FramekitProjectDocument, revision?: TimelineIr["revision"]) {
+      const result = await realSave.call(this, project, revision);
+      saved = true;
+      return result;
+    });
+    t.mock.method(FramekitProjectStore.prototype, "load", async function(this: FramekitProjectStore) {
+      const project = await realLoad.call(this);
+      if (saved) project.timeline.sequence.markers.push({ id: "unexpected", name: "Unexpected", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } });
+      return project;
+    });
+    await assert.rejects(service.undoEdit(projectId, sequenceId, edit.undoId, edit.after.timeline.revision), /HEADLESS_UNDO_UNVERIFIED/);
+    t.mock.restoreAll();
+    const persisted = await service.inspect(projectId);
+    assert.equal(timelineIrDigest(persisted.timeline), expectedDigest);
+    assert.deepEqual(persisted.timeline.sequence, initial.timeline.sequence);
+    assert.equal(persisted.timeline.revision.sequence, edit.after.timeline.revision.sequence + 1);
+  } finally {
+    t.mock.restoreAll();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("concurrent headless Undo attempts cannot both restore the same revision", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headless-undo-concurrent-"));
+  try {
+    const service = new HeadlessProjectService({ directory });
+    const initial = await service.create(emptyTimeline());
+    const projectId = initial.timeline.project.id;
+    const sequenceId = initial.timeline.sequence.id;
+    const edit = await service.executeEdit(projectId, {
+      schemaVersion: 1, expectedRevision: initial.timeline.revision,
+      operations: [{ type: "add-marker", marker: { id: "one", name: "One", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } } }],
+    }, sequenceId);
+    const attempts = await Promise.allSettled([
+      service.undoEdit(projectId, sequenceId, edit.undoId, edit.after.timeline.revision),
+      service.undoEdit(projectId, sequenceId, edit.undoId, edit.after.timeline.revision),
+    ]);
+    assert.equal(attempts.filter((attempt) => attempt.status === "fulfilled").length, 1);
+    assert.equal(attempts.filter((attempt) => attempt.status === "rejected").length, 1);
+    const restored = await service.inspect(projectId);
+    assert.deepEqual(restored.timeline.sequence, initial.timeline.sequence);
+    assert.equal(restored.timeline.revision.sequence, edit.after.timeline.revision.sequence + 1);
+  } finally {
     await rm(directory, { recursive: true, force: true });
   }
 });
@@ -1208,7 +1556,9 @@ function toolErrorText(result: unknown): string {
 async function connectProductionClient(here: string, environment: Record<string, string>): Promise<{ client: Client; transport: StdioClientTransport }> {
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: ["--import", "tsx", join(here, "../../apps/mcp-server/src/main.ts")],
+    args: process.env.FRAMEKIT_TEST_MCP_ENTRYPOINT
+      ? [process.env.FRAMEKIT_TEST_MCP_ENTRYPOINT]
+      : ["--import", "tsx", join(here, "../../apps/mcp-server/src/main.ts")],
     env: environment,
     stderr: "pipe",
   });
