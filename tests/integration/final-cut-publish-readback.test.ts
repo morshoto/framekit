@@ -225,6 +225,16 @@ test("FCPXML comparison requires explicit exports and fails on changed source co
     const unknownAttribute = spawnSync(process.execPath, [...args, expected, actual], { encoding: "utf8" });
     assert.notEqual(unknownAttribute.status, 0, "unmodeled attributes must not be silently ignored");
     assert.match(unknownAttribute.stderr, /unsupported/i);
+    await writeFile(actual, xml(actualMedia).replace('kind="original-media"', 'kind="proxy-media"'));
+    const proxyOnly = spawnSync(process.execPath, [...args, expected, actual], { encoding: "utf8" });
+    assert.notEqual(proxyOnly.status, 0, "proxy-only media must not stand in for an original source");
+    assert.match(proxyOnly.stderr, /source/i);
+    await writeFile(actual, xml(actualMedia).replace('start="0s"', 'start="1/24s"'));
+    const changedTrim = spawnSync(process.execPath, [...args, expected, actual], { encoding: "utf8" });
+    assert.notEqual(changedTrim.status, 0, "one-frame trim changes must not pass");
+    assert.match(changedTrim.stderr, /SEMANTIC_MISMATCH/);
+    await writeFile(actual, xml(actualMedia).replace('duration="2s"', 'duration="48/24s"'));
+    assert.equal(spawnSync(process.execPath, [...args, expected, actual]).status, 0, "equivalent rational times compare equally");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
