@@ -3351,8 +3351,6 @@ test("native import stops before dispatch if the approved target changes during 
   const scripts: string[] = [];
   const adapter = new FinalCutNativeAutomationAdapter({
     enabled: true,
-    mediaImportDiscoveryTimeoutMs: 20,
-    mediaImportPollMs: 1,
     importSourceObserver: {
       captureTarget: async () => discovered ? { ...fixtureImportTarget, eventId: "other-event" } : fixtureImportTarget,
       observeImportedSource: async () => ({ sourceIdentity: "browser-source", originalSourcePath: sourcePath, target: fixtureImportTarget }),
