@@ -1501,6 +1501,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     eventName: z.string().min(1).optional(),
     materialization: z.enum(["versioned", "reuse-existing"]).optional(),
   }).strict();
+  server.registerTool("headless.fcpxml.export", {
+    description: "Compile an exact Framekit-owned project revision to a new FCPXML artifact without contacting Final Cut.",
+    inputSchema: { projectId: z.string().min(1), sequenceId: z.string().min(1), expectedRevision: revisionValueSchema, outputPath: z.string().min(1), target: headlessFcpxmlTargetSchema },
+  }, async ({ projectId, sequenceId, expectedRevision, outputPath, target }) => sessionResult(() => requireHeadlessProjects().exportFcpxml(projectId, sequenceId, expectedRevision, outputPath, target)));
   const headlessRoughCutRequestSchema = z.object({
     projectId: z.string().min(1),
     sequenceId: z.string().min(1),

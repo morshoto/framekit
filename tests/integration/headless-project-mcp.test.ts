@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { chmod, mkdir, readFile, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, link, mkdir, open, readFile, mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { dirname } from "node:path";
 import { tmpdir } from "node:os";
@@ -14,10 +14,160 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
 import { compileTimelineIrToFcpxml } from "../../adapters/final-cut/typescript/src/timeline-ir-fcpxml.js";
 import { HeadlessProjectService } from "@framekit/headless-application";
-import { timelineIrDigest, type TimelineIr } from "@framekit/runtime";
+import { FramekitProjectStore, timelineIrDigest, type FramekitProjectDocument, type TimelineIr } from "@framekit/runtime";
 import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer } from "../../adapters/headless/typescript/src/index.js";
 
 const execFileAsync = promisify(execFile);
+
+test("headless export checks the revision of the media-validated snapshot", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headless-export-snapshot-"));
+  const oldTimeline = emptyTimeline();
+  oldTimeline.resources.push({
+    id: "missing", name: "missing.mp4", mediaKind: "video", source: join(directory, "missing.mp4"),
+    sourceKind: "local-file", sourceDigest: "0".repeat(64),
+  });
+  const newTimeline = emptyTimeline();
+  newTimeline.revision = { ...newTimeline.revision, id: "newer", sequence: 1 };
+  const metadata = { createdAt: oldTimeline.revision.timestamp, updatedAt: oldTimeline.revision.timestamp };
+  const oldProject = { schemaVersion: 1 as const, metadata, timeline: oldTimeline };
+  const newProject = { schemaVersion: 1 as const, metadata, timeline: newTimeline };
+  let loadCount = 0;
+  t.mock.method(FramekitProjectStore.prototype, "load", async () => ++loadCount % 2 ? oldProject : newProject);
+  const service = new HeadlessProjectService({ directory, mediaProbe: { probe: async () => { throw new Error("not used"); } } });
+  const outputPath = join(directory, "out.fcpxml");
+  const target = { provider: "final-cut" as const, libraryUid: "library", eventUid: "event", projectUid: "project", sequenceUid: "sequence" };
+  try {
+    await assert.rejects(service.exportFcpxml(oldTimeline.project.id, oldTimeline.sequence.id, oldTimeline.revision, outputPath, target), /STALE/);
+    assert.equal(existsSync(outputPath), false);
+    const opened = await service.open(oldTimeline.project.id);
+    assert.equal(opened.timeline.revision.id, "newer");
+  } finally {
+    t.mock.restoreAll();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("headless edits and rough cuts stay bound to the validated snapshot", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headless-snapshot-race-"));
+  const older = emptyTimeline();
+  const newer = structuredClone(older);
+  newer.revision = { ...older.revision, id: "newer", sequence: 1 };
+  const metadata = { createdAt: older.revision.timestamp, updatedAt: older.revision.timestamp };
+  const oldProject = { schemaVersion: 1 as const, metadata, timeline: older };
+  const newProject = { schemaVersion: 1 as const, metadata, timeline: newer };
+  let loadCount = 0;
+  let latestProject = newProject;
+  t.mock.method(FramekitProjectStore.prototype, "load", async () => ++loadCount === 1 ? oldProject : latestProject);
+  let saves = 0;
+  t.mock.method(FramekitProjectStore.prototype, "save", async (project: FramekitProjectDocument) => { saves++; return project; });
+  const service = new HeadlessProjectService({ directory });
+  const command = { schemaVersion: 1 as const, expectedRevision: newer.revision, operations: [] };
+  try {
+    await assert.rejects(service.previewEdit(older.project.id, command, older.sequence.id), /STALE/);
+    loadCount = 0;
+    await assert.rejects(service.executeEdit(older.project.id, command, older.sequence.id), /STALE/);
+    assert.equal(saves, 0);
+    loadCount = 0;
+    await assert.rejects(service.previewEdit(older.project.id, { ...command, expectedRevision: older.revision }, older.sequence.id), /STALE/);
+    loadCount = 0;
+    latestProject = { ...oldProject, timeline: { ...older, project: { ...older.project, name: "changed with same revision" } } };
+    await assert.rejects(service.previewEdit(older.project.id, { ...command, expectedRevision: older.revision }, older.sequence.id), /STALE/);
+    latestProject = newProject;
+    loadCount = 0;
+    const request = {
+      projectId: older.project.id, sequenceId: older.sequence.id,
+      plan: { planner: { id: "test", version: 1 }, revision: newer.revision, query: { query: "test" }, shots: [], warnings: [] },
+      render: { outputPath: join(directory, "out.mp4"), format: "mp4" as const, width: 16, height: 16, frameRate: { value: "30", timescale: "1" } },
+      fcpxml: { path: join(directory, "out.fcpxml"), target: { provider: "final-cut" as const, libraryUid: "l", eventUid: "e", projectUid: "p", sequenceUid: "s" } },
+    };
+    await assert.rejects(service.previewRoughCut(request), /STALE/);
+  } finally {
+    t.mock.restoreAll();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("production MCP exports an edited headless project as FCPXML without a rough-cut plan", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headless-fcpxml-"));
+  const here = dirname(fileURLToPath(import.meta.url));
+  const environment: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1",
+    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0", FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing-final-cut.sock"),
+    FRAMEKIT_STATE_DIR: join(directory, "state"),
+  };
+  let client: Client | undefined;
+  let transport: StdioClientTransport | undefined;
+  try {
+    const sourcePath = join(directory, "source.mp4");
+    const outputPath = join(directory, "edit.fcpxml");
+    await generateSegmentedSource(sourcePath, [{ color: "red", duration: 2 }], 440);
+    ({ client, transport } = await connectProductionClient(here, environment));
+    const created = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: emptyTimeline() } }));
+    const projectId = created.timeline.project.id;
+    const sequenceId = created.timeline.sequence.id;
+    const media = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath, expectedRevision: created.timeline.revision } }));
+    const edit = payload(await client.callTool({ name: "headless.edit.execute", arguments: {
+      projectId, sequenceId, expectedRevision: media.project.timeline.revision,
+      operations: [{ type: "insert-occurrence", placement: "append", occurrence: { ...occurrence("clip-1", media.resource.id), sourceStartTime: { value: "1", timescale: "2" } } }],
+    } }));
+    const target = { provider: "final-cut", libraryUid: "library", eventUid: "event", projectUid: "project", sequenceUid: "sequence", materialization: "versioned" };
+    const args = { projectId, sequenceId, outputPath, target };
+    const stale = await client.callTool({ name: "headless.fcpxml.export", arguments: { ...args, expectedRevision: media.project.timeline.revision } });
+    assert.match(toolErrorText(stale), /STALE/);
+    assert.equal(existsSync(outputPath), false);
+    const exported = payload(await client.callTool({ name: "headless.fcpxml.export", arguments: { ...args, expectedRevision: edit.after.timeline.revision } }));
+    assert.equal(exported.artifact.verified, true);
+    assert.deepEqual(exported.provenance.revision, edit.after.timeline.revision);
+    const parsed = await new FcpxmlDocumentAdapter(outputPath).readProject();
+    assert.equal(parsed.timeline.clips.length, 1);
+    assert.equal(parsed.timeline.clips[0]?.sourceStart, 0.5);
+    assert.equal(parsed.timeline.clips[0]?.duration, 1);
+    assert.equal(parsed.media.find((item) => item.mediaId === parsed.timeline.clips[0]?.mediaId)?.source, sourcePath);
+    const pending = join(environment.FRAMEKIT_STATE_DIR!, "canonical-recovery", "pending.json");
+    await mkdir(dirname(pending), { recursive: true });
+    await writeFile(pending, "synthetic reservation");
+    const protectedResult = await client.callTool({ name: "headless.fcpxml.export", arguments: { ...args, outputPath: pending, expectedRevision: edit.after.timeline.revision } });
+    assert.match(toolErrorText(protectedResult), /OUTPUT.*COLLISION/);
+    assert.equal(await readFile(pending, "utf8"), "synthetic reservation");
+    const originalXml = await readFile(outputPath, "utf8");
+    const duplicate = await client.callTool({ name: "headless.fcpxml.export", arguments: { ...args, expectedRevision: edit.after.timeline.revision } });
+    assert.match(toolErrorText(duplicate), /EXIST|OVERWRITE/);
+    assert.equal(await readFile(outputPath, "utf8"), originalXml);
+    const fifo = join(directory, "existing.fifo");
+    await execFileAsync("mkfifo", [fifo]);
+    const fifoRequest = client.callTool({ name: "headless.fcpxml.export", arguments: { ...args, outputPath: fifo, expectedRevision: edit.after.timeline.revision } });
+    let cancelFifoTimer = () => {};
+    const fifoResult = await Promise.race([
+      fifoRequest,
+      new Promise<undefined>((resolve) => {
+        const timer = setTimeout(resolve, 5000);
+        cancelFifoTimer = () => clearTimeout(timer);
+      }),
+    ]);
+    cancelFifoTimer();
+    if (!fifoResult) {
+      // Unblock a regressed implementation before failing the test.
+      const writer = await open(fifo, "w");
+      await writer.close();
+      await fifoRequest;
+    }
+    assert.ok(fifoResult, "existing FIFO must be rejected without reading it");
+    assert.match(toolErrorText(fifoResult), /EXIST|OVERWRITE/);
+    assert.equal((await stat(fifo)).isFIFO(), true);
+    const concurrentArgs = { ...args, outputPath: join(directory, "concurrent.fcpxml"), expectedRevision: edit.after.timeline.revision };
+    const concurrent = await Promise.all([
+      client.callTool({ name: "headless.fcpxml.export", arguments: concurrentArgs }),
+      client.callTool({ name: "headless.fcpxml.export", arguments: concurrentArgs }),
+    ]);
+    assert.equal(concurrent.filter((result) => !result.isError).length, 1);
+    assert.equal(concurrent.filter((result) => result.isError).length, 1);
+  } finally {
+    await client?.close();
+    await transport?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 test("headless edit Undo survives MCP restart and verifies the restored project", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-headless-undo-"));
@@ -571,7 +721,7 @@ test("production stdio MCP persists and reopens the headless project and render 
     FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
     FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing-final-cut.sock"),
     FRAMEKIT_FCPXML_PATH: join(directory, "missing-project.fcpxml"),
-    FRAMEKIT_STATE_DIR: directory,
+    FRAMEKIT_STATE_DIR: join(directory, "state"),
   };
   let client: Client | undefined;
   let transport: StdioClientTransport | undefined;
@@ -759,6 +909,29 @@ test("headless rough-cut preview and execution preserve provenance and produce v
         },
       },
     };
+    const reservation = join(directory, "projects", "canonical-recovery", "pending.json");
+    await mkdir(dirname(reservation), { recursive: true });
+    const reservationBytes = "synthetic retained reservation";
+    await writeFile(reservation, reservationBytes);
+    const reservationHardlink = join(directory, "reservation-hardlink.json");
+    const reservationSymlink = join(directory, "reservation-symlink.json");
+    await link(reservation, reservationHardlink);
+    await symlink(reservation, reservationSymlink);
+    const protectedOutputs = [reservation, reservationHardlink, reservationSymlink, join(dirname(reservation), "new-artifact.fcpxml")];
+    for (const path of protectedOutputs) {
+      await assert.rejects(service.previewRoughCut({ ...request, fcpxml: { ...request.fcpxml, path, overwrite: true } }), /OUTPUT.*COLLISION/);
+      await assert.rejects(service.exportFcpxml(created.timeline.project.id, created.timeline.sequence.id, registered.project.timeline.revision, path, request.fcpxml.target), /OUTPUT.*COLLISION/);
+      await assert.rejects(service.render(created.timeline.project.id, created.timeline.sequence.id, { ...request.render, outputPath: path, overwrite: true }, registered.project.timeline.revision), /OUTPUT.*COLLISION/);
+    }
+    assert.equal(await readFile(reservation, "utf8"), reservationBytes);
+    const hardlink = join(directory, "source-hardlink.mp4");
+    const sourceAlias = join(directory, "source-symlink.mp4");
+    await link(source.source!, hardlink);
+    await symlink(source.source!, sourceAlias);
+    for (const path of [source.source!, hardlink, sourceAlias, join(directory, "projects", `${created.timeline.project.id}.json`), request.render.outputPath]) {
+      await assert.rejects(service.previewRoughCut({ ...request, fcpxml: { ...request.fcpxml, path, overwrite: true } }), /OUTPUT.*COLLISION/);
+    }
+    await assert.rejects(service.previewRoughCut({ ...request, render: { ...request.render, outputPath: source.source!, overwrite: true } }), /OUTPUT.*COLLISION/);
     const preview = await service.previewRoughCut(request);
     assert.equal(preview.before.timeline.sequence.occurrences.length, 0);
     assert.deepEqual(preview.after.timeline.sequence.occurrences[0]?.sourceStartTime, { value: "4", timescale: "15" });
