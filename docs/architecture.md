@@ -83,6 +83,9 @@ yet be compiled or rendered from Timeline IR because their handling is not estab
 artifact value is not proof of the live sequence origin or target freshness.
 Timeline targets can bind a provider-supplied `frameGridOrigin` in sequence
 coordinates; resolution and readback reject a changed origin or frame duration.
+They also reject a change in whether the origin was supplied, including an
+explicit zero becoming absent. The target's presence marker records only what
+the snapshot supplied; it does not establish independent native observation.
 Snapshots without that field retain the existing zero-origin targeting policy,
 which is not evidence of a live Final Cut frame grid. FCPXML `tcStart` is not
 automatically treated as `frameGridOrigin`.
