@@ -2858,6 +2858,29 @@
       "network": "none"
     },
     {
+      "path": "tests/speech/provider-preflight.test.ts",
+      "owner": "apps/mcp-server",
+      "reviewed": true,
+      "tags": [
+        "unit",
+        "contract",
+        "fixture-e2e",
+        "integration"
+      ],
+      "evidence": "fixture",
+      "dependsOn": [
+        "apps/mcp-server",
+        "packages/runtime",
+        "packages/testkit",
+        "scripts"
+      ],
+      "requires": [],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
       "path": "tests/speech/revision-bound-analysis.test.ts",
       "owner": "packages/runtime",
       "tags": [
