@@ -3,8 +3,8 @@ import { dirname, join, resolve } from "node:path";
 import {
   renderFillerRemovalReport,
   runFillerRemovalBenchmark,
-} from "../tests/filler-removal/benchmark.js";
-import { writeFillerRemovalArtifacts } from "../tests/filler-removal/artifacts.js";
+} from "./benchmarks/filler-removal/benchmark.js";
+import { writeFillerRemovalArtifacts } from "./benchmarks/filler-removal/artifacts.js";
 import { parseFillerRemovalOutputDirectory } from "./run-filler-removal-benchmark-args.js";
 
 const defaultRunId = `${new Date().toISOString().replace(/[^0-9]/g, "")}-${process.pid}`;

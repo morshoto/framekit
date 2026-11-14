@@ -1,6 +1,6 @@
 {
   "name": "@morshoto/framekit",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "packageManager": "pnpm@12.18.0",
   "private": false,
   "type": "module",
@@ -17,7 +17,11 @@
     "framekit": "./bin/framekit.mjs"
   },
   "exports": {
-    "./bin/framekit.mjs": "./bin/framekit.mjs"
+    "./bin/framekit.mjs": "./bin/framekit.mjs",
+    "./fcpxml": {
+      "types": "./dist-package/adapters/final-cut/typescript/src/documents.d.ts",
+      "import": "./dist-package/adapters/final-cut/typescript/src/documents.js"
+    }
   },
   "publishConfig": {
     "access": "public"
@@ -33,16 +37,15 @@
     "test:integration": "node scripts/run-tests-with-isolated-home.mjs integration",
     "test:headless": "node scripts/run-tests-with-isolated-home.mjs headless",
     "test:native": "node scripts/run-tests-with-isolated-home.mjs native",
-    "test:package": "node scripts/run-tests-with-isolated-home.mjs package --check-only && pnpm run build:package && node scripts/run-tests-with-isolated-home.mjs package",
+    "test:package": "node scripts/run-tests-with-isolated-home.mjs package",
     "test:inventory:update": "node scripts/test-suites.mjs --update-inventory",
-    "test:documentation": "node --test tests/documentation/*.test.mjs",
+    "test:documentation": "node scripts/run-tests-with-isolated-home.mjs documentation",
     "check:workflows": "bash scripts/ci/check-workflows.sh",
     "check:docs": "node scripts/check-docs.mjs",
-
     "test:coverage": "c8 --reporter=json-summary --reporter=text --reports-dir=\"${C8_REPORTS_DIR:-coverage}\" pnpm test",
-    "test:filler-removal": "tsx --test tests/filler-removal/*.test.ts",
+    "test:filler-removal": "node scripts/run-tests-with-isolated-home.mjs filler-removal",
     "benchmark:filler-removal": "tsx scripts/run-filler-removal-benchmark.ts",
-    "test:golden": "tsx --test tests/golden/*.test.ts",
+    "test:golden": "node scripts/run-tests-with-isolated-home.mjs golden",
     "test:release-gate": "node scripts/run-tests-with-isolated-home.mjs release-gate",
     "release-gate": "tsx scripts/release/run-release-gate.ts",
     "acceptance:v0112": "tsx scripts/run-v0112-acceptance.ts",
@@ -52,7 +55,7 @@
     "smoke:fixture-mcp": "node scripts/fixture-mcp-smoke.mjs",
     "test:clean-mcp-clients": "node scripts/clean-mcp-client-smoke.mjs",
     "evaluate": "tsx scripts/run-mcp-evaluation.ts",
-    "test:final-cut-headless": "tsx --test tests/integration/connection.test.ts tests/integration/finalcut-mcp.test.ts tests/integration/native.test.ts",
+    "test:final-cut-headless": "node scripts/run-tests-with-isolated-home.mjs --file tests/adapters/final-cut/connection.test.ts --file tests/workflows/basic-editing/finalcut-mcp.test.ts --file tests/adapters/final-cut/native.test.ts",
     "probe:final-cut-read": "node scripts/final-cut-supported-read-probe.mjs",
     "test:final-cut-overlay-headed": "node scripts/final-cut-overlay-headed-e2e.mjs",
     "test:final-cut-canonical-read-headed": "node scripts/final-cut-canonical-read-headed-e2e.mjs",
@@ -62,7 +65,7 @@
     "test:final-cut-canonical-headed": "node scripts/final-cut-canonical-headed-e2e.mjs",
     "test:final-cut-filler-headed": "node scripts/final-cut-filler-removal-headed-e2e.mjs",
     "test:final-cut-dialogue-headed": "node scripts/final-cut-dialogue-normalization-headed-e2e.mjs",
-    "test:watch": "tsx --test --watch packages/runtime/test/*.test.ts tests/integration/*.test.ts tests/evaluation/*.test.ts tests/filler-removal/*.test.ts tests/golden/*.test.ts",
+    "test:watch": "node scripts/run-tests-with-isolated-home.mjs --watch",
     "test:final-cut-disposable-headed": "node scripts/final-cut-disposable-native-headed-e2e.mjs",
     "test:final-cut-transition-headed": "node scripts/final-cut-transition-headed-e2e.mjs",
     "test:final-cut-pip-headed": "node scripts/final-cut-picture-in-picture-headed-e2e.mjs",
@@ -81,7 +84,8 @@
     "package:final-cut-release": "bash scripts/package-final-cut-release.sh",
     "prepack": "pnpm run build:package",
     "xcode:check": "bash nix/check-xcode.sh",
-    "check:boundaries": "node scripts/check-boundaries.mjs"
+    "check:boundaries": "node scripts/check-boundaries.mjs",
+    "coverage:report": "c8 report --temp-directory=artifacts/test-results/v8 --reports-dir=artifacts/test-results/coverage --reporter=json-summary --reporter=json --reporter=text && node scripts/ci/coverage-report.mjs artifacts/test-results/coverage/coverage-summary.json"
   },
   "config": {
     "commitizen": {
@@ -104,6 +108,7 @@
     "@types/node": "24.19.2",
     "c8": "12.0.0",
     "esbuild": "0.28.2",
+    "js-yaml": "4.3.2",
     "tsc-alias": "1.9.10",
     "tsx": "4.23.15",
     "typescript": "7.0.2"

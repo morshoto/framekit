@@ -1,8 +1,85 @@
-.header { position: sticky; top: 0; z-index: 10; background: var(--surface); border-bottom: 1px solid var(--border); }
-.inner { max-width: 1440px; margin: auto; padding: 0 24px; height: 64px; display: flex; align-items: center; gap: 16px; }
-.brand { color: var(--text); text-decoration: none; font-weight: 750; white-space: nowrap; span { color: var(--text-muted); font-weight: 500; } }
-.actions { margin-left: auto; display: flex; align-items: center; gap: 12px; }
-.locale, .github { font-size: .875rem; color: var(--text-muted); }
-.menu { display: none; }
-@media (max-width: 1199px) { .inner { height: 60px; } }
-@media (max-width: 767px) { .inner { height: 56px; padding: 0 16px; gap: 4px; } .menu { display: inline-flex; } .actions { gap: 2px; } .github, .locale, .brand span { display: none; } }
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.inner {
+  max-width: 1440px;
+  margin: auto;
+  padding: 0 24px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.brand {
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 750;
+  white-space: nowrap;
+  span {
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+}
+.actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.locale,
+.github {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+.menu {
+  display: none;
+}
+@media (max-width: 1199px) {
+  .inner {
+    height: 60px;
+  }
+}
+@media (max-width: 767px) {
+  .inner {
+    height: 56px;
+    padding: 0 16px;
+    gap: 4px;
+  }
+  .menu {
+    display: inline-flex;
+  }
+  .actions {
+    gap: 2px;
+  }
+  .github,
+  .locale,
+  .brand span {
+    display: none;
+  }
+}
+
+// Allow the real header controls to wrap when readers enlarge text.
+.inner {
+  height: auto;
+  min-height: 64px;
+  flex-wrap: wrap;
+  padding-block: 8px;
+}
+.actions {
+  max-width: 100%;
+  flex-wrap: wrap;
+}
+@media (max-width: 1199px) {
+  .inner {
+    min-height: 60px;
+  }
+}
+@media (max-width: 767px) {
+  .inner {
+    min-height: 56px;
+  }
+}

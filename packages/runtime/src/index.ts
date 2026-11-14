@@ -18,6 +18,7 @@ export * from "./application/project-transactions.js";
 export * from "./application/semantic-media-index-store.js";
 export * from "./context/project-catalog.js";
 export * from "./speech/filler-removal.js";
+export * from "./audio/analysis.js";
 export * from "./audio/dialogue-normalization.js";
 export * from "./audio/noise-reduction.js";
 export * from "./color-correction.js";
