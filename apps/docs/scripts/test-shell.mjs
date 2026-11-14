@@ -43,7 +43,11 @@ try {
   await page.reload({ waitUntil: 'networkidle' });
   assert.equal(await page.locator('html').getAttribute('data-theme'), 'light');
   const trigger = page.getByRole('button', { name: 'Open navigation' });
-  await trigger.click(); await page.getByRole('dialog').getByRole('link', { name: 'Fixture setup' }).click();
+  await trigger.click();
+  await Promise.all([
+    page.waitForURL('**/en/docs/getting-started/'),
+    page.getByRole('dialog').getByRole('link', { name: 'Fixture setup' }).click(),
+  ]);
   assert.equal(await page.getByRole('dialog').count(), 0);
   assert.equal(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches), true);
   await page.close();
