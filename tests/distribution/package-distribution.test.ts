@@ -1,0 +1,243 @@
+import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import os from "node:os";
+import { dirname, join, resolve } from "node:path";
+import test, { after } from "node:test";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+
+const exec = promisify(execFile);
+const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+
+// One actual prepack/build and immutable archive serve both metadata inspection
+// and independent clean local/global installs. Consumers never reuse installed state.
+let artifact: Promise<{ directory: string; archive: string; files: Array<{ path: string; mode: number }> }> | undefined;
+function packageArtifact() {
+  return artifact ??= (async () => {
+    const directory = await mkdtemp(join(os.tmpdir(), 'framekit-package-artifact-'));
+    try {
+      const { stdout } = await exec('npm', ['pack', '--json', '--pack-destination', directory], { cwd: repository });
+      const [packed] = JSON.parse(stdout) as Array<{ filename: string; files: Array<{ path: string; mode: number }> }>;
+      assert.ok(packed);
+      const archive = join(directory, packed.filename);
+      await chmod(archive, 0o444);
+      return { directory, archive, files: packed.files };
+    } catch (error) { await rm(directory, { recursive: true, force: true }); throw error; }
+  })();
+}
+after(async () => { const built = await artifact?.catch(() => undefined); if (built) await rm(built.directory, { recursive: true, force: true }); });
+
+test("development checkout launcher prefers source over a stale dist package", async t => {
+  const root = await mkdtemp(join(os.tmpdir(), 'framekit-launcher-contract-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, 'bin'));
+  await mkdir(join(root, 'apps/cli/src'), { recursive: true });
+  await mkdir(join(root, 'dist-package/apps/cli/src'), { recursive: true });
+  await writeFile(join(root, 'package.json'), '{"type":"module"}');
+  await symlink(join(repository, 'node_modules'), join(root, 'node_modules'), 'dir');
+  const launcher = join(root, 'bin/framekit.mjs');
+  await copyFile(join(repository, 'bin/framekit.mjs'), launcher);
+  const source = join(root, 'apps/cli/src/main.ts');
+  const packaged = join(root, 'dist-package/apps/cli/src/main.js');
+  await writeFile(source, `console.log('SOURCE:' + JSON.stringify(process.argv.slice(2))); process.exitCode = Number(process.env.CLI_EXIT ?? 0);`);
+  await writeFile(packaged, `console.log('PACKAGED:' + JSON.stringify(process.argv.slice(2))); process.exitCode = Number(process.env.CLI_EXIT ?? 0);`);
+  const run = () => exec(process.execPath, [launcher, 'help', 'argument with spaces'], { cwd: root, env: { ...process.env, CLI_EXIT: '0' } });
+  const assertSource = async () => assert.equal((await run()).stdout.trim(), 'SOURCE:["help","argument with spaces"]');
+  await assertSource();
+  await assert.rejects(exec(process.execPath, [launcher], { cwd: root, env: { ...process.env, CLI_EXIT: '23' } }), (error: any) => error.code === 23);
+  // Kill a precedence mutant using the same observable assertion.
+  const correct = await readFile(launcher, 'utf8');
+  await writeFile(launcher, `import { spawn } from 'node:child_process';
+    import { fileURLToPath } from 'node:url';
+    // Intentional regression: always select stale packaged output.
+    const stale = fileURLToPath(new URL('../dist-package/apps/cli/src/main.js', import.meta.url));
+    const child = spawn(process.execPath, [stale, ...process.argv.slice(2)], { stdio: 'inherit' });
+    child.once('exit', code => { process.exitCode = code ?? 1; });`);
+  await assert.rejects(assertSource(), /PACKAGED/);
+  await writeFile(launcher, correct);
+  await rm(source);
+  assert.equal((await run()).stdout.trim(), 'PACKAGED:["help","argument with spaces"]');
+  await assert.rejects(exec(process.execPath, [launcher], { cwd: root, env: { ...process.env, CLI_EXIT: '24' } }), (error: any) => error.code === 24);
+  await rm(packaged);
+  await assert.rejects(run(), (error: any) => error.code !== 0 && /ERR_MODULE_NOT_FOUND/.test(error.stderr));
+});
+
+test("published package contains the runnable Framekit CLI and MCP sources", async () => {
+  const manifest = JSON.parse(await readFile(resolve(repository, "package.json"), "utf8")) as {
+    name?: string;
+    version?: string;
+    private?: boolean;
+    bin?: Record<string, string>;
+    exports?: Record<string, unknown>;
+    dependencies?: Record<string, string>;
+    files?: string[];
+    scripts?: Record<string, string>;
+  };
+
+  assert.equal(manifest.name, "@morshoto/framekit");
+  assert.equal(manifest.private, false);
+  assert.equal(manifest.bin?.framekit, "./bin/framekit.mjs");
+  assert.deepEqual(manifest.exports, {
+    "./bin/framekit.mjs": "./bin/framekit.mjs",
+    "./fcpxml": {
+      types: "./dist-package/adapters/final-cut/typescript/src/documents.d.ts",
+      import: "./dist-package/adapters/final-cut/typescript/src/documents.js",
+    },
+  });
+  assert.equal(manifest.dependencies?.tsx, undefined, "published CLI must not depend on the development loader");
+  assert.deepEqual(manifest.files, ["bin", "dist-package"]);
+  assert.equal(manifest.scripts?.prepack, "pnpm run build:package");
+  assert.match(manifest.scripts?.["build:package"] ?? "", /write-package-build-identity\.ts/);
+
+  const packed = await packageArtifact();
+  const paths = packed.files.map((file) => file.path);
+  for (const requiredPath of [
+    "bin/framekit.mjs",
+    "dist-package/apps/cli/src/main.js",
+    "dist-package/apps/mcp-server/src/main.js",
+    "dist-package/apps/mcp-server/src/build-identity.json",
+    "dist-package/apps/mcp-server/runtime/speech-analyzer-wrapper.mjs",
+    "dist-package/apps/mcp-server/runtime/whisper-speech-backend.py",
+    "dist-package/packages/runtime/src/index.js",
+    "dist-package/adapters/final-cut/typescript/src/index.js",
+    "dist-package/adapters/final-cut/typescript/src/documents.js",
+    "dist-package/adapters/final-cut/typescript/src/documents.d.ts",
+  ]) {
+    assert.ok(paths.includes(requiredPath), `${requiredPath} must be included in the npm package`);
+  }
+  for (const executable of [
+    "dist-package/apps/mcp-server/runtime/speech-analyzer-wrapper.mjs",
+    "dist-package/apps/mcp-server/runtime/whisper-speech-backend.py",
+  ]) {
+    const packedFile = packed.files.find(({ path }) => path === executable);
+    assert.ok(packedFile && (packedFile.mode & 0o111) !== 0, `${executable} must remain executable in the package`);
+  }
+  assert.equal(paths.some((path) => path.startsWith("tests/")), false);
+  assert.equal(paths.some((path) => path.startsWith("adapters/final-cut/swift-bridge/")), false);
+
+  const identity = JSON.parse(await readFile(
+    resolve(repository, "dist-package/apps/mcp-server/src/build-identity.json"),
+    "utf8",
+  )) as { version?: string; commit?: string };
+  assert.equal(identity.version, manifest.version);
+  assert.match(identity.commit ?? "", /^[0-9a-f]{40}$/);
+});
+
+test("clean local and global installs expose the supported CLI and MCP entrypoints", { timeout: 180_000 }, async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-package-smoke-"));
+  let client: Client | undefined;
+  let transport: StdioClientTransport | undefined;
+
+  try {
+    const { archive } = await packageArtifact();
+    await exec("npm", ["install", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund", archive], { cwd: directory });
+    const installedManifest = JSON.parse(
+      await readFile(join(directory, "node_modules", "@morshoto", "framekit", "package.json"), "utf8"),
+    ) as { version?: string };
+
+    const executable = join(directory, "node_modules", ".bin", "framekit");
+    const speechAnalyzer = join(
+      directory,
+      "node_modules",
+      "@morshoto",
+      "framekit",
+      "dist-package",
+      "apps",
+      "mcp-server",
+      "runtime",
+      "speech-analyzer-wrapper.mjs",
+    );
+    const help = await exec(executable, ["help"], { cwd: directory });
+    assert.match(help.stdout, /framekit mcp --editor final-cut-live \[--headless\]/);
+    await assert.rejects(
+      exec(speechAnalyzer, [], { cwd: directory, env: { ...process.env, FRAMEKIT_SPEECH_BACKEND: "" } }),
+      (error: unknown) => error instanceof Error
+        && (error as Error & { code?: number }).code === 78
+        && /SPEECH_ANALYZER_SETUP_REQUIRED/.test((error as Error & { stderr?: string }).stderr ?? ""),
+    );
+
+    const globalPrefix = join(directory, "global");
+    await exec("npm", ["install", "--global", "--prefix", globalPrefix, "--ignore-scripts", "--no-audit", "--no-fund", archive], { cwd: directory });
+    const globalExecutable = join(globalPrefix, "bin", process.platform === "win32" ? "framekit.cmd" : "framekit");
+    const globalHelp = await exec(globalExecutable, ["help"], { cwd: directory });
+    assert.match(globalHelp.stdout, /framekit mcp --editor final-cut-live \[--headless\]/);
+
+    await exec(process.execPath, [
+      "--input-type=module",
+      "--eval",
+      "await import('@morshoto/framekit/bin/framekit.mjs')",
+    ], { cwd: directory });
+
+    const documentRoundTrip = await exec(process.execPath, [
+      "--input-type=module", "--eval", `
+        import assert from "node:assert/strict";
+        import { writeFile } from "node:fs/promises";
+        import { FcpxmlDocumentAdapter, compileTimelineIrToFcpxml } from "@morshoto/framekit/fcpxml";
+        const timeline = {
+          schemaVersion: 1,
+          project: { id: "document-project", name: "Document" },
+          sequence: {
+            id: "document-sequence", name: "Main",
+            durationTime: { value: "25", timescale: "25" },
+            frameDuration: { value: "1", timescale: "25" },
+            occurrences: [{
+              id: "clip", name: "Clip", mediaId: "source", role: "video", track: 0,
+              startTime: { value: "0", timescale: "25" },
+              durationTime: { value: "25", timescale: "25" },
+              sourceStartTime: { value: "10", timescale: "25" },
+            }],
+            storyElements: [], markers: [], captions: [],
+          },
+          resources: [{ id: "source", name: "Source", mediaKind: "video", source: "/media/fixture.mov",
+            metadata: { durationTime: { value: "100", timescale: "25" },
+              streams: [{ kind: "video", width: 1280, height: 720, frameRate: { value: "25", timescale: "1" } }] } }],
+          revision: { id: "revision", sequence: 1, timestamp: "2026-11-15T00:00:00.000Z" },
+        };
+        const result = compileTimelineIrToFcpxml(timeline, { target: {
+          provider: "final-cut", libraryUid: "library", eventUid: "event",
+          projectUid: "project", sequenceUid: "sequence",
+        } });
+        await writeFile("roundtrip.fcpxml", result.xml);
+        const snapshot = await new FcpxmlDocumentAdapter("roundtrip.fcpxml").readProject();
+        assert.deepEqual(snapshot.timeline.clips[0].durationTime, { value: "1", timescale: "1" });
+        assert.deepEqual(snapshot.timeline.clips[0].sourceStartTime, { value: "2", timescale: "5" });
+        assert.equal(result.provenance.revision.id, "revision");
+        assert.equal(snapshot.timeline.clips.length, 1);
+        console.log("document round trip passed");
+      `,
+    ], { cwd: directory, env: { ...process.env, FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0" } });
+    assert.match(documentRoundTrip.stdout, /document round trip passed/);
+
+    const privateSubpath = await exec(process.execPath, [
+      "--input-type=module",
+      "--eval",
+      "await import('@morshoto/framekit/dist-package/apps/cli/src/main.js')",
+    ], { cwd: directory }).then(
+      () => undefined,
+      (error: unknown) => error as { stderr?: string; code?: number },
+    );
+    assert.ok(privateSubpath);
+    assert.match(privateSubpath.stderr ?? "", /ERR_PACKAGE_PATH_NOT_EXPORTED/);
+
+    transport = new StdioClientTransport({
+      command: executable,
+      args: ["mcp", "--editor", "final-cut-live", "--headless"],
+      cwd: directory,
+      env: { ...process.env, FRAMEKIT_STATE_DIR: join(directory, "framekit-state"), FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0" },
+      stderr: "pipe",
+    });
+    client = new Client({ name: "framekit-package-smoke", version: "0.1.0" });
+    await client.connect(transport);
+    assert.equal(client.getServerVersion()?.version, installedManifest.version);
+    const tools = await client.listTools();
+    assert.ok(tools.tools.some((tool) => tool.name === "connection.status"));
+    assert.ok(tools.tools.some((tool) => tool.name === "editor.live.inspect"));
+  } finally {
+    await client?.close();
+    await transport?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});

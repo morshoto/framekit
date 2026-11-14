@@ -30,6 +30,17 @@ is reported as incomplete. Reports distinguish the tested merge commit from
 the PR head. Workflow summaries and failure artifacts describe fixture or shim
 evidence without claiming headed Final Cut proof.
 
+PR summaries also expose per-package branch-coverage baselines, critical
+persistence/recovery files, slow-test timings, and reviewed platform/opt-in
+skip reasons. Coverage includes unvisited source files and has no global
+threshold. Compact JSON/JUnit/coverage artifacts retain provenance and failing
+seed diagnostics; raw V8 temporary data is not uploaded.
+
+Use `pnpm test --file <reviewed-test-path> --test-name-pattern <regex>` or
+`pnpm run test:watch --file <reviewed-test-path>` for isolated focused feedback.
+See the [suite commands, responsibility layout, and discovery boundaries](../tests/README.md)
+for metadata review and generated-test replay instructions.
+
 Run `pnpm run check:workflows` to validate workflow syntax and expressions with
 checksum-verified actionlint. Manual CI dispatch validates Docs unconditionally
 and uses a separate concurrency group from PR runs.
