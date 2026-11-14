@@ -151,7 +151,8 @@ export function verifyPrimaryStorylineReorder(
 ): void {
   try {
     assertReorderPreviewCurrent(preview, before);
-    if (!preview.noOp && (after.revision.id === before.revision.id || after.revision.sequence <= before.revision.sequence)) {
+    if (!preview.noOp && (!after.revision.id || !Number.isSafeInteger(after.revision.sequence)
+      || after.revision.id === before.revision.id || after.revision.sequence <= before.revision.sequence)) {
       throw new Error("revision did not advance");
     }
     const expected = structuredClone(before);
