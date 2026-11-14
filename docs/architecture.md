@@ -126,8 +126,9 @@ outcome without automatically retrying it.
 The Browser handle must remain available and unchanged for the post-command UI
 scan. That scan is name-based and its result is explicitly unverified; the
 Browser identity is not evidence of the timeline occurrence's original source.
-Blade Undo checks the original project and sequence and is not retried after
-an uncertain dispatch; the in-process operation remains unavailable for retry.
+Blade Undo checks the original project and sequence. Once dispatched, it remains
+unverified and requires recovery because canonical restoration and source
+coverage cannot currently be read back; the in-process operation cannot retry.
 These checks do not establish canonical source binding or verified split/Undo.
 
 The current source-binding decision is **NO-GO** for the bundled adapter:

@@ -1254,6 +1254,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       if (operation.kind === "blade") throw new Error(`FINAL_CUT_NATIVE_UNDO_OUTCOME_UNCERTAIN: Blade Undo may have been applied; recovery is required: ${String(error)}`);
       throw new Error(`${nativeErrorCode(error)}: ${String(error)}`);
     }
+    if (operation.kind === "blade") {
+      throw new Error("FINAL_CUT_NATIVE_UNDO_VERIFICATION_FAILED: canonical restoration and source coverage are unavailable; recovery is required");
+    }
     const after = await this.requireTimelineContext();
     const afterLive = await this.waitForUndo(operation);
     const verification = verifyNativeUndo(operation, after, afterLive);
