@@ -855,12 +855,12 @@ test("audio occurrence measurement retains declared source clock and signal form
     ...DIALOGUE_NORMALIZATION_DEFAULTS,
     mediaId: "media-semantic-1", occurrenceId: "clip-semantic-1", baseRevision: before.revision,
   });
-  assert.deepEqual((preview.measurement as unknown as { signalFormat: unknown }).signalFormat, format);
-  assert.deepEqual((preview.measurement as unknown as { sourceTimebase: unknown }).sourceTimebase, clock);
+  assert.deepEqual(preview.measurement.signalFormat, format);
+  assert.deepEqual(preview.measurement.sourceTimebase, clock);
   assert.equal(preview.plan.decision, "APPLY");
   format.channels = 9;
   clock.timescale = "1";
-  assert.equal((preview.measurement as unknown as { signalFormat: { channels: number } }).signalFormat.channels, 2);
-  assert.equal((preview.measurement as unknown as { sourceTimebase: { timescale: string } }).sourceTimebase.timescale, "48000");
+  assert.equal(preview.measurement.signalFormat?.channels, 2);
+  assert.equal(preview.measurement.sourceTimebase?.timescale, "48000");
   assert.deepEqual(await fixture.adapter.readProject(), before);
 });

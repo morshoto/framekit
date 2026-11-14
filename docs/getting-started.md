@@ -89,6 +89,14 @@ receive an explicit `occurrenceId` and must return that same ID with
 `signalScope: occurrence`. Source-only or mismatched evidence cannot be used
 as a post-edit occurrence measurement.
 
+Audio payloads require finite loudness/peak values and nonnegative silence and
+sample counts. Malformed payloads fail `audio.analyze`; `media.understand`
+reports audio unavailable while preserving successful transcription and other
+analysis. Providers may report `sourceTimebase` as a positive rational clock and
+`signalFormat` with positive integer `sampleRate`/`channels` and an optional
+nonempty `channelLayout`. Declared range timing and format are validated and
+retained; absent technical metadata is not inferred.
+
 Use `connection.status` for connection diagnostics, `editor.inspect` for
 backend and capability details, and `editing.route` for the requested
 operation's selected path. Unsupported operations return a structured

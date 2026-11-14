@@ -367,6 +367,15 @@ occurrence measurement, and a source-only post-write response causes verified
 rollback rather than an output-loudness claim. Reusable source analysis and
 occurrence/output measurements remain distinct.
 
+The shared runtime audio payload gate validates metrics, counters, flags,
+declared source clocks, rational source ranges and signal-format metadata for
+both command adapters and application provider ports. This prevents nonfinite
+values from becoming successful JSON null measurements. Provider-rejected
+audio is unavailable in semantic understanding without disabling successful
+transcription. Source/occurrence results retain declared clock and sample
+format, while missing metadata remains unknown; shape validation alone does
+not verify a provider's physical measurements.
+
 ### FCPXML document interchange
 
 Headless project workflows import `@framekit/final-cut/fcpxml`, which exposes

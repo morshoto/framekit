@@ -3128,12 +3128,16 @@
     "tests/integration/semantic-media.test.ts": [
       "\"source audio analysis cannot authorize an occurrence gain edit\"",
       "\"source audio results explicitly identify the measured signal\"",
-      "\"audio measurements reject a different occurrence before previewing edits\""
+      "\"audio measurements reject a different occurrence before previewing edits\"",
+      "\"production MCP rejects malformed audio while transcription stays available\"",
+      "\"media understanding does not publish provider-rejected audio as analyzed evidence\"",
+      "\"audio occurrence measurement retains declared source clock and signal format\""
     ],
     "tests/speech/command-analyzer.test.ts": [
       "`${kind} rejects replaced source bytes before starting the provider`",
       "`${kind} rejects a source replaced while its provider is running`",
-      "`${kind} analyzes matching source content without changing media or timeline`"
+      "`${kind} analyzes matching source content without changing media or timeline`",
+      "`command audio rejects invalid ${label}`"
     ]
   },
   "identityDiscoveryCorrections": {
@@ -3248,6 +3252,22 @@
           "`${kind} rejects replaced source bytes before starting the provider`",
           "`${kind} rejects a source replaced while its provider is running`",
           "`${kind} analyzes matching source content without changing media or timeline`"
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        738
+      ],
+      "reason": "Add production MCP audio payload and declared signal provenance regressions; no baseline identities removed.",
+      "addedTestNames": {
+        "tests/integration/semantic-media.test.ts": [
+          "\"production MCP rejects malformed audio while transcription stays available\"",
+          "\"media understanding does not publish provider-rejected audio as analyzed evidence\"",
+          "\"audio occurrence measurement retains declared source clock and signal format\""
+        ],
+        "tests/speech/command-analyzer.test.ts": [
+          "`command audio rejects invalid ${label}`"
         ]
       }
     }

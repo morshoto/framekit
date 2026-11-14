@@ -244,7 +244,17 @@ export interface RevisionBoundSpeechAnalysis extends SpeechAnalysis {
   capability: SpeechAnalysisCapability;
 }
 
+export interface AudioSignalFormat {
+  sampleRate: number;
+  channels: number;
+  channelLayout?: string;
+}
+
 export interface AudioAnalysis {
+  /** Declared source reference clock; absent means unavailable, never inferred. */
+  sourceTimebase?: RationalTime;
+  /** Format of the measured signal, interpreted with signalScope. */
+  signalFormat?: AudioSignalFormat;
   /** Omitted legacy scope means source-file audio, never post-edit output. */
   signalScope?: "source" | "occurrence";
   /** Required when signalScope is occurrence; echoes an explicit measurement request. */
@@ -289,6 +299,8 @@ export interface NoiseMeasurement extends NoiseAnalysis {
 
 /** Revision-bound audio evidence for one complete timeline occurrence. */
 export interface AudioMeasurement {
+  sourceTimebase?: RationalTime;
+  signalFormat?: AudioSignalFormat;
   signalScope: "source" | "occurrence";
   sourceIdentity?: MediaSourceIdentity;
   mediaId: string;
