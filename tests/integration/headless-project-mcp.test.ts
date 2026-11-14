@@ -18,6 +18,19 @@ import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer 
 
 const execFileAsync = promisify(execFile);
 
+test("headless project list includes valid project IDs that resemble render records", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headless-project-list-"));
+  try {
+    const service = new HeadlessProjectService({ directory });
+    const timeline = emptyTimeline();
+    timeline.project.id = "render-example";
+    await service.create(timeline);
+    assert.deepEqual((await service.list()).map((project) => project.projectId), ["render-example"]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("production rough-cut tools expose digest-bound edit operations", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-rough-cut-operations-"));
   const here = dirname(fileURLToPath(import.meta.url));
