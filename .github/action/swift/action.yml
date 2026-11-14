@@ -3,6 +3,18 @@ description: Validate the Xcode project and type-check the Workflow Extension.
 runs:
   using: composite
   steps:
+    - name: Select declared CI Xcode
+      shell: bash
+      run: |
+        version="$(node -p "require('./nix/xcode-version.json').ci.xcode.version")"
+        developer_dir="/Applications/Xcode_${version}.app/Contents/Developer"
+        test -d "$developer_dir"
+        echo "DEVELOPER_DIR=$developer_dir" >> "$GITHUB_ENV"
+
+    - name: Check declared CI toolchain
+      shell: bash
+      run: bash nix/check-xcode.sh --ci
+
     - name: Show Apple toolchain
       shell: bash
       run: |
@@ -25,3 +37,24 @@ runs:
         -target arm64-apple-macos15.0
         -I adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/ProExtensionHostShim
         adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/FinalCutLiveWorkflowExtension.swift
+        2>&1 | tee "$RUNNER_TEMP/swift-typecheck.log"
+
+    - name: Describe Swift evidence
+      if: ${{ always() }}
+      shell: bash
+      run: |
+        {
+          echo '## Swift validation'
+          echo "Tested commit: $(git rev-parse HEAD)"
+          echo "Xcode: $(xcodebuild -version | tr '\n' ' '); SDK: $(xcrun --sdk macosx --show-sdk-version)"
+          echo 'The job checks project metadata and shim type-checking; it does not build the extension or prove headed Final Cut behavior.'
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload Swift diagnostics
+      if: ${{ always() }}
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      with:
+        name: swift-typecheck-${{ github.run_id }}-${{ github.run_attempt }}
+        path: ${{ runner.temp }}/swift-typecheck.log
+        if-no-files-found: warn
+        retention-days: 14
