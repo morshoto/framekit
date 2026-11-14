@@ -203,6 +203,13 @@ test("FCPXML comparison requires explicit exports and fails on changed source co
     assert.match(mismatch.stderr, /FINAL_CUT_PUBLISH_SEMANTIC_MISMATCH/);
     await rm(actualMedia);
     assert.notEqual(spawnSync(process.execPath, [...args, expected, actual]).status, 0);
+    await writeFile(actualMedia, "expected source");
+    const unsupported = (source: string) => xml(source).replace("<asset-clip ", "<ref-clip ").replace("</asset-clip>", "</ref-clip>");
+    await writeFile(expected, unsupported(expectedMedia));
+    await writeFile(actual, unsupported(actualMedia));
+    const nested = spawnSync(process.execPath, [...args, expected, actual], { encoding: "utf8" });
+    assert.notEqual(nested.status, 0, "unsupported compound references must not pass even when both inputs match");
+    assert.match(nested.stderr, /unsupported/i);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
