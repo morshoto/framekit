@@ -6,6 +6,7 @@ import os from "node:os";
 import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { validateFillerNativeAcceptance } from "./final-cut-filler-acceptance.mjs";
 
 const execFile = promisify(execFileCallback);
 
@@ -665,6 +666,21 @@ export function sanitizeMaskEvidence(run, environment) {
 }
 
 export function sanitizeFillerRemovalEvidence(run, environment) {
+  const acceptance = validateFillerNativeAcceptance({ ...run, environment });
+  return { ...summarizeFillerMutation(run, environment), schemaVersion: 2, acceptance };
+}
+
+export function sanitizeFillerRemovalDiagnostic(run, environment) {
+  const summary = summarizeFillerMutation(run, environment);
+  const sourceMediaIntegrity = verifyCanonicalSourceIntegrity(run.before, run.sourceIntegrity);
+  verifyCanonicalSourceIntegrity(run.before, { before: run.sourceIntegrity.before, restored: run.sourceIntegrity.after });
+  return { ...summary, evidenceType: "headed-native-filler-removal-diagnostic", passed: false,
+    sourceMediaIntegrity,
+    outcome: "NO_GO", missing: ["complete-scenario-suite", "independent-edited-speech-evidence"],
+    removal: { ...summary.removal, continuityVerified: false, runtimeContinuityCheckPassed: run.removal.continuityVerified === true } };
+}
+
+function summarizeFillerMutation(run, environment) {
   assert(run?.passed === true, "headed filler-removal run did not pass");
   assert(run.editor && run.project && run.removal && run.restoration, "filler-removal evidence is incomplete");
   assert(run.removal.status === "VERIFIED", "filler-removal mutation was not verified");
@@ -685,6 +701,8 @@ export function sanitizeFillerRemovalEvidence(run, environment) {
     restored: requireString(run.restoration.restoredRevision?.id, "filler-removal restored revision"),
   };
   assert(revisions.before !== revisions.after, "filler-removal revision did not advance");
+  assert(/^[a-f0-9]{64}$/.test(run.restoration.beforeDigest ?? "")
+    && run.restoration.beforeDigest === run.restoration.restoredDigest, "filler-removal restoration digest does not match");
   return {
     schemaVersion: 1,
     evidenceType: "headed-native-filler-removal",
@@ -713,7 +731,7 @@ export function sanitizeFillerRemovalEvidence(run, environment) {
       continuityVerified: run.removal.continuityVerified === true,
     },
     revisions,
-    restoration: { status: "VERIFIED", restored: true },
+    restoration: { status: "VERIFIED", restored: true, beforeDigest: run.restoration.beforeDigest, restoredDigest: run.restoration.restoredDigest },
     verification: { execute: true, undo: true },
     toolResults: sanitizeToolResultList(run.toolResults),
     sanitization: {

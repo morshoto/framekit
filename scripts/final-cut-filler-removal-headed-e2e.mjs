@@ -6,21 +6,16 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
-import { createHash } from "node:crypto";
-import { sanitizeFillerRemovalEvidence } from "./final-cut-evidence.mjs";
+import { sanitizeFillerRemovalDiagnostic, canonicalEvidenceDigest as canonicalDigest, hashCanonicalSourceMedia } from "./final-cut-evidence.mjs";
+import { parseFillerApproval, previewApprovedFiller } from "./final-cut-filler-review.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const execFile = promisify(execFileCallback);
-const expectedProject = process.env.FRAMEKIT_FINAL_CUT_E2E_PROJECT;
-const start = Number(process.env.FRAMEKIT_FINAL_CUT_E2E_RANGE_START);
-const end = Number(process.env.FRAMEKIT_FINAL_CUT_E2E_RANGE_END);
-
-if (!expectedProject) {
-  throw new Error("Set FRAMEKIT_FINAL_CUT_E2E_PROJECT before running the filler-removal headed E2E");
-}
-if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) {
-  throw new Error("Set FRAMEKIT_FINAL_CUT_E2E_RANGE_START and FRAMEKIT_FINAL_CUT_E2E_RANGE_END to a positive timeline range");
-}
+const approval = parseFillerApproval(process.env);
+const expectedProject = approval.projectName;
+const { start, end } = approval.range;
+await assertCandidate();
+await execFile("bash", [join(root, ".agents/skills/verify-final-cut-native/scripts/run-headed-check.sh"), "filler-removal"], { cwd: root });
 
 const transport = new StdioClientTransport({
   command: process.execPath,
@@ -29,6 +24,10 @@ const transport = new StdioClientTransport({
     ...process.env,
     FRAMEKIT_EDITOR: "final-cut-live",
     FRAMEKIT_AUTO_CONNECT: "0",
+    FRAMEKIT_FINAL_CUT_EXISTING_SOCKET_ONLY: "1",
+    FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER: "native",
+    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "1",
+    FRAMEKIT_FINAL_CUT_HEADLESS: "0",
     FRAMEKIT_FCPXML_PATH: "",
   },
   stderr: "pipe",
@@ -43,6 +42,7 @@ try {
   const editor = await callJson("editor.inspect");
   toolResults.push({ name: "editor.inspect", status: "passed" });
   requireCanonicalWrite(editor);
+  requireCandidateAlignment(editor);
 
   const inspection = await callJson("skill.inspect", { skill: "filler-removal" });
   toolResults.push({ name: "skill.inspect", status: "passed" });
@@ -54,7 +54,8 @@ try {
   toolResults.push({ name: "editor.live.inspect", status: "passed" });
   const before = await callJson("project.inspect");
   toolResults.push({ name: "project.inspect", status: "passed" });
-  if (before.projectName !== expectedProject) {
+  if (before.projectName !== expectedProject || before.projectId !== approval.projectId
+    || before.timeline.id !== approval.sequenceId || before.revision.id !== approval.revisionId) {
     throw new Error(`FINAL_CUT_E2E_PROJECT_MISMATCH: expected ${expectedProject}, observed ${before.projectName ?? "unknown"}`);
   }
   if (live.project?.id !== before.projectId || live.sequence?.id !== before.timeline.id) {
@@ -64,20 +65,13 @@ try {
     throw new Error(`FINAL_CUT_E2E_RANGE_MISMATCH: ${end} exceeds timeline duration ${before.timeline.duration}`);
   }
 
-  const preview = await callJson("skill.preview", {
-    skill: "filler-removal",
-    arguments: { baseRevision: before.revision, range: { start, end } },
-  });
-  toolResults.push({ name: "skill.preview", status: "passed" });
-  const candidates = preview.plan?.details?.candidates;
-  if (!Array.isArray(candidates) || candidates.length === 0) {
-    throw new Error("FINAL_CUT_E2E_NO_FILLERS: the disposable range contains no high-confidence fillers");
-  }
-  const occurrenceIds = [...new Set(candidates.map((candidate) => candidate.occurrenceId).filter(Boolean))];
-  if (occurrenceIds.length !== 1) {
-    throw new Error("FINAL_CUT_E2E_OCCURRENCE_AMBIGUOUS: filler range must resolve to exactly one timeline occurrence");
-  }
-  const occurrenceId = occurrenceIds[0];
+  const sourceHashesBefore = await hashCanonicalSourceMedia(before);
+  const preview = await previewApprovedFiller(callJson, () => callJson("project.inspect"), before, approval);
+  toolResults.push({ name: "skill.preview", status: "passed" }, { name: "skill.preview", status: "passed" });
+  const candidates = preview.plan.details.candidates;
+  const occurrenceId = approval.occurrenceId;
+  await assertCandidate();
+  requireCandidateAlignment(await callJson("editor.inspect"));
 
   const transaction = await callJson("skill.execute", { previewToken: preview.previewToken });
   toolResults.push({ name: "skill.execute", status: transaction.status });
@@ -96,6 +90,7 @@ try {
   const after = await callJson("project.inspect");
   toolResults.push({ name: "project.inspect", status: "passed" });
 
+  const sourceHashesAfter = await hashCanonicalSourceMedia(after);
   const restored = await callJson("edit.undo", { transactionId });
   toolResults.push({ name: "edit.undo", status: "passed" });
   canUndo = false;
@@ -106,7 +101,15 @@ try {
     throw new Error("FINAL_CUT_E2E_ROLLBACK_DIGEST_MISMATCH: undo did not restore the pre-edit canonical digest");
   }
 
+  const sourceHashesRestored = await hashCanonicalSourceMedia(restored);
+  if (JSON.stringify(sourceHashesBefore) !== JSON.stringify(sourceHashesAfter)
+    || JSON.stringify(sourceHashesBefore) !== JSON.stringify(sourceHashesRestored)) {
+    throw new Error("FINAL_CUT_E2E_SOURCE_CHANGED: source bytes changed during the diagnostic");
+  }
+
   const rawEvidence = {
+    before,
+    sourceIntegrity: { before: sourceHashesBefore, after: sourceHashesAfter, restored: sourceHashesRestored },
     schemaVersion: 1,
     evidenceType: "headed-native-filler-removal",
     passed: true,
@@ -149,7 +152,9 @@ try {
       omitted: ["media sources", "raw snapshots", "transaction identifiers", "diagnostics"],
     },
   };
-  const evidence = sanitizeFillerRemovalEvidence(rawEvidence, rawEvidence.environment);
+  // This single-case diagnostic cannot supply the complete acceptance suite or
+  // independently observed edited-output speech. Never emit release PASS here.
+  const evidence = sanitizeFillerRemovalDiagnostic(rawEvidence, rawEvidence.environment);
   process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`);
 } catch (error) {
   if (canUndo && transactionId) {
@@ -227,20 +232,15 @@ async function evidenceEnvironment() {
   };
 }
 
-function canonicalDigest(snapshot) {
-  return createHash("sha256").update(stableJson({
-    projectId: snapshot.projectId,
-    projectName: snapshot.projectName,
-    timeline: snapshot.timeline,
-    media: snapshot.media.map(({ mediaId, source }) => ({ mediaId, source })),
-  })).digest("hex");
+async function assertCandidate() {
+  const head = (await execFile("git", ["rev-parse", "HEAD"], { cwd: root })).stdout.trim();
+  const dirty = (await execFile("git", ["status", "--porcelain"], { cwd: root })).stdout.trim();
+  if (head !== approval.candidateCommit || dirty) throw new Error("FINAL_CUT_E2E_CANDIDATE_MISMATCH: checkout must be clean and match the approved candidate");
 }
 
-function stableJson(value) {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  const entries = Object.entries(value)
-    .filter(([, child]) => child !== undefined)
-    .sort(([left], [right]) => left.localeCompare(right));
-  return `{${entries.map(([key, child]) => `${JSON.stringify(key)}:${stableJson(child)}`).join(",")}}`;
+function requireCandidateAlignment(editor) {
+  if (editor.preflight?.fingerprint?.commit !== approval.candidateCommit
+    || editor.preflight?.buildAlignment?.status !== "matched" || editor.preflight?.nativeHandoffReadiness?.status !== "ready") {
+    throw new Error("FINAL_CUT_E2E_PREFLIGHT_UNAVAILABLE: loaded candidate or native handoff readiness differs");
+  }
 }
