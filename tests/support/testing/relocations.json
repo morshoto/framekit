@@ -3140,6 +3140,19 @@
       "\"native placement Undo rejects an interleaved context target before dispatch\"",
       "\"native placement undo does not replay an uncertain focus failure\"",
       "\"native placement undo rejects restored duration on a different target\""
+    ],
+    "tests/integration/canonical-native-provider.test.ts": [
+      "\"canonical resolver rejects nonpositive target duration before discovery\"",
+      "\"canonical resolver rejects overlapping same-source occurrences before discovery\"",
+      "\"canonical resolver permits adjacent repeated source occurrences\"",
+      "\"canonical ripple delete requires source observation of the affected occurrence\"",
+      "\"ripple source observation preserves checkpoint when discovery may dispatch\"",
+      "\"canonical resolver rejects unrecorded overlapping native occurrences before selection\"",
+      "\"canonical resolver rejects a partial scan of repeated source occurrences\"",
+      "\"canonical resolver rejects unexpected or displaced repeated native occurrences\""
+    ],
+    "tests/integration/final-cut-publish-readback.test.ts": [
+      "\"FCPXML comparison requires explicit exports and fails on changed source content\""
     ]
   },
   "identityDiscoveryCorrections": {
@@ -3277,6 +3290,27 @@
           "\"native placement refuses changed post-dispatch targets without undoing them\"",
           "\"native placement undo does not replay an uncertain focus failure\"",
           "\"native placement undo rejects restored duration on a different target\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        718
+      ],
+      "reason": "Preserve both feature behavior and all added tests across current main test relocations; no reviewed identities removed.",
+      "addedTestNames": {
+        "tests/integration/canonical-native-provider.test.ts": [
+          "\"canonical resolver rejects nonpositive target duration before discovery\"",
+          "\"canonical resolver rejects overlapping same-source occurrences before discovery\"",
+          "\"canonical resolver permits adjacent repeated source occurrences\"",
+          "\"canonical ripple delete requires source observation of the affected occurrence\"",
+          "\"ripple source observation preserves checkpoint when discovery may dispatch\"",
+          "\"canonical resolver rejects unrecorded overlapping native occurrences before selection\"",
+          "\"canonical resolver rejects a partial scan of repeated source occurrences\"",
+          "\"canonical resolver rejects unexpected or displaced repeated native occurrences\""
+        ],
+        "tests/integration/final-cut-publish-readback.test.ts": [
+          "\"FCPXML comparison requires explicit exports and fails on changed source content\""
         ]
       }
     }
