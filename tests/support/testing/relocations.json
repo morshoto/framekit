@@ -3272,6 +3272,7 @@
       "\"source range translation rejects conflicting exact evidence coordinates\"",
       "\"speech mapping retains the declared source clock at fractional frame offsets\"",
       "\"speech mapping rejects evidence outside its declared source clock\"",
+      "\"speech mapping uses the analysis clock independently of the editor source clock\"",
       "\"cached speech remaps rational trim reorder and split snapshots after restart\"",
       "\"speech mapping retains partial VAD coverage and only advertises fully covered occurrences\""
     ]
@@ -3376,6 +3377,15 @@
     }
   ],
   "featureIntegrations": [
+    {
+      "pullRequests": [740],
+      "reason": "Keep the provider analysis clock distinct from the editor source clock during rational mapping.",
+      "addedTestNames": {
+        "tests/speech/mapping.test.ts": [
+          "\"speech mapping uses the analysis clock independently of the editor source clock\""
+        ]
+      }
+    },
     {
       "pullRequests": [740],
       "reason": "Compare attached audio against its recorded revision ID without weakening persisted revision checks.",

@@ -76,6 +76,16 @@ test("speech mapping translates trimmed source evidence to offset rational seque
   });
 });
 
+test("speech mapping uses the analysis clock independently of the editor source clock", () => {
+  const speech = { ...analysis, sourceTimebase: { value: "1", timescale: "16000" } };
+  const target = { ...occurrence(30), sourceTimebase: { value: "1", timescale: "48000" } };
+  const mapped = mapSpeechAnalysisToOccurrence(speech, target, { sequenceFrameDuration: { value: "1", timescale: "10" } });
+  assert.deepEqual(mapped.words[0]?.sequenceRange.startTime, { value: "121", timescale: "4" });
+  assert.deepEqual(mapped.words[0]?.sequenceRange.durationTime, { value: "1", timescale: "10" });
+  assert.throws(() => mapSpeechAnalysisToOccurrence(speech, { ...target, sourceTimebase: { value: "1", timescale: "0" } },
+    { sequenceFrameDuration: { value: "1", timescale: "10" } }), /ANALYSIS_INVALID/);
+});
+
 test("speech mapping keeps repeated occurrences independent", () => {
   const first = mapSpeechAnalysisToOccurrence(analysis, occurrence(30), {
     sequenceFrameDuration: { value: "1", timescale: "10" },
@@ -152,10 +162,10 @@ test("speech mapping fails closed for stale, ambiguous, and unsupported targets"
   const mismatched = { ...occurrence(30), mediaId: "other-media" };
   const unequal = { ...occurrence(30), sequenceRange: { ...occurrence(30).sequenceRange, end: 33 } };
   const missingRational = { ...occurrence(30), sequenceRange: { start: 30, end: 32 } };
-  const mismatchedTimebase = { ...occurrence(30), sourceTimebase: { value: "1", timescale: "30" } };
+  const invalidTimebase = { ...occurrence(30), sourceTimebase: { value: "1", timescale: "0" } };
   const partialWord = { ...analysis, words: [{ text: "cut", start: 9.9, end: 10.1, confidence: 0.9 }] };
 
-  for (const target of [stale, mismatched, unequal, missingRational, mismatchedTimebase]) {
+  for (const target of [stale, mismatched, unequal, missingRational, invalidTimebase]) {
     assert.throws(
       () => mapSpeechAnalysisToOccurrence(analysis, target, { sequenceFrameDuration: { value: "1", timescale: "10" } }),
       /STALE_CONTEXT|TARGET_MISMATCH|AMBIGUOUS_MAPPING|ANALYSIS_INVALID/,

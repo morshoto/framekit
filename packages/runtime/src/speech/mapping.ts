@@ -17,7 +17,7 @@ export interface SpeechOccurrence {
   revision: ContextRevision;
   sourceRange: TimeRange;
   sequenceRange: TimeRange;
-  /** Expected source clock for this occurrence when the editor exposes one. */
+  /** Editor source clock, independent of the provider's evidence clock. */
   sourceTimebase?: RationalTime;
 }
 
@@ -49,10 +49,7 @@ export function mapSpeechAnalysisToOccurrence(
   }
   const sourceTimebase = validatePositiveRational(analysis.sourceTimebase, "ANALYSIS_INVALID", "speech source timebase");
   if (occurrence.sourceTimebase !== undefined) {
-    const occurrenceTimebase = validatePositiveRational(occurrence.sourceTimebase, "ANALYSIS_INVALID", "occurrence source timebase");
-    if (!sameRational(sourceTimebase, occurrenceTimebase)) {
-      throw new Error("AMBIGUOUS_MAPPING: speech source timebase does not match the timeline occurrence");
-    }
+    validatePositiveRational(occurrence.sourceTimebase, "ANALYSIS_INVALID", "occurrence source timebase");
   }
   const frame = validatePositiveRational(options.sequenceFrameDuration, "ANALYSIS_INVALID", "sequence frame duration");
   const sourceDuration = occurrence.sourceRange.end - occurrence.sourceRange.start;
@@ -333,10 +330,4 @@ function greatestCommonDivisor(left: bigint, right: bigint): bigint {
 
 function sameRevision(left: ContextRevision, right: ContextRevision): boolean {
   return left.id === right.id && left.sequence === right.sequence && left.timestamp === right.timestamp;
-}
-
-function sameRational(left: RationalTime, right: RationalTime): boolean {
-  const leftParts = parseRational(left, "ANALYSIS_INVALID");
-  const rightParts = parseRational(right, "ANALYSIS_INVALID");
-  return leftParts.value * rightParts.timescale === rightParts.value * leftParts.timescale;
 }

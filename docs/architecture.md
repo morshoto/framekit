@@ -462,9 +462,11 @@ native occurrence/source observation.
 
 Speech occurrence mapping requires observed source coverage for the complete
 occurrence and rejects conflicting numeric/rational source coordinates. It
-represents speech boundaries on the provider's declared source clock before
+represents speech boundaries on the provider's declared analysis clock before
 sequence-frame alignment, preserving exact fractional offsets instead of
 rounding them to microseconds. Off-clock evidence is explicitly ambiguous.
+The editor's source clock may differ from the analysis clock; the mapper
+validates both clocks and translates their source-relative rational times.
 The restart/cache matrix verifies trim, reorder, split and repeated-source
 mapping against independently stated rational positions in deterministic
 snapshots; native acceptance remains separate.
