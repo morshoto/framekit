@@ -366,3 +366,35 @@ test("SQLite research providers require the experimental entrypoint", async () =
   assert.equal(typeof experimental.FinalCutSqliteInspectionProvider, "function");
   assert.equal(typeof experimental.FinalCutSqliteWalObservationProvider, "function");
 });
+
+for (const statement of [
+  'export { localValue } from "./native-control.js";',
+  'export type { NativeControl } from "./native-control.js";',
+]) {
+  test(`document import restrictions reject transitive native reachability: ${statement}`, async (t) => {
+    const fixture = await createFixture({
+      "adapters/native/src/value.ts": statement + (statement.startsWith("export type") ? " export const localValue = 1;" : ""),
+      "adapters/native/src/native-control.ts": "export const localValue = 1; export interface NativeControl { active: boolean }",
+    });
+    t.after(() => rm(fixture.rootDir, { recursive: true, force: true }));
+    const result = await analyzeWorkspaceBoundaries({ ...fixture, packages, policy: {
+      ...policy,
+      restrictedReachability: [{
+        entrypoints: ["apps/server/src/index.ts"],
+        targetPackage: "adapter",
+        allowedModules: ["adapters/native/src/index.ts", "adapters/native/src/value.ts"],
+      }],
+    } });
+    assertViolation(result, "forbidden-reachable-module");
+  });
+}
+
+test("document entrypoint preserves existing compiler and parser exports without native controls", async () => {
+  const documents = await import("@framekit/final-cut/fcpxml");
+  const existing = await import("@framekit/final-cut");
+  assert.equal(documents.FcpxmlDocumentAdapter, existing.FcpxmlDocumentAdapter);
+  assert.equal(documents.compileTimelineIrToFcpxml, existing.compileTimelineIrToFcpxml);
+  assert.equal(documents.resolveMediaSource, existing.resolveMediaSource);
+  assert.equal("FinalCutConnectionManager" in documents, false);
+  assert.equal("FinalCutLiveAdapter" in documents, false);
+});

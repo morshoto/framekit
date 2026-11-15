@@ -80,7 +80,13 @@ test("published package contains the runnable Framekit CLI and MCP sources", asy
   assert.equal(manifest.name, "@morshoto/framekit");
   assert.equal(manifest.private, false);
   assert.equal(manifest.bin?.framekit, "./bin/framekit.mjs");
-  assert.deepEqual(manifest.exports, { "./bin/framekit.mjs": "./bin/framekit.mjs" });
+  assert.deepEqual(manifest.exports, {
+    "./bin/framekit.mjs": "./bin/framekit.mjs",
+    "./fcpxml": {
+      types: "./dist-package/adapters/final-cut/typescript/src/documents.d.ts",
+      import: "./dist-package/adapters/final-cut/typescript/src/documents.js",
+    },
+  });
   assert.equal(manifest.dependencies?.tsx, undefined, "published CLI must not depend on the development loader");
   assert.deepEqual(manifest.files, ["bin", "dist-package"]);
   assert.equal(manifest.scripts?.prepack, "pnpm run build:package");
@@ -97,6 +103,8 @@ test("published package contains the runnable Framekit CLI and MCP sources", asy
     "dist-package/apps/mcp-server/runtime/whisper-speech-backend.py",
     "dist-package/packages/runtime/src/index.js",
     "dist-package/adapters/final-cut/typescript/src/index.js",
+    "dist-package/adapters/final-cut/typescript/src/documents.js",
+    "dist-package/adapters/final-cut/typescript/src/documents.d.ts",
   ]) {
     assert.ok(paths.includes(requiredPath), `${requiredPath} must be included in the npm package`);
   }
@@ -162,6 +170,46 @@ test("clean local and global installs expose the supported CLI and MCP entrypoin
       "--eval",
       "await import('@morshoto/framekit/bin/framekit.mjs')",
     ], { cwd: directory });
+
+    const documentRoundTrip = await exec(process.execPath, [
+      "--input-type=module", "--eval", `
+        import assert from "node:assert/strict";
+        import { writeFile } from "node:fs/promises";
+        import { FcpxmlDocumentAdapter, compileTimelineIrToFcpxml } from "@morshoto/framekit/fcpxml";
+        const timeline = {
+          schemaVersion: 1,
+          project: { id: "document-project", name: "Document" },
+          sequence: {
+            id: "document-sequence", name: "Main",
+            durationTime: { value: "25", timescale: "25" },
+            frameDuration: { value: "1", timescale: "25" },
+            occurrences: [{
+              id: "clip", name: "Clip", mediaId: "source", role: "video", track: 0,
+              startTime: { value: "0", timescale: "25" },
+              durationTime: { value: "25", timescale: "25" },
+              sourceStartTime: { value: "10", timescale: "25" },
+            }],
+            storyElements: [], markers: [], captions: [],
+          },
+          resources: [{ id: "source", name: "Source", mediaKind: "video", source: "/media/fixture.mov",
+            metadata: { durationTime: { value: "100", timescale: "25" },
+              streams: [{ kind: "video", width: 1280, height: 720, frameRate: { value: "25", timescale: "1" } }] } }],
+          revision: { id: "revision", sequence: 1, timestamp: "2026-11-15T00:00:00.000Z" },
+        };
+        const result = compileTimelineIrToFcpxml(timeline, { target: {
+          provider: "final-cut", libraryUid: "library", eventUid: "event",
+          projectUid: "project", sequenceUid: "sequence",
+        } });
+        await writeFile("roundtrip.fcpxml", result.xml);
+        const snapshot = await new FcpxmlDocumentAdapter("roundtrip.fcpxml").readProject();
+        assert.deepEqual(snapshot.timeline.clips[0].durationTime, { value: "1", timescale: "1" });
+        assert.deepEqual(snapshot.timeline.clips[0].sourceStartTime, { value: "2", timescale: "5" });
+        assert.equal(result.provenance.revision.id, "revision");
+        assert.equal(snapshot.timeline.clips.length, 1);
+        console.log("document round trip passed");
+      `,
+    ], { cwd: directory, env: { ...process.env, FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0" } });
+    assert.match(documentRoundTrip.stdout, /document round trip passed/);
 
     const privateSubpath = await exec(process.execPath, [
       "--input-type=module",

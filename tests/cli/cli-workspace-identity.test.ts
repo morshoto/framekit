@@ -50,7 +50,13 @@ test("CLI workspace identity is private and the root bin is the only public expo
   assert.equal(cliManifest.devDependencies?.tsx, "4.23.15");
   assert.equal(cliManifest.devDependencies?.typescript, "7.0.2");
   assert.equal(rootManifest.bin?.framekit, "./bin/framekit.mjs");
-  assert.deepEqual(rootManifest.exports, { "./bin/framekit.mjs": "./bin/framekit.mjs" });
+  assert.deepEqual(rootManifest.exports, {
+    "./bin/framekit.mjs": "./bin/framekit.mjs",
+    "./fcpxml": {
+      types: "./dist-package/adapters/final-cut/typescript/src/documents.d.ts",
+      import: "./dist-package/adapters/final-cut/typescript/src/documents.js",
+    },
+  });
   assert.equal(rootManifest.main, undefined, "the implementation is not a root JavaScript API");
   assert.equal(mcpManifest.dependencies?.["@framekit/headless-application"], "workspace:*");
   assert.equal(Object.hasOwn(cliManifest.dependencies ?? {}, "@framekit/mcp-server"), false);
