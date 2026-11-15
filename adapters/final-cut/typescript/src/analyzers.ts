@@ -168,7 +168,7 @@ async function runCommand<T>(options: CommandAnalyzerOptions, request: AnalyzerR
       }
       try {
         const value: unknown = JSON.parse(Buffer.concat(stdout).toString("utf8"));
-        validateResult(value, kind);
+        validateResult(value, kind, request);
         resolve(value as T);
       } catch (error) {
         reject(new Error(`ANALYZER_INVALID_OUTPUT: ${kind} analyzer returned invalid JSON or schema: ${String(error)}`));
@@ -259,7 +259,7 @@ function sameRange(value: unknown, expected: TimeRange): boolean {
   return range.start === expected.start && range.end === expected.end;
 }
 
-function validateResult(value: unknown, kind: string): void {
+function validateResult(value: unknown, kind: string, request: AnalyzerRequest): void {
   if (!value || typeof value !== "object") throw new Error("result must be an object");
   const record = value as Record<string, unknown>;
   if (kind === "speech") {
@@ -268,6 +268,10 @@ function validateResult(value: unknown, kind: string): void {
   }
   if (kind === "audio") {
     validateAudioAnalysisPayload(value);
+    if (record.signalScope === "occurrence"
+      && (!request.occurrenceId || record.occurrenceId !== request.occurrenceId)) {
+      throw new Error("audio occurrence identity does not match the requested occurrence");
+    }
     return;
   }
   if (kind === "metadata") {

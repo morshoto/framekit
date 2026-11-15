@@ -7,6 +7,13 @@ export function validateAudioAnalysisPayload(value: unknown): void {
     throw new Error("ANALYSIS_INVALID: audio analysis must be an object");
   }
   const analysis = value as Record<string, unknown>;
+  if (analysis.signalScope !== undefined && analysis.signalScope !== "source" && analysis.signalScope !== "occurrence") {
+    throw new Error("ANALYSIS_INVALID: unsupported audio signal scope");
+  }
+  if (analysis.signalScope === "occurrence"
+    && (typeof analysis.occurrenceId !== "string" || !analysis.occurrenceId.trim())) {
+    throw new Error("ANALYSIS_INVALID: occurrence audio requires an occurrence identity");
+  }
   for (const field of ["integratedLufs", "truePeakDb", "silenceMs"]) {
     const measured = analysis[field];
     if (typeof measured !== "number" || !Number.isFinite(measured)) {
