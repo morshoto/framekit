@@ -624,6 +624,27 @@ test("post-write speech reanalysis preserves mixed VAD coverage without advertis
   }
 });
 
+test("post-write speech reanalysis rejects inconsistent provenance across disjoint ranges", async () => {
+  for (const mismatch of ["clock", "provider", "none", "equivalent"] as const) {
+    const editor = new InMemoryEditorAdapter({
+      projectId: "project-ranges", projectName: "Ranges", timelineId: "timeline-ranges", timelineName: "Main",
+      clips: [{ id: "clip-ranges", mediaId: "media-ranges", name: "Interview", start: 0, duration: 10, track: 1 }],
+      media: [{ mediaId: "media-ranges", source: "interview.wav", duration: 10 }],
+    });
+    const runtime = new AgentVideoRuntime(editor, { speechAnalyzer: { analyze: async (_input, range) => ({
+      words: [],
+      sourceTimebase: range!.start === 1 && mismatch === "clock" ? { value: "1", timescale: "16000" }
+        : range!.start === 1 && mismatch === "equivalent" ? { value: "2", timescale: "2000" } : { value: "1", timescale: "1000" },
+      provider: { id: range!.start === 1 && mismatch === "provider" ? "first" : "second", provider: "fixture" },
+    }) } });
+    const transaction = await runtime.edit({ type: "add-marker", timelineId: "timeline-ranges", marker: { id: "range-marker", start: 1, duration: 1, name: "Review" } });
+    const media = (runtime as unknown as { media: { reanalyzeAffectedRanges: (tx: typeof transaction, requirements: { speech: boolean }) => Promise<typeof transaction.after> } }).media;
+    const reanalyze = () => media.reanalyzeAffectedRanges({ ...transaction, diff: { ...transaction.diff, affectedRanges: [{ start: 1, end: 2 }, { start: 5, end: 6 }] } }, { speech: true });
+    if (mismatch === "none" || mismatch === "equivalent") assert.equal((await reanalyze()).media[0]?.speech?.provider?.id, "second");
+    else await assert.rejects(reanalyze(), /ANALYSIS_INVALID: speech evidence (timebases|providers) cannot be combined/);
+  }
+});
+
 test("post-write speech reanalysis coalesces overlapping source ranges", async () => {
   const ranges: Array<{ start: number; end: number }> = [];
   const editor = new InMemoryEditorAdapter({
