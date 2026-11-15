@@ -142,6 +142,8 @@ result reports transcription-only capability and omits top-level `vadSegments`;
 partial VAD must not be treated as complete edit-safety evidence.
 Reanalysis rejects legacy VAD evidence without an observed range instead of
 silently assigning that evidence to a source range.
+Reanalysis also rejects a merged speech result when the retained and newly
+observed ranges leave a gap, rather than reporting continuous coverage.
 These source-file capabilities do not establish native source observation,
 sample-accurate activity reference labels or edit/Undo acceptance.
 
