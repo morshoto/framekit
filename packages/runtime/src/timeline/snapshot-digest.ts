@@ -7,7 +7,7 @@ export function canonicalSnapshotDigest(snapshot: ProjectSnapshot): string {
     projectId: snapshot.projectId,
     projectName: snapshot.projectName,
     timeline: snapshot.timeline,
-    media: snapshot.media.map(({ mediaId, source }) => ({ mediaId, source })),
+    media: snapshot.media.map(({ mediaId, source, sourceRange }) => ({ mediaId, source, ...(sourceRange ? { sourceRange } : {}) })),
   };
   return createHash("sha256").update(stableJson(canonical)).digest("hex");
 }
