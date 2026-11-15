@@ -3261,6 +3261,7 @@
       "\"timeline semantic context rejects cached evidence from a different configured provider\"",
       "\"MCP speech mapping rejects incomplete and contradictory cached evidence\"",
       "\"timeline semantic context rejects incompatible attached provider evidence\"",
+      "\"timeline inspection compares attached audio revision by ID and persisted audio by full revision\"",
       "\"default timeline inspection rejects source evidence outside observed coverage\"",
       "\"default timeline inspection rejects speech with missing observed coverage\"",
       "\"default timeline inspection rejects contradictory speech provenance\""
@@ -3375,6 +3376,15 @@
     }
   ],
   "featureIntegrations": [
+    {
+      "pullRequests": [740],
+      "reason": "Compare attached audio against its recorded revision ID without weakening persisted revision checks.",
+      "addedTestNames": {
+        "tests/integration/timeline-semantic-context.test.ts": [
+          "\"timeline inspection compares attached audio revision by ID and persisted audio by full revision\""
+        ]
+      }
+    },
     {
       "pullRequests": [738],
       "reason": "Preserve range-scoped VAD availability through partial reanalysis without exposing incomplete top-level VAD.",

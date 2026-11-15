@@ -232,6 +232,41 @@ test("timeline semantic context rejects incompatible attached provider evidence"
   assert.match(context.occurrences[0]?.reason ?? "", /provenance.*incompatible/);
 });
 
+test("timeline inspection compares attached audio revision by ID and persisted audio by full revision", async () => {
+  for (const location of ["attached", "persisted"] as const) {
+    for (const revisionCase of ["exact", "different-fields", "different-id", "missing-attached-id"] as const) {
+      const adapter = adapterFor();
+      const evidence = understanding();
+      evidence.audio = {
+        signalScope: "source", integratedLufs: -18, truePeakDb: -3, silenceMs: 0,
+        requestedRange: { start: 0, end: 20 }, measuredRange: { start: 0, end: 20 },
+        revision: revisionCase === "exact" ? structuredClone(evidence.analysisRevision) : {
+          id: revisionCase === "different-id" ? "other" : evidence.analysisRevision.id,
+          sequence: 99, timestamp: new Date(99).toISOString(),
+        },
+      };
+      evidence.analysis.push({ capability: "audio", status: "analyzed", provenance: {
+        analyzer: { id: "fixture.audio", provider: "fixture" }, source: sourceIdentity, ranges: [{ start: 0, end: 20 }],
+      } });
+      const store = new InMemorySemanticMediaIndexStore();
+      if (location === "persisted") await store.save(evidence);
+      else {
+        const read = adapter.readProject.bind(adapter);
+        adapter.readProject = async () => {
+          const project = await read();
+          Object.assign(project.media[0]!, evidence, { analysisRevision: revisionCase === "missing-attached-id" ? undefined : evidence.analysisRevision.id });
+          return project;
+        };
+      }
+      const runtime = new AgentVideoRuntime(adapter, { semanticMediaIndexStore: store });
+      const result = await runtime.inspectTimelineSemanticContext({ occurrenceIds: ["occurrence-first"] });
+      const expected = revisionCase === "exact" || (location === "attached" && revisionCase === "different-fields")
+        ? "available" : "unavailable";
+      assert.equal(result.occurrences[0]?.status, expected, `${location}: ${revisionCase}`);
+    }
+  }
+});
+
 test("default timeline inspection rejects source evidence outside observed coverage", async () => {
   const store = new InMemorySemanticMediaIndexStore();
   const partial = understanding();
