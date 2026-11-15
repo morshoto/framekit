@@ -3151,24 +3151,8 @@
       "\"command speech identity changes with effective model configuration\"",
       "\"command audio identity distinguishes executable and provider version\"",
       "\"command provider executes the environment bound to its analysis identity\"",
-      "`persisted ${kind} cache rechecks source bytes after restart`"
-    ],
-    "tests/integration/timeline-semantic-context.test.ts": [
-      "\"timeline semantic context uses authoritative rational source coordinates\"",
-      "\"timeline semantic context rejects cached evidence from a different configured provider\"",
-      "\"MCP speech mapping rejects incomplete and contradictory cached evidence\"",
-      "\"timeline semantic context rejects incompatible attached provider evidence\"",
-      "\"default timeline inspection rejects source evidence outside observed coverage\"",
-      "\"default timeline inspection rejects speech with missing observed coverage\"",
-      "\"default timeline inspection rejects contradictory speech provenance\""
-    ],
-    "tests/speech/mapping.test.ts": [
-      "\"speech occurrence mapping refuses unobserved source coverage\"",
-      "`speech mapping rejects contradictory ${label} timing`",
-      "\"source range translation rejects conflicting exact evidence coordinates\"",
-      "\"speech mapping retains the declared source clock at fractional frame offsets\"",
-      "\"speech mapping rejects evidence outside its declared source clock\"",
-      "\"cached speech remaps rational trim reorder and split snapshots after restart\""
+      "`persisted ${kind} cache rechecks source bytes after restart`",
+      "\"command audio rejects invalid or mismatched occurrence signal provenance\""
     ],
     "tests/speech/revision-bound-analysis.test.ts": [
       "\"speech binding preserves configured model and configuration provenance\"",
@@ -3263,6 +3247,23 @@
       "\"stable targets bind an explicit fractional frame-grid origin\"",
       "\"stable targets reject a caller-supplied origin that shifts the grid\"",
       "\"stable targets reject loss or introduction of explicit zero-grid evidence\""
+    ],
+    "tests/integration/timeline-semantic-context.test.ts": [
+      "\"timeline semantic context uses authoritative rational source coordinates\"",
+      "\"timeline semantic context rejects cached evidence from a different configured provider\"",
+      "\"MCP speech mapping rejects incomplete and contradictory cached evidence\"",
+      "\"timeline semantic context rejects incompatible attached provider evidence\"",
+      "\"default timeline inspection rejects source evidence outside observed coverage\"",
+      "\"default timeline inspection rejects speech with missing observed coverage\"",
+      "\"default timeline inspection rejects contradictory speech provenance\""
+    ],
+    "tests/speech/mapping.test.ts": [
+      "\"speech occurrence mapping refuses unobserved source coverage\"",
+      "`speech mapping rejects contradictory ${label} timing`",
+      "\"source range translation rejects conflicting exact evidence coordinates\"",
+      "\"speech mapping retains the declared source clock at fractional frame offsets\"",
+      "\"speech mapping rejects evidence outside its declared source clock\"",
+      "\"cached speech remaps rational trim reorder and split snapshots after restart\""
     ]
   },
   "identityDiscoveryCorrections": {
@@ -3663,6 +3664,17 @@
           "\"stable targets bind an explicit fractional frame-grid origin\"",
           "\"stable targets reject a caller-supplied origin that shifts the grid\"",
           "\"stable targets reject loss or introduction of explicit zero-grid evidence\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        738
+      ],
+      "reason": "Reject invalid command analyzer signal scope and mismatched occurrence identity.",
+      "addedTestNames": {
+        "tests/speech/command-analyzer.test.ts": [
+          "\"command audio rejects invalid or mismatched occurrence signal provenance\""
         ]
       }
     }
