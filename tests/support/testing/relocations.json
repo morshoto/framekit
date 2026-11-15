@@ -3139,7 +3139,11 @@
       "\"native placement refuses changed post-dispatch targets without undoing them\"",
       "\"native placement Undo rejects an interleaved context target before dispatch\"",
       "\"native placement undo does not replay an uncertain focus failure\"",
-      "\"native placement undo rejects restored duration on a different target\""
+      "\"native placement undo rejects restored duration on a different target\"",
+      "\"native Browser search rejects incomplete scans instead of reporting empty or partial matches\"",
+      "\"native Browser search rejects malformed and truncated scan records\"",
+      "\"native Browser search distinguishes missing output from a completed empty scan\"",
+      "\"native Browser search marks unscanned descendants at its traversal limit\""
     ],
     "tests/integration/canonical-native-provider.test.ts": [
       "\"canonical resolver rejects nonpositive target duration before discovery\"",
@@ -3311,6 +3315,20 @@
         ],
         "tests/integration/final-cut-publish-readback.test.ts": [
           "\"FCPXML comparison requires explicit exports and fails on changed source content\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        721
+      ],
+      "reason": "Preserve both feature behavior and all added tests across current main test relocations; no reviewed identities removed.",
+      "addedTestNames": {
+        "tests/integration/native.test.ts": [
+          "\"native Browser search rejects incomplete scans instead of reporting empty or partial matches\"",
+          "\"native Browser search rejects malformed and truncated scan records\"",
+          "\"native Browser search distinguishes missing output from a completed empty scan\"",
+          "\"native Browser search marks unscanned descendants at its traversal limit\""
         ]
       }
     }
