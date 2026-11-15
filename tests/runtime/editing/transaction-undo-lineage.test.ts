@@ -115,6 +115,27 @@ test("artifact Undo chaining retains the exact source-file guard", async t => {
   await assert.rejects(runtime.undo(first.id), /ARTIFACT_SOURCE_CHANGED/);
 });
 
+test("byte-changed artifact restoration cannot authorize an earlier Undo", async t => {
+  const { FcpxmlDocumentAdapter } = await import("@framekit/final-cut");
+  const { mkdtemp, writeFile, appendFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os"); const { join } = await import("node:path");
+  const directory = await mkdtemp(join(tmpdir(), "framekit-undo-bytes-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const path = join(directory, "project.fcpxml");
+  await writeFile(path, '<fcpxml version="1.11"><resources><asset id="source" src="file:///fixture.wav" duration="4s" /></resources><library><event><project uid="project" name="Undo"><sequence uid="sequence" duration="4s"><spine><asset-clip id="speech" ref="source" offset="0s" duration="4s" /></spine></sequence></project></event></library></fcpxml>');
+  const adapter = new FcpxmlDocumentAdapter(path);
+  const runtime = new AgentVideoRuntime(adapter);
+  const first = await runtime.edit({ type: "set-gain", clipId: "speech", gainDb: 1 });
+  const second = await runtime.edit({ type: "set-gain", clipId: "speech", gainDb: 2 });
+  const restore = adapter.restore.bind(adapter);
+  adapter.restore = async (...args) => {
+    await restore(...args);
+    await appendFile(path, "\n<!-- unmodeled change during restoration -->");
+  };
+  await assert.rejects(runtime.undo(second.id), /ROLLBACK_FAILED: restored artifact digest/);
+  await assert.rejects(runtime.undo(first.id), /ARTIFACT_SOURCE_CHANGED|STALE_CONTEXT/);
+});
+
 test("same-revision restoration cannot authorize the earlier Undo", async () => {
   const { adapter, runtime, gain } = fixture(); const first = await gain(1); const second = await gain(2);
   const read = adapter.readProject.bind(adapter); const restore = adapter.restore.bind(adapter); let restored = false;

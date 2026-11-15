@@ -417,6 +417,10 @@ export class EditService {
       if (!this.consumedUndos.has(id) && isDeepStrictEqual(guard.target, target)
         && sameRevision(guard.revision, before.revision) && guard.digest === digest
         && (target?.kind !== "artifact" || guard.artifactDigest === beforeArtifactDigest)) {
+        if (target?.kind === "artifact" && (beforeArtifactDigest === undefined
+          || artifactDigest !== beforeArtifactDigest)) {
+          throw new Error("ROLLBACK_FAILED: restored artifact digest does not match pre-edit state");
+        }
         this.undoGuards.set(id, { ...guard, revision: structuredClone(restored.revision),
           ...(artifactDigest ? { artifactDigest } : {}) });
       }
