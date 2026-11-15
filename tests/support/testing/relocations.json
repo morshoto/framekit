@@ -3128,6 +3128,7 @@
     "tests/integration/native.test.ts": [
       "\"native append Undo cannot verify same-duration wrong content\"",
       "\"native insert duration and revision do not verify placement or Undo\"",
+      "\"concurrent placement Undo requests dispatch at most once\"",
       "\"native media insertion requires recovery after duration growth without a new revision\"",
       "\"native media insertion does not retry an uncertain append focus error\"",
       "\"native media placement rejects a switched project before insertion\"",

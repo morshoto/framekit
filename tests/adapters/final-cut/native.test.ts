@@ -2788,6 +2788,72 @@ test("native insert duration and revision do not verify placement or Undo", asyn
   assert.equal(scripts.some((script) => script.includes('click menu item "Undo Insert" of menu "Edit"')), true);
 });
 
+test("concurrent placement Undo requests dispatch at most once", async () => {
+  let revision = 1;
+  let duration = "10";
+  const baselineClips = ["original-source@0..10"];
+  let editorClips = [...baselineClips];
+  const scripts: string[] = [];
+  let undoCalls = 0;
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: {
+      id: "sequence-1",
+      name: "Edit",
+      startTime: { value: "0", timescale: "1" },
+      duration: { value: duration, timescale: "1" },
+      frameDuration: { value: "1", timescale: "24" },
+    },
+    playheadTime: { value: "4", timescale: "1" },
+    sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" } },
+    revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(revision).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes("keystroke \"w\"")) {
+        duration = "15";
+        editorClips = ["original-source@0..4", "inserted-source@0..5", "original-source@4..10"];
+        revision = 2;
+      }
+      if (script.includes('click menu item "Undo Insert"')) {
+        undoCalls += 1;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        duration = "10";
+        // Simulate an Undo that preserves duration while restoring the wrong source.
+        editorClips = ["wrong-source@0..10"];
+        revision = 3;
+      }
+      if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${String.fromCharCode(30)}`;
+      return script.includes("timelineWindowAvailable") || script.includes('set frontWindow to window "Final Cut Pro"')
+        ? context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1, revision === 2 ? "Undo Insert" : "Undo")
+        : "";
+    },
+  });
+
+  const [media] = await adapter.searchMedia("Interview");
+  await adapter.selectMedia(media.handle);
+  const preview = await adapter.previewInsertMedia(media.handle);
+  assert.equal(preview.operation, "insert");
+  assert.deepEqual(preview.insertionTime, { value: "4", timescale: "1" });
+  const result = await adapter.executeInsertMedia(preview.previewToken);
+  assert.equal(result.verification.verified, false);
+  assert.deepEqual(result.afterDuration, { value: "15", timescale: "1" });
+  assert.equal(result.afterRevision.id, "rev-2");
+  assert.equal(scripts.filter((script) => script.includes('set targetIdentity to "browser-1"')).length >= 2, true);
+
+  const outcomes = await Promise.allSettled([adapter.undo(result.operationId), adapter.undo(result.operationId)]);
+  assert.equal(outcomes.every((outcome) => outcome.status === "rejected"), true);
+  assert.ok(outcomes.some((outcome) => outcome.status === "rejected" && /UNDO_UNCERTAIN/.test(String(outcome.reason))));
+  assert.equal(undoCalls, 1);
+  await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_UNCERTAIN/);
+  assert.deepEqual((await liveState()).sequence?.duration, { value: "10", timescale: "1" });
+  assert.notDeepEqual(editorClips, baselineClips);
+  assert.equal(scripts.some((script) => script.includes('click menu item "Undo Insert" of menu "Edit"')), true);
+});
+
 test("native media insertion fails closed when media selection or preview revision changes", async () => {
   let revision = 1;
   const scripts: string[] = [];

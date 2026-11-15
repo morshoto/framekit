@@ -1243,6 +1243,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     }
     try {
       if (operation.kind === "media-insertion") {
+        if (operation.undoDispatched) {
+          throw new Error("FINAL_CUT_NATIVE_UNDO_UNCERTAIN: placement Undo may already have been dispatched");
+        }
         // Once invocation begins, neither an error nor stale readback proves Undo did not run.
         operation.undoDispatched = true;
         await this.executeNativeScript(undoScript(operation.undoCommand));
