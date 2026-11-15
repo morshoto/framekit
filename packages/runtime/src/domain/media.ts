@@ -273,6 +273,7 @@ export interface SpeechAnalysis {
   observedRange?: TimeRange;
   revision?: ContextRevision;
   provider?: AnalyzerDescriptor;
+  /** Provider timestamp clock for source-relative speech evidence, not the original media sample rate. */
   sourceTimebase?: RationalTime;
   capability?: SpeechAnalysisCapability;
   words: SpeechWord[];
