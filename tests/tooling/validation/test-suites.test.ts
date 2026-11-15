@@ -67,7 +67,12 @@ test("test suites report unavailable prerequisites before execution", async () =
     availableExecutables: new Set(["node", "git"]),
     manifest,
   });
-  assert.deepEqual(contractStatus, { ready: true, missing: [] });
+  assert.deepEqual(contractStatus, { ready: false, missing: ["python3"] });
+  assert.deepEqual(evaluateSuitePrerequisites("contract", {
+    platform: "linux",
+    availableExecutables: new Set(["node", "git", "python3"]),
+    manifest,
+  }), { ready: true, missing: [] });
   assert.deepEqual(evaluateSuitePrerequisites("unit", {
     availableExecutables: new Set(["node", "git"]),
     nodeVersion: "18.19.0",
