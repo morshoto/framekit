@@ -3110,7 +3110,9 @@
       "\"rejects splitting clips with fades before changing the project\"",
       "\"rejects a split when a connected occurrence cannot be safely remapped\"",
       "\"rejects splitting an occurrence referenced by a story element\"",
-      "\"rejects splitting an attached occurrence without remapping its parent\""
+      "\"rejects splitting an attached occurrence without remapping its parent\"",
+      "\"previews and applies a fractional-frame split without changing another use of the source\"",
+      "\"split preview uses an explicit nonzero fractional frame grid without rounding\""
     ],
     "tests/integration/focused-runner.test.ts": [
       "'selection reports do not count a name filter as a selected file'"
@@ -3126,7 +3128,8 @@
       "\"uncertain placement outcomes block subsequent native edits\"",
       "\"unavailable built-in media import does not create or release a reservation\"",
       "\"native import forwards the caller-approved target to file and directory preview\"",
-      "\"native import preserves the exact approved target identifiers\""
+      "\"native import preserves the exact approved target identifiers\"",
+      "\"uncertain Blade readback blocks subsequent native edits\""
     ],
     "tests/integration/native.test.ts": [
       "\"native append Undo cannot verify same-duration wrong content\"",
@@ -3154,7 +3157,19 @@
       "\"native import stops before dispatch if the approved target changes during Browser discovery\"",
       "\"directory preview binds approved import target and rejects missing approval\"",
       "\"native capabilities do not advertise source-verified import without source observation\"",
-      "\"directory import stops after an uncertain file outcome\""
+      "\"directory import stops after an uncertain file outcome\"",
+      "\"native Blade undo requires canonical restoration even when revision advances\"",
+      "\"native Blade passes the Browser identity to its post-command scan\"",
+      "\"native Blade rejects missing Browser identity before dispatch\"",
+      "\"native Blade rejects a changed Browser identity after preview\"",
+      "\"native Blade reports recovery required when post-dispatch readback fails\"",
+      "\"native Blade preserves structured recovery details when Undo is unbound\"",
+      "\"native Blade Undo rejects another project or sequence before dispatch\"",
+      "\"native Blade Undo is never replayed after an uncertain dispatch\"",
+      "\"native Blade rejects changed preview scope and playhead before dispatch\"",
+      "\"native Blade rejects same-name wrong selected occurrence before dispatch\"",
+      "\"native Blade never retries an uncertain dispatched command\"",
+      "\"native Blade rechecks the playhead after occurrence validation\""
     ],
     "tests/integration/canonical-native-provider.test.ts": [
       "\"canonical resolver rejects nonpositive target duration before discovery\"",
@@ -3179,14 +3194,23 @@
       "\"live canonical snapshots reject malformed exact source bounds\""
     ],
     "tests/integration/fcpxml-media-representation.test.ts": [
-      "\"FCPXML retains an explicit exact source range without inventing a missing origin\""
+      "\"FCPXML retains an explicit exact source range without inventing a missing origin\"",
+      "\"FCPXML snapshots preserve explicit sequence timecode origin without inventing one\""
     ],
     "tests/integration/headless-renderer.test.ts": [
-      "\"FFmpeg renderer refuses an unimplemented nonzero source origin\""
+      "\"FFmpeg renderer refuses an unimplemented nonzero source origin\"",
+      "\"FFmpeg renderer rejects an explicit nonzero sequence timecode origin\""
     ],
     "tests/integration/timeline-ir-fcpxml.test.ts": [
       "\"FCPXML compilation preserves explicit nonzero source bounds\"",
-      "\"FCPXML frame rounding cannot move an occurrence outside source bounds\""
+      "\"FCPXML frame rounding cannot move an occurrence outside source bounds\"",
+      "\"FCPXML compilation refuses to discard an explicit nonzero timecode origin\"",
+      "\"FCPXML compilation refuses to discard a nonzero frame-grid origin\""
+    ],
+    "tests/integration/timeline-targets.test.ts": [
+      "\"stable targets bind an explicit fractional frame-grid origin\"",
+      "\"stable targets reject a caller-supplied origin that shifts the grid\"",
+      "\"stable targets reject loss or introduction of explicit zero-grid evidence\""
     ]
   },
   "identityDiscoveryCorrections": {
@@ -3201,7 +3225,8 @@
       "\"native Final Cut adapter previews, appends selected media, verifies duration and revision, and undoes\"",
       "\"native Final Cut adapter previews, inserts selected media at the playhead, verifies duration and revision, and undoes\"",
       "\"native media insertion reselects Browser media before a focus-recovery retry\"",
-      "\"native media insertion rolls back when post-command verification observes duration growth without a new revision\""
+      "\"native media insertion rolls back when post-command verification observes duration growth without a new revision\"",
+      "\"native Blade undo uses Final Cut's Undo Blade command\""
     ]
   },
   "upstreamReplacements": [
@@ -3411,6 +3436,60 @@
           "\"unavailable built-in media import does not create or release a reservation\"",
           "\"native import forwards the caller-approved target to file and directory preview\"",
           "\"native import preserves the exact approved target identifiers\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        713
+      ],
+      "reason": "Issue 616 intentionally rejects revision-only Blade Undo verification and repeated uncertain Undo; retain the frozen baseline and explicit stricter replacement.",
+      "replacedTestNames": {
+        "tests/integration/native.test.ts": {
+          "native Blade undo uses Final Cut's Undo Blade command": "native Blade undo requires canonical restoration even when revision advances"
+        }
+      }
+    },
+    {
+      "pullRequests": [
+        713
+      ],
+      "reason": "Preserve both feature behavior and all added tests across current main test relocations; no reviewed identities removed.",
+      "addedTestNames": {
+        "tests/integration/canonical-native-mcp.test.ts": [
+          "\"uncertain Blade readback blocks subsequent native edits\""
+        ],
+        "tests/integration/fcpxml-media-representation.test.ts": [
+          "\"FCPXML snapshots preserve explicit sequence timecode origin without inventing one\""
+        ],
+        "tests/integration/headless-renderer.test.ts": [
+          "\"FFmpeg renderer rejects an explicit nonzero sequence timecode origin\""
+        ],
+        "tests/integration/native.test.ts": [
+          "\"native Blade undo requires canonical restoration even when revision advances\"",
+          "\"native Blade passes the Browser identity to its post-command scan\"",
+          "\"native Blade rejects missing Browser identity before dispatch\"",
+          "\"native Blade rejects a changed Browser identity after preview\"",
+          "\"native Blade reports recovery required when post-dispatch readback fails\"",
+          "\"native Blade preserves structured recovery details when Undo is unbound\"",
+          "\"native Blade Undo rejects another project or sequence before dispatch\"",
+          "\"native Blade Undo is never replayed after an uncertain dispatch\"",
+          "\"native Blade rejects changed preview scope and playhead before dispatch\"",
+          "\"native Blade never retries an uncertain dispatched command\"",
+          "\"native Blade rechecks the playhead after occurrence validation\""
+        ],
+        "tests/integration/project-transactions.test.ts": [
+          "\"previews and applies a fractional-frame split without changing another use of the source\"",
+          "\"split preview uses an explicit nonzero fractional frame grid without rounding\""
+        ],
+        "tests/integration/timeline-ir-fcpxml.test.ts": [
+          "\"FCPXML compilation refuses to discard an explicit nonzero timecode origin\"",
+          "\"FCPXML compilation refuses to discard a nonzero frame-grid origin\""
+        ],
+        "tests/integration/timeline-targets.test.ts": [
+          "\"stable targets bind an explicit fractional frame-grid origin\"",
+          "\"stable targets reject a caller-supplied origin that shifts the grid\"",
+          "\"stable targets reject loss or introduction of explicit zero-grid evidence\""
         ]
       }
     }
