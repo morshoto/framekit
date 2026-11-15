@@ -65,6 +65,7 @@ test("optional VAD model failure preserves transcription with an explicit unavai
   const data=JSON.parse(result.stdout);
   assert.equal(data.words[0].text,'hello');assert.equal(data.vadSegments,undefined);
   assert.equal(data.vadUnavailableReason,'SILERO_VAD_MODEL_MISMATCH');
+  assert.deepEqual(data.sourceTimebase,{value:'1',timescale:'16000'});
 });
 
 test("required VAD model failure rejects the combined provider result",async t=>{

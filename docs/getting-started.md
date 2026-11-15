@@ -124,6 +124,8 @@ With optional VAD, detector failure leaves transcription available and reports
 `vadUnavailableReason` without activity segments. `FRAMEKIT_SPEECH_REQUIRE_VAD=1`
 instead rejects a combined result if VAD is unavailable. Successful results
 retain request/source/revision/provider provenance and a 1/16000 analysis clock.
+The Whisper transcription clock remains 1/16000 when optional VAD is unavailable;
+it describes the decoded analysis signal, not the original media's sample rate.
 These source-file capabilities do not establish native source observation,
 sample-accurate activity reference labels or edit/Undo acceptance.
 

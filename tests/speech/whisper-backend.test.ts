@@ -72,7 +72,7 @@ test("local Whisper backend skips empty zero-duration segments and words and nor
       { text: "timestamp fallback", start: 2, end: 2.5, confidence: 0 },
       { text: "last", start: 3, end: 3.5, confidence: 0.7 },
     ],
-    sourceTimebase: { value: "1", timescale: "1000" },
+    sourceTimebase: { value: "1", timescale: "16000" },
   });
 });
 
