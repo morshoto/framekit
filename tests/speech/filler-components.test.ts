@@ -259,6 +259,24 @@ test("resolver skips a candidate when VAD evidence is missing", () => {
   assert.equal(decision.operation, undefined);
 });
 
+test("resolver does not authorize a cut from partial VAD coverage", () => {
+  const request = resolverRequest({ analysis: {
+    words: analysisWithVAD.words,
+    capability: "transcription-only",
+    vadUnavailableReason: "VAD_INCOMPLETE_COVERAGE",
+    vadCoverage: [
+      { start: 5, end: 6, status: "available", segments: [
+        { start: 5.4, end: 5.7, kind: "speech" },
+      ] },
+      { start: 6, end: 8, status: "unavailable", reason: "MODEL_UNAVAILABLE" },
+    ],
+  } });
+  const decision = new SafeCutResolver().resolve(request);
+  assert.equal(decision.status, "SKIPPED");
+  assert.deepEqual(decision.reasonCodes, ["MISSING_VAD_EVIDENCE"]);
+  assert.equal(decision.operation, undefined);
+});
+
 test("resolver skips ambiguous source-to-sequence mappings", () => {
   const request = resolverRequest({
     candidate: {
