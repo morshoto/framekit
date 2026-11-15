@@ -32,6 +32,8 @@ export interface TimelineIrResource {
   source?: string;
   sourceKind?: "local-file";
   sourceDigest?: string;
+  /** Exact source-coordinate bounds supplied by the snapshot provider. */
+  sourceRange?: { start: RationalTime; duration: RationalTime };
   metadata?: TimelineIrMediaMetadata;
   binding?: TimelineIrBinding;
 }
@@ -413,6 +415,7 @@ export function createTimelineIrFromProjectSnapshot(
     mediaKind: media.mediaKind ?? "unknown",
     source: media.source,
     ...(media.sourceDigest ? { sourceDigest: media.sourceDigest } : {}),
+    ...(media.sourceRange !== undefined ? { sourceRange: structuredClone(media.sourceRange) } : {}),
     ...(binding ? { binding: binding("resource", media.mediaId) } : {}),
   } satisfies TimelineIrResource));
   const occurrences = snapshot.timeline.clips.map((clip) => ({
@@ -514,6 +517,14 @@ export function validateTimelineIr(timeline: TimelineIr): void {
       }
     }
     if (resource.metadata) validateMediaMetadata(resource.metadata, `resource ${resource.id}.metadata`);
+    if (resource.sourceRange !== undefined) {
+      if (!resource.sourceRange || typeof resource.sourceRange !== "object") throw new Error(`TIMELINE_IR_INVALID: resource ${resource.id} source range is malformed`);
+      parseRational(resource.sourceRange.start, "TIMELINE_IR_INVALID");
+      validateRational(resource.sourceRange.duration, `resource ${resource.id}.sourceRange.duration`, true);
+      if (resource.metadata && compareRational(resource.sourceRange.duration, resource.metadata.durationTime) !== 0) {
+        throw new Error(`TIMELINE_IR_INVALID: resource ${resource.id} source range duration conflicts with metadata`);
+      }
+    }
     validateBinding(resource.binding, `resource ${resource.id}.binding`);
   }
   const occurrenceIds = uniqueIds(timeline.sequence.occurrences.map((occurrence) => occurrence.id), "occurrence");
@@ -532,10 +543,12 @@ export function validateTimelineIr(timeline: TimelineIr): void {
     }
     if (occurrence.sourceStartTime) validateRational(occurrence.sourceStartTime, `occurrence ${occurrence.id}.sourceStartTime`, false);
     const resource = occurrence.mediaId ? timeline.resources.find(({ id }) => id === occurrence.mediaId) : undefined;
-    if (resource?.metadata) {
+    if (resource?.sourceRange || resource?.metadata) {
       const sourceStartTime = occurrence.sourceStartTime ?? { value: "0", timescale: "1" };
       const sourceEndTime = addRationalTimes(sourceStartTime, occurrence.durationTime, "TIMELINE_IR_INVALID");
-      if (compareRational(sourceEndTime, resource.metadata.durationTime) > 0) {
+      const lower = resource.sourceRange?.start ?? { value: "0", timescale: "1" };
+      const upper = resource.sourceRange ? addRationalTimes(lower, resource.sourceRange.duration, "TIMELINE_IR_INVALID") : resource.metadata!.durationTime;
+      if (compareRational(sourceStartTime, lower) < 0 || compareRational(sourceEndTime, upper) > 0) {
         throw new Error(`TIMELINE_IR_INVALID: occurrence ${occurrence.id} source range exceeds resource ${resource.id}`);
       }
     }

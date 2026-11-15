@@ -3156,7 +3156,26 @@
       "\"canonical resolver rejects unexpected or displaced repeated native occurrences\""
     ],
     "tests/integration/final-cut-publish-readback.test.ts": [
-      "\"FCPXML comparison requires explicit exports and fails on changed source content\""
+      "\"FCPXML comparison requires explicit exports and fails on changed source content\"",
+      "\"publish readback compares explicit source bounds and rejects lost evidence\"",
+      "\"publish readback rejects swapped bounds for occurrences of the same source\""
+    ],
+    "tests/integration/canonical-evidence.test.ts": [
+      "\"evidence and runtime digests agree when exact source bounds are supplied\"",
+      "\"headed runner digests retain supplied source bounds\""
+    ],
+    "tests/integration/canonical-live.test.ts": [
+      "\"live canonical snapshots reject malformed exact source bounds\""
+    ],
+    "tests/integration/fcpxml-media-representation.test.ts": [
+      "\"FCPXML retains an explicit exact source range without inventing a missing origin\""
+    ],
+    "tests/integration/headless-renderer.test.ts": [
+      "\"FFmpeg renderer refuses an unimplemented nonzero source origin\""
+    ],
+    "tests/integration/timeline-ir-fcpxml.test.ts": [
+      "\"FCPXML compilation preserves explicit nonzero source bounds\"",
+      "\"FCPXML frame rounding cannot move an occurrence outside source bounds\""
     ]
   },
   "identityDiscoveryCorrections": {
@@ -3329,6 +3348,35 @@
           "\"native Browser search rejects malformed and truncated scan records\"",
           "\"native Browser search distinguishes missing output from a completed empty scan\"",
           "\"native Browser search marks unscanned descendants at its traversal limit\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        720
+      ],
+      "reason": "Preserve both feature behavior and all added tests across current main test relocations; no reviewed identities removed.",
+      "addedTestNames": {
+        "tests/integration/canonical-evidence.test.ts": [
+          "\"evidence and runtime digests agree when exact source bounds are supplied\"",
+          "\"headed runner digests retain supplied source bounds\""
+        ],
+        "tests/integration/canonical-live.test.ts": [
+          "\"live canonical snapshots reject malformed exact source bounds\""
+        ],
+        "tests/integration/fcpxml-media-representation.test.ts": [
+          "\"FCPXML retains an explicit exact source range without inventing a missing origin\""
+        ],
+        "tests/integration/final-cut-publish-readback.test.ts": [
+          "\"publish readback compares explicit source bounds and rejects lost evidence\"",
+          "\"publish readback rejects swapped bounds for occurrences of the same source\""
+        ],
+        "tests/integration/headless-renderer.test.ts": [
+          "\"FFmpeg renderer refuses an unimplemented nonzero source origin\""
+        ],
+        "tests/integration/timeline-ir-fcpxml.test.ts": [
+          "\"FCPXML compilation preserves explicit nonzero source bounds\"",
+          "\"FCPXML frame rounding cannot move an occurrence outside source bounds\""
         ]
       }
     }
