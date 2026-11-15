@@ -111,7 +111,8 @@ CI retains JUnit, JSON totals, selected-file/toolchain/commit metadata, slowest
 tests, seed replay diagnostics, and reviewed skip classifications. Expected
 platform/opt-in skips must have the exact reviewed reason and environment;
 missing or unreviewed reasons are reported as unexpected. Interrupted reports
-remain incomplete. Raw V8 temporary data is used for reporting rather than
+remain incomplete. Only the controller publishes the caller CI summary; nested
+test subprocesses do not inherit that output target. Raw V8 temporary data is used for reporting rather than
 uploaded with the compact results.
 
 PR summaries expose an initial per-package branch-coverage baseline and
