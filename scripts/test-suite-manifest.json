@@ -44,6 +44,23 @@
       "network": "none"
     },
     {
+      "path": "packages/runtime/test/reorder-preview.test.ts",
+      "owner": "packages/runtime",
+      "tags": [
+        "unit"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "packages/runtime"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
       "path": "packages/runtime/test/storage-ports.test.ts",
       "owner": "packages/runtime",
       "tags": [

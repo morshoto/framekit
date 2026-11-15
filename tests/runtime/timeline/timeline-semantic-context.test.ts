@@ -215,6 +215,83 @@ test("timeline semantic context rejects cached evidence from a different configu
   assert.deepEqual(context.occurrences[0]?.observations, []);
 });
 
+test("timeline semantic context rejects incompatible attached provider evidence", async () => {
+  const adapter = adapterFor();
+  const read = adapter.readProject.bind(adapter);
+  adapter.readProject = async () => {
+    const project = await read();
+    Object.assign(project.media[0]!, understanding());
+    return project;
+  };
+  const runtime = new AgentVideoRuntime(adapter, {
+    speechAnalyzer: { descriptor: { id: "fixture.speech", provider: "fixture", version: "2" },
+      analyze: async () => { throw new Error("inspection must not analyze"); } },
+  });
+  const context = await runtime.inspectTimelineSemanticContext({ occurrenceIds: ["occurrence-first"] });
+  assert.equal(context.occurrences[0]?.status, "unavailable");
+  assert.match(context.occurrences[0]?.reason ?? "", /provenance.*incompatible/);
+});
+
+test("default timeline inspection rejects source evidence outside observed coverage", async () => {
+  const store = new InMemorySemanticMediaIndexStore();
+  const partial = understanding();
+  partial.speech!.requestedRange = { start: 0, end: 5 };
+  partial.speech!.observedRange = { start: 0, end: 5 };
+  await store.save(partial);
+  const runtime = new AgentVideoRuntime(adapterFor(), { semanticMediaIndexStore: store });
+  const result = await runtime.inspectTimelineSemanticContext({ occurrenceIds: ["occurrence-second"] });
+  assert.equal(result.occurrences[0]?.status, "unavailable");
+  assert.match(result.occurrences[0]?.reason ?? "", /coverage/);
+  assert.deepEqual(result.occurrences[0]?.observations, []);
+});
+
+test("default timeline inspection rejects speech with missing observed coverage", async () => {
+  const store = new InMemorySemanticMediaIndexStore();
+  const incomplete = understanding();
+  incomplete.speech!.requestedRange = { start: 0, end: 20 };
+  delete incomplete.speech!.observedRange;
+  await store.save(incomplete);
+  const runtime = new AgentVideoRuntime(adapterFor(), { semanticMediaIndexStore: store });
+  const result = await runtime.inspectTimelineSemanticContext({ occurrenceIds: ["occurrence-first"] });
+  assert.equal(result.occurrences[0]?.status, "unavailable");
+  assert.match(result.occurrences[0]?.reason ?? "", /coverage/);
+});
+
+test("default timeline inspection rejects contradictory speech provenance", async (t) => {
+  for (const location of ["persisted", "attached"] as const) {
+    for (const field of ["source", "provider", "revision", "recorded source"] as const) {
+      await t.test(`${location}: ${field}`, async () => {
+        const adapter = adapterFor();
+        const project = await adapter.readProject();
+        const evidence = structuredClone(understanding());
+        evidence.speech = bindSpeechAnalysis(evidence.speech!, {
+          input: { project: { ...project, revision: evidence.analysisRevision }, media: project.media[0]! },
+          provider: evidence.analysis[0]!.provenance!.analyzer,
+        });
+        if (field === "source") evidence.speech.sourceIdentity!.source = "/different.mov";
+        if (field === "provider") evidence.speech.provider!.version = "different";
+        if (field === "revision") evidence.speech.revision!.id = "different";
+        if (field === "recorded source") evidence.analysis[0]!.provenance!.source = { ...evidence.sourceIdentity, sourceDigest: "different" };
+        const store = new InMemorySemanticMediaIndexStore();
+        if (location === "persisted") await store.save(evidence);
+        else {
+          const read = adapter.readProject.bind(adapter);
+          adapter.readProject = async () => {
+            const snapshot = await read();
+            Object.assign(snapshot.media[0]!, { speech: evidence.speech, analysis: evidence.analysis,
+              analysisRevision: evidence.analysisRevision.id });
+            return snapshot;
+          };
+        }
+        const runtime = new AgentVideoRuntime(adapter, { semanticMediaIndexStore: store });
+        const result = await runtime.inspectTimelineSemanticContext({ occurrenceIds: ["occurrence-first"] });
+        assert.equal(result.occurrences[0]?.status, "unavailable");
+        assert.deepEqual(result.occurrences[0]?.observations, []);
+      });
+    }
+  }
+});
+
 test("MCP speech mapping rejects incomplete and contradictory cached evidence", async (t) => {
   const cases: Array<{
     label: string;

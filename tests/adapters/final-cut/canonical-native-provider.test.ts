@@ -1756,6 +1756,12 @@ test("canonical target resolver selects the coordinate-matching occurrence from 
     startTime: { value: "96", timescale: "24" },
   };
 
+  targetSnapshot.timeline.clips.push({
+    ...targetSnapshot.timeline.clips[0]!,
+    id: "earlier-occurrence",
+    start: 0,
+    startTime: { value: "0", timescale: "24" },
+  });
   const resolver = createFinalCutNativeTargetResolver(native);
   await resolver(targetSnapshot.timeline.clips[0]!, targetSnapshot);
   assert.deepEqual(selected, ["occurrence-target"]);
@@ -3225,5 +3231,144 @@ test("MCP canonical operations verify exact semantics and restore after failures
       await server.close();
       await rm(directory, { recursive: true, force: true });
     }
+  }
+});
+
+test("canonical resolver rejects nonpositive target duration before discovery", async () => {
+  for (const value of ["0", "-24"]) {
+    const project = snapshot("Original");
+    const target = project.timeline.clips[0]!;
+    target.durationTime = { value, timescale: "24" };
+    const calls: string[] = [];
+    const native = {
+      searchMedia: async () => { calls.push("search"); return []; },
+      locateOccurrence: async () => { calls.push("locate"); return { status: "none" as const, occurrences: [] }; },
+    };
+    await assert.rejects(createFinalCutNativeTargetResolver(native)(target, project), /TARGET_MISMATCH.*duration/i);
+    assert.deepEqual(calls, []);
+  }
+});
+
+test("canonical resolver rejects overlapping same-source occurrences before discovery", async () => {
+  for (const [start, duration] of [["72", "48"], ["24", "24"], ["-24", "48"]] as const) {
+    const project = snapshot("Original");
+    const target = project.timeline.clips[0]!;
+    project.timeline.clips.push({ ...target, id: "overlapping", track: 1, startTime: { value: start, timescale: "24" }, durationTime: { value: duration, timescale: "24" } });
+    const calls: string[] = [];
+    const native = {
+      searchMedia: async () => { calls.push("search"); return []; },
+      locateOccurrence: async () => { calls.push("locate"); return { status: "none" as const, occurrences: [] }; },
+      selectOccurrence: async () => { calls.push("select"); return {} as never; },
+    };
+    await assert.rejects(createFinalCutNativeTargetResolver(native)(target, project), /AMBIGUOUS_PROJECT_TARGET.*overlap/i);
+    assert.deepEqual(calls, []);
+  }
+});
+
+test("canonical resolver permits adjacent repeated source occurrences", async () => {
+  const project = snapshot("Original");
+  const target = project.timeline.clips[0]!;
+  project.timeline.clips.push({ ...target, id: "adjacent", startTime: { value: "192", timescale: "48" }, durationTime: { value: "96", timescale: "24" } });
+  const selected: string[] = [];
+  const native = {
+    searchMedia: async () => [{ handle: "media", name: "clip.mov", sourceIdentity: "source", source: "/tmp/clip.mov" }],
+    locateOccurrence: async () => ({ status: "ambiguous" as const, occurrences: [
+      { handle: "occ", mediaHandle: "media", name: "Original", identity: "item", sourceIdentity: "source", start: "0/24", duration: "96/24", sequenceId: project.timeline.id },
+      { handle: "occ-2", mediaHandle: "media", name: "Original", identity: "item-2", sourceIdentity: "source", start: "96/24", duration: "96/24", sequenceId: project.timeline.id },
+    ] }),
+    selectOccurrence: async (handle: string) => { selected.push(handle); return { target: { kind: "selected-clip", identity: "item" } } as never; },
+  };
+  await createFinalCutNativeTargetResolver(native)(target, project);
+  assert.deepEqual(selected, ["occ"]);
+});
+
+test("canonical ripple delete requires source observation of the affected occurrence", async () => {
+  const { before } = rippleSnapshots();
+  const calls: string[] = [];
+  const resolveTarget = Object.assign(async () => { calls.push("resolve"); throw new Error("TARGET_MISMATCH: independent occurrence source unavailable"); }, { sourceBindingAvailable: true });
+  const provider = providerFor([before, before, before, before], calls, resolveTarget, liveState(), undefined, {
+    rippleDeleteRange: async () => { calls.push("delete"); return { operationId: "delete-1", undoAvailable: true }; },
+  });
+  const snapshotBefore = await provider.readProject();
+  const operation = {
+    type: "ripple-delete" as const,
+    timelineId: snapshotBefore.timeline.id,
+    range: { start: 2, end: 4, startTime: { value: "48", timescale: "24" }, durationTime: { value: "48", timescale: "24" } },
+    candidateId: "filler-1",
+    reason: "remove verified filler",
+  };
+  await assert.rejects(provider.applyTransaction([operation], snapshotBefore.revision), /TARGET_MISMATCH.*source unavailable/);
+  assert.deepEqual(calls, ["resolve"]);
+});
+
+test("ripple source observation preserves checkpoint when discovery may dispatch", async () => {
+  for (const dispatched of [false, true]) {
+    const { before } = rippleSnapshots();
+    const calls: string[] = [];
+    const resolve = Object.assign(async () => { calls.push("resolve"); throw new Error("TARGET_MISMATCH: source unavailable"); }, {
+      sourceBindingAvailable: true,
+      trackNativeDispatch: async <T>(operation: () => Promise<T>, onDispatch: () => void): Promise<T> => {
+        if (dispatched) onDispatch();
+        return operation();
+      },
+    });
+    const guard = {
+      assertClear: async () => {},
+      begin: async () => { calls.push("begin"); },
+      complete: async () => { calls.push("complete"); },
+    };
+    const provider = providerFor([before, before, before], calls, resolve, liveState(), undefined, {
+      rippleDeleteRange: async () => { calls.push("delete"); return { operationId: "delete-1", undoAvailable: true }; },
+    }, guard);
+    const current = await provider.readProject();
+    const operation = { type: "ripple-delete" as const, timelineId: current.timeline.id,
+      range: { start: 2, end: 4, startTime: { value: "48", timescale: "24" }, durationTime: { value: "48", timescale: "24" } },
+      candidateId: "filler-1", reason: "remove verified filler" };
+    await assert.rejects(provider.applyTransaction([operation], current.revision), dispatched ? /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/ : /TARGET_MISMATCH/);
+    assert.deepEqual(calls, dispatched ? ["begin", "resolve"] : ["begin", "resolve", "complete"]);
+  }
+});
+
+test("canonical resolver rejects unrecorded overlapping native occurrences before selection", async () => {
+  const project = snapshot("Original");
+  const selected: string[] = [];
+  const candidate = { handle: "first", mediaHandle: "media", name: "Original", identity: "item", sourceIdentity: "source", start: "0/24", duration: "96/24", sequenceId: project.timeline.id };
+  const native = {
+    searchMedia: async () => [{ handle: "media", name: "clip.mov", sourceIdentity: "source", source: "/tmp/clip.mov" }],
+    locateOccurrence: async () => ({ status: "ambiguous" as const, occurrences: [candidate, { ...candidate, handle: "second", identity: "item-2", start: "72/24", duration: "48/24" }] }),
+    selectOccurrence: async (handle: string) => { selected.push(handle); return { target: { kind: "selected-clip", identity: "item" } } as never; },
+  };
+  await assert.rejects(createFinalCutNativeTargetResolver(native)(project.timeline.clips[0]!, project), /AMBIGUOUS_PROJECT_TARGET.*overlap/i);
+  assert.deepEqual(selected, []);
+});
+
+test("canonical resolver rejects a partial scan of repeated source occurrences", async () => {
+  const project = snapshot("Original");
+  const target = project.timeline.clips[0]!;
+  project.timeline.clips.push({ ...target, id: "second", startTime: { value: "96", timescale: "24" }, durationTime: { value: "48", timescale: "24" } });
+  let selected = false;
+  const native = {
+    searchMedia: async () => [{ handle: "media", name: "clip.mov", sourceIdentity: "source", source: "/tmp/clip.mov" }],
+    locateOccurrence: async () => ({ status: "unique" as const, occurrences: [{ handle: "occ", mediaHandle: "media", name: "Original", identity: "item", sourceIdentity: "source", start: "0/24", duration: "96/24", sequenceId: project.timeline.id }] }),
+    selectOccurrence: async () => { selected = true; return { target: { kind: "selected-clip", identity: "item" } } as never; },
+  };
+  await assert.rejects(createFinalCutNativeTargetResolver(native)(target, project), /AMBIGUOUS_PROJECT_TARGET.*(incomplete|partial)/i);
+  assert.equal(selected, false);
+});
+
+test("canonical resolver rejects unexpected or displaced repeated native occurrences", async () => {
+  for (const mode of ["extra", "displaced"] as const) {
+    const project = snapshot("Original");
+    const target = project.timeline.clips[0]!;
+    if (mode === "displaced") project.timeline.clips.push({ ...target, id: "second", startTime: { value: "96", timescale: "24" }, durationTime: { value: "48", timescale: "24" } });
+    let selected = false;
+    const candidate = { handle: "occ", mediaHandle: "media", name: "Original", identity: "item", sourceIdentity: "source", start: "0/24", duration: "96/24", sequenceId: project.timeline.id };
+    const native = {
+      searchMedia: async () => [{ handle: "media", name: "clip.mov", sourceIdentity: "source", source: "/tmp/clip.mov" }],
+      locateOccurrence: async () => ({ status: "ambiguous" as const, occurrences: [candidate, { ...candidate, handle: "other", identity: "other", start: "144/24", duration: "48/24" }] }),
+      selectOccurrence: async () => { selected = true; return { target: { kind: "selected-clip", identity: "item" } } as never; },
+    };
+    await assert.rejects(createFinalCutNativeTargetResolver(native)(target, project), /AMBIGUOUS_PROJECT_TARGET.*(incomplete|inconsistent)/i, mode);
+    assert.equal(selected, false, mode);
   }
 });

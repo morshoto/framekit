@@ -315,14 +315,17 @@ export class MediaAnalysisService {
     }
     const persisted = media.sourceDigest?.trim()
       ? await this.options.semanticMediaIndexStore?.load(sourceIdentity) : undefined;
-    if (persisted && (!analyzedProvidersMatch(persisted, this.options)
-      || !sourceAudioIsReusable(persisted))) {
-      return unavailableTimelineOccurrence(clip.id, "cached analyzer provenance is incompatible with current source analysis",
-        clip.mediaId, sourceRange, sourceIdentity);
-    }
     const understanding = persisted ?? understandingFromMediaContext(media, project.revision);
     if (!understanding) {
       return unavailableTimelineOccurrence(clip.id, "source-bound semantic index entry is unavailable", clip.mediaId, sourceRange, sourceIdentity);
+    }
+    if (!analyzedProvidersMatch(understanding, this.options) || !sourceAudioIsReusable(understanding)) {
+      return unavailableTimelineOccurrence(clip.id, "cached analyzer provenance is incompatible with current source analysis",
+        clip.mediaId, sourceRange, sourceIdentity);
+    }
+    if (!query.includeSpeechMappings && !sourceSpeechIsReusable(understanding, persisted ? understanding.analysisRevision : media.analysisRevision)) {
+      return unavailableTimelineOccurrence(clip.id, "cached speech provenance is incompatible with current source analysis",
+        clip.mediaId, sourceRange, sourceIdentity);
     }
     let speechMapping: SpeechOccurrenceMapping | undefined;
     if (query.includeSpeechMappings) {
@@ -331,6 +334,10 @@ export class MediaAnalysisService {
       } catch (error) {
         return unavailableTimelineOccurrence(clip.id, String(error), clip.mediaId, sourceRange, sourceIdentity);
       }
+    }
+    if (!timelineEvidenceCovers(understanding, sourceRange)) {
+      return unavailableTimelineOccurrence(clip.id, "source analysis coverage does not include the timeline occurrence",
+        clip.mediaId, sourceRange, sourceIdentity);
     }
     const observations = timelineSemanticObservations(understanding, sourceRange);
     const filtered = query.query
@@ -944,6 +951,41 @@ function sourceAudioIsReusable(evidence: SourceAudioEvidence): boolean {
   } catch {
     return false;
   }
+}
+
+function sourceSpeechIsReusable(
+  evidence: MediaUnderstanding,
+  revision: MediaUnderstanding["analysisRevision"] | string | undefined,
+): boolean {
+  const speech = evidence.speech;
+  if (!speech) return true;
+  const provenance = evidence.analysis.find((entry) => entry.capability === "speech" && entry.status === "analyzed")?.provenance;
+  if (!provenance || !sameMediaSourceIdentity(provenance.source, evidence.sourceIdentity)) return false;
+  if (speech.mediaId !== undefined && speech.mediaId !== evidence.sourceIdentity.mediaId) return false;
+  if (speech.sourceIdentity !== undefined && !sameMediaSourceIdentity(speech.sourceIdentity, evidence.sourceIdentity)) return false;
+  if (speech.provider !== undefined && !sameDescriptor(speech.provider, provenance.analyzer)) return false;
+  if (speech.revision !== undefined && (!revision || (typeof revision === "string"
+    ? speech.revision.id !== revision : !sameContextRevision(speech.revision, revision)))) return false;
+  return true;
+}
+
+function timelineEvidenceCovers(understanding: MediaUnderstanding, range: TimeRange): boolean {
+  const covers = (candidate: TimeRange | undefined) => Boolean(candidate
+    && Number.isFinite(candidate.start) && Number.isFinite(candidate.end)
+    && candidate.start <= range.start && candidate.end >= range.end);
+  for (const [capability, evidence, requested, observed] of [
+    ["speech", understanding.speech, understanding.speech?.requestedRange, understanding.speech?.observedRange],
+    ["audio", understanding.audio, understanding.audio?.requestedRange, understanding.audio?.measuredRange],
+  ] as const) {
+    if (!evidence) continue;
+    if (requested || observed) {
+      if (!covers(requested) || !covers(observed)) return false;
+    } else {
+      const provenance = understanding.analysis.find((record) => record.capability === capability && record.status === "analyzed")?.provenance;
+      if (!provenance?.ranges.some(covers)) return false;
+    }
+  }
+  return true;
 }
 
 function analyzedProvidersMatch(understanding: Pick<MediaUnderstanding, "analysis">, options: RuntimeOptions): boolean {

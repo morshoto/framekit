@@ -2303,7 +2303,7 @@ test("native Final Cut literal Browser search does not fall back to arbitrary au
       if (script.includes('set searchQuery to "Hang Tight Bass 03"')) {
         return `Hang Tight Bass 03${separator}AXBrowserMedia${separator}browser-3${separator}media-source-3${recordSeparator}`;
       }
-      if (script.includes('set searchQuery to "music"')) return "";
+      if (script.includes('set searchQuery to "music"')) return "__FRAMEKIT_BROWSER_SCAN_EMPTY__";
       return "";
     },
   });
@@ -2614,7 +2614,7 @@ test("native Final Cut appends the currently selected Browser media with AX iden
   assert.equal(preview.media.sourceIdentity, "media-source-3");
   assert.equal(preview.insertionTime.value, "10");
   const result = await adapter.executeAppendSelectedMedia(preview.previewToken);
-  assert.equal(result.verification.verified, true);
+  assert.equal(result.verification.verified, false);
   assert.equal(result.afterDuration.value, "15");
   assert.equal(result.afterRevision.id, "rev-2");
   assert.equal(scripts.some((script) => script.includes("selectedBrowserMediaScript")), false);
@@ -2663,9 +2663,10 @@ test("native Final Cut selected-media append fails closed without AX identity or
   await assert.rejects(changedSelection.executeAppendSelectedMedia(preview.previewToken), /FINAL_CUT_NATIVE_MEDIA_SELECTION_CHANGED/);
 });
 
-test("native Final Cut adapter previews, appends selected media, verifies duration and revision, and undoes", async () => {
+test("native append Undo cannot verify same-duration wrong content", async () => {
   let revision = 1;
   let duration = "10";
+  let actualSources = ["original-source"];
   const scripts: string[] = [];
   const liveState = async () => ({
     project: { id: "project-1", name: "Edit" },
@@ -2688,10 +2689,12 @@ test("native Final Cut adapter previews, appends selected media, verifies durati
       if (script.includes("keystroke \"e\"")) {
         duration = "15";
         revision = 2;
+        actualSources = ["original-source", "appended-source"];
       }
       if (script.includes('click menu item "Undo Append"')) {
         duration = "10";
         revision = 3;
+        actualSources = ["different-source"];
       }
       if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${String.fromCharCode(30)}`;
       return script.includes("timelineWindowAvailable") || script.includes('set frontWindow to window "Final Cut Pro"')
@@ -2707,7 +2710,7 @@ test("native Final Cut adapter previews, appends selected media, verifies durati
   assert.deepEqual(preview.beforeDuration, { value: "10", timescale: "1" });
   assert.deepEqual(preview.insertionTime, { value: "10", timescale: "1" });
   const result = await adapter.executeAppendMedia(preview.previewToken);
-  assert.equal(result.verification.verified, true);
+  assert.equal(result.verification.verified, false);
   assert.deepEqual(result.afterDuration, { value: "15", timescale: "1" });
   assert.equal(result.afterRevision.id, "rev-2");
   assert.equal(result.undoCommand, "Undo Append");
@@ -2718,16 +2721,18 @@ test("native Final Cut adapter previews, appends selected media, verifies durati
   assert.ok(appendScript.includes('exists sheet 1 of mainWindow'));
   assert.ok(appendScript.includes('click button "OK" of sheet 1 of mainWindow'));
 
-  const undone = await adapter.undo(result.operationId);
-  assert.equal(undone.undone, true);
-  assert.equal(undone.verification.verified, true);
+  await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_VERIFICATION_FAILED.*canonical/);
+  await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_UNCERTAIN/);
   assert.deepEqual((await liveState()).sequence?.duration, { value: "10", timescale: "1" });
+  assert.deepEqual(actualSources, ["different-source"]);
   assert.equal(scripts.some((script) => script.includes('click menu item "Undo Append" of menu "Edit"')), true);
 });
 
-test("native Final Cut adapter previews, inserts selected media at the playhead, verifies duration and revision, and undoes", async () => {
+test("native insert duration and revision do not verify placement or Undo", async () => {
   let revision = 1;
   let duration = "10";
+  const baselineClips = ["original-source@0..10"];
+  let editorClips = [...baselineClips];
   const scripts: string[] = [];
   const liveState = async () => ({
     project: { id: "project-1", name: "Edit" },
@@ -2749,10 +2754,13 @@ test("native Final Cut adapter previews, inserts selected media at the playhead,
       scripts.push(script);
       if (script.includes("keystroke \"w\"")) {
         duration = "15";
+        editorClips = ["original-source@0..4", "inserted-source@0..5", "original-source@4..10"];
         revision = 2;
       }
       if (script.includes('click menu item "Undo Insert"')) {
         duration = "10";
+        // Simulate an Undo that preserves duration while restoring the wrong source.
+        editorClips = ["wrong-source@0..10"];
         revision = 3;
       }
       if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${String.fromCharCode(30)}`;
@@ -2768,15 +2776,81 @@ test("native Final Cut adapter previews, inserts selected media at the playhead,
   assert.equal(preview.operation, "insert");
   assert.deepEqual(preview.insertionTime, { value: "4", timescale: "1" });
   const result = await adapter.executeInsertMedia(preview.previewToken);
-  assert.equal(result.verification.verified, true);
+  assert.equal(result.verification.verified, false);
   assert.deepEqual(result.afterDuration, { value: "15", timescale: "1" });
   assert.equal(result.afterRevision.id, "rev-2");
   assert.equal(scripts.filter((script) => script.includes('set targetIdentity to "browser-1"')).length >= 2, true);
 
-  const undone = await adapter.undo(result.operationId);
-  assert.equal(undone.undone, true);
-  assert.equal(undone.verification.verified, true);
+  await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_VERIFICATION_FAILED.*canonical/);
+  await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_UNCERTAIN/);
   assert.deepEqual((await liveState()).sequence?.duration, { value: "10", timescale: "1" });
+  assert.notDeepEqual(editorClips, baselineClips);
+  assert.equal(scripts.some((script) => script.includes('click menu item "Undo Insert" of menu "Edit"')), true);
+});
+
+test("concurrent placement Undo requests dispatch at most once", async () => {
+  let revision = 1;
+  let duration = "10";
+  const baselineClips = ["original-source@0..10"];
+  let editorClips = [...baselineClips];
+  const scripts: string[] = [];
+  let undoCalls = 0;
+  const liveState = async () => ({
+    project: { id: "project-1", name: "Edit" },
+    sequence: {
+      id: "sequence-1",
+      name: "Edit",
+      startTime: { value: "0", timescale: "1" },
+      duration: { value: duration, timescale: "1" },
+      frameDuration: { value: "1", timescale: "24" },
+    },
+    playheadTime: { value: "4", timescale: "1" },
+    sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" } },
+    revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(revision).toISOString() },
+  });
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState,
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes("keystroke \"w\"")) {
+        duration = "15";
+        editorClips = ["original-source@0..4", "inserted-source@0..5", "original-source@4..10"];
+        revision = 2;
+      }
+      if (script.includes('click menu item "Undo Insert"')) {
+        undoCalls += 1;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        duration = "10";
+        // Simulate an Undo that preserves duration while restoring the wrong source.
+        editorClips = ["wrong-source@0..10"];
+        revision = 3;
+      }
+      if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${String.fromCharCode(30)}`;
+      return script.includes("timelineWindowAvailable") || script.includes('set frontWindow to window "Final Cut Pro"')
+        ? context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1, revision === 2 ? "Undo Insert" : "Undo")
+        : "";
+    },
+  });
+
+  const [media] = await adapter.searchMedia("Interview");
+  await adapter.selectMedia(media.handle);
+  const preview = await adapter.previewInsertMedia(media.handle);
+  assert.equal(preview.operation, "insert");
+  assert.deepEqual(preview.insertionTime, { value: "4", timescale: "1" });
+  const result = await adapter.executeInsertMedia(preview.previewToken);
+  assert.equal(result.verification.verified, false);
+  assert.deepEqual(result.afterDuration, { value: "15", timescale: "1" });
+  assert.equal(result.afterRevision.id, "rev-2");
+  assert.equal(scripts.filter((script) => script.includes('set targetIdentity to "browser-1"')).length >= 2, true);
+
+  const outcomes = await Promise.allSettled([adapter.undo(result.operationId), adapter.undo(result.operationId)]);
+  assert.equal(outcomes.every((outcome) => outcome.status === "rejected"), true);
+  assert.ok(outcomes.some((outcome) => outcome.status === "rejected" && /UNDO_UNCERTAIN/.test(String(outcome.reason))));
+  assert.equal(undoCalls, 1);
+  await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_UNCERTAIN/);
+  assert.deepEqual((await liveState()).sequence?.duration, { value: "10", timescale: "1" });
+  assert.notDeepEqual(editorClips, baselineClips);
   assert.equal(scripts.some((script) => script.includes('click menu item "Undo Insert" of menu "Edit"')), true);
 });
 
@@ -2817,7 +2891,7 @@ test("native media insertion fails closed when media selection or preview revisi
   assert.equal(scripts.some((script) => script.includes('keystroke "e"')), false);
 });
 
-test("native media insertion rolls back when post-command verification observes duration growth without a new revision", async () => {
+test("native media insertion requires recovery after duration growth without a new revision", async () => {
   let revision = 1;
   let now = 0;
   let undoCalls = 0;
@@ -2857,9 +2931,9 @@ test("native media insertion rolls back when post-command verification observes 
   const [media] = await adapter.searchMedia("Interview");
   await adapter.selectMedia(media.handle);
   const preview = await adapter.previewAppendMedia(media.handle);
-  await assert.rejects(adapter.executeAppendMedia(preview.previewToken), /insertion was rolled back/);
-  assert.equal(undoCalls, 1);
-  assert.equal(revision, 3);
+  await assert.rejects(adapter.executeAppendMedia(preview.previewToken), /recovery.*required/i);
+  assert.equal(undoCalls, 0);
+  assert.equal(revision, 1);
 });
 
 test("native media insertion does not undo an unrelated revision change", async () => {
@@ -2902,7 +2976,7 @@ test("native media insertion does not undo an unrelated revision change", async 
   assert.equal(revision, 2);
 });
 
-test("native media insertion reselects Browser media before a focus-recovery retry", async () => {
+test("native media insertion does not retry an uncertain append focus error", async () => {
   let revision = 1;
   let duration = "10";
   let insertionCalls = 0;
@@ -2941,17 +3015,10 @@ test("native media insertion reselects Browser media before a focus-recovery ret
   const [media] = await adapter.searchMedia("Interview");
   await adapter.selectMedia(media.handle);
   const preview = await adapter.previewAppendMedia(media.handle);
-  const result = await adapter.executeAppendMedia(preview.previewToken);
-  assert.equal(result.verification.verified, true);
-  assert.equal(insertionCalls, 2);
-  assert.equal(scripts.filter((script) => script.includes('set targetIdentity to "browser-1"')).length, 3);
-  const selectionScripts = scripts
-    .map((script, index) => ({ script, index }))
-    .filter(({ script }) => script.includes('set targetIdentity to "browser-1"'));
-  const insertionScripts = scripts
-    .map((script, index) => ({ script, index }))
-    .filter(({ script }) => script.includes('keystroke "e"'));
-  assert.equal(selectionScripts[2]!.index < insertionScripts[1]!.index, true);
+  await assert.rejects(adapter.executeAppendMedia(preview.previewToken), /FINAL_CUT_NATIVE_PLACEMENT_OUTCOME_UNCERTAIN:.*recovery.*-1719/i);
+  await assert.rejects(adapter.executeAppendMedia(preview.previewToken), /PREVIEW_STALE/);
+  assert.equal(insertionCalls, 1);
+  assert.equal(scripts.filter((script) => script.includes('set targetIdentity to "browser-1"')).length, 2);
 });
 
 test("native Final Cut adapter targets one media occurrence and reports live playhead state", async () => {
@@ -3032,7 +3099,7 @@ test("native Final Cut media targeting rejects missing and ambiguous targets", a
     },
   });
 
-  await assert.rejects(makeAdapter("").targetMedia("missing"), /FINAL_CUT_NATIVE_MEDIA_NOT_FOUND/);
+  await assert.rejects(makeAdapter("__FRAMEKIT_BROWSER_SCAN_EMPTY__").targetMedia("missing"), /FINAL_CUT_NATIVE_MEDIA_NOT_FOUND/);
   await assert.rejects(
     makeAdapter(`Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${recordSeparator}Interview copy${separator}AXBrowserMedia${separator}browser-2${separator}media-source-2${recordSeparator}`).targetMedia("ambiguous"),
     /FINAL_CUT_NATIVE_AMBIGUOUS_TARGET/,
@@ -3158,7 +3225,7 @@ test("native Final Cut imports local video and audio, waits for Browser availabi
         const name = script.includes("interview.mov") ? "interview.mov" : "music.wav";
         const calls = (searchCalls.get(name) ?? 0) + 1;
         searchCalls.set(name, calls);
-        if (calls === 1) return "";
+        if (calls === 1) return "__FRAMEKIT_BROWSER_SCAN_EMPTY__";
         return `${name}${separator}AXBrowserMedia${separator}browser-${name}${separator}file:///imported/${name}${recordSeparator}`;
       }
       return "";
@@ -3222,7 +3289,7 @@ test("native Final Cut expands a user-home path before validating and importing 
       if (script.includes("AXBrowserMedia")) {
         searchCalls += 1;
         return searchCalls === 1
-          ? ""
+          ? "__FRAMEKIT_BROWSER_SCAN_EMPTY__"
           : `home-import.mov${separator}AXBrowserMedia${separator}browser-home${separator}file:///imported/home-import.mov${recordSeparator}`;
       }
       return "";
@@ -3260,7 +3327,7 @@ test("native Final Cut resolves relative paths from the process cwd", async () =
       if (script.includes("AXBrowserMedia")) {
         searchCalls += 1;
         return searchCalls === 1
-          ? ""
+          ? "__FRAMEKIT_BROWSER_SCAN_EMPTY__"
           : `relative-import.mov${separator}AXBrowserMedia${separator}browser-relative${separator}file:///imported/relative-import.mov${recordSeparator}`;
       }
       return "";
@@ -3475,7 +3542,7 @@ test("native Final Cut keeps an imported media handle usable after an unrelated 
       if (script.includes("AXBrowserMedia") && script.includes("interview.mov")) {
         interviewSearches += 1;
         return interviewSearches === 1
-          ? ""
+          ? "__FRAMEKIT_BROWSER_SCAN_EMPTY__"
           : `interview.mov${separator}AXBrowserMedia${separator}browser-interview${separator}file:///imported/interview.mov${recordSeparator}`;
       }
       if (script.includes("AXBrowserMedia") && script.includes("other.mov")) {
@@ -3547,7 +3614,7 @@ test("native Final Cut rejects synthetic Browser identities during import", asyn
       if (script.includes("FRAMEKIT_IMPORT_MEDIA")) return "import-requested";
       if (script.includes("AXBrowserMedia")) {
         searchCalls += 1;
-        if (searchCalls === 1) return "";
+        if (searchCalls === 1) return "__FRAMEKIT_BROWSER_SCAN_EMPTY__";
         return `interview.mov${separator}AXBrowserMedia${separator}browser-interview${separator}fcp-ax://browser/events/1|AXBrowserMedia|interview.mov${recordSeparator}`;
       }
       return "";
@@ -3579,6 +3646,7 @@ test("native Final Cut import reports staged Browser discovery timeout diagnosti
       if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
       if (script.includes("FRAMEKIT_IMPORT_MEDIA")) return "import-requested";
       if (script.includes("collectBrowserMediaDiagnostics")) return `AXRow${separator}blue-steel-guitar.wav${separator}Media item${separator}false${separator}${separator}(100, 200), (300, 80)${separator}Browser > Events${String.fromCharCode(30)}`;
+      if (script.includes("set value of searchField to searchQuery")) return "__FRAMEKIT_BROWSER_SCAN_EMPTY__";
       return "";
     },
   });
@@ -3611,7 +3679,7 @@ test("native Final Cut import aborts a stalled native executor at its deadline",
     mediaImportTimeoutMs: 20,
     executor: async (script, options) => {
       if (script.includes('set frontWindow to window "Final Cut Pro"')) return context(true, "Final Cut Pro", "", 0, false);
-      if (script.includes("AXBrowserMedia")) return "";
+      if (script.includes("AXBrowserMedia")) return "__FRAMEKIT_BROWSER_SCAN_EMPTY__";
       if (script.includes("FRAMEKIT_IMPORT_MEDIA")) {
         await new Promise<never>((_, reject) => {
           options?.signal?.addEventListener("abort", () => {
@@ -4307,4 +4375,349 @@ test("canonical occurrence discovery does not retry a failed scan", async () => 
   const [match] = await adapter.searchMedia("Interview");
   await assert.rejects(adapter.locateOccurrenceForCanonicalTarget(match.handle), /scan interrupted/);
   assert.equal(scans, 1);
+});
+
+test("native Browser search rejects incomplete scans instead of reporting empty or partial matches", async () => {
+  const recordSeparator = String.fromCharCode(30);
+  for (const prefix of ["", `Interview${separator}AXBrowserMedia${separator}browser-1${separator}source-1${recordSeparator}`]) {
+    let searchScript = "";
+    const adapter = new FinalCutNativeAutomationAdapter({
+      enabled: true,
+      executor: async (script) => {
+        if (script.includes("set value of searchField to searchQuery")) {
+          searchScript = script;
+          return `${prefix}__FRAMEKIT_BROWSER_SCAN_INCOMPLETE__${recordSeparator}`;
+        }
+        return script.includes('set frontWindow to window "Final Cut Pro"') ? context(true, "Final Cut Pro", "", 0, true) : "";
+      },
+    });
+    await assert.rejects(adapter.searchMedia("Interview"), /FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE.*incomplete/i);
+    assert.match(searchScript, /__FRAMEKIT_BROWSER_SCAN_INCOMPLETE__/);
+  }
+});
+
+test("native Browser search rejects malformed and truncated scan records", async () => {
+  const recordSeparator = String.fromCharCode(30);
+  const valid = `Interview${separator}AXBrowserMedia${separator}browser-1${separator}source-1${recordSeparator}`;
+  for (const output of [
+    "unexpected executor output",
+    `unrelated${separator}AXRow${separator}id${recordSeparator}`,
+    `${valid}Interview${separator}AXRow${separator}id`,
+    `Interview${separator}AXRow${separator}id${separator}source${separator}extra${recordSeparator}`,
+  ]) {
+    const adapter = new FinalCutNativeAutomationAdapter({
+      enabled: true,
+      executor: async (script) => script.includes("set value of searchField to searchQuery")
+        ? output
+        : script.includes('set frontWindow to window "Final Cut Pro"') ? context(true, "Final Cut Pro", "", 0, true) : "",
+    });
+    await assert.rejects(adapter.searchMedia("Interview"), /FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE.*malformed/i);
+  }
+});
+
+test("native Browser search distinguishes missing output from a completed empty scan", async () => {
+  let output = "";
+  let searchScript = "";
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      if (script.includes("set value of searchField to searchQuery")) { searchScript = script; return output; }
+      return script.includes('set frontWindow to window "Final Cut Pro"') ? context(true, "Final Cut Pro", "", 0, true) : "";
+    },
+  });
+  await assert.rejects(adapter.searchMedia("missing"), /FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE.*missing.*output/i);
+  output = "__FRAMEKIT_BROWSER_SCAN_EMPTY__";
+  assert.deepEqual(await adapter.searchMedia("missing"), []);
+  assert.match(searchScript, /if output is "" then return "__FRAMEKIT_BROWSER_SCAN_EMPTY__"/);
+});
+
+test("native Browser search marks unscanned descendants at its traversal limit", async () => {
+  let searchScript = "";
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    executor: async (script) => {
+      if (script.includes("set value of searchField to searchQuery")) { searchScript = script; return "__FRAMEKIT_BROWSER_SCAN_EMPTY__"; }
+      return script.includes('set frontWindow to window "Final Cut Pro"') ? context(true, "Final Cut Pro", "", 0, true) : "";
+    },
+  });
+  assert.deepEqual(await adapter.searchMedia("missing"), []);
+  const traversal = searchScript.slice(searchScript.indexOf("on collectBrowserMedia("), searchScript.indexOf("end collectBrowserMedia"));
+  assert.match(traversal, /if depth > maxDepth then[\s\S]*count of (?:remainingItems|unscannedItems)[\s\S]*__FRAMEKIT_BROWSER_SCAN_INCOMPLETE__/i);
+  assert.doesNotMatch(traversal, /if depth > maxDepth then return ""/);
+});
+
+test("native media placement rejects a switched project before insertion", async () => {
+  let projectId = "project-1";
+  const scripts: string[] = [];
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => ({
+      project: { id: projectId, name: "Edit" },
+      sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: "10", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+      playheadTime: { value: "4", timescale: "1" },
+      sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "10", timescale: "1" } },
+      revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
+    }),
+    executor: async (script) => {
+      scripts.push(script);
+      if (script.includes('keystroke "w"')) throw new Error("unexpected insertion dispatch");
+      if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${String.fromCharCode(30)}`;
+      return script.includes('set frontWindow to window "Final Cut Pro"') ? context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1, "Undo") : "";
+    },
+  });
+  const [media] = await adapter.searchMedia("Interview");
+  await adapter.selectMedia(media.handle);
+  const preview = await adapter.previewInsertMedia(media.handle);
+  projectId = "project-2";
+  await assert.rejects(adapter.executeInsertMedia(preview.previewToken), /FINAL_CUT_NATIVE_PREVIEW_STALE.*project/);
+  assert.equal(scripts.some((script) => script.includes('keystroke "w"')), false);
+  projectId = "";
+  await assert.rejects(adapter.previewInsertMedia(media.handle), /CAPABILITY_UNAVAILABLE.*project/);
+});
+
+test("native media placement rechecks project after Browser reselection", async () => {
+  let projectId = "project-1";
+  let selections = 0;
+  let dispatched = false;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => ({
+      project: { id: projectId, name: "Edit" },
+      sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: "10", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+      playheadTime: { value: "4", timescale: "1" },
+      sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "10", timescale: "1" } },
+      revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
+    }),
+    executor: async (script) => {
+      if (script.includes('set targetIdentity to "browser-1"') && ++selections === 2) projectId = "project-2";
+      if (script.includes('keystroke "w"')) { dispatched = true; throw new Error("unexpected insertion dispatch"); }
+      if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${String.fromCharCode(30)}`;
+      return script.includes('set frontWindow to window "Final Cut Pro"') ? context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1, "Undo") : "";
+    },
+  });
+  const [media] = await adapter.searchMedia("Interview");
+  await adapter.selectMedia(media.handle);
+  const preview = await adapter.previewInsertMedia(media.handle);
+  await assert.rejects(adapter.executeInsertMedia(preview.previewToken), /FINAL_CUT_NATIVE_PREVIEW_STALE.*project/);
+  assert.equal(dispatched, false);
+});
+
+test("native placement preview requires a sequence identity", async () => {
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => ({
+      project: { id: "project-1", name: "Edit" },
+      sequence: { id: "", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: "10", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+      playheadTime: { value: "4", timescale: "1" },
+      sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "10", timescale: "1" } },
+      revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
+    }),
+    executor: async (script) => script.includes("AXBrowserMedia")
+      ? `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${String.fromCharCode(30)}`
+      : script.includes('set frontWindow to window "Final Cut Pro"') ? context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1, "Undo") : "",
+  });
+  const [media] = await adapter.searchMedia("Interview");
+  await adapter.selectMedia(media.handle);
+  await assert.rejects(adapter.previewAppendMedia(media.handle), /CAPABILITY_UNAVAILABLE.*sequence identity/);
+});
+
+test("native append rejects a changed sequence start before dispatch", async () => {
+  let sequenceStart = "0";
+  let dispatched = false;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => ({
+      project: { id: "project-1", name: "Edit" },
+      sequence: { id: "sequence-1", name: "Edit", startTime: { value: sequenceStart, timescale: "1" }, duration: { value: "10", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+      playheadTime: { value: "4", timescale: "1" },
+      sequenceTimeRange: { start: { value: sequenceStart, timescale: "1" }, duration: { value: "10", timescale: "1" } },
+      revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
+    }),
+    executor: async (script) => {
+      if (script.includes('keystroke "e"')) { dispatched = true; throw new Error("unexpected append dispatch"); }
+      if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${String.fromCharCode(30)}`;
+      return script.includes('set frontWindow to window "Final Cut Pro"') ? context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1, "Undo") : "";
+    },
+  });
+  const [media] = await adapter.searchMedia("Interview");
+  await adapter.selectMedia(media.handle);
+  const preview = await adapter.previewAppendMedia(media.handle);
+  sequenceStart = "1";
+  await assert.rejects(adapter.executeAppendMedia(preview.previewToken), /FINAL_CUT_NATIVE_PREVIEW_STALE.*insertion/);
+  assert.equal(dispatched, false);
+});
+
+test("native media insertion never retries an uncertain focus failure after dispatch", async () => {
+  let insertionCalls = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => ({
+      project: { id: "project-1", name: "Edit" },
+      sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: "10", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+      playheadTime: { value: "4", timescale: "1" },
+      sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "10", timescale: "1" } },
+      revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
+    }),
+    executor: async (script) => {
+      if (script.includes('keystroke "w"')) {
+        insertionCalls++;
+        if (insertionCalls === 1) throw new Error("execution error: Final Cut is not frontmost (-1719)");
+        throw new Error("unexpected duplicate insertion");
+      }
+      if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${String.fromCharCode(30)}`;
+      return script.includes('set frontWindow to window "Final Cut Pro"') ? context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1, "Undo") : "";
+    },
+  });
+  const [media] = await adapter.searchMedia("Interview");
+  await adapter.selectMedia(media.handle);
+  const preview = await adapter.previewInsertMedia(media.handle);
+  await assert.rejects(adapter.executeInsertMedia(preview.previewToken), /FINAL_CUT_NATIVE_PLACEMENT_OUTCOME_UNCERTAIN:.*recovery.*-1719/i);
+  assert.equal(insertionCalls, 1);
+  await assert.rejects(adapter.executeInsertMedia(preview.previewToken), /PREVIEW_STALE/);
+});
+
+test("native placement refuses changed post-dispatch targets without undoing them", async () => {
+  for (const changed of ["project", "sequence"] as const) {
+    let projectId = "project-1";
+    let sequenceId = "sequence-1";
+    let revision = 1;
+    let duration = "10";
+    let undoCalls = 0;
+    const adapter = new FinalCutNativeAutomationAdapter({
+      enabled: true,
+      liveState: async () => ({
+        project: { id: projectId, name: "Edit" },
+        sequence: { id: sequenceId, name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+        playheadTime: { value: "4", timescale: "1" },
+        sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" } },
+        revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(0).toISOString() },
+      }),
+      executor: async (script) => {
+        if (script.includes('keystroke "e"')) {
+          if (changed === "project") projectId = "project-2"; else sequenceId = "sequence-2";
+          revision = 2;
+          duration = "15";
+        }
+        if (script.includes('click menu item "Undo Append"')) undoCalls++;
+        if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${String.fromCharCode(30)}`;
+        return script.includes('set frontWindow to window "Final Cut Pro"') ? context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1, revision === 2 ? "Undo Append" : "Undo") : "";
+      },
+    });
+    const [media] = await adapter.searchMedia("Interview");
+    await adapter.selectMedia(media.handle);
+    const preview = await adapter.previewAppendMedia(media.handle);
+    let operationId = "";
+    await assert.rejects(adapter.executeAppendMedia(preview.previewToken), (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /FINAL_CUT_NATIVE_PARTIAL_MUTATION/);
+      operationId = (error as Error & { details: { operationId: string } }).details.operationId;
+      return true;
+    });
+    await assert.rejects(adapter.undo(operationId), /FINAL_CUT_NATIVE_UNDO_.*(TARGET|SCOPE)/);
+    assert.equal(undoCalls, 0, `${changed} switch must not undo the new target`);
+  }
+});
+
+test("native placement Undo rejects an interleaved context target before dispatch", async () => {
+  for (const mismatch of ["project", "sequence", "revision-id", "revision-sequence"] as const) {
+    let revision = 1;
+    let duration = "10";
+    let undoPhase = false;
+    let observed = 0;
+    let undoCalls = 0;
+    const adapter = new FinalCutNativeAutomationAdapter({
+      enabled: true,
+      liveState: async () => {
+        const wrong = undoPhase && ++observed <= 2;
+        return {
+          project: { id: wrong && mismatch === "project" ? "other-project" : "project-1", name: "Edit" },
+          sequence: { id: wrong && mismatch === "sequence" ? "other-sequence" : "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+          playheadTime: { value: "4", timescale: "1" },
+          sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" } },
+          revision: { id: wrong && mismatch === "revision-id" ? "other-revision" : `rev-${revision}`, sequence: wrong && mismatch === "revision-sequence" ? revision + 1 : revision, timestamp: new Date(revision).toISOString() },
+        };
+      },
+      executor: async (script) => {
+        if (script.includes('keystroke "e"')) { duration = "15"; revision = 2; }
+        if (script.includes('click menu item "Undo Append"')) { undoCalls++; duration = "10"; revision = 3; }
+        if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${String.fromCharCode(30)}`;
+        return script.includes('set frontWindow to window "Final Cut Pro"') ? context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1, revision === 2 ? "Undo Append" : "Undo") : "";
+      },
+    });
+    const [media] = await adapter.searchMedia("Interview");
+    await adapter.selectMedia(media.handle);
+    const preview = await adapter.previewAppendMedia(media.handle);
+    const result = await adapter.executeAppendMedia(preview.previewToken);
+    undoPhase = true;
+    await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_TARGET_CHANGED/);
+    assert.equal(undoCalls, 0, mismatch);
+  }
+});
+
+test("native placement undo does not replay an uncertain focus failure", async () => {
+  let revision = 1;
+  let duration = "10";
+  let undoCalls = 0;
+  const adapter = new FinalCutNativeAutomationAdapter({
+    enabled: true,
+    liveState: async () => ({
+      project: { id: "project-1", name: "Edit" },
+      sequence: { id: "sequence-1", name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+      playheadTime: { value: "4", timescale: "1" },
+      sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" } },
+      revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(0).toISOString() },
+    }),
+    executor: async (script) => {
+      if (script.includes('keystroke "e"')) { revision = 2; duration = "15"; }
+      if (script.includes('click menu item "Undo Append"')) {
+        undoCalls++;
+        if (undoCalls === 1) throw new Error("execution error: Final Cut is not frontmost (-1719)");
+        throw new Error("unexpected duplicate undo");
+      }
+      if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${String.fromCharCode(30)}`;
+      return script.includes('set frontWindow to window "Final Cut Pro"') ? context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1, revision === 2 ? "Undo Append" : "Undo") : "";
+    },
+  });
+  const [media] = await adapter.searchMedia("Interview");
+  await adapter.selectMedia(media.handle);
+  const preview = await adapter.previewAppendMedia(media.handle);
+  const result = await adapter.executeAppendMedia(preview.previewToken);
+  await assert.rejects(adapter.undo(result.operationId), /-1719/);
+  assert.equal(undoCalls, 1);
+  await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_.*(UNCERTAIN|STALE)/);
+  assert.equal(undoCalls, 1);
+});
+
+test("native placement undo rejects restored duration on a different target", async () => {
+  for (const changed of ["project", "sequence"] as const) {
+    let projectId = "project-1";
+    let sequenceId = "sequence-1";
+    let revision = 1;
+    let duration = "10";
+    const adapter = new FinalCutNativeAutomationAdapter({
+      enabled: true,
+      liveState: async () => ({
+        project: { id: projectId, name: "Edit" },
+        sequence: { id: sequenceId, name: "Edit", startTime: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+        playheadTime: { value: "4", timescale: "1" },
+        sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: duration, timescale: "1" } },
+        revision: { id: `rev-${revision}`, sequence: revision, timestamp: new Date(0).toISOString() },
+      }),
+      executor: async (script) => {
+        if (script.includes('keystroke "e"')) { revision = 2; duration = "15"; }
+        if (script.includes('click menu item "Undo Append"')) {
+          if (changed === "project") projectId = "project-2"; else sequenceId = "sequence-2";
+          revision = 3; duration = "10";
+        }
+        if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${String.fromCharCode(30)}`;
+        return script.includes('set frontWindow to window "Final Cut Pro"') ? context(true, "Final Cut Pro", "", 0, true, true, true, "timeline", 1, revision === 2 ? "Undo Append" : "Undo") : "";
+      },
+    });
+    const [media] = await adapter.searchMedia("Interview");
+    await adapter.selectMedia(media.handle);
+    const preview = await adapter.previewAppendMedia(media.handle);
+    const result = await adapter.executeAppendMedia(preview.previewToken);
+    await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_VERIFICATION_FAILED.*(project|sequence|target)/);
+    await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_UNCERTAIN/);
+  }
 });
