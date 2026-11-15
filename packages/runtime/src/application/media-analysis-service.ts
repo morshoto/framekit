@@ -533,6 +533,12 @@ function mergeSpeechAnalyses(
 ): RevisionBoundSpeechAnalysis {
   const latest = analyses[analyses.length - 1];
   if (!latest) throw new Error("ANALYSIS_INVALID: speech reanalysis returned no results");
+  if (analyses.some((analysis) => !sameDescriptor(analysis.provider, latest.provider))) {
+    throw new Error("ANALYSIS_INVALID: speech evidence providers cannot be combined");
+  }
+  if (analyses.some((analysis) => !sameRational(analysis.sourceTimebase, latest.sourceTimebase))) {
+    throw new Error("ANALYSIS_INVALID: speech evidence timebases cannot be combined");
+  }
   if (previous?.provider && !sameDescriptor(previous.provider, latest.provider)) {
     throw new Error("ANALYSIS_INVALID: speech evidence providers cannot be combined");
   }

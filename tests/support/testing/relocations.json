@@ -3056,7 +3056,8 @@
   "recordedAtCommit": "37a92fa1",
   "addedTestNames": {
     "tests/integration/phase1.test.ts": [
-      "\"post-write speech reanalysis preserves mixed VAD coverage without advertising complete VAD\""
+      "\"post-write speech reanalysis preserves mixed VAD coverage without advertising complete VAD\"",
+      "\"post-write speech reanalysis rejects inconsistent provenance across disjoint ranges\""
     ],
     "tests/speech/filler-components.test.ts": [
       "\"resolver does not authorize a cut from partial VAD coverage\""
@@ -3347,6 +3348,15 @@
     }
   ],
   "featureIntegrations": [
+    {
+      "pullRequests": [738],
+      "reason": "Reject conflicting provider and clock provenance across disjoint reanalysis ranges.",
+      "addedTestNames": {
+        "tests/integration/phase1.test.ts": [
+          "\"post-write speech reanalysis rejects inconsistent provenance across disjoint ranges\""
+        ]
+      }
+    },
     {
       "pullRequests": [738],
       "reason": "Preserve range-scoped VAD availability through partial reanalysis without exposing incomplete top-level VAD.",
