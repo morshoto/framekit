@@ -293,6 +293,8 @@ export interface AudioSignalFormat {
 }
 
 export interface AudioAnalysis {
+  /** Actual exported signal provenance; never planner-predicted gain arithmetic. */
+  signalProvenance?: OccurrenceAudioSignalProvenance;
   /** Declared source reference clock; absent means unavailable, never inferred. */
   sourceTimebase?: RationalTime;
   /** Format of the measured signal, interpreted with signalScope. */
@@ -341,6 +343,7 @@ export interface NoiseMeasurement extends NoiseAnalysis {
 
 /** Revision-bound audio evidence for one complete timeline occurrence. */
 export interface AudioMeasurement {
+  signalProvenance?: OccurrenceAudioSignalProvenance;
   sourceTimebase?: RationalTime;
   signalFormat?: AudioSignalFormat;
   signalScope: "source" | "occurrence";
@@ -358,6 +361,23 @@ export interface AudioMeasurement {
   analyzedDurationSeconds: number;
   valid: boolean;
   invalidReason?: string;
+}
+
+export interface OccurrenceAudioSignalProvenance {
+  scope: "isolated-occurrence";
+  origin: "editor-export";
+  requestId: string;
+  projectId: string;
+  sequenceId: string;
+  canonicalDigest: string;
+  sequenceRange: TimeRange;
+  gainDb: number;
+  effectScope: "gain-only";
+  outputDigest: string;
+  exporter: AnalyzerDescriptor;
+  meterVersion: string;
+  sampleRate: number;
+  sampleCount: number;
 }
 
 export interface VisualScene {

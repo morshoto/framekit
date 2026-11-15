@@ -86,7 +86,11 @@ test('reports slow tests, seed replay diagnostics and reviewed versus unexpected
     const fixture = join(dir, 'fixture.test.mjs');
     const reason = 'requires macOS and the CoreMedia SDK; run the SDK job';
     await writeFile(fixture, `import test from 'node:test';
-      test('slow case', async t => { t.diagnostic('Replay: FRAMEKIT_TEST_SEED=733 pnpm test'); await new Promise(r => setTimeout(r, 20)); });
+      test('slow case', async t => {
+        t.diagnostic('Replay: FRAMEKIT_TEST_SEED=733 pnpm test');
+        const started = performance.now();
+        do { await new Promise(r => setTimeout(r, 20)); } while (performance.now() - started < 20);
+      });
       test('SDK case', { skip: ${JSON.stringify(reason)} }, () => {});
       test.skip('unexplained case', () => {});`);
     const args = await prepareTestReport(dir, 'fixture', { suite: 'all', testedSha: 'sha', selectedFiles: [fixture],
