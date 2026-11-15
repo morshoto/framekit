@@ -550,10 +550,14 @@ function mergeSpeechAnalyses(
     ...(previous?.requestedRange ? [previous.requestedRange] : []),
     ...analyses.map((analysis) => analysis.requestedRange),
   ]);
-  const observedRange = encompassingRange([
-    ...(previous?.observedRange ? [previous.observedRange] : []),
+  const observedRanges = mergeRanges([
+    ...(previous?.observedRange ? subtractObservedRanges(previous.observedRange, updatedRanges) : []),
     ...analyses.map((analysis) => analysis.observedRange),
   ]);
+  if (observedRanges.length !== 1) {
+    throw new Error("ANALYSIS_INVALID: speech observation coverage has gaps");
+  }
+  const observedRange = observedRanges[0]!;
   const words = mergeSpeechEvidence(
     previous?.words,
     analyses.map((analysis) => analysis.words),
@@ -611,8 +615,8 @@ function speechVadCoverage(analysis: SpeechAnalysis | undefined): VadCoverageSpa
     : [{ start, end, status: "unavailable", reason: analysis.vadUnavailableReason ?? "VAD_NOT_REPORTED" }];
 }
 
-function subtractVadCoverage(span: VadCoverageSpan, updatedRanges: TimeRange[]): VadCoverageSpan[] {
-  let ranges: Array<{ start: number; end: number }> = [{ start: span.start, end: span.end }];
+function subtractObservedRanges(observed: TimeRange, updatedRanges: TimeRange[]): TimeRange[] {
+  let ranges: TimeRange[] = [{ start: observed.start, end: observed.end }];
   for (const update of updatedRanges) {
     ranges = ranges.flatMap((range) => {
       if (!rangesOverlap(range, update)) return [range];
@@ -622,6 +626,11 @@ function subtractVadCoverage(span: VadCoverageSpan, updatedRanges: TimeRange[]):
       ];
     });
   }
+  return ranges;
+}
+
+function subtractVadCoverage(span: VadCoverageSpan, updatedRanges: TimeRange[]): VadCoverageSpan[] {
+  const ranges = subtractObservedRanges(span, updatedRanges);
   return ranges.map((range) => span.status === "unavailable"
     ? { ...range, status: "unavailable" as const, reason: span.reason }
     : { ...range, status: "available" as const, segments: span.segments.flatMap((segment) => {
