@@ -320,7 +320,8 @@ export class MediaAnalysisService {
     if (!understanding) {
       return unavailableTimelineOccurrence(clip.id, "source-bound semantic index entry is unavailable", clip.mediaId, sourceRange, sourceIdentity);
     }
-    if (!analyzedProvidersMatch(understanding, this.options) || !sourceAudioIsReusable(understanding)) {
+    const audioEvidence = persisted ? understanding : { ...understanding, analysisRevision: media.analysisRevision };
+    if (!analyzedProvidersMatch(understanding, this.options) || !sourceAudioIsReusable(audioEvidence)) {
       return unavailableTimelineOccurrence(clip.id, "cached analyzer provenance is incompatible with current source analysis",
         clip.mediaId, sourceRange, sourceIdentity);
     }
