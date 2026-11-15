@@ -248,7 +248,9 @@ def main() -> None:
     result = transcribe(module_label, module, source)
     output = {
         "words": normalized_words(result, vad["observedRange"] if vad is not None else requested),
-        "sourceTimebase": {"value": "1", "timescale": "16000" if vad is not None else "1000"},
+        # Both supported Whisper implementations decode input at 16 kHz;
+        # detector availability does not change the transcription clock.
+        "sourceTimebase": {"value": "1", "timescale": "16000"},
     }
     if vad is not None:
         output.update(vad)
