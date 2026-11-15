@@ -203,6 +203,10 @@ export interface MappedSpeechSegment {
   frameAlignedRange: TimeRange;
 }
 
+export type MappedVadCoverage =
+  | { sourceRange: TimeRange; sequenceRange: TimeRange; status: "available"; segments: MappedSpeechSegment[] }
+  | { sourceRange: TimeRange; sequenceRange: TimeRange; status: "unavailable"; reason: string };
+
 export interface SpeechOccurrenceMapping {
   occurrenceId: string;
   mediaId: string;
@@ -214,6 +218,7 @@ export interface SpeechOccurrenceMapping {
   capability: RevisionBoundSpeechAnalysis["capability"];
   words: MappedSpeechWord[];
   vadSegments?: MappedSpeechSegment[];
+  vadCoverage?: MappedVadCoverage[];
   silenceSegments?: MappedSpeechSegment[];
   protectedSegments?: MappedSpeechSegment[];
 }
@@ -254,6 +259,11 @@ export interface TimelineSemanticContext {
   occurrences: TimelineSemanticOccurrenceContext[];
 }
 
+/** VAD observations retained for one source range, including unavailable spans. */
+export type VadCoverageSpan =
+  | { start: number; end: number; status: "available"; segments: SpeechSegment[] }
+  | { start: number; end: number; status: "unavailable"; reason: string };
+
 export interface SpeechAnalysis {
   /** Provenance fields are optional for backwards-compatible provider ports. */
   schemaVersion?: typeof SPEECH_ANALYSIS_SCHEMA_VERSION;
@@ -267,6 +277,8 @@ export interface SpeechAnalysis {
   capability?: SpeechAnalysisCapability;
   words: SpeechWord[];
   vadSegments?: SpeechSegment[];
+  /** Range-scoped VAD observations; partial coverage does not authorize top-level VAD. */
+  vadCoverage?: VadCoverageSpan[];
   /** Optional detector failure; transcription can remain available independently. */
   vadUnavailableReason?: string;
   silenceSegments?: SpeechSegment[];

@@ -89,6 +89,35 @@ test("speech mapping keeps repeated occurrences independent", () => {
   assert.notEqual(first.words[0]?.frameAlignedRange.startTime?.value, second.words[0]?.frameAlignedRange.startTime?.value);
 });
 
+test("speech mapping retains partial VAD coverage and only advertises fully covered occurrences", () => {
+  const mixed: RevisionBoundSpeechAnalysis = {
+    ...analysis, capability: "transcription-only", vadSegments: undefined, vadUnavailableReason: "VAD_INCOMPLETE_COVERAGE",
+    words: [{ text: "um", start: 10.25, end: 10.35, confidence: 0.98, filler: true }],
+    vadCoverage: [
+      { start: 0, end: 11, status: "available", segments: [{ start: 10.25, end: 10.35, kind: "speech" }] },
+      { start: 11, end: 60, status: "unavailable", reason: "MODEL_UNAVAILABLE" },
+    ],
+  };
+  const partial = mapSpeechAnalysisToOccurrence(mixed, occurrence(30), { sequenceFrameDuration: { value: "1", timescale: "10" } });
+  assert.equal(partial.capability, "transcription-only");
+  assert.equal(partial.vadSegments, undefined);
+  assert.deepEqual(partial.vadCoverage?.map(({ sourceRange, status }) => ({ sourceRange, status })), [
+    { sourceRange: { start: 10, end: 11 }, status: "available" },
+    { sourceRange: { start: 11, end: 12 }, status: "unavailable" },
+  ]);
+  assert.equal(partial.vadCoverage?.[1]?.status === "unavailable" && partial.vadCoverage[1].reason, "MODEL_UNAVAILABLE");
+  const covered = occurrence(30);
+  covered.sourceRange.end = 11;
+  covered.sequenceRange.end = 31;
+  covered.sequenceRange.durationTime = { value: "1", timescale: "1" };
+  const mapped = mapSpeechAnalysisToOccurrence(mixed, covered, { sequenceFrameDuration: { value: "1", timescale: "10" } });
+  assert.equal(mapped.capability, "transcription-plus-vad");
+  assert.deepEqual(mapped.vadSegments?.map(({ segment }) => segment), [{ start: 10.25, end: 10.35, kind: "speech" }]);
+  assert.throws(() => mapSpeechAnalysisToOccurrence({ ...mixed, vadCoverage: [
+    { start: 0, end: 60, status: "available", segments: [] },
+  ] }, covered, { sequenceFrameDuration: { value: "1", timescale: "10" } }), /ANALYSIS_INVALID.*conflicts/);
+});
+
 test("speech mapping translates exact source ranges for edit planning", () => {
   const mapped = mapSourceRangeToSequenceRange({
     start: 4.2,

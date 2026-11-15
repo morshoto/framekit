@@ -136,6 +136,12 @@ instead rejects a combined result if VAD is unavailable. Successful results
 retain request/source/revision/provider provenance and a 1/16000 analysis clock.
 The Whisper transcription clock remains 1/16000 when optional VAD is unavailable;
 it describes the decoded analysis signal, not the original media's sample rate.
+After partial reanalysis, `vadCoverage` retains available segments and
+unavailable reasons by source range. If coverage is incomplete, the merged
+result reports transcription-only capability and omits top-level `vadSegments`;
+partial VAD must not be treated as complete edit-safety evidence.
+Reanalysis rejects legacy VAD evidence without an observed range instead of
+silently assigning that evidence to a source range.
 These source-file capabilities do not establish native source observation,
 sample-accurate activity reference labels or edit/Undo acceptance.
 

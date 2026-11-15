@@ -17,6 +17,7 @@ import type {
   NoiseMeasurement,
   SpeechAnalysis,
   SpeechOccurrenceMapping,
+  VadCoverageSpan,
   RevisionBoundSpeechAnalysis,
   TimelineSemanticContext,
   TimelineSemanticContextQuery,
@@ -618,9 +619,18 @@ function mergeSpeechAnalyses(
     analyses.map((analysis) => analysis.words),
     updatedRanges,
   );
-  const hasVad = previous?.vadSegments !== undefined || analyses.some((analysis) => analysis.vadSegments !== undefined);
-  const vadSegments = hasVad
-    ? mergeSpeechEvidence(previous?.vadSegments, analyses.map((analysis) => analysis.vadSegments ?? []), updatedRanges)
+  const vadCoverage = [
+    ...speechVadCoverage(previous).flatMap((span) => subtractVadCoverage(span, updatedRanges)),
+    ...analyses.flatMap((analysis) => speechVadCoverage(analysis)),
+  ].sort((left, right) => left.start - right.start || left.end - right.end);
+  let vadCursor = observedRange.start;
+  const completeVad = vadCoverage.length > 0 && vadCoverage.every((span) => {
+    if (span.status !== "available" || span.start !== vadCursor) return false;
+    vadCursor = span.end;
+    return true;
+  }) && vadCursor === observedRange.end;
+  const vadSegments = completeVad
+    ? vadCoverage.flatMap((span) => span.status === "available" ? span.segments : [])
     : undefined;
   const hasSilence = previous?.silenceSegments !== undefined || analyses.some((analysis) => analysis.silenceSegments !== undefined);
   const silenceSegments = hasSilence
@@ -631,16 +641,53 @@ function mergeSpeechAnalyses(
     ? mergeSpeechEvidence(previous?.protectedSegments, analyses.map((analysis) => analysis.protectedSegments ?? []), updatedRanges)
     : undefined;
 
+  const { vadSegments: _segments, vadUnavailableReason: _reason, vadCoverage: _coverage, capability: _capability, ...latestWithoutVad } = latest;
   return bindSpeechAnalysis({
-    ...latest,
+    ...latestWithoutVad,
     requestedRange,
     observedRange,
-    capability: vadSegments ? "transcription-plus-vad" : latest.capability,
+    capability: completeVad ? "transcription-plus-vad" : "transcription-only",
     words,
     ...(vadSegments ? { vadSegments } : {}),
+    ...(vadCoverage.length ? { vadCoverage } : {}),
+    ...(!completeVad ? { vadUnavailableReason: "VAD_INCOMPLETE_COVERAGE" } : {}),
     ...(silenceSegments ? { silenceSegments } : {}),
     ...(protectedSegments ? { protectedSegments } : {}),
   }, context);
+}
+
+function speechVadCoverage(analysis: SpeechAnalysis | undefined): VadCoverageSpan[] {
+  if (!analysis) return [];
+  if (analysis.vadCoverage !== undefined) return structuredClone(analysis.vadCoverage);
+  if (!analysis.observedRange) {
+    if (analysis.vadSegments !== undefined || analysis.vadUnavailableReason !== undefined) {
+      throw new Error("ANALYSIS_INVALID: cannot combine VAD without an observed range");
+    }
+    return [];
+  }
+  const { start, end } = analysis.observedRange;
+  return analysis.vadSegments !== undefined
+    ? [{ start, end, status: "available", segments: structuredClone(analysis.vadSegments) }]
+    : [{ start, end, status: "unavailable", reason: analysis.vadUnavailableReason ?? "VAD_NOT_REPORTED" }];
+}
+
+function subtractVadCoverage(span: VadCoverageSpan, updatedRanges: TimeRange[]): VadCoverageSpan[] {
+  let ranges: Array<{ start: number; end: number }> = [{ start: span.start, end: span.end }];
+  for (const update of updatedRanges) {
+    ranges = ranges.flatMap((range) => {
+      if (!rangesOverlap(range, update)) return [range];
+      return [
+        ...(range.start < update.start ? [{ start: range.start, end: Math.min(range.end, update.start) }] : []),
+        ...(range.end > update.end ? [{ start: Math.max(range.start, update.end), end: range.end }] : []),
+      ];
+    });
+  }
+  return ranges.map((range) => span.status === "unavailable"
+    ? { ...range, status: "unavailable" as const, reason: span.reason }
+    : { ...range, status: "available" as const, segments: span.segments.flatMap((segment) => {
+      const start = Math.max(segment.start, range.start), end = Math.min(segment.end, range.end);
+      return start < end ? [{ ...segment, start, end }] : [];
+    }) });
 }
 
 function mergeSpeechEvidence<T extends { start: number; end: number }>(
