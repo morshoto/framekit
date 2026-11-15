@@ -1230,7 +1230,12 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       const expectedSequence = operation.beforeLive?.sequence?.id;
       if (!expectedProject || !expectedSequence
         || operation.afterLive?.project?.id !== expectedProject || operation.afterLive?.sequence?.id !== expectedSequence
-        || currentLive?.project?.id !== expectedProject || currentLive?.sequence?.id !== expectedSequence) {
+        || currentLive?.project?.id !== expectedProject || currentLive?.sequence?.id !== expectedSequence
+        || before.target.projectId !== expectedProject || before.target.sequenceId !== expectedSequence
+        || !before.target.revision?.id || before.target.revision.id !== currentLive.revision?.id
+        || before.target.revision.sequence !== currentLive.revision?.sequence
+        || operation.afterLive.revision.id !== currentLive.revision?.id
+        || operation.afterLive.revision.sequence !== currentLive.revision?.sequence) {
         throw new Error("FINAL_CUT_NATIVE_UNDO_TARGET_CHANGED: placement target is unavailable or changed");
       }
     }
@@ -1253,6 +1258,11 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     }
     try {
       if (operation.kind === "blade" || operation.kind === "media-insertion") {
+        if (operation.undoDispatched) {
+          throw new Error(operation.kind === "blade"
+            ? "FINAL_CUT_NATIVE_UNDO_OUTCOME_UNCERTAIN: Blade Undo may already have been dispatched; recovery is required"
+            : "FINAL_CUT_NATIVE_UNDO_UNCERTAIN: placement Undo may already have been dispatched");
+        }
         // Once invocation begins, neither an error nor stale readback proves Undo did not run.
         operation.undoDispatched = true;
         await this.executeNativeScript(undoScript(operation.undoCommand));
@@ -1516,10 +1526,22 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's Browser must be frontmost");
     try {
       const searchDeadline = deadline ?? this.now() + this.mediaImportDiscoveryTimeoutMs;
-      const output = await this.executeNativeScript(searchMediaScript(query), searchDeadline, timeoutCode);
+      const response = await this.executeNativeScript(searchMediaScript(query), searchDeadline, timeoutCode);
+      if (!response.trim()) throw new Error("FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: missing Browser media scan output");
+      const output = response.trim() === "__FRAMEKIT_BROWSER_SCAN_EMPTY__" ? "" : response;
+      if (output.split(String.fromCharCode(30)).some((record) => record === "__FRAMEKIT_BROWSER_SCAN_INCOMPLETE__")) {
+        throw new Error("FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser media scan was incomplete");
+      }
       const explicitFailure = output.trim();
       if (explicitFailure.startsWith("FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE")) {
         throw new Error(explicitFailure);
+      }
+      if (explicitFailure && (!explicitFailure.endsWith(String.fromCharCode(30))
+        || explicitFailure.slice(0, -1).split(String.fromCharCode(30)).some((record) => {
+          const fields = record.split(String.fromCharCode(31));
+          return fields.length !== 4 || !fields[0]?.trim() || !fields[1]?.trim();
+        }))) {
+        throw new Error("FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: malformed Browser media scan output");
       }
       const rawMatches = parseMediaMatches(output);
       const normalizedQuery = query.toLocaleLowerCase();
@@ -4972,6 +4994,7 @@ function searchMediaScript(query: string): string {
     key code 36
     delay 0.5
     set output to my collectBrowserMedia(browserRoot, 0, searchQuery, origin, browserRootContext, {}, "root")
+    if output is "" then return "__FRAMEKIT_BROWSER_SCAN_EMPTY__"
     return output
   end tell
 end tell`;
@@ -5429,7 +5452,15 @@ function browserMediaTraversalScript(): string {
     on collectBrowserMedia(containerItem, depth, searchQuery, origin, inheritedContext, seenIdentities, browserPath)
       set maxDepth to 12
       if inheritedContext then set maxDepth to 6
-      if depth > maxDepth then return ""
+      if depth > maxDepth then
+        try
+          tell application "System Events" to set remainingItems to UI elements of containerItem
+          if (count of remainingItems) > 0 then return "__FRAMEKIT_BROWSER_SCAN_INCOMPLETE__" & (ASCII character 30)
+          return ""
+        on error
+          return "__FRAMEKIT_BROWSER_SCAN_INCOMPLETE__" & (ASCII character 30)
+        end try
+      end if
       set output to ""
       set mediaContext to my mediaContainer(containerItem, inheritedContext)
       tell application "System Events"
@@ -5489,7 +5520,8 @@ function browserMediaTraversalScript(): string {
               end if
               set output to output & my collectBrowserMedia(candidate, depth + 1, searchQuery, origin, candidateMediaContext, seenIdentities, candidatePath)
             on error
-              -- Ignore inaccessible descendants and continue enumerating Browser results.
+              -- Preserve incomplete-scan evidence rather than reporting an empty result.
+              set output to output & "__FRAMEKIT_BROWSER_SCAN_INCOMPLETE__" & (ASCII character 30)
             end try
           end repeat
         on error

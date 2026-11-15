@@ -1092,8 +1092,9 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     const resources = findElement(this.xml ?? [], "resources");
     return storyEntries(resources ?? {})
       .filter(({ kind }) => kind === "asset" || kind === "media")
-      .map(({ node }) => {
+      .map(({ kind, node }) => {
         const durationValue = attribute(node, "duration");
+        const startValue = attribute(node, "start");
         const mediaKind = mediaKindFromResource(node);
         const originalMedia = storyEntries(node).find(({ kind, node: representation }) =>
           kind === "media-rep" && attribute(representation, "kind") === "original-media",
@@ -1105,6 +1106,9 @@ export class FcpxmlDocumentAdapter implements EditorPort {
           source: source.trim() ? resolveMediaSource(source, this.filePath) : "",
           ...(mediaKind ? { mediaKind } : {}),
           ...(durationValue !== undefined ? { duration: parseSeconds(durationValue) } : {}),
+          ...(kind === "asset" && startValue !== undefined && durationValue !== undefined
+            ? { sourceRange: { start: parseRational(startValue), duration: parseRational(durationValue) } }
+            : {}),
         };
       })
       .filter((media) => media.mediaId.length > 0);
