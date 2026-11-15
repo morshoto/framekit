@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { execFile as execFileCallback } from "node:child_process";
 import { access, constants, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, extname, resolve } from "node:path";
+import { basename, dirname, extname, isAbsolute, resolve } from "node:path";
 import { promisify } from "node:util";
 import { assertValidTimelineTarget } from "@framekit/runtime";
 import type {
@@ -154,6 +154,7 @@ interface NativeFinalCutMediaImportDirectoryPreviewRecord {
   directoryPath: string;
   files: NativeFinalCutMediaImportDirectoryFile[];
   fileIdentities: Map<string, NativeFinalCutMediaImportDirectoryFileIdentity>;
+  expectedImportTarget?: NativeFinalCutImportTarget;
   expiresAt: number;
 }
 
@@ -162,13 +163,14 @@ export interface NativeFinalCutMediaImportDirectoryPreview {
   directoryPath: string;
   files: NativeFinalCutMediaImportDirectoryFile[];
   command: "Import all previewed video files";
+  expectedImportTarget?: NativeFinalCutImportTarget;
   expiresAt: string;
 }
 
 export interface NativeFinalCutMediaImportDirectoryFileResult {
   sourcePath: string;
   name: string;
-  status: "imported" | "failed";
+  status: "imported" | "failed" | "not-attempted";
   media?: NativeFinalCutMediaImportResult;
   error?: { code: string; message: string; details?: NativeFinalCutMediaImportFailureDetails };
 }
@@ -180,6 +182,7 @@ export interface NativeFinalCutMediaImportDirectoryResult {
   results: NativeFinalCutMediaImportDirectoryFileResult[];
   importedCount: number;
   failedCount: number;
+  notAttemptedCount?: number;
   partial: boolean;
   status: "completed" | "partial" | "failed";
 }
@@ -707,6 +710,24 @@ interface NativeOperationRecord {
   rollbackEvidence?: NativeFinalCutRollbackEvidence;
 }
 
+/** An independent provider must observe the original source and exact native target. */
+export interface NativeFinalCutImportTarget {
+  libraryId: string;
+  eventId: string;
+  projectId: string;
+  sequenceId: string;
+  revision: string;
+}
+
+export interface NativeFinalCutImportSourceObserver {
+  captureTarget(): Promise<NativeFinalCutImportTarget>;
+  observeImportedSource(sourceIdentity: string): Promise<{
+    sourceIdentity: string;
+    originalSourcePath: string;
+    target: NativeFinalCutImportTarget;
+  }>;
+}
+
 export interface NativeFinalCutAutomationOptions {
   enabled?: boolean;
   /** Home directory used to expand ~/ media paths; defaults to the process home. */
@@ -714,6 +735,8 @@ export interface NativeFinalCutAutomationOptions {
   executor?: NativeFinalCutExecutor;
   nativeMouseExecutor?: NativeFinalCutMouseExecutor;
   liveState?: () => Promise<EditorLiveState>;
+  /** No bundled observer exists; an injected provider must make independent observations. */
+  importSourceObserver?: NativeFinalCutImportSourceObserver;
   nativeOperationLease?: NativeOperationLease;
   suspendLiveConnection?: () => void;
   resumeLiveConnection?: () => void;
@@ -727,6 +750,7 @@ export interface NativeFinalCutAutomationOptions {
 
 export interface NativeFinalCutRequestOptions {
   signal?: AbortSignal;
+  expectedImportTarget?: NativeFinalCutImportTarget;
 }
 
 export interface NativeFinalCutExecutorOptions {
@@ -802,6 +826,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   private readonly nativeMouseExecutor?: NativeFinalCutMouseExecutor;
   private readonly canDriveNativeMouse: boolean;
   private readonly liveState?: () => Promise<EditorLiveState>;
+  private readonly importSourceObserver?: NativeFinalCutImportSourceObserver;
   private readonly nativeOperationLease?: NativeOperationLease;
   private readonly suspendLiveConnection?: () => void;
   private readonly resumeLiveConnection?: () => void;
@@ -895,6 +920,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     this.nativeMouseExecutor = options.nativeMouseExecutor;
     this.canDriveNativeMouse = options.executor === undefined;
     this.liveState = options.liveState;
+    this.importSourceObserver = options.importSourceObserver;
     this.nativeOperationLease = options.nativeOperationLease;
     this.suspendLiveConnection = options.suspendLiveConnection;
     this.resumeLiveConnection = options.resumeLiveConnection;
@@ -911,7 +937,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       selectionEdit: this.enabled,
       undo: this.enabled,
       mediaLibrarySearch: this.enabled,
-      mediaImport: this.enabled,
+      mediaImport: this.enabled && Boolean(this.importSourceObserver),
       mediaSelection: this.enabled,
       mediaAppendSelected: this.enabled,
       timelineOccurrenceLocate: this.enabled,
@@ -1230,7 +1256,12 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       const expectedSequence = operation.beforeLive?.sequence?.id;
       if (!expectedProject || !expectedSequence
         || operation.afterLive?.project?.id !== expectedProject || operation.afterLive?.sequence?.id !== expectedSequence
-        || currentLive?.project?.id !== expectedProject || currentLive?.sequence?.id !== expectedSequence) {
+        || currentLive?.project?.id !== expectedProject || currentLive?.sequence?.id !== expectedSequence
+        || before.target.projectId !== expectedProject || before.target.sequenceId !== expectedSequence
+        || !before.target.revision?.id || before.target.revision.id !== currentLive.revision?.id
+        || before.target.revision.sequence !== currentLive.revision?.sequence
+        || operation.afterLive.revision.id !== currentLive.revision?.id
+        || operation.afterLive.revision.sequence !== currentLive.revision?.sequence) {
         throw new Error("FINAL_CUT_NATIVE_UNDO_TARGET_CHANGED: placement target is unavailable or changed");
       }
     }
@@ -1253,6 +1284,11 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     }
     try {
       if (operation.kind === "blade" || operation.kind === "media-insertion") {
+        if (operation.undoDispatched) {
+          throw new Error(operation.kind === "blade"
+            ? "FINAL_CUT_NATIVE_UNDO_OUTCOME_UNCERTAIN: Blade Undo may already have been dispatched; recovery is required"
+            : "FINAL_CUT_NATIVE_UNDO_UNCERTAIN: placement Undo may already have been dispatched");
+        }
         // Once invocation begins, neither an error nor stale readback proves Undo did not run.
         operation.undoDispatched = true;
         await this.executeNativeScript(undoScript(operation.undoCommand));
@@ -1281,7 +1317,19 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   }
 
   public async importMedia(sourcePath: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutMediaImportResult> {
-    return this.withNativeUi(() => this.importMediaNative(sourcePath), options.signal);
+    this.assertEnabled();
+    if (!this.importSourceObserver) {
+      throw new NativeFinalCutMediaImportError("CAPABILITY_UNAVAILABLE", "native media import requires independently observed original source binding", {
+        stage: "pre-import-browser-discovery", elapsedMs: 0, stageElapsedMs: 0, partialImportPossible: false,
+      });
+    }
+    const expectedTarget = normalizeNativeImportTarget(options.expectedImportTarget);
+    if (!expectedTarget) {
+      throw new NativeFinalCutMediaImportError("TARGET_MISMATCH", "an approved native import target is required", {
+        stage: "pre-import-browser-discovery", elapsedMs: 0, stageElapsedMs: 0, partialImportPossible: false,
+      });
+    }
+    return this.withNativeUi(() => this.importMediaNative(sourcePath, expectedTarget), options.signal);
   }
 
   public async previewImportMediaDirectory(directoryPath: string, options: NativeFinalCutRequestOptions = {}): Promise<NativeFinalCutMediaImportDirectoryPreview> {
@@ -1294,12 +1342,14 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (!trimmedPath) throw new Error("INVALID_OPERATION: local media directory path cannot be empty");
     const normalizedPath = resolveLocalPath(trimmedPath, this.homeDirectory);
     const snapshot = await snapshotSupportedVideoFiles(normalizedPath);
+    const expectedImportTarget = normalizeNativeImportTarget(this.requestContext.getStore()?.expectedImportTarget);
     const expiresAt = this.now() + 30_000;
     const previewToken = opaqueHandle("media-directory-preview");
     this.mediaImportDirectoryPreviews.set(previewToken, {
       directoryPath: normalizedPath,
       files: snapshot.files,
       fileIdentities: snapshot.fileIdentities,
+      ...(expectedImportTarget ? { expectedImportTarget } : {}),
       expiresAt,
     });
     return {
@@ -1307,6 +1357,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       directoryPath: normalizedPath,
       files: structuredClone(snapshot.files),
       command: "Import all previewed video files",
+      ...(expectedImportTarget ? { expectedImportTarget } : {}),
       expiresAt: new Date(expiresAt).toISOString(),
     };
   }
@@ -1316,10 +1367,14 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     confirm: boolean,
     options: NativeFinalCutRequestOptions = {},
   ): Promise<NativeFinalCutMediaImportDirectoryResult> {
+    if (!this.importSourceObserver) return this.executeImportMediaDirectoryNative(previewToken, confirm);
+    if (!this.mediaImportDirectoryPreviews.get(previewToken)?.expectedImportTarget) {
+      throw new Error("TARGET_MISMATCH: an approved native import target must be bound to the directory preview");
+    }
     return this.withNativeUi(() => this.executeImportMediaDirectoryNative(previewToken, confirm), options.signal);
   }
 
-  private async importMediaNative(sourcePath: string): Promise<NativeFinalCutMediaImportResult> {
+  private async importMediaNative(sourcePath: string, approvedTarget: NativeFinalCutImportTarget): Promise<NativeFinalCutMediaImportResult> {
     this.assertEnabled();
     const importStartedAt = this.now();
     let stage: NativeFinalCutMediaImportStage = "pre-import-browser-discovery";
@@ -1352,6 +1407,11 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     }
 
     try {
+      const observer = this.importSourceObserver;
+      if (!observer) return fail("CAPABILITY_UNAVAILABLE", "independent original source observation is unavailable", false);
+      const expectedTarget = normalizeNativeImportTarget(await observer.captureTarget());
+      if (!expectedTarget) return fail("CAPABILITY_UNAVAILABLE", "independent native import target observation is unavailable", false);
+      if (!sameNativeImportTarget(approvedTarget, expectedTarget)) return fail("TARGET_MISMATCH", "observed native import target does not match approval", false);
       const beforeDiscoveryDeadline = this.now() + this.mediaImportDiscoveryTimeoutMs;
       await this.ensureBrowserReady(beforeDiscoveryDeadline, "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT");
       const beforeMatches = await this.searchMediaNative(name, beforeDiscoveryDeadline, "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT");
@@ -1366,6 +1426,13 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       );
       if (hasIndistinguishablePreExistingMatch) {
         fail("FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE", `Final Cut did not expose an immutable Browser source identity for pre-existing ${name}`, false);
+      }
+
+      // Browser discovery can change the active context. Recheck immediately
+      // before dispatch; this does not replace receiver-side target fencing.
+      const dispatchTarget = normalizeNativeImportTarget(await observer.captureTarget());
+      if (!sameNativeImportTarget(expectedTarget, dispatchTarget)) {
+        return fail("TARGET_MISMATCH", "native import target changed during Browser discovery", false);
       }
 
       beginStage("native-import-ui");
@@ -1413,6 +1480,19 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
             fail("FINAL_CUT_NATIVE_MEDIA_IMPORT_IDENTITY_UNAVAILABLE", `Final Cut did not expose an immutable Browser source identity for ${name}`, true);
             throw new Error("unreachable");
           }
+          // The observer receives only the independently identified Browser item,
+          // never the requested source path. A matching name or requested path is
+          // not evidence that the item actually references the original source.
+          const observed = await observer.observeImportedSource(identity);
+          const observedTarget = normalizeNativeImportTarget(observed?.target);
+          const currentTarget = normalizeNativeImportTarget(await observer.captureTarget());
+          if (!observed || observed.sourceIdentity !== identity
+            || typeof observed.originalSourcePath !== "string" || !isAbsolute(observed.originalSourcePath)
+            || observed.originalSourcePath !== normalizedPath
+            || !sameNativeImportTarget(expectedTarget, observedTarget)
+            || !sameNativeImportTarget(expectedTarget, currentTarget)) {
+            return fail("FINAL_CUT_NATIVE_MEDIA_IMPORT_SOURCE_MISMATCH", "independent original source or native target observation does not match the approved import", true);
+          }
           const mediaHandle = this.stableMediaHandle(identity);
           const stableMatch = { ...match, handle: mediaHandle };
           this.stableMediaHandles.set(identity, mediaHandle);
@@ -1426,7 +1506,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
             verification: {
               verified: true,
               stage: "post-import-browser-discovery",
-              detail: "Final Cut exposed one newly imported Browser asset with immutable source identity",
+              detail: "An independent observation bound the imported Browser identity to the original source and native target",
             },
           };
         }
@@ -1458,9 +1538,14 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     await assertMediaImportDirectoryPreviewFresh(preview);
 
     const results: NativeFinalCutMediaImportDirectoryFileResult[] = [];
+    let stopped = false;
     for (const file of preview.files) {
+      if (stopped) {
+        results.push({ sourcePath: file.sourcePath, name: file.name, status: "not-attempted" });
+        continue;
+      }
       try {
-        const media = await this.importMedia(file.sourcePath);
+        const media = await this.importMedia(file.sourcePath, { expectedImportTarget: preview.expectedImportTarget });
         results.push({
           sourcePath: file.sourcePath,
           name: file.name,
@@ -1468,6 +1553,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
           media,
         });
       } catch (error) {
+        // A failed provider may have dispatched or scheduled work even when
+        // it did not acknowledge it. Do not start another file in this batch.
+        stopped = true;
         const serializedError = serializeNativeFinalCutMediaImportError(error);
         results.push({
           sourcePath: file.sourcePath,
@@ -1481,7 +1569,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       }
     }
     const importedCount = results.filter((result) => result.status === "imported").length;
-    const failedCount = results.length - importedCount;
+    const failedCount = results.filter((result) => result.status === "failed").length;
+    const notAttemptedCount = results.filter((result) => result.status === "not-attempted").length;
     return {
       previewToken,
       directoryPath: preview.directoryPath,
@@ -1489,6 +1578,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       results,
       importedCount,
       failedCount,
+      ...(notAttemptedCount > 0 ? { notAttemptedCount } : {}),
       partial: importedCount > 0 && failedCount > 0,
       status: failedCount === 0 ? "completed" : importedCount > 0 ? "partial" : "failed",
     };
@@ -1516,10 +1606,22 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (!context.frontmost) throw new Error("FINAL_CUT_NATIVE_NOT_FRONTMOST: Final Cut's Browser must be frontmost");
     try {
       const searchDeadline = deadline ?? this.now() + this.mediaImportDiscoveryTimeoutMs;
-      const output = await this.executeNativeScript(searchMediaScript(query), searchDeadline, timeoutCode);
+      const response = await this.executeNativeScript(searchMediaScript(query), searchDeadline, timeoutCode);
+      if (!response.trim()) throw new Error("FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: missing Browser media scan output");
+      const output = response.trim() === "__FRAMEKIT_BROWSER_SCAN_EMPTY__" ? "" : response;
+      if (output.split(String.fromCharCode(30)).some((record) => record === "__FRAMEKIT_BROWSER_SCAN_INCOMPLETE__")) {
+        throw new Error("FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: Browser media scan was incomplete");
+      }
       const explicitFailure = output.trim();
       if (explicitFailure.startsWith("FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE")) {
         throw new Error(explicitFailure);
+      }
+      if (explicitFailure && (!explicitFailure.endsWith(String.fromCharCode(30))
+        || explicitFailure.slice(0, -1).split(String.fromCharCode(30)).some((record) => {
+          const fields = record.split(String.fromCharCode(31));
+          return fields.length !== 4 || !fields[0]?.trim() || !fields[1]?.trim();
+        }))) {
+        throw new Error("FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE: malformed Browser media scan output");
       }
       const rawMatches = parseMediaMatches(output);
       const normalizedQuery = query.toLocaleLowerCase();
@@ -1825,6 +1927,9 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (context.target.name && context.target.name !== occurrence.name) {
       throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: selected timeline occurrence changed");
     }
+    if (!occurrence.nativeIdentity || context.target.identity !== occurrence.nativeIdentity) {
+      throw new Error("FINAL_CUT_NATIVE_OCCURRENCE_HANDLE_STALE: selected timeline occurrence identity is unavailable or changed");
+    }
     await this.validateOccurrenceBinding(occurrence);
     if (!context.bladeAvailable) throw new Error("FINAL_CUT_NATIVE_PLAYHEAD_OUTSIDE_OCCURRENCE: Final Cut has disabled Blade for the current selection/playhead");
     const live = await this.readLiveState();
@@ -2061,7 +2166,7 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
   }
 
   private assertBladePreviewBinding(
-    preview: { context: NativeFinalCutContext; live?: EditorLiveState },
+    preview: { context: NativeFinalCutContext; occurrence: NativeFinalCutOccurrence; live?: EditorLiveState },
     before: NativeFinalCutContext,
     beforeLive: EditorLiveState | undefined,
   ): void {
@@ -2071,7 +2176,8 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
     if (!original?.project?.id || !original.sequence?.id || !original.playheadTime
       || !beforeLive?.project?.id || !beforeLive.sequence?.id || !beforeLive.playheadTime
       || !preview.context.playheadTime || !before.playheadTime
-      || currentScope.kind !== "selected-clip" || !originalScope.identity || currentScope.identity !== originalScope.identity
+      || currentScope.kind !== "selected-clip" || !preview.occurrence.nativeIdentity
+      || originalScope.identity !== preview.occurrence.nativeIdentity || currentScope.identity !== preview.occurrence.nativeIdentity
       || currentScope.name !== originalScope.name
       || originalScope.projectId !== original.project.id || originalScope.sequenceId !== original.sequence.id
       || originalScope.revision?.id !== original.revision.id || originalScope.revision?.sequence !== original.revision.sequence
@@ -4972,6 +5078,7 @@ function searchMediaScript(query: string): string {
     key code 36
     delay 0.5
     set output to my collectBrowserMedia(browserRoot, 0, searchQuery, origin, browserRootContext, {}, "root")
+    if output is "" then return "__FRAMEKIT_BROWSER_SCAN_EMPTY__"
     return output
   end tell
 end tell`;
@@ -5429,7 +5536,15 @@ function browserMediaTraversalScript(): string {
     on collectBrowserMedia(containerItem, depth, searchQuery, origin, inheritedContext, seenIdentities, browserPath)
       set maxDepth to 12
       if inheritedContext then set maxDepth to 6
-      if depth > maxDepth then return ""
+      if depth > maxDepth then
+        try
+          tell application "System Events" to set remainingItems to UI elements of containerItem
+          if (count of remainingItems) > 0 then return "__FRAMEKIT_BROWSER_SCAN_INCOMPLETE__" & (ASCII character 30)
+          return ""
+        on error
+          return "__FRAMEKIT_BROWSER_SCAN_INCOMPLETE__" & (ASCII character 30)
+        end try
+      end if
       set output to ""
       set mediaContext to my mediaContainer(containerItem, inheritedContext)
       tell application "System Events"
@@ -5489,7 +5604,8 @@ function browserMediaTraversalScript(): string {
               end if
               set output to output & my collectBrowserMedia(candidate, depth + 1, searchQuery, origin, candidateMediaContext, seenIdentities, candidatePath)
             on error
-              -- Ignore inaccessible descendants and continue enumerating Browser results.
+              -- Preserve incomplete-scan evidence rather than reporting an empty result.
+              set output to output & "__FRAMEKIT_BROWSER_SCAN_INCOMPLETE__" & (ASCII character 30)
             end try
           end repeat
         on error
@@ -7113,6 +7229,18 @@ function classifyNativeFocusTarget(
   const focusText = [focusedDescription, focusedName].filter(Boolean).join(" ").toLowerCase();
   if (focusText.includes("browser") || focusText.includes("search")) return "browser";
   return "unknown";
+}
+
+function normalizeNativeImportTarget(value: NativeFinalCutImportTarget | undefined): NativeFinalCutImportTarget | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const { libraryId, eventId, projectId, sequenceId, revision } = value;
+  if (![libraryId, eventId, projectId, sequenceId, revision].every((item) => typeof item === "string" && item.trim().length > 0)) return undefined;
+  return { libraryId, eventId, projectId, sequenceId, revision };
+}
+
+function sameNativeImportTarget(expected: NativeFinalCutImportTarget, actual: NativeFinalCutImportTarget | undefined): boolean {
+  return Boolean(actual && expected.libraryId === actual.libraryId && expected.eventId === actual.eventId
+    && expected.projectId === actual.projectId && expected.sequenceId === actual.sequenceId && expected.revision === actual.revision);
 }
 
 function parseMediaMatches(output: string): NativeFinalCutMediaMatch[] {

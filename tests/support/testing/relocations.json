@@ -3126,11 +3126,15 @@
     ],
     "tests/integration/canonical-native-mcp.test.ts": [
       "\"uncertain placement outcomes block subsequent native edits\"",
+      "\"unavailable built-in media import does not create or release a reservation\"",
+      "\"native import forwards the caller-approved target to file and directory preview\"",
+      "\"native import preserves the exact approved target identifiers\"",
       "\"uncertain Blade readback blocks subsequent native edits\""
     ],
     "tests/integration/native.test.ts": [
       "\"native append Undo cannot verify same-duration wrong content\"",
       "\"native insert duration and revision do not verify placement or Undo\"",
+      "\"concurrent placement Undo requests dispatch at most once\"",
       "\"native media insertion requires recovery after duration growth without a new revision\"",
       "\"native media insertion does not retry an uncertain append focus error\"",
       "\"native media placement rejects a switched project before insertion\"",
@@ -3139,8 +3143,21 @@
       "\"native append rejects a changed sequence start before dispatch\"",
       "\"native media insertion never retries an uncertain focus failure after dispatch\"",
       "\"native placement refuses changed post-dispatch targets without undoing them\"",
+      "\"native placement Undo rejects an interleaved context target before dispatch\"",
       "\"native placement undo does not replay an uncertain focus failure\"",
       "\"native placement undo rejects restored duration on a different target\"",
+      "\"native Browser search rejects incomplete scans instead of reporting empty or partial matches\"",
+      "\"native Browser search rejects malformed and truncated scan records\"",
+      "\"native Browser search distinguishes missing output from a completed empty scan\"",
+      "\"native Browser search marks unscanned descendants at its traversal limit\"",
+      "\"native media import is unavailable without independently observed source binding\"",
+      "\"directory import does not dispatch when source observation is unavailable\"",
+      "\"native import rejects independently observed source and target mismatches\"",
+      "\"native import requires the independently observed target to match approval before dispatch\"",
+      "\"native import stops before dispatch if the approved target changes during Browser discovery\"",
+      "\"directory preview binds approved import target and rejects missing approval\"",
+      "\"native capabilities do not advertise source-verified import without source observation\"",
+      "\"directory import stops after an uncertain file outcome\"",
       "\"native Blade undo requires canonical restoration even when revision advances\"",
       "\"native Blade passes the Browser identity to its post-command scan\"",
       "\"native Blade rejects missing Browser identity before dispatch\"",
@@ -3150,16 +3167,43 @@
       "\"native Blade Undo rejects another project or sequence before dispatch\"",
       "\"native Blade Undo is never replayed after an uncertain dispatch\"",
       "\"native Blade rejects changed preview scope and playhead before dispatch\"",
+      "\"native Blade rejects same-name wrong selected occurrence before dispatch\"",
       "\"native Blade never retries an uncertain dispatched command\"",
       "\"native Blade rechecks the playhead after occurrence validation\""
     ],
+    "tests/integration/canonical-native-provider.test.ts": [
+      "\"canonical resolver rejects nonpositive target duration before discovery\"",
+      "\"canonical resolver rejects overlapping same-source occurrences before discovery\"",
+      "\"canonical resolver permits adjacent repeated source occurrences\"",
+      "\"canonical ripple delete requires source observation of the affected occurrence\"",
+      "\"ripple source observation preserves checkpoint when discovery may dispatch\"",
+      "\"canonical resolver rejects unrecorded overlapping native occurrences before selection\"",
+      "\"canonical resolver rejects a partial scan of repeated source occurrences\"",
+      "\"canonical resolver rejects unexpected or displaced repeated native occurrences\""
+    ],
+    "tests/integration/final-cut-publish-readback.test.ts": [
+      "\"FCPXML comparison requires explicit exports and fails on changed source content\"",
+      "\"publish readback compares explicit source bounds and rejects lost evidence\"",
+      "\"publish readback rejects swapped bounds for occurrences of the same source\""
+    ],
+    "tests/integration/canonical-evidence.test.ts": [
+      "\"evidence and runtime digests agree when exact source bounds are supplied\"",
+      "\"headed runner digests retain supplied source bounds\""
+    ],
+    "tests/integration/canonical-live.test.ts": [
+      "\"live canonical snapshots reject malformed exact source bounds\""
+    ],
     "tests/integration/fcpxml-media-representation.test.ts": [
+      "\"FCPXML retains an explicit exact source range without inventing a missing origin\"",
       "\"FCPXML snapshots preserve explicit sequence timecode origin without inventing one\""
     ],
     "tests/integration/headless-renderer.test.ts": [
+      "\"FFmpeg renderer refuses an unimplemented nonzero source origin\"",
       "\"FFmpeg renderer rejects an explicit nonzero sequence timecode origin\""
     ],
     "tests/integration/timeline-ir-fcpxml.test.ts": [
+      "\"FCPXML compilation preserves explicit nonzero source bounds\"",
+      "\"FCPXML frame rounding cannot move an occurrence outside source bounds\"",
       "\"FCPXML compilation refuses to discard an explicit nonzero timecode origin\"",
       "\"FCPXML compilation refuses to discard a nonzero frame-grid origin\""
     ],
@@ -3305,6 +3349,93 @@
           "\"native placement refuses changed post-dispatch targets without undoing them\"",
           "\"native placement undo does not replay an uncertain focus failure\"",
           "\"native placement undo rejects restored duration on a different target\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        718
+      ],
+      "reason": "Preserve both feature behavior and all added tests across current main test relocations; no reviewed identities removed.",
+      "addedTestNames": {
+        "tests/integration/canonical-native-provider.test.ts": [
+          "\"canonical resolver rejects nonpositive target duration before discovery\"",
+          "\"canonical resolver rejects overlapping same-source occurrences before discovery\"",
+          "\"canonical resolver permits adjacent repeated source occurrences\"",
+          "\"canonical ripple delete requires source observation of the affected occurrence\"",
+          "\"ripple source observation preserves checkpoint when discovery may dispatch\"",
+          "\"canonical resolver rejects unrecorded overlapping native occurrences before selection\"",
+          "\"canonical resolver rejects a partial scan of repeated source occurrences\"",
+          "\"canonical resolver rejects unexpected or displaced repeated native occurrences\""
+        ],
+        "tests/integration/final-cut-publish-readback.test.ts": [
+          "\"FCPXML comparison requires explicit exports and fails on changed source content\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        721
+      ],
+      "reason": "Preserve both feature behavior and all added tests across current main test relocations; no reviewed identities removed.",
+      "addedTestNames": {
+        "tests/integration/native.test.ts": [
+          "\"native Browser search rejects incomplete scans instead of reporting empty or partial matches\"",
+          "\"native Browser search rejects malformed and truncated scan records\"",
+          "\"native Browser search distinguishes missing output from a completed empty scan\"",
+          "\"native Browser search marks unscanned descendants at its traversal limit\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        720
+      ],
+      "reason": "Preserve both feature behavior and all added tests across current main test relocations; no reviewed identities removed.",
+      "addedTestNames": {
+        "tests/integration/canonical-evidence.test.ts": [
+          "\"evidence and runtime digests agree when exact source bounds are supplied\"",
+          "\"headed runner digests retain supplied source bounds\""
+        ],
+        "tests/integration/canonical-live.test.ts": [
+          "\"live canonical snapshots reject malformed exact source bounds\""
+        ],
+        "tests/integration/fcpxml-media-representation.test.ts": [
+          "\"FCPXML retains an explicit exact source range without inventing a missing origin\""
+        ],
+        "tests/integration/final-cut-publish-readback.test.ts": [
+          "\"publish readback compares explicit source bounds and rejects lost evidence\"",
+          "\"publish readback rejects swapped bounds for occurrences of the same source\""
+        ],
+        "tests/integration/headless-renderer.test.ts": [
+          "\"FFmpeg renderer refuses an unimplemented nonzero source origin\""
+        ],
+        "tests/integration/timeline-ir-fcpxml.test.ts": [
+          "\"FCPXML compilation preserves explicit nonzero source bounds\"",
+          "\"FCPXML frame rounding cannot move an occurrence outside source bounds\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        711
+      ],
+      "reason": "Preserve import source/target safeguards and all additive tests across the responsibility-based relocation; no baseline identities removed.",
+      "addedTestNames": {
+        "tests/integration/native.test.ts": [
+          "\"native media import is unavailable without independently observed source binding\"",
+          "\"directory import does not dispatch when source observation is unavailable\"",
+          "\"native import rejects independently observed source and target mismatches\"",
+          "\"native import requires the independently observed target to match approval before dispatch\"",
+          "\"native import stops before dispatch if the approved target changes during Browser discovery\"",
+          "\"directory preview binds approved import target and rejects missing approval\"",
+          "\"native capabilities do not advertise source-verified import without source observation\"",
+          "\"directory import stops after an uncertain file outcome\""
+        ],
+        "tests/integration/canonical-native-mcp.test.ts": [
+          "\"unavailable built-in media import does not create or release a reservation\"",
+          "\"native import forwards the caller-approved target to file and directory preview\"",
+          "\"native import preserves the exact approved target identifiers\""
         ]
       }
     },
