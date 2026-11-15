@@ -1,0 +1,1449 @@
+import assert from "node:assert/strict";
+import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
+import os from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import test from "node:test";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import {
+  CommandAudioAnalyzer,
+  CommandMetadataAnalyzer,
+  NativeFinalCutMediaImportDirectoryError,
+  NativeFinalCutMediaImportError,
+  NativeFinalCutPartialMutationError,
+} from "@framekit/final-cut";
+import type { NativeFinalCutEditor } from "@framekit/final-cut";
+import { AgentVideoRuntime } from "@framekit/runtime";
+import { InMemoryEditorAdapter } from "@framekit/testkit";
+import { createMcpServer } from "../../../apps/mcp-server/src/server.js";
+import { finalCutMcpEnvironment } from "../../support/final-cut/test-environment.js";
+
+function textFrom(result: unknown): string {
+  const content = (result as { content?: unknown }).content;
+  assert.ok(Array.isArray(content));
+  const first = content[0] as { text?: unknown } | undefined;
+  assert.ok(first);
+  assert.equal(typeof first?.text, "string");
+  return first.text as string;
+}
+
+test("Final Cut MCP composes FCPXML reads, local analysis, assets, edits, and undo", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-finalcut-mcp-"));
+  const xmlPath = join(directory, "project.fcpxml");
+  const mediaPath = join(directory, "interview.wav");
+  const assetRoot = join(directory, "Motion Templates.localized", "Transitions.localized", "Cross Dissolve.motr", "Contents");
+  const titleRoot = join(directory, "Motion Templates.localized", "Titles.localized", "Lower Third.moti", "Contents");
+  await mkdir(assetRoot, { recursive: true });
+  await mkdir(titleRoot, { recursive: true });
+  await writeFile(mediaPath, "fixture media");
+  await writeFile(join(assetRoot, "Info.plist"), `<?xml version="1.0"?><plist><dict><key>CFBundleDisplayName</key><string>Cross Dissolve</string><key>CFBundleIdentifier</key><string>Framekit Fixture</string></dict></plist>`);
+  await writeFile(join(titleRoot, "Info.plist"), `<?xml version="1.0"?><plist><dict><key>CFBundleDisplayName</key><string>Lower Third</string><key>CFBundleIdentifier</key><string>Framekit Fixture</string></dict></plist>`);
+  await writeFile(xmlPath, `<?xml version="1.0" encoding="UTF-8"?>
+<fcpxml version="1.11">
+  <resources><asset id="r1" name="Interview.wav" src="interview.wav" /></resources>
+  <library><event name="Event"><project uid="project-mcp" name="MCP Final Cut"><sequence uid="sequence-mcp" duration="10s"><spine>
+    <asset-clip ref="r1" name="Interview" offset="0s" start="0s" duration="10s" lane="1" />
+  </spine></sequence></project></event></library>
+</fcpxml>`);
+
+  const speech = await makeAnalyzer(directory, JSON.stringify({ words: [{ text: "um", start: 0, end: 0.3, confidence: 0.98, filler: true }] }));
+  const audio = await makeAnalyzer(directory, JSON.stringify({ integratedLufs: -18, truePeakDb: -3, silenceMs: 120 }));
+  const visual = await makeAnalyzer(directory, JSON.stringify({
+    scenes: [{ id: "scene-1", start: 0, end: 10, label: "interview", confidence: 0.97 }],
+    subjects: [{ id: "subject-1", label: "person", confidence: 0.99, start: 0, end: 10 }],
+    motion: { score: 0.12, label: "low" },
+    keyframes: [{ time: 1, source: mediaPath, labels: ["person"] }],
+  }));
+
+  const here = dirname(fileURLToPath(import.meta.url));
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: ["--import", "tsx", join(here, "../../../apps/mcp-server/src/main.ts")],
+    env: finalCutMcpEnvironment({
+      FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"),
+      FRAMEKIT_FCPXML_PATH: xmlPath,
+      FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
+      FRAMEKIT_FINAL_CUT_ASSET_ROOTS: join(directory, "Motion Templates.localized"),
+      FRAMEKIT_FINAL_CUT_MEDIA_ROOTS: directory,
+      FRAMEKIT_SPEECH_ANALYZER: speech,
+      FRAMEKIT_AUDIO_ANALYZER: audio,
+      FRAMEKIT_VISUAL_ANALYZER: visual,
+    }),
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "finalcut-mcp-test", version: "0.1.0" });
+
+  try {
+    await client.connect(transport);
+    const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
+    assert.equal(editor.identity.backend, "final-cut-session");
+    assert.equal(editor.capabilities.editor.timelineSnapshotRead, true);
+    assert.equal(editor.capabilities.editor.timelineArtifactWrite, true);
+    assert.equal(editor.capabilities.editor.rollback, true);
+    assert.equal(editor.capabilities.editor.assetDiscovery, true);
+    assert.equal(editor.capabilities.editor.backgroundMediaDiscovery, true);
+    assert.deepEqual(editor.capabilities.families.observation.media, {
+      available: true,
+      backend: "filesystem-media",
+      guarantee: "observed",
+    });
+    assert.equal(editor.capabilities.analyzers.speechTranscribe, true);
+    assert.equal(editor.capabilities.analyzers.audioLoudness, true);
+    assert.equal(editor.capabilities.analyzers.visualTrack, true);
+
+    const projectResult = await client.callTool({ name: "project.inspect", arguments: {} });
+    const project = JSON.parse(textFrom(projectResult));
+    assert.equal(project.projectName, "MCP Final Cut");
+    assert.equal(project.media[0].source, mediaPath);
+
+    const searchedMedia = JSON.parse(textFrom(await client.callTool({
+      name: "media.search",
+      arguments: { query: "interview.wav" },
+    })));
+    assert.equal(searchedMedia[0].mediaId, `filesystem:media:${mediaPath}`);
+    assert.equal(searchedMedia[0].sourceDigest.length, 64);
+
+    const context = JSON.parse(textFrom(await client.callTool({ name: "context.inspect", arguments: {} })));
+    assert.equal(context.project.projectName, "MCP Final Cut");
+    if (context.editorState) assert.equal(context.editorState.project?.name, "Playhead Phase 1 E2E");
+
+    const speechResult = JSON.parse(textFrom(await client.callTool({ name: "speech.analyze", arguments: { mediaId: "r1" } })));
+    assert.equal(speechResult.words[0].filler, true);
+    const audioResult = JSON.parse(textFrom(await client.callTool({ name: "audio.analyze", arguments: { mediaId: "r1" } })));
+    assert.equal(audioResult.integratedLufs, -18);
+    const visualResult = JSON.parse(textFrom(await client.callTool({ name: "visual.analyze", arguments: { mediaId: "r1" } })));
+    assert.equal(visualResult.subjects[0].label, "person");
+    const understanding = JSON.parse(textFrom(await client.callTool({ name: "media.understand", arguments: { mediaId: "r1" } })));
+    assert.equal(understanding.visual.scenes[0].label, "interview");
+
+    const assets = JSON.parse(textFrom(await client.callTool({ name: "editor.assets", arguments: { query: "dissolve" } })));
+    assert.equal(assets[0].name, "Cross Dissolve");
+    const titles = JSON.parse(textFrom(await client.callTool({ name: "editor.assets", arguments: { kind: "title", query: "lower" } })));
+    assert.match(titles[0].metadata.sourceDigest, /^sha256:[a-f0-9]{64}$/);
+    assert.deepEqual(titles[0], {
+      id: `filesystem:title:${join(directory, "Motion Templates.localized", "Titles.localized", "Lower Third.moti")}`,
+      kind: "title",
+      name: "Lower Third",
+      vendor: "Framekit Fixture",
+      metadata: {
+        path: join(directory, "Motion Templates.localized", "Titles.localized", "Lower Third.moti"),
+        name: "Lower Third",
+        vendor: "Framekit Fixture",
+        identity: join(directory, "Motion Templates.localized", "Titles.localized", "Lower Third.moti"),
+        sourceDigest: titles[0].metadata.sourceDigest,
+        provider: "filesystem-motion-template",
+        source: "filesystem",
+        discovery: {
+          backend: "filesystem-motion-template",
+          guarantee: "observed",
+        },
+        installation: {
+          path: join(directory, "Motion Templates.localized", "Titles.localized", "Lower Third.moti"),
+          root: join(directory, "Motion Templates.localized"),
+          relativePath: "Titles.localized/Lower Third.moti",
+        },
+      },
+    });
+
+    const edited = JSON.parse(textFrom(await client.callTool({
+      name: "artifact.edit",
+      arguments: {
+        artifactPath: xmlPath,
+        type: "rename-clip",
+        clipId: project.timeline.clips[0].id,
+        name: "Interview Clean",
+        baseRevision: project.revision,
+      },
+    })));
+    assert.equal(edited.status, "VERIFIED");
+    assert.equal(edited.after.timeline.clips[0].name, "Interview Clean");
+    assert.deepEqual(edited.target, {
+      kind: "artifact",
+      artifactId: `fcpxml:${xmlPath}`,
+      artifactPath: xmlPath,
+    });
+
+    const diff = JSON.parse(textFrom(await client.callTool({ name: "edit.diff", arguments: { transactionId: edited.id } })));
+    assert.equal(diff.modified[0].after.name, "Interview Clean");
+    const verification = JSON.parse(textFrom(await client.callTool({ name: "edit.verify", arguments: { transactionId: edited.id } })));
+    assert.equal(verification.passed, true);
+    assert.deepEqual(verification.target, edited.target);
+    const undone = JSON.parse(textFrom(await client.callTool({ name: "edit.undo", arguments: { transactionId: edited.id } })));
+    assert.equal(undone.timeline.clips[0].name, "Interview");
+  } finally {
+    await client.close();
+    await transport.close();
+  }
+});
+
+test("Final Cut MCP exposes guarded native title preview and execute tools", async () => {
+  const titleAsset = {
+    id: "title-lower-third",
+    kind: "title" as const,
+    name: "Lower Third",
+    vendor: "Framekit Fixture",
+    metadata: { path: "/Motion Templates.localized/Titles.localized/Lower Third.moti" },
+  };
+  const effectAsset = {
+    id: "effect-blur",
+    kind: "effect" as const,
+    name: "Blur",
+    vendor: "Framekit Fixture",
+    metadata: { path: "/Motion Templates.localized/Effects.localized/Blur.moef" },
+  };
+  const calls: Array<{ assetId: string; text: string }> = [];
+  const nativeContext = {
+    available: true,
+    application: "Final Cut Pro" as const,
+    frontmost: true,
+    frontWindow: "Final Cut Pro",
+    timelineWindowAvailable: true,
+    timelineFocused: true,
+    focusTarget: "timeline" as const,
+    target: { kind: "playhead" as const },
+    bladeAvailable: false,
+    undoAvailable: true,
+    undoCommand: "Undo Native Title",
+  };
+  const preview = {
+    previewToken: "title-preview-1",
+    asset: { id: titleAsset.id, kind: titleAsset.kind, name: titleAsset.name, vendor: titleAsset.vendor },
+    text: "Interview",
+    target: "playhead" as const,
+    start: { value: "5", timescale: "1" },
+    end: { value: "8", timescale: "1" },
+    duration: { value: "3", timescale: "1" },
+    sequenceId: "sequence-1",
+    revision: "rev-1",
+    command: "Add native title" as const,
+    expiresAt: "9999-12-31T23:59:59.999Z",
+  };
+  const result = {
+    operationId: "native-title-1",
+    previewToken: preview.previewToken,
+    asset: preview.asset,
+    text: preview.text,
+    target: preview.target,
+    start: preview.start,
+    end: preview.end,
+    duration: preview.duration,
+    before: nativeContext,
+    after: { ...nativeContext, target: { kind: "selected-clip" as const, name: "Lower Third" } },
+    beforeRevision: { id: "rev-1", sequence: 1, timestamp: new Date(1).toISOString() },
+    afterRevision: { id: "rev-2", sequence: 2, timestamp: new Date(2).toISOString() },
+    verification: { verified: true, detail: "verified" },
+    undoAvailable: true,
+    undoCommand: "Undo Native Title",
+  };
+  const nativeEditor = {
+    capabilities: () => ({
+      selectionEdit: true,
+      undo: true,
+      mediaLibrarySearch: true,
+      mediaImport: true,
+      mediaSelection: true,
+      timelineOccurrenceLocate: true,
+      bladeAtPlayhead: true,
+      deleteRange: true,
+      trimToDuration: true,
+      mediaAppend: true,
+      mediaInsert: true,
+      titlePlacement: true,
+      timelineFocus: true,
+      requiresAccessibility: true as const,
+      requiresFinalCutFrontmost: true as const,
+    }),
+    inspect: async () => nativeContext,
+    focusTimeline: async () => nativeContext,
+    previewTitleAdd: async (request: { asset: { id: string }; text: string }) => {
+      calls.push({ assetId: request.asset.id, text: request.text });
+      return preview;
+    },
+    executeTitleAdd: async () => result,
+    undo: async () => ({ operationId: result.operationId, undone: true, context: nativeContext, verification: { verified: true, detail: "restored" } }),
+  } as unknown as NativeFinalCutEditor;
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "MCP Title Test",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+    media: [],
+    assets: [titleAsset, effectAsset],
+  }));
+  const server = createMcpServer(runtime, { nativeEditor });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "title-mcp-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const tools = await client.listTools();
+    assert.ok(tools.tools.find((tool) => tool.name === "editor.native.title.add.preview"));
+    assert.ok(tools.tools.find((tool) => tool.name === "editor.native.title.add.execute"));
+
+    const titlePreview = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.title.add.preview",
+      arguments: { assetId: titleAsset.id, text: "Interview", duration: { value: "3", timescale: "1" } },
+    })));
+    assert.equal(titlePreview.command, "Add native title");
+    assert.deepEqual(calls, [{ assetId: titleAsset.id, text: "Interview" }]);
+    const titleResult = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.title.add.execute",
+      arguments: { previewToken: titlePreview.previewToken },
+    })));
+    assert.equal(titleResult.verification.verified, true);
+    assert.equal(titleResult.afterRevision.id, "rev-2");
+
+    const missing = await client.callTool({
+      name: "editor.native.title.add.preview",
+      arguments: { assetId: "title-missing", text: "Missing", duration: { value: "1", timescale: "1" } },
+    });
+    assert.equal(missing.isError, true);
+    assert.match(textFrom(missing), /TITLE_ASSET_NOT_FOUND/);
+
+    const incompatible = await client.callTool({
+      name: "editor.native.title.add.preview",
+      arguments: { assetId: effectAsset.id, text: "Wrong kind", duration: { value: "1", timescale: "1" } },
+    });
+    assert.equal(incompatible.isError, true);
+    assert.match(textFrom(incompatible), /TITLE_ASSET_INCOMPATIBLE/);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("Final Cut MCP routes native picture-in-picture through preview and execute", async () => {
+  const requests: unknown[] = [];
+  const nativeContext = {
+    available: true,
+    application: "Final Cut Pro" as const,
+    frontmost: true,
+    frontWindow: "Final Cut Pro",
+    timelineWindowAvailable: true,
+    timelineFocused: true,
+    focusTarget: "timeline" as const,
+    target: { kind: "selected-clip" as const, name: "Primary" },
+    bladeAvailable: false,
+    undoAvailable: true,
+    undoCommand: "Undo Native Picture-in-Picture",
+    readiness: {
+      state: "ready" as const,
+      nextAction: "none" as const,
+      retryable: false,
+      frontmost: true,
+      timelineFocus: true,
+      selectedTarget: true,
+      overlay: "clear" as const,
+      permission: "granted" as const,
+      undo: "available" as const,
+      guidance: "Native Final Cut readiness is available",
+    },
+  };
+  const preview = {
+    previewToken: "pip-preview-1",
+    media: { handle: "media-guest", name: "Guest", sourceIdentity: "guest-source" },
+    anchorOccurrence: { handle: "occurrence-primary", mediaHandle: "media-primary", name: "Primary", start: "0/1", duration: "10/1" },
+    start: { value: "2", timescale: "1" },
+    end: { value: "6", timescale: "1" },
+    duration: { value: "4", timescale: "1" },
+    position: { x: 320, y: -180 },
+    scale: 0.35,
+    command: "Add native picture-in-picture" as const,
+    revision: "rev-1",
+    expiresAt: "9999-12-31T23:59:59.999Z",
+  };
+  const result = {
+    ...preview,
+    operationId: "native-pip-1",
+    observed: { position: { x: 320, y: -180 }, scale: 0.35 },
+    before: {},
+    after: {},
+    beforeRevision: { id: "rev-1", sequence: 1, timestamp: new Date(1).toISOString() },
+    afterRevision: { id: "rev-2", sequence: 2, timestamp: new Date(2).toISOString() },
+    verification: { verified: true, detail: "verified" },
+    undoAvailable: true,
+    undoCommand: "Undo Native Picture-in-Picture",
+  };
+  const nativeEditor = {
+    capabilities: () => ({
+      selectionEdit: true,
+      undo: true,
+      mediaLibrarySearch: true,
+      mediaImport: false,
+      mediaSelection: true,
+      mediaAppendSelected: false,
+      timelineOccurrenceLocate: true,
+      bladeAtPlayhead: false,
+      deleteRange: false,
+      trimToDuration: false,
+      mediaAppend: false,
+      mediaInsert: false,
+      titlePlacement: false,
+      pictureInPicture: true,
+      timelineFocus: true,
+      requiresAccessibility: true as const,
+      requiresFinalCutFrontmost: true as const,
+    }),
+    inspect: async () => nativeContext,
+    previewPictureInPicture: async (request: unknown) => {
+      requests.push(request);
+      return preview;
+    },
+    executePictureInPicture: async () => result,
+  } as unknown as NativeFinalCutEditor;
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "MCP PIP Test",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+  }));
+  const server = createMcpServer(runtime, { nativeEditor });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "pip-mcp-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const tools = await client.listTools();
+    assert.ok(tools.tools.find((tool) => tool.name === "editor.native.picture-in-picture.preview"));
+    assert.ok(tools.tools.find((tool) => tool.name === "editor.native.picture-in-picture.execute"));
+    const pipPreview = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.picture-in-picture.preview",
+      arguments: {
+        mediaHandle: "media-guest",
+        anchorOccurrenceHandle: "occurrence-primary",
+        start: { value: "2", timescale: "1" },
+        duration: { value: "4", timescale: "1" },
+        position: { x: 320, y: -180 },
+        scale: 0.35,
+      },
+    })));
+    assert.equal(pipPreview.command, "Add native picture-in-picture");
+    assert.deepEqual(requests, [{
+      mediaHandle: "media-guest",
+      anchorOccurrenceHandle: "occurrence-primary",
+      start: { value: "2", timescale: "1" },
+      duration: { value: "4", timescale: "1" },
+      position: { x: 320, y: -180 },
+      scale: 0.35,
+    }]);
+    const pipResult = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.picture-in-picture.execute",
+      arguments: { previewToken: pipPreview.previewToken },
+    })));
+    assert.equal(pipResult.verification.verified, true);
+    assert.equal(pipResult.afterRevision.id, "rev-2");
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("Final Cut MCP resolves transition search ids back through native discovery", async () => {
+  const registryAsset = {
+    id: "transition-registry-cross-dissolve",
+    kind: "transition" as const,
+    name: "Cross Dissolve",
+    vendor: "Final Cut Pro",
+    metadata: { path: "/Motion Templates.localized/Transitions.localized/Cross Dissolve.motr" },
+  };
+  const nativeMatch = {
+    id: "final-cut:transition:fcp://transition/cross",
+    kind: "transition" as const,
+    name: "Cross Dissolve",
+    vendor: "Final Cut Pro",
+    identity: "fcp://transition/cross",
+  };
+  const queries: string[] = [];
+  const requests: unknown[] = [];
+  const nativeEditor = {
+    searchTransitions: async (query: string) => {
+      queries.push(query);
+      return query === nativeMatch.id || query === registryAsset.name ? [nativeMatch] : [];
+    },
+    previewTransitionAdd: async (request: unknown) => {
+      requests.push(request);
+      return { previewToken: "transition-preview", asset: nativeMatch, command: "Add native transition" };
+    },
+  } as unknown as NativeFinalCutEditor;
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "MCP Transition Test",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+    media: [],
+    assets: [registryAsset],
+  }));
+  const server = createMcpServer(runtime, { nativeEditor });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "transition-mcp-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const search = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.transition.search",
+      arguments: { query: "Cross Dissolve" },
+    })));
+    assert.deepEqual(search, [nativeMatch]);
+
+    await client.callTool({
+      name: "editor.native.transition.add.preview",
+      arguments: {
+        assetId: nativeMatch.id,
+        beforeOccurrenceHandle: "before-occurrence",
+        afterOccurrenceHandle: "after-occurrence",
+        duration: { value: "1", timescale: "1" },
+      },
+    });
+    await client.callTool({
+      name: "editor.native.transition.add.preview",
+      arguments: {
+        assetId: registryAsset.id,
+        beforeOccurrenceHandle: "before-occurrence",
+        afterOccurrenceHandle: "after-occurrence",
+        duration: { value: "1", timescale: "1" },
+      },
+    });
+    assert.deepEqual(queries, ["Cross Dissolve", registryAsset.name]);
+    assert.equal(requests.length, 2);
+    assert.deepEqual((requests[0] as { asset: unknown }).asset, nativeMatch);
+    assert.deepEqual((requests[1] as { asset: unknown }).asset, nativeMatch);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("local analyzer commands fail closed for unavailable media and invalid output", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-analyzer-errors-"));
+  const mediaPath = join(directory, "media.wav");
+  await writeFile(mediaPath, "fixture media");
+  const invalid = await makeAnalyzer(directory, JSON.stringify({ integratedLufs: -18 }));
+  const analyzer = new CommandAudioAnalyzer({ command: invalid });
+  const input = {
+    project: {
+      projectId: "project-1",
+      projectName: "Analyzer Test",
+      timeline: { id: "timeline-1", name: "Timeline", duration: 1, clips: [], storyElements: [], markers: [], captions: [] },
+      media: [{ mediaId: "media-1", source: mediaPath }],
+      revision: { id: "rev-0", sequence: 0, timestamp: new Date(0).toISOString() },
+    },
+    media: { mediaId: "media-1", source: mediaPath },
+  };
+  await assert.rejects(analyzer.analyze(input), /ANALYZER_INVALID_OUTPUT/);
+  await assert.rejects(analyzer.analyze({ ...input, media: { mediaId: "media-1", source: join(directory, "missing.wav") } }), /ANALYZER_MEDIA_UNAVAILABLE/);
+});
+
+test("metadata analyzer rejects malformed semantic records", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-metadata-analyzer-errors-"));
+  const mediaPath = join(directory, "media.mov");
+  await writeFile(mediaPath, "fixture media");
+  const input = {
+    project: {
+      projectId: "project-1",
+      projectName: "Metadata Analyzer Test",
+      timeline: { id: "timeline-1", name: "Timeline", duration: 1, clips: [], storyElements: [], markers: [], captions: [] },
+      media: [{ mediaId: "media-1", source: mediaPath }],
+      revision: { id: "rev-0", sequence: 0, timestamp: new Date(0).toISOString() },
+    },
+    media: { mediaId: "media-1", source: mediaPath },
+  };
+  const invalidOutputs = [
+    { subjects: [{ value: 42, confidence: 0.9 }] },
+    { usableRanges: [{ start: 0, end: "1" }] },
+    { confidence: "high" },
+  ];
+
+  for (const output of invalidOutputs) {
+    const command = await makeAnalyzer(directory, JSON.stringify(output));
+    await assert.rejects(
+      new CommandMetadataAnalyzer({ command }).analyze(input),
+      /ANALYZER_INVALID_OUTPUT/,
+    );
+  }
+});
+
+test("Final Cut live MCP exposes native range contracts and capabilities", async () => {
+  const commitValidation = process.env.FRAMEKIT_COMMIT_VALIDATION === "1";
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-native-mcp-contract-"));
+  const socketPath = join(directory, "bridge.sock");
+  const bridge = createServer((socket) => {
+    socket.setEncoding("utf8");
+    socket.on("data", (chunk) => {
+      const request = JSON.parse(String(chunk).trim()) as { id: string; version: number; method: string };
+      const result = request.method === "state"
+        ? {
+            identity: { name: "Final Cut Pro", version: "test", backend: "workflow-extension-ipc" },
+            capabilities: {
+              editor: {
+                projectRead: true,
+                timelineSnapshotRead: false,
+                timelineWrite: false,
+                timelineArtifactWrite: false,
+                readAfterWrite: false,
+                incrementalChanges: true,
+                rollback: false,
+                assetDiscovery: false,
+                liveStateRead: true,
+                playheadWrite: false,
+                frameCapture: false,
+                playbackControl: false,
+              },
+              analyzers: { speechTranscribe: false, speechVad: false, audioLoudness: false, visualTrack: false },
+            },
+            state: {
+              project: { id: "project-1", name: "Contract Test" },
+              sequence: { id: "sequence-1", name: "Contract Test", startTime: { value: "0", timescale: "1" }, duration: { value: "10", timescale: "1" }, frameDuration: { value: "1", timescale: "24" } },
+              playheadTime: { value: "0", timescale: "1" },
+              sequenceTimeRange: { start: { value: "0", timescale: "1" }, duration: { value: "10", timescale: "1" } },
+              revision: { id: "rev-1", sequence: 1, timestamp: new Date(0).toISOString() },
+            },
+          }
+        : {
+            identity: { name: "Final Cut Pro", version: "test", backend: "workflow-extension-ipc" },
+            capabilities: {
+              editor: {
+                projectRead: true,
+                timelineSnapshotRead: false,
+                timelineWrite: false,
+                timelineArtifactWrite: false,
+                readAfterWrite: false,
+                incrementalChanges: true,
+                rollback: false,
+                assetDiscovery: false,
+                liveStateRead: true,
+                playheadWrite: false,
+                frameCapture: false,
+                playbackControl: false,
+              },
+              analyzers: { speechTranscribe: false, speechVad: false, audioLoudness: false, visualTrack: false },
+            },
+          };
+      socket.end(`${JSON.stringify({ version: request.version, id: request.id, ok: true, result })}\n`);
+    });
+  });
+  await new Promise<void>((resolve) => bridge.listen(socketPath, resolve));
+  const here = dirname(fileURLToPath(import.meta.url));
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: ["--import", "tsx", join(here, "../../../apps/mcp-server/src/main.ts")],
+    env: finalCutMcpEnvironment({
+      FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "1",
+      FRAMEKIT_FINAL_CUT_SOCKET: socketPath,
+    }),
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "native-contract-test", version: "0.1.0" });
+
+  try {
+    await client.connect(transport);
+    const tools = await client.listTools();
+    const deletePreview = tools.tools.find((tool) => tool.name === "editor.native.delete-range.preview");
+    const trimPreview = tools.tools.find((tool) => tool.name === "editor.native.trim-to-duration.preview");
+    assert.ok(deletePreview);
+    assert.ok(trimPreview);
+    assert.deepEqual(Object.keys(deletePreview.inputSchema.properties ?? {}).sort(), ["end", "start"]);
+    assert.deepEqual(Object.keys(trimPreview.inputSchema.properties ?? {}).sort(), ["duration"]);
+
+    const editor = JSON.parse(textFrom(await client.callTool({ name: "editor.inspect", arguments: {} })));
+    assert.equal(editor.native.deleteRange, !commitValidation);
+    assert.equal(editor.native.trimToDuration, !commitValidation);
+    assert.equal(editor.native.mediaAppend, !commitValidation);
+    assert.equal(editor.native.mediaAppendSelected, !commitValidation);
+    assert.equal(editor.native.mediaInsert, !commitValidation);
+    assert.equal(editor.native.titlePlacement, !commitValidation);
+    assert.equal(editor.native.timelineFocus, !commitValidation);
+
+    const native = JSON.parse(textFrom(await client.callTool({ name: "editor.native.inspect", arguments: {} })));
+    if (commitValidation) assert.equal(native.error?.code, "CAPABILITY_UNAVAILABLE");
+    assert.equal(typeof native.timelineWindowAvailable, "boolean");
+    assert.equal(typeof native.timelineFocused, "boolean");
+    assert.ok(["timeline", "browser", "text-field", "modal", "unknown", "none"].includes(native.focusTarget));
+    if (native.error) {
+      assert.match(native.error.code, commitValidation ? /^CAPABILITY_UNAVAILABLE$/ : /^FINAL_CUT_NATIVE_/);
+      assert.equal(typeof native.error.message, "string");
+    }
+    const focus = JSON.parse(textFrom(await client.callTool({ name: "editor.native.focus", arguments: {} })));
+    if (commitValidation) assert.equal(focus.error?.code, "CAPABILITY_UNAVAILABLE");
+    assert.equal(typeof focus.timelineWindowAvailable, "boolean");
+    assert.equal(typeof focus.timelineFocused, "boolean");
+    assert.ok(["timeline", "browser", "text-field", "modal", "unknown", "none"].includes(focus.focusTarget));
+
+    const preview = await client.callTool({
+      name: "editor.native.delete-range.preview",
+      arguments: {
+        start: { value: "1", timescale: "1" },
+        end: { value: "2", timescale: "1" },
+      },
+    });
+    if (preview.isError) {
+      assert.match(textFrom(preview), /CAPABILITY_UNAVAILABLE|FINAL_CUT_NATIVE_/);
+    } else {
+      const payload = JSON.parse(textFrom(preview));
+      assert.equal(payload.operation, "delete-range");
+      assert.equal(typeof payload.previewToken, "string");
+    }
+  } finally {
+    await client.close();
+    await transport.close();
+    await new Promise<void>((resolve) => bridge.close(() => resolve()));
+  }
+});
+
+test("Final Cut MCP preserves overlay-blocked focus diagnostics", async () => {
+  const nativeContext = {
+    available: false,
+    application: "Final Cut Pro" as const,
+    frontmost: true,
+    frontWindow: "Final Cut Pro",
+    timelineWindowAvailable: true,
+    timelineFocused: false,
+    focusTarget: "unknown" as const,
+    focusedWindowName: "Framekit",
+    framekitWindowAvailable: true,
+    framekitWindowMinimized: false,
+    overlayBlocked: true,
+    target: { kind: "playhead" as const },
+    bladeAvailable: false,
+    undoAvailable: false,
+    error: {
+      code: "FINAL_CUT_NATIVE_OVERLAY_BLOCKED",
+      message: "The Framekit window could not be minimized; close or minimize the overlay and retry",
+    },
+  };
+  const nativeEditor = {
+    capabilities: () => ({
+      selectionEdit: true,
+      undo: true,
+      mediaLibrarySearch: true,
+      mediaSelection: true,
+      timelineOccurrenceLocate: true,
+      bladeAtPlayhead: true,
+      deleteRange: true,
+      trimToDuration: true,
+      timelineFocus: true,
+      requiresAccessibility: true as const,
+      requiresFinalCutFrontmost: true as const,
+    }),
+    inspect: async () => nativeContext,
+    focusTimeline: async () => nativeContext,
+  } as unknown as NativeFinalCutEditor;
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "MCP Overlay Test",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+    media: [],
+  }));
+  const server = createMcpServer(runtime, { nativeEditor });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "overlay-mcp-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const inspect = JSON.parse(textFrom(await client.callTool({ name: "editor.native.inspect", arguments: {} })));
+    const focus = JSON.parse(textFrom(await client.callTool({ name: "editor.native.focus", arguments: {} })));
+    for (const response of [inspect, focus]) {
+      assert.equal(response.error.code, "FINAL_CUT_NATIVE_OVERLAY_BLOCKED");
+      assert.equal(response.focusedWindowName, "Framekit");
+      assert.equal(response.framekitWindowAvailable, true);
+      assert.equal(response.framekitWindowMinimized, false);
+      assert.equal(response.overlayBlocked, true);
+    }
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("Final Cut MCP forwards request cancellation to native probes and commands", async () => {
+  const nativeContext = {
+    available: true,
+    application: "Final Cut Pro" as const,
+    frontmost: true,
+    frontWindow: "Final Cut Pro",
+    timelineWindowAvailable: true,
+    timelineFocused: true,
+    focusTarget: "timeline" as const,
+    target: { kind: "selected-clip" as const, name: "Interview" },
+    bladeAvailable: false,
+    undoAvailable: true,
+  };
+  let inspectSignal: AbortSignal | undefined;
+  let editSignal: AbortSignal | undefined;
+  const nativeEditor = {
+    capabilities: () => ({
+      selectionEdit: true,
+      undo: true,
+      mediaLibrarySearch: true,
+      mediaSelection: true,
+      timelineOccurrenceLocate: true,
+      bladeAtPlayhead: true,
+      deleteRange: true,
+      trimToDuration: true,
+      timelineFocus: true,
+      requiresAccessibility: true as const,
+      requiresFinalCutFrontmost: true as const,
+    }),
+    inspect: async (options?: { signal?: AbortSignal }) => {
+      inspectSignal = options?.signal;
+      return nativeContext;
+    },
+    focusTimeline: async () => nativeContext,
+    edit: async (_operation: unknown, options?: { signal?: AbortSignal }) => {
+      editSignal = options?.signal;
+      return { operationId: "native-1", operation: _operation, command: "test", before: nativeContext, after: nativeContext, verification: { verified: true, level: "native-command-accepted", detail: "test" }, undoAvailable: true };
+    },
+  } as unknown as NativeFinalCutEditor;
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "MCP Cancellation Test",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+    media: [],
+  }));
+  const server = createMcpServer(runtime, { nativeEditor });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "cancellation-mcp-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    await client.callTool({ name: "editor.native.inspect", arguments: {} });
+    await client.callTool({ name: "editor.native.edit", arguments: { type: "add-marker-at-playhead", name: "Review" } });
+    assert.ok(inspectSignal);
+    assert.ok(editSignal);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("Final Cut MCP returns structured native partial-mutation recovery state", async () => {
+  const nativeContext = {
+    available: true,
+    application: "Final Cut Pro" as const,
+    frontmost: true,
+    frontWindow: "Final Cut Pro",
+    timelineWindowAvailable: true,
+    timelineFocused: true,
+    focusTarget: "timeline" as const,
+    target: { kind: "selected-clip" as const, name: "Interview", identity: "clip-1" },
+    bladeAvailable: false,
+    undoAvailable: true,
+  };
+  const nativeEditor = {
+    capabilities: () => ({
+      selectionEdit: true,
+      undo: true,
+      mediaLibrarySearch: true,
+      mediaSelection: true,
+      timelineOccurrenceLocate: true,
+      bladeAtPlayhead: true,
+      deleteRange: true,
+      trimToDuration: true,
+      timelineFocus: true,
+      requiresAccessibility: true as const,
+      requiresFinalCutFrontmost: true as const,
+    }),
+    inspect: async () => nativeContext,
+    focusTimeline: async () => nativeContext,
+    edit: async () => {
+      throw new NativeFinalCutPartialMutationError({
+        operationId: "native-op-1",
+        recoveryHandle: "native-op-1",
+        operation: "Apply Custom Name",
+        mutationApplied: true,
+        safeToRetry: false,
+        recovery: { tool: "editor.native.undo", operationId: "native-op-1" },
+        evidence: {
+          beforeRevision: "rev-1",
+          afterRevision: "rev-2",
+          revisionAdvanced: true,
+          projectId: "project-1",
+          sequenceId: "sequence-1",
+          timelineScopeBound: true,
+          beforeTargetIdentity: "clip-1",
+          afterTargetIdentity: "clip-1",
+          targetBound: true,
+          beforeUndoCommand: "Undo Existing Change",
+          afterUndoCommand: "Undo Rename",
+          undoCommandChanged: true,
+          mutationObserved: true,
+        },
+        cause: {
+          code: "FINAL_CUT_NATIVE_UNDO_UNAVAILABLE",
+          message: "Final Cut did not expose operation-specific Undo",
+        },
+      });
+    },
+  } as unknown as NativeFinalCutEditor;
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "MCP Partial Mutation Test",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+    media: [],
+  }));
+  const server = createMcpServer(runtime, { nativeEditor });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "partial-mutation-mcp-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const response = await client.callTool({
+      name: "editor.native.edit",
+      arguments: { type: "rename-selected-clip", name: "Interview Clean" },
+    });
+    assert.equal(response.isError, true);
+    const payload = JSON.parse(textFrom(response));
+    assert.equal(payload.code, "FINAL_CUT_NATIVE_PARTIAL_MUTATION");
+    assert.equal(payload.details.operationId, "native-op-1");
+    assert.equal(payload.details.recovery.tool, "editor.native.undo");
+    assert.equal(payload.details.safeToRetry, false);
+    assert.equal(payload.details.evidence.targetBound, true);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("Final Cut MCP exposes deterministic append and insert media workflows", async () => {
+  const nativeContext = {
+    available: true,
+    application: "Final Cut Pro" as const,
+    frontmost: true,
+    frontWindow: "Final Cut Pro",
+    timelineWindowAvailable: true,
+    timelineFocused: true,
+    focusTarget: "timeline" as const,
+    target: { kind: "playhead" as const },
+    bladeAvailable: false,
+    undoAvailable: true,
+    undoCommand: "Undo Append",
+  };
+  const media = { handle: "media-1", name: "Interview", role: "AXBrowserMedia" };
+  const preview = {
+    previewToken: "append-preview-1",
+    operation: "append" as const,
+    media,
+    beforeDuration: { value: "10", timescale: "1" },
+    insertionTime: { value: "10", timescale: "1" },
+    sequenceId: "sequence-1",
+    revision: "rev-1",
+    command: "Append selected media" as const,
+    expiresAt: "9999-12-31T23:59:59.999Z",
+  };
+  const result = {
+    operationId: "native-append-1",
+    previewToken: preview.previewToken,
+    operation: preview.operation,
+    media,
+    before: nativeContext,
+    after: nativeContext,
+    beforeDuration: preview.beforeDuration,
+    afterDuration: { value: "15", timescale: "1" },
+    beforeRevision: { id: "rev-1", sequence: 1, timestamp: new Date(1).toISOString() },
+    afterRevision: { id: "rev-2", sequence: 2, timestamp: new Date(2).toISOString() },
+    verification: { verified: true, detail: "verified" },
+    undoAvailable: true,
+    undoCommand: "Undo Append",
+  };
+  const nativeEditor = {
+    capabilities: () => ({
+      selectionEdit: true,
+      undo: true,
+      mediaLibrarySearch: true,
+      mediaSelection: true,
+      timelineOccurrenceLocate: true,
+      bladeAtPlayhead: true,
+      deleteRange: true,
+      trimToDuration: true,
+      mediaAppend: true,
+      mediaInsert: true,
+      timelineFocus: true,
+      requiresAccessibility: true as const,
+      requiresFinalCutFrontmost: true as const,
+    }),
+    inspect: async () => nativeContext,
+    focusTimeline: async () => nativeContext,
+    previewAppendMedia: async () => preview,
+    executeAppendMedia: async () => result,
+    previewAppendSelectedMedia: async () => preview,
+    executeAppendSelectedMedia: async () => result,
+    previewInsertMedia: async () => ({ ...preview, operation: "insert" as const, command: "Insert selected media at playhead" as const }),
+    executeInsertMedia: async () => ({ ...result, operation: "insert" as const }),
+    undo: async () => ({ operationId: result.operationId, undone: true, context: nativeContext, verification: { verified: true, detail: "restored" } }),
+  } as unknown as NativeFinalCutEditor;
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "MCP Media Insertion Test",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+    media: [],
+  }));
+  const server = createMcpServer(runtime, { nativeEditor });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "media-insertion-mcp-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const tools = await client.listTools();
+    for (const name of [
+      "editor.native.media.append.preview",
+      "editor.native.media.append.execute",
+      "editor.native.media.append.selected.preview",
+      "editor.native.media.append.selected.execute",
+      "editor.native.media.insert.preview",
+      "editor.native.media.insert.execute",
+    ]) assert.ok(tools.tools.find((tool) => tool.name === name));
+
+    const appendPreview = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.media.append.preview",
+      arguments: { mediaHandle: media.handle },
+    })));
+    assert.equal(appendPreview.operation, "append");
+    const appendResult = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.media.append.execute",
+      arguments: { previewToken: appendPreview.previewToken },
+    })));
+    assert.equal(appendResult.verification.verified, true);
+    assert.equal(appendResult.afterRevision.id, "rev-2");
+
+    const selectedPreview = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.media.append.selected.preview",
+      arguments: {},
+    })));
+    assert.equal(selectedPreview.operation, "append");
+    const selectedResult = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.media.append.selected.execute",
+      arguments: { previewToken: selectedPreview.previewToken },
+    })));
+    assert.equal(selectedResult.verification.verified, true);
+
+    const insertPreview = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.media.insert.preview",
+      arguments: { mediaHandle: media.handle },
+    })));
+    assert.equal(insertPreview.operation, "insert");
+    const insertResult = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.media.insert.execute",
+      arguments: { previewToken: insertPreview.previewToken },
+    })));
+    assert.equal(insertResult.operation, "insert");
+    const undone = JSON.parse(textFrom(await client.callTool({
+      name: "editor.native.undo",
+      arguments: { operationId: appendResult.operationId },
+    })));
+    assert.equal(undone.undone, true);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("Final Cut MCP imports local media and returns a stable media handle", async () => {
+  const nativeEditor = {
+    capabilities: () => ({
+      selectionEdit: true,
+      undo: true,
+      mediaLibrarySearch: true,
+      mediaImport: true,
+      mediaSelection: true,
+      timelineOccurrenceLocate: true,
+      bladeAtPlayhead: true,
+      deleteRange: true,
+      trimToDuration: true,
+      timelineFocus: true,
+      requiresAccessibility: true as const,
+      requiresFinalCutFrontmost: true as const,
+    }),
+    importMedia: async (sourcePath: string) => ({
+      mediaHandle: "media-import-stable-video",
+      sourcePath,
+      sourceIdentity: "file:///tmp/interview.mov",
+      name: "interview.mov",
+      kind: "video" as const,
+      verification: {
+        verified: true as const,
+        stage: "post-import-browser-discovery" as const,
+        detail: "Final Cut exposed one newly imported Browser asset with immutable source identity",
+      },
+    }),
+  } as unknown as NativeFinalCutEditor;
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "MCP Import Test",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+    media: [],
+  }));
+  const server = createMcpServer(runtime, { nativeEditor });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "media-import-mcp-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const imported = await client.callTool({
+      name: "editor.native.media.import",
+      arguments: { path: "/tmp/interview.mov" },
+    });
+    assert.equal(imported.isError, undefined);
+    assert.deepEqual(JSON.parse(textFrom(imported)), {
+      mediaHandle: "media-import-stable-video",
+      sourcePath: "/tmp/interview.mov",
+      sourceIdentity: "file:///tmp/interview.mov",
+      name: "interview.mov",
+      kind: "video",
+      verification: {
+        verified: true,
+        stage: "post-import-browser-discovery",
+        detail: "Final Cut exposed one newly imported Browser asset with immutable source identity",
+      },
+    });
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("Final Cut MCP preserves structured native media import errors", async () => {
+  const importError = new NativeFinalCutMediaImportError(
+    "FINAL_CUT_NATIVE_MEDIA_IMPORT_DISCOVERY_TIMEOUT",
+    "Final Cut did not expose the imported Browser asset",
+    {
+      stage: "post-import-browser-discovery",
+      elapsedMs: 420,
+      stageElapsedMs: 300,
+      partialImportPossible: true,
+      diagnostics: "Browser > Events",
+    },
+  );
+  const nativeEditor = {
+    importMedia: async () => { throw importError; },
+  } as unknown as NativeFinalCutEditor;
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "MCP Import Error Test",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+    media: [],
+  }));
+  const server = createMcpServer(runtime, { nativeEditor });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "media-import-error-mcp-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const response = await client.callTool({
+      name: "editor.native.media.import",
+      arguments: { path: "/tmp/interview.mov" },
+    });
+    assert.equal(response.isError, true);
+    assert.deepEqual(JSON.parse(textFrom(response)), {
+      code: importError.code,
+      message: importError.message,
+      details: importError.details,
+    });
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("Final Cut MCP distinguishes unsupported wildcard search from empty literal results", async () => {
+  const searched: string[] = [];
+  const nativeEditor = {
+    searchMedia: async (query: string) => {
+      searched.push(query);
+      return [];
+    },
+  } as unknown as NativeFinalCutEditor;
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "MCP Search Query Test",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+    media: [],
+  }));
+  const server = createMcpServer(runtime, { nativeEditor });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "native-search-query-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    for (const query of ["*", "Interview?"]) {
+      const response = await client.callTool({ name: "editor.native.media.search", arguments: { query } });
+      assert.equal(response.isError, true);
+      assert.deepEqual(JSON.parse(textFrom(response)), {
+        code: "FINAL_CUT_NATIVE_SEARCH_WILDCARD_UNSUPPORTED",
+        message: "Final Cut Browser search accepts literal text; wildcard operators * and ? are unsupported",
+        querySemantics: "literal",
+        unsupportedSyntax: "wildcard",
+      });
+    }
+    assert.deepEqual(searched, []);
+    const literal = await client.callTool({ name: "editor.native.media.search", arguments: { query: "Interview" } });
+    assert.equal(literal.isError, undefined);
+    assert.deepEqual(JSON.parse(textFrom(literal)), []);
+    assert.deepEqual(searched, ["Interview"]);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("Final Cut MCP returns structured guidance for directory media import", async () => {
+  const directory = "/tmp/framekit-media-directory-input";
+  const nativeEditor = {
+    capabilities: () => ({
+      selectionEdit: true,
+      undo: true,
+      mediaLibrarySearch: true,
+      mediaImport: true,
+      mediaSelection: true,
+      timelineOccurrenceLocate: true,
+      bladeAtPlayhead: true,
+      deleteRange: true,
+      trimToDuration: true,
+      timelineFocus: true,
+      requiresAccessibility: true as const,
+      requiresFinalCutFrontmost: true as const,
+    }),
+    importMedia: async () => {
+      throw new NativeFinalCutMediaImportDirectoryError(directory);
+    },
+  } as unknown as NativeFinalCutEditor;
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "MCP Directory Input Test",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+    media: [],
+  }));
+  const server = createMcpServer(runtime, { nativeEditor });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "directory-input-mcp-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const response = await client.callTool({
+      name: "editor.native.media.import",
+      arguments: { path: directory },
+    });
+    assert.equal(response.isError, true);
+    assert.deepEqual(JSON.parse(textFrom(response)), {
+      code: "FINAL_CUT_NATIVE_MEDIA_DIRECTORY_INPUT",
+      message: "FINAL_CUT_NATIVE_MEDIA_DIRECTORY_INPUT: /tmp/framekit-media-directory-input is a directory; editor.native.media.import accepts one readable local media file. Use editor.native.media.directory.preview followed by editor.native.media.directory.execute with confirm=true to enumerate and batch import the directory",
+      guidance: {
+        previewTool: "editor.native.media.directory.preview",
+        executeTool: "editor.native.media.directory.execute",
+      },
+    });
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("Final Cut MCP previews and executes a confirmed directory media import", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-finalcut-mcp-directory-import-"));
+  await writeFile(join(directory, "alpha.mov"), "video fixture");
+  await writeFile(join(directory, "beta.mp4"), "video fixture");
+  await writeFile(join(directory, "ignored.wav"), "audio fixture");
+
+  const calls: Array<{ method: string; value: unknown }> = [];
+  const preview = {
+    previewToken: "directory-preview-1",
+    directoryPath: directory,
+    files: [
+      { sourcePath: join(directory, "alpha.mov"), name: "alpha.mov", kind: "video" as const },
+      { sourcePath: join(directory, "beta.mp4"), name: "beta.mp4", kind: "video" as const },
+    ],
+    command: "Import all previewed video files" as const,
+    expiresAt: "9999-12-31T23:59:59.999Z",
+  };
+  const result = {
+    previewToken: preview.previewToken,
+    directoryPath: directory,
+    files: preview.files,
+    results: preview.files.map((file, index) => ({
+      sourcePath: file.sourcePath,
+      name: file.name,
+      status: "imported" as const,
+      media: {
+        mediaHandle: `media-import-${index + 1}`,
+        sourcePath: file.sourcePath,
+        name: file.name,
+        kind: "video" as const,
+      },
+    })),
+    importedCount: 2,
+    failedCount: 0,
+    partial: false,
+    status: "completed" as const,
+  };
+  const nativeEditor = {
+    capabilities: () => ({
+      selectionEdit: true,
+      undo: true,
+      mediaLibrarySearch: true,
+      mediaImport: true,
+      mediaSelection: true,
+      timelineOccurrenceLocate: true,
+      bladeAtPlayhead: true,
+      deleteRange: true,
+      trimToDuration: true,
+      timelineFocus: true,
+      requiresAccessibility: true as const,
+      requiresFinalCutFrontmost: true as const,
+    }),
+    previewImportMediaDirectory: async (directoryPath: string) => {
+      calls.push({ method: "preview", value: directoryPath });
+      return preview;
+    },
+    executeImportMediaDirectory: async (previewToken: string, confirm: boolean) => {
+      calls.push({ method: "execute", value: { previewToken, confirm } });
+      return result;
+    },
+  } as unknown as NativeFinalCutEditor;
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "MCP Directory Import Test",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+    media: [],
+  }));
+  const server = createMcpServer(runtime, { nativeEditor });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "directory-import-mcp-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const tools = await client.listTools();
+    assert.ok(tools.tools.find((tool) => tool.name === "editor.native.media.directory.preview"));
+    assert.ok(tools.tools.find((tool) => tool.name === "editor.native.media.directory.execute"));
+
+    const previewResult = await client.callTool({
+      name: "editor.native.media.directory.preview",
+      arguments: { path: directory },
+    });
+    assert.deepEqual(JSON.parse(textFrom(previewResult)), preview);
+
+    const unconfirmed = await client.callTool({
+      name: "editor.native.media.directory.execute",
+      arguments: { previewToken: preview.previewToken, confirm: false },
+    });
+    assert.equal(unconfirmed.isError, true);
+
+    const executeResult = await client.callTool({
+      name: "editor.native.media.directory.execute",
+      arguments: { previewToken: preview.previewToken, confirm: true },
+    });
+    assert.deepEqual(JSON.parse(textFrom(executeResult)), result);
+    assert.deepEqual(calls, [
+      { method: "preview", value: directory },
+      { method: "execute", value: { previewToken: preview.previewToken, confirm: true } },
+    ]);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("Final Cut MCP exposes the native Undo command and preserves Undo errors", async () => {
+  const nativeContext = {
+    available: true,
+    application: "Final Cut Pro" as const,
+    frontmost: true,
+    frontWindow: "Final Cut Pro",
+    timelineWindowAvailable: true,
+    timelineFocused: true,
+    focusTarget: "timeline" as const,
+    focusedWindowName: "Final Cut Pro",
+    framekitWindowAvailable: true,
+    framekitWindowMinimized: true,
+    overlayBlocked: false,
+    target: { kind: "playhead" as const },
+    bladeAvailable: false,
+    undoAvailable: true,
+    undoCommand: "Undo Delete Range",
+  };
+  const nativeEditor = {
+    capabilities: () => ({
+      selectionEdit: true,
+      undo: true,
+      mediaLibrarySearch: true,
+      mediaSelection: true,
+      timelineOccurrenceLocate: true,
+      bladeAtPlayhead: true,
+      deleteRange: true,
+      trimToDuration: true,
+      timelineFocus: true,
+      requiresAccessibility: true as const,
+      requiresFinalCutFrontmost: true as const,
+    }),
+    inspect: async () => nativeContext,
+    focusTimeline: async () => nativeContext,
+    undo: async () => {
+      throw new Error("FINAL_CUT_NATIVE_UNDO_COMMAND_CHANGED: Final Cut's current Undo command does not match the native edit");
+    },
+  } as unknown as NativeFinalCutEditor;
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({
+    projectId: "project-1",
+    projectName: "MCP Undo Test",
+    timelineId: "timeline-1",
+    timelineName: "Main Edit",
+    clips: [],
+    media: [],
+  }));
+  const server = createMcpServer(runtime, { nativeEditor });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "undo-mcp-test", version: "0.1.0" });
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const inspect = JSON.parse(textFrom(await client.callTool({ name: "editor.native.inspect", arguments: {} })));
+    assert.equal(inspect.undoAvailable, true);
+    assert.equal(inspect.undoCommand, "Undo Delete Range");
+    const response = await client.callTool({ name: "editor.native.undo", arguments: { operationId: "native-range-1" } });
+    assert.equal(response.isError, true);
+    assert.match(textFrom(response), /FINAL_CUT_NATIVE_UNDO_COMMAND_CHANGED/);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+async function makeAnalyzer(directory: string, output: string): Promise<string> {
+  const path = join(directory, `analyzer-${Math.random().toString(16).slice(2)}.sh`);
+  await writeFile(path, `#!/bin/sh\ncat >/dev/null\nprintf '%s' '${output.replaceAll("'", "'\\''")}'\n`);
+  await chmod(path, 0o755);
+  return path;
+}

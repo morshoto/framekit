@@ -11,6 +11,6 @@
 .article { img { display: block; max-width: 100%; height: auto; } blockquote { margin: 24px 0; padding: 4px 16px; border-left: 3px solid var(--accent); background: var(--surface-muted); } :not(pre) > code { overflow-wrap: anywhere; } }
 .landing { display: block; max-width: 1200px; min-height: 0; }
 .landing .sidebar { display: none; }
-.landing .main { padding: 48px 40px 96px; }
+.landing .main { padding: 0 40px 32px; }
 .landing .article { max-width: none; }
-@media (max-width: 767px) { .landing .main { padding: 24px 20px 64px; } }
+@media (max-width: 767px) { .landing .main { padding: 0 20px 32px; } }

@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import {
   renderV0112AcceptanceReport,
   runV0112Acceptance,
-} from "../tests/release-gate/v0112-acceptance.js";
+} from "./release/acceptance/v0112-acceptance.js";
 
 const args = process.argv.slice(2);
 const outputDirectory = resolve(readOption("--output-dir"));
