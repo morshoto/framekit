@@ -1,9 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-
-
 import { createReadStream } from "node:fs";
-import { access } from "node:fs/promises";
 import { bindSpeechAnalysis, sameMediaSourceIdentity, validateAudioAnalysisPayload } from "@framekit/runtime";
 import type {
   AnalysisInput,
@@ -77,7 +74,7 @@ export class CommandSpeechAnalyzer implements SpeechAnalyzer {
   }
 
   public async validateSource(input: AnalysisInput): Promise<void> {
-    await verifyAnalyzerSource(input.media, "speech");
+    await verifyAnalyzerSource(input.media, "speech", this.options.timeoutMs ?? 120_000);
   }
 
   public async analyze(input: AnalysisInput, range?: TimeRange): Promise<SpeechAnalysis> {
@@ -106,7 +103,7 @@ export class CommandAudioAnalyzer implements AudioAnalyzer {
   }
 
   public async validateSource(input: AnalysisInput): Promise<void> {
-    await verifyAnalyzerSource(input.media, "audio");
+    await verifyAnalyzerSource(input.media, "audio", this.options.timeoutMs ?? 120_000);
   }
 
   public async analyze(input: AnalysisInput, range?: TimeRange): Promise<AudioAnalysis> {
@@ -164,9 +161,9 @@ function withCommandProvenance<T>(value: T, descriptor: AnalyzerDescriptor): T {
 
 async function runCommand<T>(options: CommandAnalyzerOptions, request: AnalyzerRequest, kind: string): Promise<T> {
   const source = request.media.source;
-  const initialDigest = await verifyAnalyzerSource(request.media, kind);
-
   const timeoutMs = options.timeoutMs ?? 120_000;
+  const initialDigest = await verifyAnalyzerSource(request.media, kind, timeoutMs);
+
   const child = spawn(options.command, [], { stdio: ["pipe", "pipe", "pipe"], env: options.environment });
   const stdout: Buffer[] = [];
   const stderr: Buffer[] = [];
@@ -208,19 +205,14 @@ async function runCommand<T>(options: CommandAnalyzerOptions, request: AnalyzerR
 
     child.stdin.end(JSON.stringify(commandRequest(request, kind)));
   });
-  if (await digestAnalyzerSource(source, kind) !== initialDigest) {
+  if (await digestAnalyzerSource(source, kind, timeoutMs) !== initialDigest) {
     throw new Error(`ANALYZER_SOURCE_CHANGED: ${kind} source bytes changed while analysis was running`);
   }
   return result;
 }
 
-async function verifyAnalyzerSource(media: AnalysisInput["media"], kind: string): Promise<string> {
-  try {
-    await access(media.source);
-  } catch {
-    throw new Error(`ANALYZER_MEDIA_UNAVAILABLE: ${kind} source is not readable: ${media.source}`);
-  }
-  const digest = await digestAnalyzerSource(media.source, kind);
+async function verifyAnalyzerSource(media: AnalysisInput["media"], kind: string, timeoutMs: number): Promise<string> {
+  const digest = await digestAnalyzerSource(media.source, kind, timeoutMs);
   const expectedDigest = media.sourceDigest?.replace(/^sha256:/, "");
   if (expectedDigest !== undefined && expectedDigest !== digest) {
     throw new Error(`ANALYZER_SOURCE_CHANGED: ${kind} source bytes do not match the requested source digest`);
@@ -228,13 +220,31 @@ async function verifyAnalyzerSource(media: AnalysisInput["media"], kind: string)
   return digest;
 }
 
-async function digestAnalyzerSource(source: string, kind: string): Promise<string> {
+async function digestAnalyzerSource(source: string, kind: string, timeoutMs: number): Promise<string> {
+  const stream = createReadStream(source);
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const digest = createHash("sha256");
-    for await (const chunk of createReadStream(source)) digest.update(chunk);
-    return digest.digest("hex");
+    return await Promise.race([
+      (async () => {
+        const digest = createHash("sha256");
+        for await (const chunk of stream) digest.update(chunk);
+        return digest.digest("hex");
+      })(),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          timedOut = true;
+          stream.destroy();
+          reject(new Error(`ANALYZER_TIMEOUT: ${kind} source verification exceeded ${timeoutMs}ms`));
+        }, timeoutMs);
+      }),
+    ]);
   } catch {
+    if (timedOut) throw new Error(`ANALYZER_TIMEOUT: ${kind} source verification exceeded ${timeoutMs}ms`);
     throw new Error(`ANALYZER_MEDIA_UNAVAILABLE: ${kind} source cannot be read for content verification: ${source}`);
+  } finally {
+    if (timer) clearTimeout(timer);
+    stream.destroy();
   }
 }
 

@@ -2802,7 +2802,14 @@
       "platforms": [
         "any"
       ],
-      "network": "none"
+      "network": "none",
+      "expectedSkips": [
+        {
+          "name": "command audio bounds source verification before and after the provider",
+          "reason": "requires the POSIX /dev/zero device",
+          "platforms": ["win32"]
+        }
+      ]
     },
     {
       "path": "tests/speech/conformance.test.ts",

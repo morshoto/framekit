@@ -3152,7 +3152,8 @@
       "\"command audio identity distinguishes executable and provider version\"",
       "\"command provider executes the environment bound to its analysis identity\"",
       "`persisted ${kind} cache rechecks source bytes after restart`",
-      "\"command audio rejects invalid or mismatched occurrence signal provenance\""
+      "\"command audio rejects invalid or mismatched occurrence signal provenance\"",
+      "\"command audio bounds source verification before and after the provider\""
     ],
     "tests/speech/revision-bound-analysis.test.ts": [
       "\"speech binding preserves configured model and configuration provenance\"",
@@ -3675,6 +3676,17 @@
       "addedTestNames": {
         "tests/speech/command-analyzer.test.ts": [
           "\"command audio rejects invalid or mismatched occurrence signal provenance\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        738
+      ],
+      "reason": "Bound source verification before and after command analysis.",
+      "addedTestNames": {
+        "tests/speech/command-analyzer.test.ts": [
+          "\"command audio bounds source verification before and after the provider\""
         ]
       }
     }
