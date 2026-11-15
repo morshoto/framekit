@@ -1370,7 +1370,7 @@
       "\"installed Codex plugin does not inherit a source commit when bytes or cleanliness differ\"",
       "\"clean MCP evidence preserves installed Codex plugin content provenance\"",
       "\"clean MCP evidence reports package fingerprints and release artifact GO or NO_GO states\"",
-      "\"clean MCP evidence omits private paths, transaction IDs, and raw diagnostics\"",
+      "\"clean MCP evidence omits private paths, transaction IDs, and raw\u0020diagnostics\"",
       "\"clean MCP evidence rejects prohibited free-text fields\"",
       "\"clean MCP evidence permits ordinary prose mentioning 'key' without actual credentials\"",
       "\"clean MCP evidence still rejects actual whitespace-delimited credentials\"",
@@ -3121,6 +3121,19 @@
     "tests/integration/boundary-policy.test.ts": [
       "\"document entrypoint preserves existing compiler and parser exports without native controls\"",
       "`document import restrictions reject transitive native reachability: ${statement}`"
+    ],
+    "tests/integration/canonical-native-provider.test.ts": [
+      "\"canonical resolver rejects nonpositive target duration before discovery\"",
+      "\"canonical resolver rejects overlapping same-source occurrences before discovery\"",
+      "\"canonical resolver permits adjacent repeated source occurrences\"",
+      "\"canonical ripple delete requires source observation of the affected occurrence\"",
+      "\"ripple source observation preserves checkpoint when discovery may dispatch\"",
+      "\"canonical resolver rejects unrecorded overlapping native occurrences before selection\"",
+      "\"canonical resolver rejects a partial scan of repeated source occurrences\"",
+      "\"canonical resolver rejects unexpected or displaced repeated native occurrences\""
+    ],
+    "tests/integration/final-cut-publish-readback.test.ts": [
+      "\"FCPXML comparison requires explicit exports and fails on changed source content\""
     ]
   },
   "identityDiscoveryCorrections": {
@@ -3211,6 +3224,29 @@
         ],
         "tests/integration/release-workflow.test.ts": [
           "'release publication requires the headless artifact workflow suite'"
+        ]
+      }
+    }
+  ],
+  "featureIntegrations": [
+    {
+      "pullRequests": [
+        718
+      ],
+      "reason": "Preserve both feature behavior and all added tests across current main test relocations; no reviewed identities removed.",
+      "addedTestNames": {
+        "tests/integration/canonical-native-provider.test.ts": [
+          "\"canonical resolver rejects nonpositive target duration before discovery\"",
+          "\"canonical resolver rejects overlapping same-source occurrences before discovery\"",
+          "\"canonical resolver permits adjacent repeated source occurrences\"",
+          "\"canonical ripple delete requires source observation of the affected occurrence\"",
+          "\"ripple source observation preserves checkpoint when discovery may dispatch\"",
+          "\"canonical resolver rejects unrecorded overlapping native occurrences before selection\"",
+          "\"canonical resolver rejects a partial scan of repeated source occurrences\"",
+          "\"canonical resolver rejects unexpected or displaced repeated native occurrences\""
+        ],
+        "tests/integration/final-cut-publish-readback.test.ts": [
+          "\"FCPXML comparison requires explicit exports and fails on changed source content\""
         ]
       }
     }

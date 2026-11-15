@@ -709,6 +709,9 @@ export function createFinalCutNativeTargetResolver(
     }
     try { rationalParts(clip.startTime); rationalParts(clip.durationTime); }
     catch { throw new Error(`TARGET_MISMATCH: invalid timeline coordinates for ${clip.id}`); }
+    if (compareRational(clip.durationTime, zeroRational()) <= 0) {
+      throw new Error(`TARGET_MISMATCH: nonpositive timeline duration for ${clip.id}`);
+    }
     if (!clip.mediaId) throw new Error(`TARGET_MISMATCH: occurrence ${clip.id} has no media binding`);
     const media = snapshot.media.find(({ mediaId }) => mediaId === clip.mediaId);
     if (!media?.source) throw new Error(`TARGET_MISMATCH: media ${clip.mediaId} has no source binding`);
@@ -719,6 +722,7 @@ export function createFinalCutNativeTargetResolver(
       throw new Error(`TARGET_MISMATCH: independently observed Browser source does not match the canonical source for ${clip.id}`);
     }
 
+    const relatedClips = [clip];
     for (const other of snapshot.timeline.clips) {
       if (other.id === clip.id) continue;
       const otherMedia = snapshot.media.find(({ mediaId }) => mediaId === other.mediaId);
@@ -726,6 +730,8 @@ export function createFinalCutNativeTargetResolver(
       // Discovery is source-scoped. Different resources can still alias one source.
       // Unknown source identity cannot prove that another occurrence is unrelated.
       if (other.mediaId !== clip.mediaId && otherSource && otherSource !== expectedSource) continue;
+      if (!otherSource) throw new Error("AMBIGUOUS_PROJECT_TARGET: timeline occurrence source is incomplete");
+      relatedClips.push(other);
       if (!other.startTime || !other.durationTime) {
         throw new Error("AMBIGUOUS_PROJECT_TARGET: timeline occurrence coordinates are incomplete");
       }
@@ -733,6 +739,13 @@ export function createFinalCutNativeTargetResolver(
       catch { throw new Error("AMBIGUOUS_PROJECT_TARGET: timeline occurrence coordinates are invalid"); }
       if (sameRational(other.startTime, clip.startTime) && sameRational(other.durationTime, clip.durationTime)) {
         throw new Error(`AMBIGUOUS_PROJECT_TARGET: timeline occurrence coordinates are not unique for ${clip.id}`);
+      }
+      if (compareRational(other.durationTime, zeroRational()) <= 0) {
+        throw new Error("AMBIGUOUS_PROJECT_TARGET: timeline occurrence coordinates have nonpositive duration");
+      }
+      if (compareRational(clip.startTime, addRational(other.startTime, other.durationTime)) < 0
+        && compareRational(other.startTime, addRational(clip.startTime, clip.durationTime)) < 0) {
+        throw new Error(`AMBIGUOUS_PROJECT_TARGET: same-source timeline occurrences overlap for ${clip.id}`);
       }
     }
 
@@ -769,6 +782,25 @@ export function createFinalCutNativeTargetResolver(
       throw new Error(`AMBIGUOUS_PROJECT_TARGET: Final Cut timeline occurrence coordinates are not unique for ${clip.id}`);
     }
     const occurrence = matchingOccurrences[0]!;
+    for (const candidate of located.occurrences) {
+      if (candidate === occurrence) continue;
+      const [startValue, startScale] = candidate.start!.trim().split("/");
+      const [durationValue, durationScale] = candidate.duration!.trim().split("/");
+      const start = { value: startValue!, timescale: startScale! };
+      const duration = { value: durationValue!, timescale: durationScale! };
+      if (compareRational(duration, zeroRational()) <= 0) {
+        throw new Error("AMBIGUOUS_PROJECT_TARGET: discovered occurrence duration is invalid");
+      }
+      if (compareRational(clip.startTime, addRational(start, duration)) < 0
+        && compareRational(start, addRational(clip.startTime, clip.durationTime)) < 0) {
+        throw new Error(`AMBIGUOUS_PROJECT_TARGET: discovered timeline occurrences overlap for ${clip.id}`);
+      }
+    }
+    if (located.occurrences.length !== relatedClips.length || relatedClips.some((related) =>
+      located.occurrences.filter((candidate) =>
+        sameRationalText(candidate.start!, related.startTime!) && sameRationalText(candidate.duration!, related.durationTime!)).length !== 1)) {
+      throw new Error("AMBIGUOUS_PROJECT_TARGET: native occurrence discovery is incomplete or inconsistent with the snapshot");
+    }
     const occurrenceIdentity = occurrence.identity ?? occurrence.nativeIdentity;
     if (!occurrenceIdentity) {
       throw new Error(`TARGET_MISMATCH: native occurrence has no stable identity for ${clip.id}`);
@@ -1112,7 +1144,7 @@ export class FinalCutCanonicalNativeProvider implements EditorPort, LiveEditorSt
       : undefined;
     const clip = clipTarget?.clip;
     const rippleTarget = supported.type === "ripple-delete" ? canonicalTargetForOperation(before, supported) : undefined;
-    const targetClip = clip;
+    const targetClip = clip ?? rippleTarget?.clip;
     const trimDuration = supported.type === "trim-clip"
       ? validateCanonicalTrim(supported, clip!, before)
       : undefined;
