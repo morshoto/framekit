@@ -723,7 +723,9 @@ class MutableCanonicalLiveTransport {
           error: { code: "ROLLBACK_FAILED", message: "snapshot history is unavailable" },
         };
       }
+      const currentRevision = this.snapshot.revision;
       this.snapshot = structuredClone(previous);
+      this.snapshot.revision = currentRevision;
       this.advanceRevision();
     }
     return { version: 1, id: request.id, ok: true, result };

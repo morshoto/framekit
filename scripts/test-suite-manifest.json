@@ -1816,6 +1816,23 @@
       "network": "none"
     },
     {
+      "path": "tests/release/gate/speech-cleanup.test.ts",
+      "owner": "scripts/release",
+      "reviewed": true,
+      "tags": [
+        "release-gate"
+      ],
+      "evidence": "process",
+      "dependsOn": [
+        "scripts/release"
+      ],
+      "requires": [],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
       "path": "tests/release/report/artifacts.test.ts",
       "owner": "scripts/release",
       "tags": [
@@ -2431,6 +2448,24 @@
         "packages/runtime",
         "packages/testkit"
       ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/runtime/editing/transaction-undo-lineage.test.ts",
+      "owner": "packages/runtime",
+      "reviewed": true,
+      "tags": [
+        "integration"
+      ],
+      "evidence": "fixture",
+      "dependsOn": [
+        "packages/runtime",
+        "packages/testkit"
+      ],
+      "requires": [],
       "platforms": [
         "any"
       ],
@@ -3954,6 +3989,30 @@
         "apps/mcp-server",
         "packages/runtime",
         "packages/testkit"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/workflows/speech-cleanup/workflow.test.ts",
+      "owner": "packages/runtime",
+      "reviewed": true,
+      "tags": [
+        "integration",
+        "fixture-e2e"
+      ],
+      "evidence": "process",
+      "dependsOn": [
+        "apps/mcp-server",
+        "adapters/final-cut/typescript",
+        "packages/runtime",
+        "packages/testkit"
+      ],
+      "requires": [
+        "ffmpeg",
+        "ffprobe"
       ],
       "platforms": [
         "any"
