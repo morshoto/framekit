@@ -2891,7 +2891,9 @@
         "packages/testkit",
         "scripts"
       ],
-      "requires": [],
+      "requires": [
+        "git"
+      ],
       "platforms": [
         "any"
       ],

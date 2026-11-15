@@ -167,7 +167,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       timeoutMs: Number(process.env.FRAMEKIT_ANALYZER_TIMEOUT_MS ?? 120000),
     });
     const report = await runAnalysisProviderPreflight({ fixtures: args[1]!, ...providers });
-    await writeFile(args[3]!, JSON.stringify({ ...report, executedHead: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim() }, null, 2) + "\n");
+    const gitEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
+    await writeFile(args[3]!, JSON.stringify({ ...report, executedHead: execFileSync("git", ["rev-parse", "HEAD"], { cwd: new URL("../", import.meta.url), env: gitEnv, encoding: "utf8" }).trim() }, null, 2) + "\n");
     process.stdout.write(JSON.stringify({ status: report.status, nativeAcceptance: report.nativeAcceptance }) + "\n");
     process.exitCode = report.status === "ready" ? 0 : 2;
   } catch (error) {
