@@ -1967,9 +1967,10 @@
       "dependsOn": [
         "apps/mcp-server"
       ],
-      "requires": [],
+      "requires": ["python3"],
       "platforms": [
-        "any"
+        "darwin",
+        "linux"
       ],
       "network": "none"
     },
@@ -2905,9 +2906,10 @@
       "dependsOn": [
         "apps/mcp-server"
       ],
-      "requires": [],
+      "requires": ["python3"],
       "platforms": [
-        "any"
+        "darwin",
+        "linux"
       ],
       "network": "none"
     },
