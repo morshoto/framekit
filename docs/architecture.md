@@ -112,6 +112,8 @@ The current source-binding decision is **NO-GO** for the bundled adapter:
 | --- | --- | --- |
 | [Workflow Extension timeline API](https://developer.apple.com/documentation/professional-video-applications/interacting-with-the-final-cut-pro-timeline) | Active sequence, selected time range, and playhead; [sequence details](https://developer.apple.com/documentation/professional-video-applications/fcpxsequence) include timing and container information. | The documented timeline interface does not expose an occurrence-to-original-media mapping. Timeline notifications do not establish a complete revision for exported content. |
 | Separately authorized [Final Cut FCPXML export](https://support.apple.com/guide/final-cut-pro/use-xml-to-transfer-projects-verdbd66ae/mac) | The exported document can describe project editing decisions and references to resources; an [original media representation](https://developer.apple.com/documentation/professional-video-applications/media-rep) can contain a source URL. | This is an export snapshot, not an identity for an Accessibility element. A target-bound, fresh export and an independently proven mapping would still be required; missing, remote, or proxy-only sources do not establish a local original. |
+| Read-only Accessibility scan | The adapter observes accessible timeline elements and their exposed attributes without selecting them. | The current scan does not independently expose their original source. Names, timing, ordering, and a requested Browser item are not proof of the mapping, including when occurrences repeat or names collide. |
+| Generated or imported FCPXML | A proposal or import describes intended content. | It is not native readback and cannot prove what the active timeline contains. |
 
 When an FCPXML resource explicitly supplies both source start and duration,
 snapshots retain that exact `sourceRange`; a missing start remains unknown.
@@ -125,8 +127,6 @@ established.
 Publish readback compares supplied source bounds by exact rational value and
 rejects missing, changed or malformed bounds; that comparison does not prove
 receiver quiescence.
-| Read-only Accessibility scan | The adapter observes accessible timeline elements and their exposed attributes without selecting them. | The current scan does not independently expose their original source. Names, timing, ordering, and a requested Browser item are not proof of the mapping, including when occurrences repeat or names collide. |
-| Generated or imported FCPXML | A proposal or import describes intended content. | It is not native readback and cannot prove what the active timeline contains. |
 
 This decision concerns the supported observations assessed here, not a claim
 that no future public API can provide the missing evidence. Until a supported,
