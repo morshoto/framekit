@@ -244,7 +244,7 @@ export function canonicalEvidenceDigest(snapshot) {
     projectId: snapshot.projectId,
     projectName: snapshot.projectName,
     timeline: snapshot.timeline,
-    media: snapshot.media.map(({ mediaId, source }) => ({ mediaId, source })),
+    media: snapshot.media.map(({ mediaId, source, sourceRange }) => ({ mediaId, source, ...(sourceRange ? { sourceRange } : {}) })),
   };
   return createHash("sha256").update(stableCanonicalJson(canonical)).digest("hex");
 }

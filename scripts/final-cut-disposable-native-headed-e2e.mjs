@@ -154,7 +154,7 @@ function canonicalDigest(snapshot) {
     projectId: snapshot.projectId,
     projectName: snapshot.projectName,
     timeline: snapshot.timeline,
-    media: snapshot.media.map(({ mediaId, source }) => ({ mediaId, source })),
+    media: snapshot.media.map(({ mediaId, source, sourceRange }) => ({ mediaId, source, ...(sourceRange ? { sourceRange } : {}) })),
   })).digest("hex");
 }
 

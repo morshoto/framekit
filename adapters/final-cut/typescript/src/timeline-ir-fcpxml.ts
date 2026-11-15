@@ -120,6 +120,17 @@ export function compileTimelineIrToFcpxml(
     timeline.sequence.frameDuration,
     new Set(resources.filter(({ mediaKind }) => mediaKind === "audio").map(({ id }) => resourceIds.get(id)!)),
   );
+  const sourceBounds = new Map(resources.filter((resource) => resource.sourceRange).map((resource) => [resourceIds.get(resource.id)!, resource.sourceRange!]));
+  for (const element of elements) {
+    if (element.kind !== "asset-clip" || !element.resourceId) continue;
+    const range = sourceBounds.get(element.resourceId);
+    if (!range) continue;
+    const start = element.sourceStartTime ?? { value: "0", timescale: "1" };
+    const end = addExactTimes(start, element.durationTime);
+    if (compareExactTimes(start, range.start) < 0 || compareExactTimes(end, addExactTimes(range.start, range.duration)) > 0) {
+      throw new Error(`FCPXML_SOURCE_RANGE_OUT_OF_BOUNDS: frame rounding moved ${element.id} outside its source range`);
+    }
+  }
   const elementIds = new Set<string>();
   for (const element of elements) {
     if (elementIds.has(element.id)) throw new Error(`FCPXML_DUPLICATE_ELEMENT_ID: ${element.id}`);
@@ -416,9 +427,11 @@ function renderResource(
   const metadata = resource.metadata;
   const video = metadata?.streams.find((stream) => stream.kind === "video");
   const audio = metadata?.streams.find((stream) => stream.kind === "audio");
-  const timingAttributes = metadata
-    ? ` start="0s" duration="${formatRational(metadata.durationTime, `resource ${resource.id}.durationTime`)}"`
-    : "";
+  const timingAttributes = resource.sourceRange
+    ? ` start="${formatRational(resource.sourceRange.start, `resource ${resource.id}.sourceRange.start`)}" duration="${formatRational(resource.sourceRange.duration, `resource ${resource.id}.sourceRange.duration`)}"`
+    : metadata
+      ? ` start="0s" duration="${formatRational(metadata.durationTime, `resource ${resource.id}.durationTime`)}"`
+      : "";
   const formatAttribute = video?.width && video.height && video.frameRate
     ? ` format="format-${id}"`
     : resource.mediaKind === "audio"

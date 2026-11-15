@@ -115,6 +115,19 @@ The current source-binding decision is **NO-GO** for the bundled adapter:
 | Read-only Accessibility scan | The adapter observes accessible timeline elements and their exposed attributes without selecting them. | The current scan does not independently expose their original source. Names, timing, ordering, and a requested Browser item are not proof of the mapping, including when occurrences repeat or names collide. |
 | Generated or imported FCPXML | A proposal or import describes intended content. | It is not native readback and cannot prove what the active timeline contains. |
 
+When an FCPXML resource explicitly supplies both source start and duration,
+snapshots retain that exact `sourceRange`; a missing start remains unknown.
+Canonical snapshot digests and media diffs include supplied source bounds, so
+adding or changing those bounds changes the digest. This is artifact evidence,
+not proof of a live native occurrence or current source media.
+Timeline IR preserves supplied bounds and FCPXML compilation preserves them,
+rejecting a clip if frame rounding would move it outside those bounds. The
+FFmpeg renderer rejects nonzero source origins until their seek semantics are
+established.
+Publish readback compares supplied source bounds by exact rational value and
+rejects missing, changed or malformed bounds; that comparison does not prove
+receiver quiescence.
+
 This decision concerns the supported observations assessed here, not a claim
 that no future public API can provide the missing evidence. Until a supported,
 fresh, target-bound observation establishes the mapping, source-bound native
@@ -136,6 +149,17 @@ dispatch retains the reservation. A failure before dispatch releases it. Direct
 disposable execute and Undo and disposable native session jobs also reserve the
 same path through canonical verification or verified rollback. Native timeline
 command executions use the reservation through their native verification. Native
+media append and insert require project and sequence identities in the preview,
+recheck the approved insertion position before dispatch, and do not automatically
+retry the insertion command after an error because dispatch may have occurred.
+An error after dispatch begins reports an uncertain outcome and requires recovery.
+A placement Undo is also attempted at most once per in-process operation handle;
+after invocation, an error or inconclusive readback does not permit replay.
+A duration and revision change alone does not verify the inserted source or its
+canonical placement, so direct insertion results remain unverified and require
+recovery. Inconclusive post-dispatch readback does not trigger automatic Undo.
+Placement Undo also remains unverified without canonical restoration and source
+integrity evidence. Native
 focus, search, selection, and preview calls also reserve it while they can change
 UI state; their previews do not write the timeline. Native
 media imports also reserve it; an incomplete or partial import keeps the
@@ -237,6 +261,11 @@ evidence.
 `*` or `?` return a structured unsupported error before Browser UI access.
 If standalone Browser search automation exceeds its deadline, it reports
 `FINAL_CUT_NATIVE_SEARCH_TIMEOUT`; import discovery retains its separate timeout.
+If Browser traversal reports an inaccessible descendant or unscanned children
+at its depth limit, search returns `FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE` rather
+than an empty or partial result. Empty results require an explicit completed-scan
+response; missing or malformed responses are unavailable. These checks do not
+prove that every native Browser layout is fully observable.
 
 MCP Skills use the generic `skill.list`, `skill.inspect`, `skill.preview`, and
 `skill.execute` lifecycle. An execution must use the selected candidate and
