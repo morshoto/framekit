@@ -28,6 +28,8 @@ export interface TimelineTarget {
   sequenceId: string;
   revision: ContextRevision;
   timelineStartTime: RationalTime;
+  /** Present only when the captured snapshot explicitly supplied its frame-grid origin. */
+  frameGridOriginObserved?: true;
   frameDuration: RationalTime;
   mediaId?: string;
   occurrence?: TimelineOccurrenceTarget;
@@ -59,7 +61,8 @@ export function createTimelineTarget(
     projectId: snapshot.projectId,
     sequenceId: snapshot.timeline.id,
     revision: structuredClone(snapshot.revision),
-    timelineStartTime: { value: "0", timescale: "1" },
+    timelineStartTime: structuredClone(snapshot.timeline.frameGridOrigin ?? { value: "0", timescale: "1" }),
+    ...(snapshot.timeline.frameGridOrigin !== undefined ? { frameGridOriginObserved: true as const } : {}),
     frameDuration: structuredClone(frameDuration),
     ...(selection.mediaId !== undefined ? { mediaId: selection.mediaId } : {}),
     ...(selection.range ? { range: structuredClone(selection.range) } : {}),
@@ -101,6 +104,7 @@ export function resolveTimelineTarget(
   if (!sameRational(target.frameDuration, snapshot.timeline.frameDuration)) {
     throw new Error("FRAME_ALIGNMENT_REQUIRED: target frame duration does not match current timeline");
   }
+  assertMatchingFrameGridOrigin(snapshot, target);
 
   validateTargetCoordinates(snapshot, target);
   const occurrence = target.occurrence
@@ -130,6 +134,10 @@ export function assertTimelineTargetReadAfterWrite(
   if (after.projectId !== target.projectId || after.timeline.id !== target.sequenceId) {
     throw new Error("TARGET_MISMATCH: read-after-write snapshot changed the addressed timeline");
   }
+  if (!after.timeline.frameDuration || !sameRational(target.frameDuration, after.timeline.frameDuration)) {
+    throw new Error("FRAME_ALIGNMENT_REQUIRED: read-after-write frame duration changed or is unavailable");
+  }
+  assertMatchingFrameGridOrigin(after, target);
 
   if (!target.occurrence) return;
   const matches = findOccurrences(after, target.occurrence.id);
@@ -145,6 +153,16 @@ export function assertTimelineTargetReadAfterWrite(
   }
 }
 
+function assertMatchingFrameGridOrigin(snapshot: ProjectSnapshot, target: TimelineTarget): void {
+  if ((target.frameGridOriginObserved === true) !== (snapshot.timeline.frameGridOrigin !== undefined)) {
+    throw new Error("FRAME_ALIGNMENT_REQUIRED: target frame-grid origin evidence changed or is unavailable");
+  }
+  const origin = snapshot.timeline.frameGridOrigin ?? { value: "0", timescale: "1" };
+  if (!sameRational(target.timelineStartTime, origin)) {
+    throw new Error("FRAME_ALIGNMENT_REQUIRED: target frame-grid origin does not match current timeline");
+  }
+}
+
 /** Validate the shape of a target before any provider-specific resolution. */
 export function assertValidTimelineTarget(target: TimelineTarget): void {
   requireNonEmpty(target.projectId, "projectId");
@@ -155,6 +173,9 @@ export function assertValidTimelineTarget(target: TimelineTarget): void {
   }
   requireNonEmpty(target.revision.timestamp, "revision.timestamp");
   parseRational(target.timelineStartTime, "INVALID_TIMELINE_TARGET: timelineStartTime");
+  if (target.frameGridOriginObserved !== undefined && target.frameGridOriginObserved !== true) {
+    throw new Error("INVALID_TIMELINE_TARGET: frameGridOriginObserved must be true when present");
+  }
   const frame = parseRational(target.frameDuration, "INVALID_TIMELINE_TARGET: frameDuration");
   if (frame.value <= 0n) throw new Error("INVALID_TIMELINE_TARGET: frameDuration must be positive");
   if (target.mediaId !== undefined) requireNonEmpty(target.mediaId, "mediaId");

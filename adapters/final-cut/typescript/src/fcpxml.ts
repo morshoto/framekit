@@ -216,6 +216,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
         name: sequenceName,
         duration: rationalSeconds(durationTime),
         durationTime,
+        ...(attribute(sequence, "tcStart") !== undefined ? { timecodeStart: parseRational(attribute(sequence, "tcStart")) } : {}),
         ...(frameDuration ? { frameDuration } : {}),
         clips,
         storyElements,
