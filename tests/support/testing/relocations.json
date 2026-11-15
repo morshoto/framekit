@@ -3055,6 +3055,11 @@
   },
   "recordedAtCommit": "37a92fa1",
   "addedTestNames": {
+    "tests/integration/filler-removal.test.ts": [
+      "\"filler preview requires declared batch support and both transaction methods before analysis\"",
+      "\"filler execute rechecks batch support and consumes the rejected approval\"",
+      "\"filler removal restores a revision advanced by a failing transaction\""
+    ],
     "tests/integration/canonical-native-provider.test.ts": [
       "\"canonical single-edit readiness never advertises recoverable batches through MCP\""
     ],
@@ -3134,6 +3139,9 @@
   },
   "baselineNotes": "The pre-migration snapshot records the existing 184 TypeScript files and seven aggregate documentation files, plus the new focused-runner contract file introduced before relocation. Suite tags are preserved; golden/filler aliases add reviewed tags. Recorded at 37a92fa1 before the migration.",
   "removedTestNames": {
+    "tests/integration/filler-removal.test.ts": [
+      "\"filler removal restores a revision advanced by a failing apply\""
+    ],
     "packages/runtime/test/project-store.test.ts": [
       "\"a stale lock left by a dead process is recovered after restart\""
     ]
@@ -3188,6 +3196,11 @@
     }
   },
   "featureIntegrations": [
+    {
+      "pullRequest": 744,
+      "commit": "9210d51295782d5344118c88fa5a540b62636058",
+      "reason": "Retain the filler transaction capability regressions and the approved-batch assertion after test relocation. The single-apply failure regression is replaced by failure after the transaction mutates, preserving canonical restoration verification."
+    },
     {
       "pullRequest": 743,
       "commit": "6cbe62525247336c6d7cca9f51c571e4c91a8d25",
