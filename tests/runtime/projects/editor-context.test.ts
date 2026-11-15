@@ -629,7 +629,10 @@ test("post-write speech reanalysis rejects inconsistent provenance across disjoi
     const editor = new InMemoryEditorAdapter({
       projectId: "project-ranges", projectName: "Ranges", timelineId: "timeline-ranges", timelineName: "Main",
       clips: [{ id: "clip-ranges", mediaId: "media-ranges", name: "Interview", start: 0, duration: 10, track: 1 }],
-      media: [{ mediaId: "media-ranges", source: "interview.wav", duration: 10 }],
+      media: [{ mediaId: "media-ranges", source: "interview.wav", duration: 10, speech: {
+        words: [], requestedRange: { start: 0, end: 10 }, observedRange: { start: 0, end: 10 },
+        sourceTimebase: { value: "1", timescale: "1000" }, provider: { id: "second", provider: "fixture" },
+      } }],
     });
     const runtime = new AgentVideoRuntime(editor, { speechAnalyzer: { analyze: async (_input, range) => ({
       words: [],
@@ -642,6 +645,25 @@ test("post-write speech reanalysis rejects inconsistent provenance across disjoi
     const reanalyze = () => media.reanalyzeAffectedRanges({ ...transaction, diff: { ...transaction.diff, affectedRanges: [{ start: 1, end: 2 }, { start: 5, end: 6 }] } }, { speech: true });
     if (mismatch === "none" || mismatch === "equivalent") assert.equal((await reanalyze()).media[0]?.speech?.provider?.id, "second");
     else await assert.rejects(reanalyze(), /ANALYSIS_INVALID: speech evidence (timebases|providers) cannot be combined/);
+  }
+});
+
+test("post-write speech reanalysis refuses gaps in observed source coverage", async () => {
+  for (const prior of [false, true]) {
+    const editor = new InMemoryEditorAdapter({
+      projectId: "project-gap", projectName: "Gap", timelineId: "timeline-gap", timelineName: "Main",
+      clips: [{ id: "clip-gap", mediaId: "media-gap", name: "Interview", start: 0, duration: 10, track: 1 }],
+      media: [{ mediaId: "media-gap", source: "interview.wav", duration: 10, ...(prior ? { speech: {
+        words: [], requestedRange: { start: 0, end: 10 }, observedRange: { start: 0, end: 10 },
+      } } : {}) }],
+    });
+    const runtime = new AgentVideoRuntime(editor, { speechAnalyzer: { analyze: async (_input, range) => ({
+      words: [], observedRange: prior && range!.start === 1 ? { start: 1, end: 1.5 } : range,
+    }) } });
+    const transaction = await runtime.edit({ type: "add-marker", timelineId: "timeline-gap", marker: { id: "gap-marker", start: 1, duration: 1, name: "Review" } });
+    const media = (runtime as unknown as { media: { reanalyzeAffectedRanges: (tx: typeof transaction, requirements: { speech: boolean }) => Promise<typeof transaction.after> } }).media;
+    await assert.rejects(media.reanalyzeAffectedRanges({ ...transaction, diff: { ...transaction.diff, affectedRanges: [{ start: 1, end: 2 }, { start: 5, end: 6 }] } }, { speech: true }),
+      /ANALYSIS_INVALID: speech observation coverage has gaps/);
   }
 });
 

@@ -3057,7 +3057,8 @@
   "addedTestNames": {
     "tests/integration/phase1.test.ts": [
       "\"post-write speech reanalysis preserves mixed VAD coverage without advertising complete VAD\"",
-      "\"post-write speech reanalysis rejects inconsistent provenance across disjoint ranges\""
+      "\"post-write speech reanalysis rejects inconsistent provenance across disjoint ranges\"",
+      "\"post-write speech reanalysis refuses gaps in observed source coverage\""
     ],
     "tests/speech/filler-components.test.ts": [
       "\"resolver does not authorize a cut from partial VAD coverage\""
@@ -3393,6 +3394,15 @@
       "addedTestNames": {
         "tests/integration/timeline-semantic-context.test.ts": [
           "\"timeline inspection compares attached audio revision by ID and persisted audio by full revision\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [738],
+      "reason": "Do not represent unobserved gaps as continuous post-write speech coverage.",
+      "addedTestNames": {
+        "tests/integration/phase1.test.ts": [
+          "\"post-write speech reanalysis refuses gaps in observed source coverage\""
         ]
       }
     },
