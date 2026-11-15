@@ -3055,6 +3055,15 @@
   },
   "recordedAtCommit": "37a92fa1",
   "addedTestNames": {
+    "tests/integration/phase1.test.ts": [
+      "\"post-write speech reanalysis preserves mixed VAD coverage without advertising complete VAD\""
+    ],
+    "tests/speech/filler-components.test.ts": [
+      "\"resolver does not authorize a cut from partial VAD coverage\""
+    ],
+    "tests/speech/mapping.test.ts": [
+      "\"speech mapping retains partial VAD coverage and only advertises fully covered occurrences\""
+    ],
     "tests/integration/test-suites.test.ts": [
       "\"relocations preserve every reviewed suite member exactly once\"",
       "\"duplicate inventory entries are rejected rather than executing a test twice\"",
@@ -3146,7 +3155,8 @@
     ],
     "tests/speech/revision-bound-analysis.test.ts": [
       "\"speech binding retains an unavailable VAD reason without inventing activity\"",
-      "\"speech binding rejects conflicting VAD availability evidence\""
+      "\"speech binding rejects conflicting VAD availability evidence\"",
+      "\"speech binding rejects malformed or misleading VAD coverage\""
     ],
     "tests/integration/canonical-native-mcp.test.ts": [
       "\"uncertain placement outcomes block subsequent native edits\"",
@@ -3337,6 +3347,24 @@
     }
   ],
   "featureIntegrations": [
+    {
+      "pullRequests": [738],
+      "reason": "Preserve range-scoped VAD availability through partial reanalysis without exposing incomplete top-level VAD.",
+      "addedTestNames": {
+        "tests/integration/phase1.test.ts": [
+          "\"post-write speech reanalysis preserves mixed VAD coverage without advertising complete VAD\""
+        ],
+        "tests/speech/filler-components.test.ts": [
+          "\"resolver does not authorize a cut from partial VAD coverage\""
+        ],
+        "tests/speech/mapping.test.ts": [
+          "\"speech mapping retains partial VAD coverage and only advertises fully covered occurrences\""
+        ],
+        "tests/speech/revision-bound-analysis.test.ts": [
+          "\"speech binding rejects malformed or misleading VAD coverage\""
+        ]
+      }
+    },
     {
       "pullRequests": [738],
       "reason": "Bound source verification before and after command analysis.",

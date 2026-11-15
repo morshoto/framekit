@@ -8,6 +8,7 @@ import type {
   SpeechAnalysisCapability,
   SpeechSegment,
   SpeechWord,
+  VadCoverageSpan,
 } from "../domain/media.js";
 import { sameMediaSourceIdentity } from "../domain/media.js";
 import type { RationalTime, TimeRange } from "../domain/primitives.js";
@@ -62,9 +63,8 @@ export function bindSpeechAnalysis(
   const words = validateWords(record.words, observedRange, context.input.media.duration);
   const vadSegments = validateOptionalSegments(record.vadSegments, "VAD", observedRange, context.input.media.duration);
   const vadUnavailableReason = optionalString(record.vadUnavailableReason, "VAD unavailable reason");
-  if (vadUnavailableReason !== undefined && vadSegments !== undefined) {
-    throw new Error("ANALYSIS_INVALID: VAD evidence conflicts with its unavailable status");
-  }
+  const vadCoverage = validateVadCoverage(record.vadCoverage, observedRange, context.input.media.duration);
+  validateVadCoverageConsistency(vadCoverage, vadSegments, vadUnavailableReason, observedRange);
   const silenceSegments = validateOptionalSegments(record.silenceSegments, "silence", observedRange, context.input.media.duration);
   const protectedSegments = validateOptionalSegments(record.protectedSegments, "protected", observedRange, context.input.media.duration);
   const capability = validateCapability(record.capability, vadSegments);
@@ -84,10 +84,74 @@ export function bindSpeechAnalysis(
     capability,
     words,
     ...(vadSegments ? { vadSegments } : {}),
+    ...(vadCoverage !== undefined ? { vadCoverage } : {}),
     ...(vadUnavailableReason !== undefined ? { vadUnavailableReason } : {}),
     ...(silenceSegments ? { silenceSegments } : {}),
     ...(protectedSegments ? { protectedSegments } : {}),
   };
+}
+
+/** Check that range-scoped VAD cannot contradict top-level availability. */
+export function validateVadCoverageConsistency(
+  vadCoverage: VadCoverageSpan[] | undefined,
+  vadSegments: SpeechSegment[] | undefined,
+  vadUnavailableReason: string | undefined,
+  observedRange: TimeRange,
+): void {
+  if (vadUnavailableReason !== undefined && vadSegments !== undefined) {
+    throw new Error("ANALYSIS_INVALID: VAD evidence conflicts with its unavailable status");
+  }
+  if (vadCoverage !== undefined && vadUnavailableReason !== undefined) {
+    let cursor = observedRange.start;
+    const complete = vadCoverage.length > 0 && vadCoverage.every((span) => {
+      if (span.status !== "available" || span.start !== cursor) return false;
+      cursor = span.end;
+      return true;
+    }) && cursor === observedRange.end;
+    if (complete) throw new Error("ANALYSIS_INVALID: complete VAD coverage conflicts with its unavailable status");
+  }
+  if (vadCoverage !== undefined && vadSegments !== undefined) {
+    let cursor = observedRange.start;
+    const covered: SpeechSegment[] = [];
+    for (const span of vadCoverage) {
+      if (span.status !== "available" || span.start !== cursor) {
+        throw new Error("ANALYSIS_INVALID: top-level VAD requires complete available coverage");
+      }
+      cursor = span.end;
+      covered.push(...span.segments);
+    }
+    if (cursor !== observedRange.end || covered.length !== vadSegments.length || covered.some((segment, index) => {
+      const other = vadSegments[index];
+      return !other || segment.start !== other.start || segment.end !== other.end
+        || segment.kind !== other.kind || segment.confidence !== other.confidence;
+    })) {
+      throw new Error("ANALYSIS_INVALID: top-level VAD differs from complete coverage");
+    }
+  }
+}
+
+/** Validate serialized range-scoped VAD before consuming it. */
+export function validateVadCoverage(value: unknown, observed: TimeRange, duration: number | undefined): VadCoverageSpan[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw new Error("ANALYSIS_INVALID: VAD coverage must be an array");
+  const coverage: VadCoverageSpan[] = value.map((entry, index) => {
+    const span = asRecord(entry, `VAD coverage ${index + 1} must be an object`);
+    const range = validateRange(span, "VAD coverage range");
+    validateEvidenceBounds([range], observed, duration, "VAD coverage range");
+    if (span.status === "available") {
+      const segments = validateOptionalSegments(span.segments, "VAD coverage", range, duration);
+      if (!segments || span.reason !== undefined) throw new Error("ANALYSIS_INVALID: available VAD coverage needs segments and no reason");
+      return { start: range.start, end: range.end, status: "available", segments };
+    }
+    if (span.status === "unavailable") {
+      const reason = optionalString(span.reason, "VAD coverage unavailable reason");
+      if (!reason || span.segments !== undefined) throw new Error("ANALYSIS_INVALID: unavailable VAD coverage needs a reason and no segments");
+      return { start: range.start, end: range.end, status: "unavailable", reason };
+    }
+    throw new Error("ANALYSIS_INVALID: VAD coverage status is unsupported");
+  });
+  validateOrderedRanges(coverage, "VAD coverage");
+  return coverage;
 }
 
 function sourceIdentityOf(media: AnalysisInput["media"]): MediaSourceIdentity {

@@ -214,6 +214,11 @@ export interface TimelineSemanticContext {
   occurrences: TimelineSemanticOccurrenceContext[];
 }
 
+/** VAD observations retained for one source range, including unavailable spans. */
+export type VadCoverageSpan =
+  | { start: number; end: number; status: "available"; segments: SpeechSegment[] }
+  | { start: number; end: number; status: "unavailable"; reason: string };
+
 export interface SpeechAnalysis {
   /** Provenance fields are optional for backwards-compatible provider ports. */
   schemaVersion?: typeof SPEECH_ANALYSIS_SCHEMA_VERSION;
@@ -227,6 +232,8 @@ export interface SpeechAnalysis {
   capability?: SpeechAnalysisCapability;
   words: SpeechWord[];
   vadSegments?: SpeechSegment[];
+  /** Range-scoped VAD observations; partial coverage does not authorize top-level VAD. */
+  vadCoverage?: VadCoverageSpan[];
   /** Optional detector failure; transcription can remain available independently. */
   vadUnavailableReason?: string;
   silenceSegments?: SpeechSegment[];
