@@ -3141,7 +3141,8 @@
       "`${kind} rejects a source replaced while its provider is running`",
       "`${kind} analyzes matching source content without changing media or timeline`",
       "`command audio rejects invalid ${label}`",
-      "\"command audio rejects invalid or mismatched occurrence signal provenance\""
+      "\"command audio rejects invalid or mismatched occurrence signal provenance\"",
+      "\"command audio bounds source verification before and after the provider\""
     ],
     "tests/speech/revision-bound-analysis.test.ts": [
       "\"speech binding retains an unavailable VAD reason without inventing activity\"",
@@ -3336,6 +3337,15 @@
     }
   ],
   "featureIntegrations": [
+    {
+      "pullRequests": [738],
+      "reason": "Bound source verification before and after command analysis.",
+      "addedTestNames": {
+        "tests/speech/command-analyzer.test.ts": [
+          "\"command audio bounds source verification before and after the provider\""
+        ]
+      }
+    },
     {
       "pullRequests": [738],
       "reason": "Reject invalid command analyzer signal scope and mismatched occurrence identity.",

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { spawn } from "node:child_process";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
@@ -314,4 +315,48 @@ test("command audio rejects invalid or mismatched occurrence signal provenance",
   }
   const command = await createWrapper(directory, { ...metrics, signalScope: "occurrence", occurrenceId: "clip-1" });
   assert.equal((await new CommandAudioAnalyzer({ command }).analyze(input)).occurrenceId, "clip-1");
+});
+
+test("command audio bounds source verification before and after the provider", {
+  skip: process.platform === "win32" ? "requires the POSIX /dev/zero device" : false,
+}, async (t) => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-audio-source-timeout-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const source = join(directory, "source.wav");
+  const command = join(directory, "provider.mjs");
+  await writeFile(command, [
+    "#!/usr/bin/env node",
+    'import { unlink, symlink } from "node:fs/promises";',
+    'let body = ""; for await (const chunk of process.stdin) body += chunk;',
+    'const request = JSON.parse(body);',
+    'await unlink(request.media.source); await symlink("/dev/zero", request.media.source);',
+    'process.stdout.write(JSON.stringify({ integratedLufs: -18, truePeakDb: -1, silenceMs: 0 }));',
+  ].join("\n"));
+  await chmod(command, 0o755);
+  const childCode = [
+    'import { CommandAudioAnalyzer } from "@framekit/final-cut";',
+    'const input = JSON.parse(process.env.FRAMEKIT_TEST_INPUT);',
+    'try { await new CommandAudioAnalyzer({ command: process.env.FRAMEKIT_TEST_COMMAND, timeoutMs: 1000 }).analyze(input); process.exitCode = 3; }',
+    'catch (error) { console.log(String(error)); }',
+  ].join("\n");
+  for (const phase of ["before", "after"] as const) {
+    if (phase === "after") await writeFile(source, "media");
+    const input = createInput(phase === "before" ? "/dev/zero" : source);
+    if (phase === "before") delete input.media.sourceDigest;
+    const result = await new Promise<{ code: number | null; output: string; timedOut: boolean }>((resolve, reject) => {
+      const environment: NodeJS.ProcessEnv = { ...process.env, NODE_OPTIONS: "", FRAMEKIT_TEST_INPUT: JSON.stringify(input), FRAMEKIT_TEST_COMMAND: command };
+      delete environment.NODE_TEST_CONTEXT;
+      const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", childCode], { env: environment });
+      let output = "";
+      let timedOut = false;
+      const timer = setTimeout(() => { timedOut = true; child.kill("SIGKILL"); }, 8000);
+      child.stdout.on("data", chunk => { output += String(chunk); });
+      child.stderr.on("data", chunk => { output += String(chunk); });
+      child.once("error", error => { clearTimeout(timer); reject(error); });
+      child.once("close", code => { clearTimeout(timer); resolve({ code, output, timedOut }); });
+    });
+    assert.equal(result.timedOut, false, `${phase}: source verification did not terminate`);
+    assert.equal(result.code, 0, result.output);
+    assert.match(result.output, /ANALYZER_TIMEOUT: audio source verification/, phase);
+  }
 });
