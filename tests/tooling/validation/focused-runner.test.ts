@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import test from "node:test";
 import { promisify } from "node:util";
 const exec = promisify(execFile);
-const childEnvironment = Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== "NODE_TEST_CONTEXT"));
+const childEnvironment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !["NODE_TEST_CONTEXT", "GITHUB_STEP_SUMMARY"].includes(key)));
 
 // #733 cycles: execute the public runner in a controlled checkout. Prove selection,
 // isolation, prerequisites, failure propagation and watch cleanup before changing it.
@@ -35,7 +35,7 @@ async function checkout(t: test.TestContext) {
   await save();
   const run = (args: string[]) => exec(process.execPath, ["scripts/run-tests-with-isolated-home.mjs", ...args], {
     cwd: root, timeout: 15_000, env: { ...childEnvironment, HOME: process.env.FRAMEKIT_TEST_ORIGINAL_HOME ?? process.env.HOME,
-      FRAMEKIT_TEST_REPORT_DIR: "", FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "1", FRAMEKIT_FINAL_CUT_HEADLESS: "0", FRAMEKIT_AUTO_CONNECT: "1", FRAMEKIT_FINAL_CUT_LIBRARY_HEADED: "1" },
+      GITHUB_STEP_SUMMARY: join(root, "caller-step-summary.md"), FRAMEKIT_TEST_REPORT_DIR: "", FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "1", FRAMEKIT_FINAL_CUT_HEADLESS: "0", FRAMEKIT_AUTO_CONNECT: "1", FRAMEKIT_FINAL_CUT_LIBRARY_HEADED: "1" },
   });
   return { root, manifest, save, run, files };
 }
@@ -47,6 +47,8 @@ test("focused file and name selection preserves read-only HOME, safety and clean
   assert.doesNotMatch(result.stdout, /WRONG_FILE|DOCS/);
   const { env, mode } = JSON.parse(await readFile(join(root, "observed.json"), "utf8"));
   assert.equal(mode & 0o222, 0);
+  assert.equal(env.GITHUB_STEP_SUMMARY, "", "test subprocesses cannot write the caller step summary");
+  assert.equal(existsSync(join(root, "caller-step-summary.md")), false, "internal filtering reports are not CI publications");
   for (const key of ["HOME", "USERPROFILE", "TMPDIR", "TMP", "TEMP", "FRAMEKIT_STATE_DIR", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR", "npm_config_cache"]) {
     assert.ok(env[key].startsWith(env.FRAMEKIT_TEST_STATE_DIR + '/'), key);
   }
