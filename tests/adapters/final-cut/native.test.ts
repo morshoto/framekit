@@ -2731,6 +2731,8 @@ test("native append Undo cannot verify same-duration wrong content", async () =>
 test("native insert duration and revision do not verify placement or Undo", async () => {
   let revision = 1;
   let duration = "10";
+  const baselineClips = ["original-source@0..10"];
+  let editorClips = [...baselineClips];
   const scripts: string[] = [];
   const liveState = async () => ({
     project: { id: "project-1", name: "Edit" },
@@ -2752,10 +2754,13 @@ test("native insert duration and revision do not verify placement or Undo", asyn
       scripts.push(script);
       if (script.includes("keystroke \"w\"")) {
         duration = "15";
+        editorClips = ["original-source@0..4", "inserted-source@0..5", "original-source@4..10"];
         revision = 2;
       }
       if (script.includes('click menu item "Undo Insert"')) {
         duration = "10";
+        // Simulate an Undo that preserves duration while restoring the wrong source.
+        editorClips = ["wrong-source@0..10"];
         revision = 3;
       }
       if (script.includes("AXBrowserMedia")) return `Interview${separator}AXBrowserMedia${separator}browser-1${separator}media-source-1${String.fromCharCode(30)}`;
@@ -2779,6 +2784,7 @@ test("native insert duration and revision do not verify placement or Undo", asyn
   await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_VERIFICATION_FAILED.*canonical/);
   await assert.rejects(adapter.undo(result.operationId), /FINAL_CUT_NATIVE_UNDO_UNCERTAIN/);
   assert.deepEqual((await liveState()).sequence?.duration, { value: "10", timescale: "1" });
+  assert.notDeepEqual(editorClips, baselineClips);
   assert.equal(scripts.some((script) => script.includes('click menu item "Undo Insert" of menu "Edit"')), true);
 });
 
