@@ -796,6 +796,22 @@ test("live canonical snapshots require exact coordinates for every supported ele
   );
 });
 
+test("live canonical snapshots reject malformed exact source bounds", async () => {
+  const cases: unknown[] = [null, {}, { start: { value: "0", timescale: "1" }, duration: { value: "-1", timescale: "1" } }, { start: { value: "1", timescale: "0" }, duration: { value: "1", timescale: "1" } }];
+  for (const sourceRange of cases) {
+    const malformed = structuredClone(canonicalSnapshot);
+    Object.assign(malformed.media[0]!, { sourceRange });
+    const transport = new MutableCanonicalLiveTransport(canonicalReadCapabilities);
+    transport.snapshot = malformed;
+    const adapter = new FinalCutLiveAdapter(transport);
+    await assert.rejects(adapter.readProject(), /FINAL_CUT_LIVE_PROTOCOL:.*source range/i);
+  }
+  const transport = new MutableCanonicalLiveTransport(canonicalReadCapabilities);
+  const sourceRange = { start: { value: "10", timescale: "1" }, duration: { value: "1001", timescale: "6000" } };
+  transport.snapshot.media[0]!.sourceRange = sourceRange;
+  assert.deepEqual((await new FinalCutLiveAdapter(transport).readProject()).media[0]!.sourceRange, sourceRange);
+});
+
 test("live canonical snapshots require a non-empty story element kind", async () => {
   const malformed = structuredClone(canonicalSnapshot);
   malformed.timeline.storyElements[0]!.kind = "";
