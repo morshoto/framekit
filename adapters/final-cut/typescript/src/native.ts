@@ -1215,7 +1215,12 @@ export class FinalCutNativeAutomationAdapter implements NativeFinalCutEditor {
       const expectedSequence = operation.beforeLive?.sequence?.id;
       if (!expectedProject || !expectedSequence
         || operation.afterLive?.project?.id !== expectedProject || operation.afterLive?.sequence?.id !== expectedSequence
-        || currentLive?.project?.id !== expectedProject || currentLive?.sequence?.id !== expectedSequence) {
+        || currentLive?.project?.id !== expectedProject || currentLive?.sequence?.id !== expectedSequence
+        || before.target.projectId !== expectedProject || before.target.sequenceId !== expectedSequence
+        || !before.target.revision?.id || before.target.revision.id !== currentLive.revision?.id
+        || before.target.revision.sequence !== currentLive.revision?.sequence
+        || operation.afterLive.revision.id !== currentLive.revision?.id
+        || operation.afterLive.revision.sequence !== currentLive.revision?.sequence) {
         throw new Error("FINAL_CUT_NATIVE_UNDO_TARGET_CHANGED: placement target is unavailable or changed");
       }
     }

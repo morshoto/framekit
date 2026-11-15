@@ -3136,6 +3136,7 @@
       "\"native append rejects a changed sequence start before dispatch\"",
       "\"native media insertion never retries an uncertain focus failure after dispatch\"",
       "\"native placement refuses changed post-dispatch targets without undoing them\"",
+      "\"native placement Undo rejects an interleaved context target before dispatch\"",
       "\"native placement undo does not replay an uncertain focus failure\"",
       "\"native placement undo rejects restored duration on a different target\""
     ]
