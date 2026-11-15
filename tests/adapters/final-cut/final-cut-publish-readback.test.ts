@@ -225,6 +225,15 @@ test("FCPXML comparison requires explicit exports and fails on changed source co
     const unknownAttribute = spawnSync(process.execPath, [...args, expected, actual], { encoding: "utf8" });
     assert.notEqual(unknownAttribute.status, 0, "unmodeled attributes must not be silently ignored");
     assert.match(unknownAttribute.stderr, /unsupported/i);
+    await writeFile(actual, xml(actualMedia).replace('<asset id="r2"', '<asset start="1s" id="r2"'));
+    const unmodeledAssetStart = spawnSync(process.execPath, [...args, expected, actual], { encoding: "utf8" });
+    assert.notEqual(unmodeledAssetStart.status, 0, "unmodeled asset start must not compare as the same source range");
+    assert.match(unmodeledAssetStart.stderr, /source.*start/i);
+    await writeFile(expected, xml(expectedMedia).replace('<asset id="r2"', '<asset start="24/24s" id="r2"'));
+    assert.equal(spawnSync(process.execPath, [...args, expected, actual]).status, 0, "equivalent rational source starts compare equally");
+    await writeFile(actual, xml(actualMedia));
+    assert.notEqual(spawnSync(process.execPath, [...args, expected, actual]).status, 0, "missing source start cannot prove an explicit source start");
+    await writeFile(expected, xml(expectedMedia));
     await writeFile(actual, xml(actualMedia).replace('kind="original-media"', 'kind="proxy-media"'));
     const proxyOnly = spawnSync(process.execPath, [...args, expected, actual], { encoding: "utf8" });
     assert.notEqual(proxyOnly.status, 0, "proxy-only media must not stand in for an original source");

@@ -41,12 +41,13 @@ async function sourceDigests(snapshot: ProjectSnapshot): Promise<{ source: strin
   return digests;
 }
 
-async function rejectUnsupportedStructure(path: string): Promise<void> {
+async function rejectUnsupportedStructure(path: string): Promise<Map<string, string | null>> {
   const xml = await readFile(path, "utf8");
   if (XMLValidator.validate(xml) !== true) throw new Error("Unsupported invalid FCPXML document");
   const document = new XMLParser({ preserveOrder: true, ignoreAttributes: false }).parse(xml) as unknown;
   let projects = 0;
   let sequences = 0;
+  const sourceStarts = new Map<string, string | null>();
   // Reject unmodeled elements rather than silently comparing partial snapshots.
   // Attribute semantics still require independent review; this is not native proof.
   const supported = new Set(["?xml", "#text", "fcpxml", "resources", "format", "effect", "asset", "media-rep", "library", "event", "project", "sequence", "spine", "asset-clip", "adjust-volume", "metadata", "md", "title", "text", "text-style"]);
@@ -56,6 +57,17 @@ async function rejectUnsupportedStructure(path: string): Promise<void> {
     const node = value as Record<string, unknown>;
     if ("asset" in node && Array.isArray(node.asset)) {
       const attributes = (node[":@"] ?? {}) as Record<string, unknown>;
+      const assetId = attributes["@_id"];
+      const start = attributes["@_start"];
+      if (typeof assetId !== "string" || !assetId || sourceStarts.has(assetId)) {
+        throw new Error("Unsupported ambiguous asset identity");
+      }
+      if (start === undefined) sourceStarts.set(assetId, null);
+      else {
+        const match = typeof start === "string" ? /^(-?\d+)(?:\/(\d+))?s$/.exec(start) : null;
+        if (!match) throw new Error("Unsupported asset source start");
+        sourceStarts.set(assetId, canonicalTime({ value: match[1]!, timescale: match[2] ?? "1" }));
+      }
       const originals = node.asset.filter((item: unknown) => {
         if (!item || typeof item !== "object") return false;
         const representation = item as Record<string, unknown>;
@@ -87,6 +99,7 @@ async function rejectUnsupportedStructure(path: string): Promise<void> {
   }
   visit(document);
   if (projects !== 1 || sequences !== 1) throw new Error("Unsupported ambiguous project or sequence selection");
+  return sourceStarts;
 }
 
 async function main(): Promise<void> {
@@ -94,14 +107,29 @@ async function main(): Promise<void> {
   if (!expectedPath || !actualPath || extra.length) {
     throw new Error("Usage: node --import tsx scripts/compare-fcpxml-export.ts EXPECTED ACTUAL");
   }
-  await rejectUnsupportedStructure(expectedPath);
-  await rejectUnsupportedStructure(actualPath);
+  const expectedStarts = await rejectUnsupportedStructure(expectedPath);
+  const actualStarts = await rejectUnsupportedStructure(actualPath);
   const options = { allowMissingImmutableIdsForReadback: true };
   const expected = await new FcpxmlDocumentAdapter(expectedPath, undefined, options).readProject();
   const actual = await new FcpxmlDocumentAdapter(actualPath, undefined, options).readProject();
+  const expectedDigests = await sourceDigests(expected);
+  const actualDigests = await sourceDigests(actual);
+  const startsByDigest = (snapshot: ProjectSnapshot, digests: { source: string; sha256: string }[], starts: Map<string, string | null>) =>
+    new Map(snapshot.media.map((media) => {
+      const digest = digests.find(({ source }) => source === media.source)?.sha256;
+      if (!digest || !starts.has(media.mediaId)) throw new Error("Unsupported source start binding");
+      return [digest, starts.get(media.mediaId) ?? null] as const;
+    }));
+  const expectedStartsByDigest = startsByDigest(expected, expectedDigests, expectedStarts);
+  const actualStartsByDigest = startsByDigest(actual, actualDigests, actualStarts);
+  for (const [digest, start] of expectedStartsByDigest) {
+    if (actualStartsByDigest.has(digest) && actualStartsByDigest.get(digest) !== start) {
+      throw new Error("FCPXML source start differs or is missing");
+    }
+  }
   const evidence = verifyFinalCutPublishReadback(expected, actual, {
-    expectedSourceMediaDigests: await sourceDigests(expected),
-    actualSourceMediaDigests: await sourceDigests(actual),
+    expectedSourceMediaDigests: expectedDigests,
+    actualSourceMediaDigests: actualDigests,
   });
   console.log(JSON.stringify({ result: "parsed artifact semantics match", evidence, limitation: "target identity and freshness are not verified; unsupported or omitted XML semantics and live occurrence binding are not established" }, null, 2));
 }
