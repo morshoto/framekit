@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import type { AudioAnalyzer, SpeechAnalyzer } from "@framekit/runtime";
 import { runAnalysisProviderPreflight } from "../../scripts/run-analysis-provider-preflight.js";
@@ -119,6 +120,28 @@ test("provider preflight CLI honors required VAD provenance", async t => {
     assert.equal(asset.speech.status, "unavailable");
     assert.equal(asset.speech.reason, "ANALYZER_INVALID_OUTPUT");
   }
+});
+
+test("provider preflight CLI records its own repository head from another checkout", async t => {
+  const directory = await fixtures(t);
+  const cleanEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
+  execFileSync("git", ["init", "-q", directory], { env: cleanEnv });
+  execFileSync("git", ["-C", directory, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--allow-empty", "-qm", "fixture"], { env: cleanEnv });
+  const foreignHead = execFileSync("git", ["-C", directory, "rev-parse", "HEAD"], { encoding: "utf8", env: cleanEnv }).trim();
+  const script = fileURLToPath(new URL("../../scripts/run-analysis-provider-preflight.ts", import.meta.url));
+  const expectedHead = execFileSync("git", ["-C", fileURLToPath(new URL("../../", import.meta.url)), "rev-parse", "HEAD"], { encoding: "utf8", env: cleanEnv }).trim();
+  assert.notEqual(foreignHead, expectedHead);
+  const output = join(directory, "report.json");
+  let diagnostic = "";
+  const code = await new Promise<number | null>((resolve, reject) => {
+    const child = spawn(process.execPath, ["--import", import.meta.resolve("tsx"), script, "--fixtures", directory, "--output", output], {
+      cwd: directory, env: { ...cleanEnv, GIT_DIR: join(directory, ".git"), GIT_WORK_TREE: directory, TSX_TSCONFIG_PATH: fileURLToPath(new URL("../../tsconfig.json", import.meta.url)), FRAMEKIT_SPEECH_ANALYZER: "", FRAMEKIT_AUDIO_ANALYZER: "" }, stdio: ["ignore", "ignore", "pipe"],
+    });
+    child.stderr.on("data", chunk => { diagnostic += String(chunk); });
+    child.once("error", reject); child.once("close", resolve);
+  });
+  assert.equal(code, 2, diagnostic);
+  assert.equal(JSON.parse(await readFile(output, "utf8")).executedHead, expectedHead);
 });
 
 test("provider preflight verifies fixture hashes before invoking analyzers", async (t) => {
