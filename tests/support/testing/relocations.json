@@ -3157,7 +3157,8 @@
       "\"MCP speech mapping rejects incomplete and contradictory cached evidence\"",
       "\"timeline semantic context rejects incompatible attached provider evidence\"",
       "\"default timeline inspection rejects source evidence outside observed coverage\"",
-      "\"default timeline inspection rejects speech with missing observed coverage\""
+      "\"default timeline inspection rejects speech with missing observed coverage\"",
+      "\"default timeline inspection rejects contradictory speech provenance\""
     ],
     "tests/speech/mapping.test.ts": [
       "\"speech occurrence mapping refuses unobserved source coverage\"",

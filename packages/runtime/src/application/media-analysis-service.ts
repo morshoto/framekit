@@ -323,6 +323,10 @@ export class MediaAnalysisService {
       return unavailableTimelineOccurrence(clip.id, "cached analyzer provenance is incompatible with current source analysis",
         clip.mediaId, sourceRange, sourceIdentity);
     }
+    if (!query.includeSpeechMappings && !sourceSpeechIsReusable(understanding, persisted ? understanding.analysisRevision : media.analysisRevision)) {
+      return unavailableTimelineOccurrence(clip.id, "cached speech provenance is incompatible with current source analysis",
+        clip.mediaId, sourceRange, sourceIdentity);
+    }
     let speechMapping: SpeechOccurrenceMapping | undefined;
     if (query.includeSpeechMappings) {
       try {
@@ -947,6 +951,22 @@ function sourceAudioIsReusable(evidence: SourceAudioEvidence): boolean {
   } catch {
     return false;
   }
+}
+
+function sourceSpeechIsReusable(
+  evidence: MediaUnderstanding,
+  revision: MediaUnderstanding["analysisRevision"] | string | undefined,
+): boolean {
+  const speech = evidence.speech;
+  if (!speech) return true;
+  const provenance = evidence.analysis.find((entry) => entry.capability === "speech" && entry.status === "analyzed")?.provenance;
+  if (!provenance || !sameMediaSourceIdentity(provenance.source, evidence.sourceIdentity)) return false;
+  if (speech.mediaId !== undefined && speech.mediaId !== evidence.sourceIdentity.mediaId) return false;
+  if (speech.sourceIdentity !== undefined && !sameMediaSourceIdentity(speech.sourceIdentity, evidence.sourceIdentity)) return false;
+  if (speech.provider !== undefined && !sameDescriptor(speech.provider, provenance.analyzer)) return false;
+  if (speech.revision !== undefined && (!revision || (typeof revision === "string"
+    ? speech.revision.id !== revision : !sameContextRevision(speech.revision, revision)))) return false;
+  return true;
 }
 
 function timelineEvidenceCovers(understanding: MediaUnderstanding, range: TimeRange): boolean {
