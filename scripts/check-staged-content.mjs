@@ -81,6 +81,7 @@ export function scanText(text, filePath = "<text>") {
 
 export function scanStagedContent(cwd = process.cwd()) {
   const findings = [];
+  const renames = stagedRenames(cwd);
   for (const filePath of stagedPaths(cwd)) {
     findings.push(...scanPath(filePath));
 
@@ -99,7 +100,7 @@ export function scanStagedContent(cwd = process.cwd()) {
       continue;
     }
 
-    findings.push(...scanLines(stagedAdditions(cwd, filePath), filePath));
+    findings.push(...scanLines(stagedAdditions(cwd, filePath, renames.get(filePath)), filePath));
   }
   return findings;
 }
@@ -116,8 +117,15 @@ function stagedBlob(cwd, filePath) {
   return match ? { mode: match[1], oid: match[2], stage: Number(match[3]) } : undefined;
 }
 
-function stagedAdditions(cwd, filePath) {
-  const diff = runGit(cwd, ["diff", "--cached", "--no-ext-diff", "--no-color", "--unified=0", "--", filePath]).toString("utf8");
+function stagedRenames(cwd) {
+  const records = runGit(cwd, ['diff', '--cached', '--name-status', '--find-renames', '-z', '--diff-filter=R']).toString('utf8').split('\0');
+  const renames = new Map();
+  for (let i = 0; i + 2 < records.length; i += 3) renames.set(records[i + 2], records[i + 1]);
+  return renames;
+}
+
+function stagedAdditions(cwd, filePath, previousPath) {
+  const diff = runGit(cwd, ["diff", "--cached", "--no-ext-diff", "--no-color", "--unified=0", "--find-renames", "--", ...(previousPath ? [previousPath] : []), filePath]).toString("utf8");
   const lines = [];
   let nextLine;
   let inHunk = false;

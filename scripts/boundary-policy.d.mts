@@ -20,6 +20,11 @@ export interface BoundaryPolicy {
   allowedExternalDependencies: Record<string, string[]>;
   productionEntrypoints: string[];
   experimentalModules: string[];
+  restrictedReachability?: Array<{
+    entrypoints: string[];
+    targetPackage: string;
+    allowedModules: string[];
+  }>;
   exceptions: BoundaryException[];
 }
 

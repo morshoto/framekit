@@ -1,4 +1,4 @@
-import { renderEvaluationReport, runMcpEvaluation } from "../tests/evaluation/suite.js";
+import { renderEvaluationReport, runMcpEvaluation } from "./evaluation/suite.js";
 
 const report = await runMcpEvaluation();
 console.log(renderEvaluationReport(report));
