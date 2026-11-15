@@ -3126,7 +3126,10 @@
     ],
     "tests/integration/canonical-native-mcp.test.ts": [
       "\"uncertain placement outcomes block subsequent native edits\"",
-      "\"uncertain Blade readback blocks subsequent native edits\""
+      "\"uncertain Blade readback blocks subsequent native edits\"",
+      "\"unavailable built-in media import does not create or release a reservation\"",
+      "\"native import forwards the caller-approved target to file and directory preview\"",
+      "\"native import preserves the exact approved target identifiers\""
     ],
     "tests/integration/native.test.ts": [
       "\"native append Undo cannot verify same-duration wrong content\"",
@@ -3157,26 +3160,15 @@
       "\"native Browser search rejects incomplete scans instead of reporting empty or partial matches\"",
       "\"native Browser search rejects malformed and truncated scan records\"",
       "\"native Browser search distinguishes missing output from a completed empty scan\"",
-      "\"native Browser search marks unscanned descendants at its traversal limit\""
-    ],
-    "tests/integration/fcpxml-media-representation.test.ts": [
-      "\"FCPXML snapshots preserve explicit sequence timecode origin without inventing one\"",
-      "\"FCPXML retains an explicit exact source range without inventing a missing origin\""
-    ],
-    "tests/integration/headless-renderer.test.ts": [
-      "\"FFmpeg renderer rejects an explicit nonzero sequence timecode origin\"",
-      "\"FFmpeg renderer refuses an unimplemented nonzero source origin\""
-    ],
-    "tests/integration/timeline-ir-fcpxml.test.ts": [
-      "\"FCPXML compilation refuses to discard an explicit nonzero timecode origin\"",
-      "\"FCPXML compilation refuses to discard a nonzero frame-grid origin\"",
-      "\"FCPXML compilation preserves explicit nonzero source bounds\"",
-      "\"FCPXML frame rounding cannot move an occurrence outside source bounds\""
-    ],
-    "tests/integration/timeline-targets.test.ts": [
-      "\"stable targets bind an explicit fractional frame-grid origin\"",
-      "\"stable targets reject a caller-supplied origin that shifts the grid\"",
-      "\"stable targets reject loss or introduction of explicit zero-grid evidence\""
+      "\"native Browser search marks unscanned descendants at its traversal limit\"",
+      "\"native media import is unavailable without independently observed source binding\"",
+      "\"directory import does not dispatch when source observation is unavailable\"",
+      "\"native import rejects independently observed source and target mismatches\"",
+      "\"native import requires the independently observed target to match approval before dispatch\"",
+      "\"native import stops before dispatch if the approved target changes during Browser discovery\"",
+      "\"directory preview binds approved import target and rejects missing approval\"",
+      "\"native capabilities do not advertise source-verified import without source observation\"",
+      "\"directory import stops after an uncertain file outcome\""
     ],
     "tests/integration/canonical-native-provider.test.ts": [
       "\"canonical resolver rejects nonpositive target duration before discovery\"",
@@ -3199,6 +3191,25 @@
     ],
     "tests/integration/canonical-live.test.ts": [
       "\"live canonical snapshots reject malformed exact source bounds\""
+    ],
+    "tests/integration/fcpxml-media-representation.test.ts": [
+      "\"FCPXML snapshots preserve explicit sequence timecode origin without inventing one\"",
+      "\"FCPXML retains an explicit exact source range without inventing a missing origin\""
+    ],
+    "tests/integration/headless-renderer.test.ts": [
+      "\"FFmpeg renderer rejects an explicit nonzero sequence timecode origin\"",
+      "\"FFmpeg renderer refuses an unimplemented nonzero source origin\""
+    ],
+    "tests/integration/timeline-ir-fcpxml.test.ts": [
+      "\"FCPXML compilation refuses to discard an explicit nonzero timecode origin\"",
+      "\"FCPXML compilation refuses to discard a nonzero frame-grid origin\"",
+      "\"FCPXML compilation preserves explicit nonzero source bounds\"",
+      "\"FCPXML frame rounding cannot move an occurrence outside source bounds\""
+    ],
+    "tests/integration/timeline-targets.test.ts": [
+      "\"stable targets bind an explicit fractional frame-grid origin\"",
+      "\"stable targets reject a caller-supplied origin that shifts the grid\"",
+      "\"stable targets reject loss or introduction of explicit zero-grid evidence\""
     ]
   },
   "identityDiscoveryCorrections": {
@@ -3455,6 +3466,29 @@
         "tests/integration/timeline-ir-fcpxml.test.ts": [
           "\"FCPXML compilation preserves explicit nonzero source bounds\"",
           "\"FCPXML frame rounding cannot move an occurrence outside source bounds\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        711
+      ],
+      "reason": "Preserve import source/target safeguards and all additive tests across the responsibility-based relocation; no baseline identities removed.",
+      "addedTestNames": {
+        "tests/integration/native.test.ts": [
+          "\"native media import is unavailable without independently observed source binding\"",
+          "\"directory import does not dispatch when source observation is unavailable\"",
+          "\"native import rejects independently observed source and target mismatches\"",
+          "\"native import requires the independently observed target to match approval before dispatch\"",
+          "\"native import stops before dispatch if the approved target changes during Browser discovery\"",
+          "\"directory preview binds approved import target and rejects missing approval\"",
+          "\"native capabilities do not advertise source-verified import without source observation\"",
+          "\"directory import stops after an uncertain file outcome\""
+        ],
+        "tests/integration/canonical-native-mcp.test.ts": [
+          "\"unavailable built-in media import does not create or release a reservation\"",
+          "\"native import forwards the caller-approved target to file and directory preview\"",
+          "\"native import preserves the exact approved target identifiers\""
         ]
       }
     }
