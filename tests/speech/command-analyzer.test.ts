@@ -376,3 +376,22 @@ for (const [label, payload] of [
     assert.equal(await readFile(source, "utf8"), "media");
   });
 }
+
+test("command audio rejects invalid or mismatched occurrence signal provenance", async (t) => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-audio-scope-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const source = join(directory, "source.wav");
+  await writeFile(source, "media");
+  const metrics = { integratedLufs: -18, truePeakDb: -1, silenceMs: 0 };
+  const input = { ...createInput(source), occurrenceId: "clip-1" };
+  for (const provenance of [
+    { signalScope: "output" },
+    { signalScope: "occurrence" },
+    { signalScope: "occurrence", occurrenceId: "clip-2" },
+  ]) {
+    const command = await createWrapper(directory, { ...metrics, ...provenance });
+    await assert.rejects(new CommandAudioAnalyzer({ command }).analyze(input), /ANALYZER_INVALID_OUTPUT.*audio/);
+  }
+  const command = await createWrapper(directory, { ...metrics, signalScope: "occurrence", occurrenceId: "clip-1" });
+  assert.equal((await new CommandAudioAnalyzer({ command }).analyze(input)).occurrenceId, "clip-1");
+});
