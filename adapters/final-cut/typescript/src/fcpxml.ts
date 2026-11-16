@@ -1096,10 +1096,14 @@ export class FcpxmlDocumentAdapter implements EditorPort {
         const durationValue = attribute(node, "duration");
         const startValue = attribute(node, "start");
         const mediaKind = mediaKindFromResource(node);
-        const originalMedia = storyEntries(node).find(({ kind, node: representation }) =>
-          kind === "media-rep" && attribute(representation, "kind") === "original-media",
-        )?.node;
-        const rawSource = attribute(node, "src") ?? (originalMedia && attribute(originalMedia, "src"));
+        const originalMedia = storyEntries(node).filter(({ kind, node: representation }) =>
+          kind === "media-rep" && (attribute(representation, "kind") ?? "original-media") === "original-media",
+        );
+        const legacySource = attribute(node, "src");
+        // Conflicting representations cannot establish which source Final Cut uses.
+        const rawSource = originalMedia.length > 1 || (legacySource !== undefined && originalMedia.length > 0)
+          ? undefined
+          : legacySource ?? (originalMedia[0] && attribute(originalMedia[0].node, "src"));
         const source = rawSource === undefined ? "" : String(rawSource);
         return {
           mediaId: String(attribute(node, "id") ?? ""),

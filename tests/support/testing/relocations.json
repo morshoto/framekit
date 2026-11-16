@@ -3241,7 +3241,8 @@
     ],
     "tests/integration/fcpxml-media-representation.test.ts": [
       "\"FCPXML retains an explicit exact source range without inventing a missing origin\"",
-      "\"FCPXML snapshots preserve explicit sequence timecode origin without inventing one\""
+      "\"FCPXML snapshots preserve explicit sequence timecode origin without inventing one\"",
+      "\"FCPXML original representations honor the default kind and reject ambiguous sources\""
     ],
     "tests/integration/headless-renderer.test.ts": [
       "\"FFmpeg renderer refuses an unimplemented nonzero source origin\"",
@@ -3760,6 +3761,17 @@
       "addedTestNames": {
         "tests/speech/command-analyzer.test.ts": [
           "\"command audio rejects invalid or mismatched occurrence signal provenance\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        740
+      ],
+      "reason": "Reject ambiguous original representations and recognize the FCPXML default media kind.",
+      "addedTestNames": {
+        "tests/integration/fcpxml-media-representation.test.ts": [
+          "\"FCPXML original representations honor the default kind and reject ambiguous sources\""
         ]
       }
     },
