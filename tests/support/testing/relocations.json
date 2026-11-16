@@ -3055,6 +3055,12 @@
   },
   "recordedAtCommit": "37a92fa1",
   "addedTestNames": {
+    "tests/integration/canonical-native-provider.test.ts": [
+      "\"canonical single-edit readiness never advertises recoverable batches through MCP\""
+    ],
+    "tests/integration/composite-transactions.test.ts": [
+      "\"single-operation previews require an explicit provider guarantee when batches are unavailable\""
+    ],
     "tests/integration/test-suites.test.ts": [
       "\"relocations preserve every reviewed suite member exactly once\"",
       "\"duplicate inventory entries are rejected rather than executing a test twice\"",
@@ -3278,6 +3284,13 @@
       ]
     }
   },
+  "featureIntegrations": [
+    {
+      "pullRequest": 743,
+      "commit": "6cbe62525247336c6d7cca9f51c571e4c91a8d25",
+      "reason": "Retain the canonical capability and single-operation rollback regressions while integrating the main test relocation. Both original test identities are registered as additions; no baseline assertions are removed."
+    }
+  ],
   "upstreamIntegrations": [
     {
       "commit": "7dc138dc27aaaf103d234e86fb076444f59c761c",

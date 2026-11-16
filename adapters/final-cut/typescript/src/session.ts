@@ -206,6 +206,11 @@ export class FinalCutSessionAdapter implements EditorPort, LiveEditorStatePort {
         projectSelection,
         projectSelectionMode: selectionMode,
         compositeTransactions,
+        singleOperationTransactions: Boolean(
+          operationCapabilities?.singleOperationTransactions
+          && hasTransactionMethods
+          && canReadAfterWrite,
+        ),
       },
       analyzers: {
         speechTranscribe: Boolean(snapshot?.analyzers.speechTranscribe || mutation?.analyzers.speechTranscribe || live?.analyzers.speechTranscribe),

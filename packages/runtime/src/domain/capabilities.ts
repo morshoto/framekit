@@ -54,6 +54,8 @@ export interface EditorCapabilities {
   markerIdentityMode?: "requested" | "editor-assigned";
   /** The backend can atomically preview and apply ordered workflow operations. */
   compositeTransactions?: boolean;
+  /** Preview/apply/restore supports exactly one operation, without promising batch recovery. */
+  singleOperationTransactions?: boolean;
   /** The backend can export the active timeline to a verified local video file. */
   videoExport?: boolean;
   /** A background renderer can produce a verified local video file without editor UI. */
