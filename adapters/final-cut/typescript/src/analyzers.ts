@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
-import { access } from "node:fs/promises";
-import { bindSpeechAnalysis, sameMediaSourceIdentity } from "@framekit/runtime";
+import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { bindSpeechAnalysis, sameMediaSourceIdentity, validateAudioAnalysisPayload } from "@framekit/runtime";
 import type {
   AnalysisInput,
   AudioAnalysis,
@@ -121,19 +122,19 @@ export class CommandMetadataAnalyzer implements MetadataAnalyzer {
 
 async function runCommand<T>(options: CommandAnalyzerOptions, request: AnalyzerRequest, kind: string): Promise<T> {
   const source = request.media.source;
-  try {
-    await access(source);
-  } catch {
-    throw new Error(`ANALYZER_MEDIA_UNAVAILABLE: ${kind} source is not readable: ${source}`);
+  const timeoutMs = options.timeoutMs ?? 120_000;
+  const initialDigest = await digestAnalyzerSource(source, kind, timeoutMs);
+  const expectedDigest = request.media.sourceDigest?.replace(/^sha256:/, "");
+  if (expectedDigest !== undefined && expectedDigest !== initialDigest) {
+    throw new Error(`ANALYZER_SOURCE_CHANGED: ${kind} source bytes do not match the requested source digest`);
   }
 
-  const timeoutMs = options.timeoutMs ?? 120_000;
   const child = spawn(options.command, [], { stdio: ["pipe", "pipe", "pipe"] });
   const stdout: Buffer[] = [];
   const stderr: Buffer[] = [];
   let settled = false;
 
-  return new Promise<T>((resolve, reject) => {
+  const result = await new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
@@ -160,7 +161,7 @@ async function runCommand<T>(options: CommandAnalyzerOptions, request: AnalyzerR
       }
       try {
         const value: unknown = JSON.parse(Buffer.concat(stdout).toString("utf8"));
-        validateResult(value, kind);
+        validateResult(value, kind, request);
         resolve(value as T);
       } catch (error) {
         reject(new Error(`ANALYZER_INVALID_OUTPUT: ${kind} analyzer returned invalid JSON or schema: ${String(error)}`));
@@ -169,6 +170,38 @@ async function runCommand<T>(options: CommandAnalyzerOptions, request: AnalyzerR
 
     child.stdin.end(JSON.stringify(commandRequest(request, kind)));
   });
+  if (await digestAnalyzerSource(source, kind, timeoutMs) !== initialDigest) {
+    throw new Error(`ANALYZER_SOURCE_CHANGED: ${kind} source bytes changed while analysis was running`);
+  }
+  return result;
+}
+
+async function digestAnalyzerSource(source: string, kind: string, timeoutMs: number): Promise<string> {
+  const stream = createReadStream(source);
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      (async () => {
+        const digest = createHash("sha256");
+        for await (const chunk of stream) digest.update(chunk);
+        return digest.digest("hex");
+      })(),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          timedOut = true;
+          stream.destroy();
+          reject(new Error(`ANALYZER_TIMEOUT: ${kind} source verification exceeded ${timeoutMs}ms`));
+        }, timeoutMs);
+      }),
+    ]);
+  } catch {
+    if (timedOut) throw new Error(`ANALYZER_TIMEOUT: ${kind} source verification exceeded ${timeoutMs}ms`);
+    throw new Error(`ANALYZER_MEDIA_UNAVAILABLE: ${kind} source cannot be read for content verification: ${source}`);
+  } finally {
+    if (timer) clearTimeout(timer);
+    stream.destroy();
+  }
 }
 
 function commandRequest(request: AnalyzerRequest, kind: string): unknown {
@@ -237,7 +270,7 @@ function sameRange(value: unknown, expected: TimeRange): boolean {
   return range.start === expected.start && range.end === expected.end;
 }
 
-function validateResult(value: unknown, kind: string): void {
+function validateResult(value: unknown, kind: string, request: AnalyzerRequest): void {
   if (!value || typeof value !== "object") throw new Error("result must be an object");
   const record = value as Record<string, unknown>;
   if (kind === "speech") {
@@ -245,7 +278,11 @@ function validateResult(value: unknown, kind: string): void {
     return;
   }
   if (kind === "audio") {
-    if (!["integratedLufs", "truePeakDb", "silenceMs"].every((key) => typeof record[key] === "number")) throw new Error("audio result requires loudness fields");
+    validateAudioAnalysisPayload(value);
+    if (record.signalScope === "occurrence"
+      && (!request.occurrenceId || record.occurrenceId !== request.occurrenceId)) {
+      throw new Error("audio occurrence identity does not match the requested occurrence");
+    }
     return;
   }
   if (kind === "metadata") {

@@ -5,6 +5,7 @@ import type {
 } from "../domain/media.js";
 import type { ContextRevision, RationalTime, TimeRange } from "../domain/primitives.js";
 import { addRationalTimes, parseRational, subtractRationalTimes } from "../timeline/rational-time.js";
+import { validateVadCoverage, validateVadCoverageConsistency } from "./analysis.js";
 
 export interface SpeechOccurrence {
   occurrenceId: string;
@@ -34,6 +35,10 @@ export interface MappedSpeechSegment {
   frameAlignedRange: TimeRange;
 }
 
+export type MappedVadCoverage =
+  | { sourceRange: TimeRange; sequenceRange: TimeRange; status: "available"; segments: MappedSpeechSegment[] }
+  | { sourceRange: TimeRange; sequenceRange: TimeRange; status: "unavailable"; reason: string };
+
 export interface SpeechOccurrenceMapping {
   occurrenceId: string;
   mediaId: string;
@@ -45,6 +50,7 @@ export interface SpeechOccurrenceMapping {
   capability: RevisionBoundSpeechAnalysis["capability"];
   words: MappedSpeechWord[];
   vadSegments?: MappedSpeechSegment[];
+  vadCoverage?: MappedVadCoverage[];
   silenceSegments?: MappedSpeechSegment[];
   protectedSegments?: MappedSpeechSegment[];
 }
@@ -80,6 +86,28 @@ export function mapSpeechAnalysisToOccurrence(
   }
   validateSequenceRationalRange(occurrence.sequenceRange);
 
+  const sourceCoverage = validateVadCoverage(analysis.vadCoverage, analysis.observedRange, analysis.sourceIdentity.duration);
+  validateVadCoverageConsistency(sourceCoverage, analysis.vadSegments, analysis.vadUnavailableReason, analysis.observedRange);
+  const vadCoverage: MappedVadCoverage[] | undefined = sourceCoverage?.flatMap((span): MappedVadCoverage[] => {
+    const start = Math.max(span.start, occurrence.sourceRange.start);
+    const end = Math.min(span.end, occurrence.sourceRange.end);
+    if (start >= end) return [];
+    const sourceRange = { start, end };
+    const sequenceRange = mapSourceRangeToSequenceRange(sourceRange, occurrence);
+    return span.status === "available"
+      ? [{ sourceRange, sequenceRange, status: "available", segments: mapEvidence(span.segments, occurrence, frame, "VAD segment", (segment) => segment) }]
+      : [{ sourceRange, sequenceRange, status: "unavailable", reason: span.reason }];
+  });
+  let cursor = occurrence.sourceRange.start;
+  const completeVad = vadCoverage !== undefined && vadCoverage.length > 0 && vadCoverage.every((span) => {
+    if (span.status !== "available" || span.sourceRange.start !== cursor) return false;
+    cursor = span.sourceRange.end;
+    return true;
+  }) && cursor === occurrence.sourceRange.end;
+  const mappedVad = vadCoverage !== undefined
+    ? completeVad ? vadCoverage.flatMap((span) => span.status === "available" ? span.segments : []) : undefined
+    : analysis.vadSegments ? mapEvidence(analysis.vadSegments, occurrence, frame, "VAD segment", (segment) => segment) : undefined;
+
   return {
     occurrenceId: occurrence.occurrenceId,
     mediaId: occurrence.mediaId,
@@ -88,11 +116,10 @@ export function mapSpeechAnalysisToOccurrence(
     sequenceRange: structuredClone(occurrence.sequenceRange),
     sourceTimebase,
     sequenceFrameDuration: frame,
-    capability: analysis.capability,
+    capability: vadCoverage !== undefined ? (completeVad ? "transcription-plus-vad" : "transcription-only") : analysis.capability,
     words: mapEvidence(analysis.words, occurrence, frame, "speech word", (word) => word),
-    ...(analysis.vadSegments
-      ? { vadSegments: mapEvidence(analysis.vadSegments, occurrence, frame, "VAD segment", (segment) => segment) }
-      : {}),
+    ...(mappedVad ? { vadSegments: mappedVad } : {}),
+    ...(vadCoverage !== undefined ? { vadCoverage } : {}),
     ...(analysis.silenceSegments
       ? { silenceSegments: mapEvidence(analysis.silenceSegments, occurrence, frame, "silence segment", (segment) => segment) }
       : {}),

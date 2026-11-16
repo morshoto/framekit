@@ -101,6 +101,7 @@ test("published package contains the runnable Framekit CLI and MCP sources", asy
     "dist-package/apps/mcp-server/src/build-identity.json",
     "dist-package/apps/mcp-server/runtime/speech-analyzer-wrapper.mjs",
     "dist-package/apps/mcp-server/runtime/whisper-speech-backend.py",
+    "dist-package/apps/mcp-server/runtime/ffmpeg-audio-backend.py",
     "dist-package/packages/runtime/src/index.js",
     "dist-package/adapters/final-cut/typescript/src/index.js",
     "dist-package/adapters/final-cut/typescript/src/documents.js",
@@ -111,6 +112,7 @@ test("published package contains the runnable Framekit CLI and MCP sources", asy
   for (const executable of [
     "dist-package/apps/mcp-server/runtime/speech-analyzer-wrapper.mjs",
     "dist-package/apps/mcp-server/runtime/whisper-speech-backend.py",
+    "dist-package/apps/mcp-server/runtime/ffmpeg-audio-backend.py",
   ]) {
     const packedFile = packed.files.find(({ path }) => path === executable);
     assert.ok(packedFile && (packedFile.mode & 0o111) !== 0, `${executable} must remain executable in the package`);

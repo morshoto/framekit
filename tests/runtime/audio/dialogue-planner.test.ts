@@ -3,6 +3,7 @@ import test from "node:test";
 import { planDialogueGain, type AudioMeasurement } from "@framekit/runtime";
 
 const measurement = (overrides: Partial<AudioMeasurement> = {}): AudioMeasurement => ({
+  signalScope: "occurrence",
   mediaId: "dialogue-media",
   occurrenceId: "dialogue-clip",
   requestedRange: { start: 0, end: 10 },

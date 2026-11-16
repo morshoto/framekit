@@ -42,6 +42,7 @@ function createFixture(options: {
       source: "fixtures/interview.wav",
       duration: mediaDuration,
       speech: {
+        observedRange: { start: 0, end: mediaDuration },
         words,
         vadSegments: [
           { start: 0, end: 0.7, kind: "speech" },

@@ -3055,6 +3055,17 @@
   },
   "recordedAtCommit": "37a92fa1",
   "addedTestNames": {
+    "tests/integration/phase1.test.ts": [
+      "\"post-write speech reanalysis preserves mixed VAD coverage without advertising complete VAD\"",
+      "\"post-write speech reanalysis rejects inconsistent provenance across disjoint ranges\"",
+      "\"post-write speech reanalysis refuses gaps in observed source coverage\""
+    ],
+    "tests/speech/filler-components.test.ts": [
+      "\"resolver does not authorize a cut from partial VAD coverage\""
+    ],
+    "tests/speech/mapping.test.ts": [
+      "\"speech mapping retains partial VAD coverage and only advertises fully covered occurrences\""
+    ],
     "tests/integration/test-suites.test.ts": [
       "\"relocations preserve every reviewed suite member exactly once\"",
       "\"duplicate inventory entries are rejected rather than executing a test twice\"",
@@ -3123,6 +3134,31 @@
     "tests/integration/boundary-policy.test.ts": [
       "\"document entrypoint preserves existing compiler and parser exports without native controls\"",
       "`document import restrictions reject transitive native reachability: ${statement}`"
+    ],
+    "tests/integration/dialogue-normalization-skill.test.ts": [
+      "\"source-only post-write analysis cannot verify an occurrence gain edit\""
+    ],
+    "tests/integration/semantic-media.test.ts": [
+      "\"source audio analysis cannot authorize an occurrence gain edit\"",
+      "\"source audio results explicitly identify the measured signal\"",
+      "\"audio measurements reject a different occurrence before previewing edits\"",
+      "\"production MCP rejects malformed audio while transcription stays available\"",
+      "\"media understanding does not publish provider-rejected audio as analyzed evidence\"",
+      "\"audio occurrence measurement retains declared source clock and signal format\"",
+      "\"audio requests reject contradictory rational ranges before provider dispatch\""
+    ],
+    "tests/speech/command-analyzer.test.ts": [
+      "`${kind} rejects replaced source bytes before starting the provider`",
+      "`${kind} rejects a source replaced while its provider is running`",
+      "`${kind} analyzes matching source content without changing media or timeline`",
+      "`command audio rejects invalid ${label}`",
+      "\"command audio rejects invalid or mismatched occurrence signal provenance\"",
+      "\"command audio bounds source verification before and after the provider\""
+    ],
+    "tests/speech/revision-bound-analysis.test.ts": [
+      "\"speech binding retains an unavailable VAD reason without inventing activity\"",
+      "\"speech binding rejects conflicting VAD availability evidence\"",
+      "\"speech binding rejects malformed or misleading VAD coverage\""
     ],
     "tests/integration/canonical-native-mcp.test.ts": [
       "\"uncertain placement outcomes block subsequent native edits\"",
@@ -3313,6 +3349,121 @@
     }
   ],
   "featureIntegrations": [
+    {
+      "pullRequests": [738],
+      "reason": "Do not represent unobserved gaps as continuous post-write speech coverage.",
+      "addedTestNames": {
+        "tests/integration/phase1.test.ts": [
+          "\"post-write speech reanalysis refuses gaps in observed source coverage\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [738],
+      "reason": "Reject conflicting provider and clock provenance across disjoint reanalysis ranges.",
+      "addedTestNames": {
+        "tests/integration/phase1.test.ts": [
+          "\"post-write speech reanalysis rejects inconsistent provenance across disjoint ranges\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [738],
+      "reason": "Preserve range-scoped VAD availability through partial reanalysis without exposing incomplete top-level VAD.",
+      "addedTestNames": {
+        "tests/integration/phase1.test.ts": [
+          "\"post-write speech reanalysis preserves mixed VAD coverage without advertising complete VAD\""
+        ],
+        "tests/speech/filler-components.test.ts": [
+          "\"resolver does not authorize a cut from partial VAD coverage\""
+        ],
+        "tests/speech/mapping.test.ts": [
+          "\"speech mapping retains partial VAD coverage and only advertises fully covered occurrences\""
+        ],
+        "tests/speech/revision-bound-analysis.test.ts": [
+          "\"speech binding rejects malformed or misleading VAD coverage\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [738],
+      "reason": "Bound source verification before and after command analysis.",
+      "addedTestNames": {
+        "tests/speech/command-analyzer.test.ts": [
+          "\"command audio bounds source verification before and after the provider\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [738],
+      "reason": "Reject invalid command analyzer signal scope and mismatched occurrence identity.",
+      "addedTestNames": {
+        "tests/speech/command-analyzer.test.ts": [
+          "\"command audio rejects invalid or mismatched occurrence signal provenance\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        738
+      ],
+      "commit": "fc76990b84b1761f18dfc0dd34ec38e5c18b365a",
+      "reason": "Add source-integrity and signal-scope regressions; no baseline test identities removed.",
+      "addedTestNames": {
+        "tests/integration/dialogue-normalization-skill.test.ts": [
+          "\"source-only post-write analysis cannot verify an occurrence gain edit\""
+        ],
+        "tests/integration/semantic-media.test.ts": [
+          "\"source audio analysis cannot authorize an occurrence gain edit\"",
+          "\"source audio results explicitly identify the measured signal\"",
+          "\"audio measurements reject a different occurrence before previewing edits\""
+        ],
+        "tests/speech/command-analyzer.test.ts": [
+          "`${kind} rejects replaced source bytes before starting the provider`",
+          "`${kind} rejects a source replaced while its provider is running`",
+          "`${kind} analyzes matching source content without changing media or timeline`"
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        738
+      ],
+      "reason": "Add production MCP audio payload and declared signal provenance regressions; no baseline identities removed.",
+      "addedTestNames": {
+        "tests/integration/semantic-media.test.ts": [
+          "\"production MCP rejects malformed audio while transcription stays available\"",
+          "\"media understanding does not publish provider-rejected audio as analyzed evidence\"",
+          "\"audio occurrence measurement retains declared source clock and signal format\""
+        ],
+        "tests/speech/command-analyzer.test.ts": [
+          "`command audio rejects invalid ${label}`"
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        738
+      ],
+      "reason": "Validate direct runtime rational audio requests before provider dispatch; no baseline identities removed.",
+      "addedTestNames": {
+        "tests/integration/semantic-media.test.ts": [
+          "\"audio requests reject contradictory rational ranges before provider dispatch\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        738
+      ],
+      "reason": "Retain independent VAD unavailability and reject contradictory activity evidence; no baseline identities removed.",
+      "addedTestNames": {
+        "tests/speech/revision-bound-analysis.test.ts": [
+          "\"speech binding retains an unavailable VAD reason without inventing activity\"",
+          "\"speech binding rejects conflicting VAD availability evidence\""
+        ]
+      }
+    },
     {
       "pullRequests": [
         719

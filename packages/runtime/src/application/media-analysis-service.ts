@@ -16,6 +16,7 @@ import type {
   NoiseAnalysis,
   NoiseMeasurement,
   SpeechAnalysis,
+  VadCoverageSpan,
   RevisionBoundSpeechAnalysis,
   TimelineSemanticContext,
   TimelineSemanticContextQuery,
@@ -33,6 +34,7 @@ import type { RuntimeOptions } from "./runtime-options.js";
 import { CapabilityUnavailableError } from "../domain/capabilities.js";
 import { planRoughCut } from "../planning/rough-cut.js";
 import { bindSpeechAnalysis } from "../speech/analysis.js";
+import { validateAudioAnalysisPayload, validateAudioAnalysisRange } from "../audio/analysis.js";
 import { parseRational } from "../timeline/rational-time.js";
 
 export interface PostWriteAnalysisRequirements {
@@ -79,15 +81,17 @@ export class MediaAnalysisService {
       throw new Error(`TARGET_MISMATCH: occurrence ${occurrenceId} does not reference media ${mediaId}`);
     }
     const media = findMedia(project, mediaId);
-    const sourceStart = clip.sourceStart ?? 0;
-    const requestedRange = { start: sourceStart, end: sourceStart + clip.duration };
-    const analysis = await this.analyzeAudioForProject(project, media, requestedRange);
+    const sourceStart = clip.sourceStartTime ? rationalSeconds(clip.sourceStartTime) : clip.sourceStart ?? 0;
+    const duration = clip.durationTime ? rationalSeconds(clip.durationTime) : clip.duration;
+    const requestedRange = { start: sourceStart, end: sourceStart + duration };
+    const analysis = await this.analyzeAudioForProject(project, media, requestedRange, occurrenceId);
     const measuredRange = analysis.measuredRange ?? requestedRange;
     const analyzedDurationSeconds = analysis.analyzedDurationSeconds ?? measuredRange.end - measuredRange.start;
     if (Math.abs(analyzedDurationSeconds - (measuredRange.end - measuredRange.start)) > 0.000001) {
       throw new Error("ANALYSIS_INVALID: audio measured duration does not match its measured range");
     }
-    const valid = analysis.valid !== false
+    const signalScope = analysis.signalScope ?? "source";
+    const valid = signalScope === "occurrence" && analysis.valid !== false
       && Number.isFinite(analysis.integratedLufs)
       && Number.isFinite(analysis.truePeakDb)
       && Number.isFinite(analysis.silenceMs)
@@ -96,6 +100,10 @@ export class MediaAnalysisService {
     return {
       mediaId,
       occurrenceId,
+      signalScope,
+      sourceIdentity: sourceIdentityOf(media),
+      ...(analysis.sourceTimebase ? { sourceTimebase: structuredClone(analysis.sourceTimebase) } : {}),
+      ...(analysis.signalFormat ? { signalFormat: structuredClone(analysis.signalFormat) } : {}),
       requestedRange,
       measuredRange,
       revision: project.revision,
@@ -107,7 +115,9 @@ export class MediaAnalysisService {
       silenceMs: analysis.silenceMs,
       analyzedDurationSeconds,
       valid,
-      ...(analysis.invalidReason ? { invalidReason: analysis.invalidReason } : {}),
+      ...(signalScope === "source"
+        ? { invalidReason: "OCCURRENCE_SIGNAL_UNAVAILABLE" }
+        : analysis.invalidReason ? { invalidReason: analysis.invalidReason } : {}),
     };
   }
 
@@ -174,7 +184,14 @@ export class MediaAnalysisService {
     const input = { project, media };
     const [speechResult, audioResult, noiseResult, visualResult, metadataResult] = await Promise.all([
       settle(() => this.options.speechAnalyzer ? this.analyzeSpeechForProject(project, media) : undefined),
-      settle(() => this.options.audioAnalyzer ? this.analyzeAudioForProject(project, media) : undefined),
+      settle(async () => {
+        if (!this.options.audioAnalyzer) return undefined;
+        const result = await this.analyzeAudioForProject(project, media);
+        if (result.valid === false) {
+          throw new Error(`ANALYSIS_INVALID: ${result.invalidReason?.trim() || "audio provider rejected the measurement"}`);
+        }
+        return result;
+      }),
       settle(() => this.options.noiseAnalyzer?.analyze(input)),
       settle(() => this.options.visualAnalyzer?.analyze(input)),
       settle(() => this.options.metadataAnalyzer?.analyze(input)),
@@ -457,18 +474,21 @@ export class MediaAnalysisService {
     project: ProjectSnapshot,
     media: MediaContext,
     range?: TimeRange,
+    occurrenceId?: string,
   ): Promise<AudioAnalysis> {
     const analyzer = this.options.audioAnalyzer;
     if (!analyzer) throw new Error("CAPABILITY_UNAVAILABLE: audio analysis");
     const requestedRange = range ?? (media.duration === undefined ? undefined : { start: 0, end: media.duration });
     validateRequestedAudioRange(requestedRange, media.duration, "requested audio range");
-    const analysis = await analyzer.analyze({ project, media }, requestedRange);
+    const analysis = await analyzer.analyze({ project, media, ...(occurrenceId ? { occurrenceId } : {}) }, requestedRange);
+    validateAudioAnalysisPayload(analysis);
     validateAudioProvenance(analysis, {
       media,
       mediaId: media.mediaId,
       project,
       provider: analyzer.descriptor,
       requestedRange,
+      occurrenceId,
     });
     const measuredRange = analysis.measuredRange ?? (requestedRange ? structuredClone(requestedRange) : undefined);
     if (measuredRange && requestedRange) validateAudioRange(measuredRange, requestedRange, "measured audio range");
@@ -482,6 +502,7 @@ export class MediaAnalysisService {
     }
     return {
       ...structuredClone(analysis),
+      signalScope: analysis.signalScope ?? "source",
       schemaVersion: 1,
       mediaId: media.mediaId,
       sourceIdentity: sourceIdentityOf(media),
@@ -512,6 +533,12 @@ function mergeSpeechAnalyses(
 ): RevisionBoundSpeechAnalysis {
   const latest = analyses[analyses.length - 1];
   if (!latest) throw new Error("ANALYSIS_INVALID: speech reanalysis returned no results");
+  if (analyses.some((analysis) => !sameDescriptor(analysis.provider, latest.provider))) {
+    throw new Error("ANALYSIS_INVALID: speech evidence providers cannot be combined");
+  }
+  if (analyses.some((analysis) => !sameRational(analysis.sourceTimebase, latest.sourceTimebase))) {
+    throw new Error("ANALYSIS_INVALID: speech evidence timebases cannot be combined");
+  }
   if (previous?.provider && !sameDescriptor(previous.provider, latest.provider)) {
     throw new Error("ANALYSIS_INVALID: speech evidence providers cannot be combined");
   }
@@ -523,18 +550,31 @@ function mergeSpeechAnalyses(
     ...(previous?.requestedRange ? [previous.requestedRange] : []),
     ...analyses.map((analysis) => analysis.requestedRange),
   ]);
-  const observedRange = encompassingRange([
-    ...(previous?.observedRange ? [previous.observedRange] : []),
+  const observedRanges = mergeRanges([
+    ...(previous?.observedRange ? subtractObservedRanges(previous.observedRange, updatedRanges) : []),
     ...analyses.map((analysis) => analysis.observedRange),
   ]);
+  if (observedRanges.length !== 1) {
+    throw new Error("ANALYSIS_INVALID: speech observation coverage has gaps");
+  }
+  const observedRange = observedRanges[0]!;
   const words = mergeSpeechEvidence(
     previous?.words,
     analyses.map((analysis) => analysis.words),
     updatedRanges,
   );
-  const hasVad = previous?.vadSegments !== undefined || analyses.some((analysis) => analysis.vadSegments !== undefined);
-  const vadSegments = hasVad
-    ? mergeSpeechEvidence(previous?.vadSegments, analyses.map((analysis) => analysis.vadSegments ?? []), updatedRanges)
+  const vadCoverage = [
+    ...speechVadCoverage(previous).flatMap((span) => subtractVadCoverage(span, updatedRanges)),
+    ...analyses.flatMap((analysis) => speechVadCoverage(analysis)),
+  ].sort((left, right) => left.start - right.start || left.end - right.end);
+  let vadCursor = observedRange.start;
+  const completeVad = vadCoverage.length > 0 && vadCoverage.every((span) => {
+    if (span.status !== "available" || span.start !== vadCursor) return false;
+    vadCursor = span.end;
+    return true;
+  }) && vadCursor === observedRange.end;
+  const vadSegments = completeVad
+    ? vadCoverage.flatMap((span) => span.status === "available" ? span.segments : [])
     : undefined;
   const hasSilence = previous?.silenceSegments !== undefined || analyses.some((analysis) => analysis.silenceSegments !== undefined);
   const silenceSegments = hasSilence
@@ -545,16 +585,58 @@ function mergeSpeechAnalyses(
     ? mergeSpeechEvidence(previous?.protectedSegments, analyses.map((analysis) => analysis.protectedSegments ?? []), updatedRanges)
     : undefined;
 
+  const { vadSegments: _segments, vadUnavailableReason: _reason, vadCoverage: _coverage, capability: _capability, ...latestWithoutVad } = latest;
   return bindSpeechAnalysis({
-    ...latest,
+    ...latestWithoutVad,
     requestedRange,
     observedRange,
-    capability: vadSegments ? "transcription-plus-vad" : latest.capability,
+    capability: completeVad ? "transcription-plus-vad" : "transcription-only",
     words,
     ...(vadSegments ? { vadSegments } : {}),
+    ...(vadCoverage.length ? { vadCoverage } : {}),
+    ...(!completeVad ? { vadUnavailableReason: "VAD_INCOMPLETE_COVERAGE" } : {}),
     ...(silenceSegments ? { silenceSegments } : {}),
     ...(protectedSegments ? { protectedSegments } : {}),
   }, context);
+}
+
+function speechVadCoverage(analysis: SpeechAnalysis | undefined): VadCoverageSpan[] {
+  if (!analysis) return [];
+  if (analysis.vadCoverage !== undefined) return structuredClone(analysis.vadCoverage);
+  if (!analysis.observedRange) {
+    if (analysis.vadSegments !== undefined || analysis.vadUnavailableReason !== undefined) {
+      throw new Error("ANALYSIS_INVALID: cannot combine VAD without an observed range");
+    }
+    return [];
+  }
+  const { start, end } = analysis.observedRange;
+  return analysis.vadSegments !== undefined
+    ? [{ start, end, status: "available", segments: structuredClone(analysis.vadSegments) }]
+    : [{ start, end, status: "unavailable", reason: analysis.vadUnavailableReason ?? "VAD_NOT_REPORTED" }];
+}
+
+function subtractObservedRanges(observed: TimeRange, updatedRanges: TimeRange[]): TimeRange[] {
+  let ranges: TimeRange[] = [{ start: observed.start, end: observed.end }];
+  for (const update of updatedRanges) {
+    ranges = ranges.flatMap((range) => {
+      if (!rangesOverlap(range, update)) return [range];
+      return [
+        ...(range.start < update.start ? [{ start: range.start, end: Math.min(range.end, update.start) }] : []),
+        ...(range.end > update.end ? [{ start: Math.max(range.start, update.end), end: range.end }] : []),
+      ];
+    });
+  }
+  return ranges;
+}
+
+function subtractVadCoverage(span: VadCoverageSpan, updatedRanges: TimeRange[]): VadCoverageSpan[] {
+  const ranges = subtractObservedRanges(span, updatedRanges);
+  return ranges.map((range) => span.status === "unavailable"
+    ? { ...range, status: "unavailable" as const, reason: span.reason }
+    : { ...range, status: "available" as const, segments: span.segments.flatMap((segment) => {
+      const start = Math.max(segment.start, range.start), end = Math.min(segment.end, range.end);
+      return start < end ? [{ ...segment, start, end }] : [];
+    }) });
 }
 
 function mergeSpeechEvidence<T extends { start: number; end: number }>(
@@ -926,8 +1008,16 @@ function validateAudioProvenance(
     project: ProjectSnapshot;
     provider?: AnalyzerDescriptor;
     requestedRange?: TimeRange;
+    occurrenceId?: string;
   },
 ): void {
+  if (analysis.signalScope !== undefined && analysis.signalScope !== "source" && analysis.signalScope !== "occurrence") {
+    throw new Error("ANALYSIS_INVALID: unsupported audio signal scope");
+  }
+  if (analysis.signalScope === "occurrence"
+    && (!expected.occurrenceId || analysis.occurrenceId !== expected.occurrenceId)) {
+    throw new Error("TARGET_MISMATCH: audio occurrence signal does not match the requested occurrence");
+  }
   if (analysis.schemaVersion !== undefined && analysis.schemaVersion !== 1) {
     throw new Error("ANALYSIS_INVALID: unsupported audio analysis schema version");
   }
@@ -966,6 +1056,7 @@ function validateRequestedAudioRange(range: TimeRange | undefined, duration: num
     || (duration !== undefined && range.end > duration)) {
     throw new Error(`ANALYSIS_INVALID: ${label} must be finite, positive, and inside the source duration`);
   }
+  validateAudioAnalysisRange(range, label);
 }
 
 function sameContextRevision(left: { id: string; sequence: number; timestamp: string }, right: { id: string; sequence: number; timestamp: string }): boolean {

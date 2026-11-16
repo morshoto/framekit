@@ -1955,6 +1955,26 @@
       "network": "none"
     },
     {
+      "path": "tests/runtime/audio/ffmpeg-backend.test.ts",
+      "owner": "apps/mcp-server",
+      "reviewed": true,
+      "tags": [
+        "unit",
+        "contract",
+        "integration"
+      ],
+      "evidence": "process",
+      "dependsOn": [
+        "apps/mcp-server"
+      ],
+      "requires": ["python3"],
+      "platforms": [
+        "darwin",
+        "linux"
+      ],
+      "network": "none"
+    },
+    {
       "path": "tests/runtime/editing/background-catalog.test.ts",
       "owner": "adapters/final-cut/typescript",
       "tags": [
@@ -2782,7 +2802,14 @@
       "platforms": [
         "any"
       ],
-      "network": "none"
+      "network": "none",
+      "expectedSkips": [
+        {
+          "name": "command audio bounds source verification before and after the provider",
+          "reason": "requires the POSIX /dev/zero device",
+          "platforms": ["win32"]
+        }
+      ]
     },
     {
       "path": "tests/speech/conformance.test.ts",
@@ -2870,6 +2897,26 @@
       ],
       "platforms": [
         "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/speech/silero-integration.test.ts",
+      "owner": "apps/mcp-server",
+      "reviewed": true,
+      "tags": [
+        "unit",
+        "contract",
+        "integration"
+      ],
+      "evidence": "process",
+      "dependsOn": [
+        "apps/mcp-server"
+      ],
+      "requires": ["python3"],
+      "platforms": [
+        "darwin",
+        "linux"
       ],
       "network": "none"
     },

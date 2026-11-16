@@ -65,9 +65,11 @@ test("generic Skill tools execute filler removal and dialogue normalization", as
     },
   };
   const audioAnalyzer: AudioAnalyzer = {
-    analyze: async ({ project }) => {
+    analyze: async ({ project, occurrenceId }) => {
       const gain = project.timeline.clips.find((clip) => clip.id === "dialogue-clip")?.gainDb ?? 0;
       return {
+        signalScope: occurrenceId ? "occurrence" : "source",
+        occurrenceId,
         integratedLufs: -20 + gain,
         truePeakDb: -6 + gain,
         silenceMs: 100,

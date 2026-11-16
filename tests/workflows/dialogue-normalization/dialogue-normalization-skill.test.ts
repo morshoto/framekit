@@ -52,9 +52,7 @@ function createFixture(options: {
       speech: { words: [{ text: "hello", start: 0, end: 2, confidence: 0.99 }] },
     }],
   });
-  const analyzer: AudioAnalyzer = {
-    descriptor: { id: "fixture.dialogue", provider: "fixture", version: "1" },
-    analyze: options.analyze ?? (async ({ project }) => {
+  const simulateOutput: AudioAnalyzer["analyze"] = options.analyze ?? (async ({ project }) => {
       const gain = project.timeline.clips.find((clip) => clip.id === "dialogue-occurrence")?.gainDb ?? 0;
       return {
         integratedLufs: (options.integratedLufs ?? -20) + gain,
@@ -63,6 +61,12 @@ function createFixture(options: {
         analyzedDurationSeconds: options.analyzedDurationSeconds ?? 10,
         dialoguePresent: options.dialoguePresent ?? true,
       };
+    });
+  const analyzer: AudioAnalyzer = {
+    descriptor: { id: "fixture.dialogue", provider: "fixture", version: "1" },
+    analyze: async (input, range) => ({
+      signalScope: input.occurrenceId ? "occurrence" : "source", occurrenceId: input.occurrenceId,
+      ...await simulateOutput(input, range),
     }),
   };
   return { adapter, analyzer, runtime: new AgentVideoRuntime(adapter, { audioAnalyzer: analyzer }) };
@@ -464,9 +468,9 @@ test("dialogue Skill applies clip gain through the deterministic FCPXML adapter"
   const adapter = new FcpxmlDocumentAdapter(path);
   const analyzer: AudioAnalyzer = {
     descriptor: { id: "fixture.fcpxml-dialogue", provider: "fixture", version: "1" },
-    analyze: async ({ project }) => {
-      const gain = project.timeline.clips[0]?.gainDb ?? 0;
-      return { integratedLufs: -20 + gain, truePeakDb: -6 + gain, silenceMs: 100, analyzedDurationSeconds: 10, dialoguePresent: true };
+    analyze: async ({ project, occurrenceId }) => {
+      const gain = project.timeline.clips.find((clip) => clip.id === occurrenceId)?.gainDb ?? 0;
+      return { signalScope: occurrenceId ? "occurrence" : "source", occurrenceId, integratedLufs: -20 + gain, truePeakDb: -6 + gain, silenceMs: 100, analyzedDurationSeconds: 10, dialoguePresent: true };
     },
   };
   const runtime = new AgentVideoRuntime(adapter, { audioAnalyzer: analyzer });
@@ -477,4 +481,29 @@ test("dialogue Skill applies clip gain through the deterministic FCPXML adapter"
 
   assert.equal(result.status, "VERIFIED");
   assert.match(await readFile(path, "utf8"), /adjust-volume amount="4dB"/);
+});
+
+test("source-only post-write analysis cannot verify an occurrence gain edit", async () => {
+  let calls = 0;
+  const { adapter, runtime } = createFixture({
+    analyze: async ({ occurrenceId }) => {
+      calls += 1;
+      return {
+        signalScope: calls === 1 ? "occurrence" : "source",
+        occurrenceId,
+        integratedLufs: calls === 1 ? -20 : -16,
+        truePeakDb: -6,
+        silenceMs: 0,
+        analyzedDurationSeconds: 10,
+        dialoguePresent: true,
+      };
+    },
+  });
+  runtime.registerBuiltinSkills();
+  const before = await adapter.readProject();
+  const { preview } = await previewDialogue(runtime);
+  const result = await runtime.executeSkill(preview.previewToken);
+  assert.equal(result.status, "ROLLED_BACK");
+  assert.equal(result.rollback.succeeded, true);
+  assert.equal(canonicalSnapshotDigest(await adapter.readProject()), canonicalSnapshotDigest(before));
 });

@@ -82,6 +82,61 @@ standard output. `FRAMEKIT_ANALYZER_TIMEOUT_MS` changes the bounded provider
 timeout. Missing providers report unavailable analysis; they do not invent
 media descriptions.
 
+Audio results identify their measured signal with `signalScope`. Existing
+source-file providers default to `source`; those results are useful for source
+analysis but cannot verify timeline gain changes. Occurrence-aware providers
+receive an explicit `occurrenceId` and must return that same ID with
+`signalScope: occurrence`. Source-only or mismatched evidence cannot be used
+as a post-edit occurrence measurement.
+
+Audio payloads require finite loudness/peak values and nonnegative silence and
+sample counts. Malformed payloads fail `audio.analyze`; `media.understand`
+reports audio unavailable while preserving successful transcription and other
+analysis. Providers may report `sourceTimebase` as a positive rational clock and
+`signalFormat` with positive integer `sampleRate`/`channels` and an optional
+nonempty `channelLayout`. Declared range timing and format are validated and
+retained; absent technical metadata is not inferred.
+
+For source-file loudness in a checkout, the optional
+`apps/mcp-server/runtime/ffmpeg-audio-backend.py` command requires Python 3,
+`ffmpeg` and `ffprobe` on `PATH`. Select it with `FRAMEKIT_AUDIO_ANALYZER` and
+pin the installed FFmpeg and backend versions as part of your environment. The
+executable also ships in the package's MCP runtime assets. It measures one
+mono/stereo source audio stream with zero stream offset, returning integrated
+LUFS, oversampled true peak and silence below -60 dB for at least 100 ms.
+Requested bounds are quantized inward to sample coordinates; decoded coverage,
+measured ranges, source clock and channel format are retained. Ambiguous
+streams, short/silent or truncated signals and invalid tool output are
+unavailable. Occurrence/output requests are rejected before media tools run;
+this source measurement cannot verify a timeline gain change.
+
+The existing Whisper backend can optionally run local Silero VAD. Install
+`silero-vad`/PyTorch and provide a local JIT model through
+`FRAMEKIT_SILERO_VAD_MODEL` plus its required SHA-256 in
+`FRAMEKIT_SILERO_VAD_SHA256`; the backend never downloads a model. Include the
+package/model/backend revisions in `FRAMEKIT_SPEECH_ANALYZER_VERSION`.
+FFmpeg decodes the first audio stream to mono 16 kHz. The detector uses threshold
+0.5, 250 ms minimum speech, 100 ms minimum silence and 30 ms speech padding.
+Detected sample intervals are validated and clipped to the requested source
+range; ASR word or segment timestamps are never substituted for VAD.
+
+With optional VAD, detector failure leaves transcription available and reports
+`vadUnavailableReason` without activity segments. `FRAMEKIT_SPEECH_REQUIRE_VAD=1`
+instead rejects a combined result if VAD is unavailable. Successful results
+retain request/source/revision/provider provenance and a 1/16000 analysis clock.
+The Whisper transcription clock remains 1/16000 when optional VAD is unavailable;
+it describes the decoded analysis signal, not the original media's sample rate.
+After partial reanalysis, `vadCoverage` retains available segments and
+unavailable reasons by source range. If coverage is incomplete, the merged
+result reports transcription-only capability and omits top-level `vadSegments`;
+partial VAD must not be treated as complete edit-safety evidence.
+Reanalysis rejects legacy VAD evidence without an observed range instead of
+silently assigning that evidence to a source range.
+Reanalysis also rejects a merged speech result when the retained and newly
+observed ranges leave a gap, rather than reporting continuous coverage.
+These source-file capabilities do not establish native source observation,
+sample-accurate activity reference labels or edit/Undo acceptance.
+
 Use `connection.status` for connection diagnostics, `editor.inspect` for
 backend and capability details, and `editing.route` for the requested
 operation's selected path. Unsupported operations return a structured

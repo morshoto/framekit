@@ -43,6 +43,42 @@ const provider: AnalyzerDescriptor = {
   version: "2.1.0",
 };
 
+test("speech binding retains an unavailable VAD reason without inventing activity", () => {
+  const result = bindSpeechAnalysis({ words: [], vadUnavailableReason: "SILERO_VAD_MODEL_MISMATCH" }, { input, provider });
+  assert.equal(result.capability, "transcription-only");
+  assert.equal(result.vadSegments, undefined);
+  assert.equal(result.vadUnavailableReason, "SILERO_VAD_MODEL_MISMATCH");
+});
+
+test("speech binding rejects conflicting VAD availability evidence", () => {
+  assert.throws(() => bindSpeechAnalysis({ words: [], vadSegments: [], vadUnavailableReason: "failed" }, { input, provider }), /ANALYSIS_INVALID/);
+});
+
+test("speech binding rejects malformed or misleading VAD coverage", () => {
+  for (const coverage of [
+    [{ start: 0, end: 7, status: "available", segments: [] }, { start: 6, end: 12, status: "unavailable", reason: "offline" }],
+    [{ start: 0, end: 13, status: "available", segments: [] }],
+    [{ start: 0, end: 12, status: "unavailable" }],
+    [{ start: 0, end: 12, status: "available", segments: [{ start: 11, end: 13, kind: "speech" }] }],
+  ]) {
+    assert.throws(() => bindSpeechAnalysis({ words: [], vadCoverage: coverage }, { input, provider }), /ANALYSIS_INVALID/);
+  }
+  assert.throws(() => bindSpeechAnalysis({ words: [], vadSegments: [], vadCoverage: [
+    { start: 0, end: 6, status: "available", segments: [] },
+    { start: 6, end: 12, status: "unavailable", reason: "offline" },
+  ] }, { input, provider }), /ANALYSIS_INVALID.*complete available coverage/);
+  assert.throws(() => bindSpeechAnalysis({ words: [], vadSegments: [], vadCoverage: [
+    { start: 0, end: 12, status: "available", segments: [{ start: 1, end: 2, kind: "speech" }] },
+  ] }, { input, provider }), /ANALYSIS_INVALID.*differs/);
+  assert.throws(() => bindSpeechAnalysis({ words: [], vadUnavailableReason: "failed", vadCoverage: [
+    { start: 0, end: 12, status: "available", segments: [] },
+  ] }, { input, provider }), /ANALYSIS_INVALID.*conflicts/);
+  const complete = bindSpeechAnalysis({ words: [], vadSegments: [{ start: 1, end: 2, kind: "speech" }], vadCoverage: [
+    { start: 0, end: 12, status: "available", segments: [{ start: 1, end: 2, kind: "speech" }] },
+  ] }, { input, provider });
+  assert.equal(complete.capability, "transcription-plus-vad");
+});
+
 test("speech binding attaches revision, range, identity, provider, and source timebase", () => {
   const result = bindSpeechAnalysis({
     mediaId: sourceIdentity.mediaId,

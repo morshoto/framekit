@@ -1060,10 +1060,12 @@ function dialogueAudio(scenario: string) {
 function createDialogueAnalyzer(scenario: string): AudioAnalyzer {
   const original = dialogueAudio(scenario);
   return {
-    analyze: async ({ project }) => {
-      const gain = project.timeline.clips.find((clip) => clip.id === "dialogue-clip")?.gainDb ?? 0;
+    analyze: async ({ project, occurrenceId }) => {
+      const gain = project.timeline.clips.find((clip) => clip.id === occurrenceId)?.gainDb ?? 0;
       return {
         ...original,
+        signalScope: occurrenceId ? "occurrence" : "source",
+        occurrenceId,
         integratedLufs: original.integratedLufs + gain,
         truePeakDb: original.truePeakDb + gain,
         analyzedDurationSeconds: 10,
@@ -1083,7 +1085,13 @@ function parseToolError(value: unknown): string {
 }
 
 function sanitizePreview(preview: Record<string, any>): unknown {
-  const { previewToken: _previewToken, expiresAt: _expiresAt, ...stable } = preview;
+  const { previewToken: _previewToken, expiresAt: _expiresAt, ...rest } = preview;
+  const stable = structuredClone(rest);
+  for (const container of [stable, stable.plan, stable.plan?.details]) {
+    if (container?.measurement) {
+      container.measurement = sanitizeVerificationObserved(container.measurement);
+    }
+  }
   return stable;
 }
 
@@ -1111,7 +1119,7 @@ function sanitizeVerificationObserved(value: unknown): unknown {
   const raw = value as Record<string, unknown>;
   const observed: Record<string, unknown> = {};
   for (const key of [
-    "mediaId", "occurrenceId", "integratedLufs", "truePeakDb", "silenceMs",
+    "mediaId", "occurrenceId", "signalScope", "integratedLufs", "truePeakDb", "silenceMs",
     "analyzedDurationSeconds", "valid", "requestedRange", "measuredRange", "revision", "provider",
   ]) {
     if (raw[key] === undefined) continue;

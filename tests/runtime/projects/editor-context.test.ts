@@ -570,6 +570,103 @@ test("post-write speech reanalysis retains evidence outside changed ranges", asy
   assert.equal(speech?.revision?.id, transaction.after.revision.id);
 });
 
+test("post-write speech reanalysis preserves mixed VAD coverage without advertising complete VAD", async () => {
+  for (const initialVad of [true, false]) {
+    const sourceIdentity = { mediaId: "media-mixed", source: "interview.wav", mediaKind: "audio" as const, duration: 10 };
+    const editor = new InMemoryEditorAdapter({
+      projectId: "project-mixed", projectName: "Mixed VAD", timelineId: "timeline-mixed", timelineName: "Main",
+      clips: [{ id: "clip-mixed", mediaId: sourceIdentity.mediaId, name: "Interview", start: 0, duration: 10, track: 1 }],
+      media: [{ ...sourceIdentity, speech: {
+        schemaVersion: 1, mediaId: sourceIdentity.mediaId, sourceIdentity,
+        requestedRange: { start: 0, end: 10 }, observedRange: { start: 0, end: 10 },
+        revision: { id: "rev-0", sequence: 0, timestamp: new Date(0).toISOString() },
+        provider: { id: "fixture.speech", provider: "fixture" }, sourceTimebase: { value: "1", timescale: "16000" },
+        capability: initialVad ? "transcription-plus-vad" : "transcription-only",
+        words: [{ text: "before", start: 1, end: 1.5, confidence: 1 }, { text: "after", start: 7, end: 7.5, confidence: 1 }],
+        ...(initialVad ? { vadSegments: [{ start: 1, end: 1.5, kind: "speech" as const }, { start: 3.5, end: 6.5, kind: "speech" as const }, { start: 7, end: 7.5, kind: "speech" as const }] }
+          : { vadUnavailableReason: "MODEL_UNAVAILABLE" }),
+      } }],
+    });
+    let analyzerAvailable = !initialVad;
+    const runtime = new AgentVideoRuntime(editor, { speechAnalyzer: {
+      descriptor: { id: "fixture.speech", provider: "fixture" },
+      analyze: async (_input, range) => ({ requestedRange: range, observedRange: range, sourceTimebase: { value: "1", timescale: "16000" },
+        words: [{ text: "middle", start: 4.2, end: 4.6, confidence: 1 }],
+        ...(analyzerAvailable ? { vadSegments: [{ start: 4.2, end: 4.6, kind: "speech" as const }] } : { vadUnavailableReason: "MODEL_UNAVAILABLE" }),
+      }),
+    } });
+    const transaction = await runtime.edit({ type: "add-marker", timelineId: "timeline-mixed", marker: { id: "mixed-marker", start: 4, duration: 2, name: "Review" } }, { requireSpeechContinuity: true });
+    const speech = transaction.after.media[0]!.speech!;
+    assert.equal(speech.capability, "transcription-only");
+    assert.equal(speech.vadSegments, undefined);
+    assert.deepEqual(speech.words.map(word => word.text), ["before", "middle", "after"]);
+    assert.deepEqual(speech.vadCoverage?.map(({ start, end, status }) => ({ start, end, status })), [
+      { start: 0, end: 4, status: initialVad ? "available" : "unavailable" },
+      { start: 4, end: 6, status: initialVad ? "unavailable" : "available" },
+      { start: 6, end: 10, status: initialVad ? "available" : "unavailable" },
+    ]);
+    const coverage = speech.vadCoverage!;
+    if (initialVad) {
+      assert.deepEqual(coverage[0], { start: 0, end: 4, status: "available", segments: [{ start: 1, end: 1.5, kind: "speech" }, { start: 3.5, end: 4, kind: "speech" }] });
+      assert.deepEqual(coverage[1], { start: 4, end: 6, status: "unavailable", reason: "MODEL_UNAVAILABLE" });
+      assert.deepEqual(coverage[2], { start: 6, end: 10, status: "available", segments: [{ start: 6, end: 6.5, kind: "speech" }, { start: 7, end: 7.5, kind: "speech" }] });
+    } else {
+      assert.deepEqual(coverage[0], { start: 0, end: 4, status: "unavailable", reason: "MODEL_UNAVAILABLE" });
+      assert.deepEqual(coverage[1], { start: 4, end: 6, status: "available", segments: [{ start: 4.2, end: 4.6, kind: "speech" }] });
+      assert.deepEqual(coverage[2], { start: 6, end: 10, status: "unavailable", reason: "MODEL_UNAVAILABLE" });
+    }
+    analyzerAvailable = true;
+    const media = (runtime as unknown as { media: { reanalyzeAffectedRanges: (tx: typeof transaction, requirements: { speech: boolean }) => Promise<typeof transaction.after> } }).media;
+    const refreshed = await media.reanalyzeAffectedRanges({ ...transaction, attemptedAfter: transaction.after, diff: { ...transaction.diff, affectedRanges: [{ start: 0, end: 10 }] } }, { speech: true });
+    assert.equal(refreshed.media[0]!.speech!.capability, "transcription-plus-vad");
+    assert.equal(refreshed.media[0]!.speech!.vadUnavailableReason, undefined);
+    assert.deepEqual(refreshed.media[0]!.speech!.vadSegments, [{ start: 4.2, end: 4.6, kind: "speech" }]);
+  }
+});
+
+test("post-write speech reanalysis rejects inconsistent provenance across disjoint ranges", async () => {
+  for (const mismatch of ["clock", "provider", "none", "equivalent"] as const) {
+    const editor = new InMemoryEditorAdapter({
+      projectId: "project-ranges", projectName: "Ranges", timelineId: "timeline-ranges", timelineName: "Main",
+      clips: [{ id: "clip-ranges", mediaId: "media-ranges", name: "Interview", start: 0, duration: 10, track: 1 }],
+      media: [{ mediaId: "media-ranges", source: "interview.wav", duration: 10, speech: {
+        words: [], requestedRange: { start: 0, end: 10 }, observedRange: { start: 0, end: 10 },
+        sourceTimebase: { value: "1", timescale: "1000" }, provider: { id: "second", provider: "fixture" },
+      } }],
+    });
+    const runtime = new AgentVideoRuntime(editor, { speechAnalyzer: { analyze: async (_input, range) => ({
+      words: [],
+      sourceTimebase: range!.start === 1 && mismatch === "clock" ? { value: "1", timescale: "16000" }
+        : range!.start === 1 && mismatch === "equivalent" ? { value: "2", timescale: "2000" } : { value: "1", timescale: "1000" },
+      provider: { id: range!.start === 1 && mismatch === "provider" ? "first" : "second", provider: "fixture" },
+    }) } });
+    const transaction = await runtime.edit({ type: "add-marker", timelineId: "timeline-ranges", marker: { id: "range-marker", start: 1, duration: 1, name: "Review" } });
+    const media = (runtime as unknown as { media: { reanalyzeAffectedRanges: (tx: typeof transaction, requirements: { speech: boolean }) => Promise<typeof transaction.after> } }).media;
+    const reanalyze = () => media.reanalyzeAffectedRanges({ ...transaction, diff: { ...transaction.diff, affectedRanges: [{ start: 1, end: 2 }, { start: 5, end: 6 }] } }, { speech: true });
+    if (mismatch === "none" || mismatch === "equivalent") assert.equal((await reanalyze()).media[0]?.speech?.provider?.id, "second");
+    else await assert.rejects(reanalyze(), /ANALYSIS_INVALID: speech evidence (timebases|providers) cannot be combined/);
+  }
+});
+
+test("post-write speech reanalysis refuses gaps in observed source coverage", async () => {
+  for (const prior of [false, true]) {
+    const editor = new InMemoryEditorAdapter({
+      projectId: "project-gap", projectName: "Gap", timelineId: "timeline-gap", timelineName: "Main",
+      clips: [{ id: "clip-gap", mediaId: "media-gap", name: "Interview", start: 0, duration: 10, track: 1 }],
+      media: [{ mediaId: "media-gap", source: "interview.wav", duration: 10, ...(prior ? { speech: {
+        words: [], requestedRange: { start: 0, end: 10 }, observedRange: { start: 0, end: 10 },
+      } } : {}) }],
+    });
+    const runtime = new AgentVideoRuntime(editor, { speechAnalyzer: { analyze: async (_input, range) => ({
+      words: [], observedRange: prior && range!.start === 1 ? { start: 1, end: 1.5 } : range,
+    }) } });
+    const transaction = await runtime.edit({ type: "add-marker", timelineId: "timeline-gap", marker: { id: "gap-marker", start: 1, duration: 1, name: "Review" } });
+    const media = (runtime as unknown as { media: { reanalyzeAffectedRanges: (tx: typeof transaction, requirements: { speech: boolean }) => Promise<typeof transaction.after> } }).media;
+    await assert.rejects(media.reanalyzeAffectedRanges({ ...transaction, diff: { ...transaction.diff, affectedRanges: [{ start: 1, end: 2 }, { start: 5, end: 6 }] } }, { speech: true }),
+      /ANALYSIS_INVALID: speech observation coverage has gaps/);
+  }
+});
+
 test("post-write speech reanalysis coalesces overlapping source ranges", async () => {
   const ranges: Array<{ start: number; end: number }> = [];
   const editor = new InMemoryEditorAdapter({
