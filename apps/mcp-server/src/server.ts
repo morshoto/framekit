@@ -74,6 +74,7 @@ import {
 } from "./materialization-jobs.js";
 import {
   externalEditOperations,
+  externalEditPlanDigest,
   verifyExternalEditExportable,
   type HeadlessProjectWorkflow,
   type HeadlessRoughCutExecutionRequest,
@@ -1456,18 +1457,19 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     const operations = externalEditOperations(edit, project.timeline);
     const preview = await service.previewEdit(projectId, { schemaVersion: 1, expectedRevision, operations }, sequenceId);
     verifyExternalEditExportable(preview.after.timeline);
-    return preview;
+    return { ...preview, planDigest: externalEditPlanDigest(preview.command) };
   }));
 
   server.registerTool("headless.edit-json.execute", {
     description: "Execute a versioned external edit against a Framekit project revision.",
-    inputSchema: { projectId: z.string().min(1), sequenceId: z.string().min(1), expectedRevision: revisionValueSchema, edit: externalEditSchema },
-  }, async ({ projectId, sequenceId, expectedRevision, edit }) => sessionResult(async () => {
+    inputSchema: { projectId: z.string().min(1), sequenceId: z.string().min(1), expectedRevision: revisionValueSchema, edit: externalEditSchema, approved: z.literal(true), planDigest: z.string().regex(/^[a-f0-9]{64}$/) },
+  }, async ({ projectId, sequenceId, expectedRevision, edit, planDigest }) => sessionResult(async () => {
     const service = requireHeadlessProjects();
     const project = await service.inspect(projectId);
     const operations = externalEditOperations(edit, project.timeline);
     const preview = await service.previewEdit(projectId, { schemaVersion: 1, expectedRevision, operations }, sequenceId);
     verifyExternalEditExportable(preview.after.timeline);
+    if (externalEditPlanDigest(preview.command) !== planDigest) throw new Error("EXTERNAL_EDIT_STALE_PREVIEW: approved edit does not match preview");
     return service.executeEdit(projectId, { schemaVersion: 1, expectedRevision, operations }, sequenceId);
   }));
 

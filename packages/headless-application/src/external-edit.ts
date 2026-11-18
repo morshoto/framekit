@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import { compileTimelineIrToFcpxml } from "@framekit/final-cut/fcpxml";
-import type { RationalTime, TimelineIr, TimelineIrEditOperation } from "@framekit/runtime";
+import type { ProjectEditCommand, RationalTime, TimelineIr, TimelineIrEditOperation } from "@framekit/runtime";
 
 export interface ExternalEdit {
   schemaVersion: 1;
@@ -44,4 +45,9 @@ export function verifyExternalEditExportable(timeline: TimelineIr): void {
     provider: "final-cut", libraryUid: "preview-library", eventUid: "preview-event",
     projectUid: "preview-project", sequenceUid: "preview-sequence", materialization: "versioned",
   } });
+}
+
+/** Bind an approved preview to its target, base revision and translated operations. */
+export function externalEditPlanDigest(command: ProjectEditCommand): string {
+  return createHash("sha256").update(JSON.stringify(command)).digest("hex");
 }
