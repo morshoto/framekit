@@ -134,3 +134,22 @@ test("manual QA CLI explains preparation and never runs with missing arguments",
   assert.match(help.stdout, /UNVERIFIED/);
   await assert.rejects(run(process.execPath, ["--import", "tsx", script, "prepare"]), { code: 2 });
 });
+
+test("output inspection rejects a one-frame clip-boundary error", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-frame-boundary-"));
+  const run = promisify(execFile);
+  try {
+    const video = join(directory, "shifted.mp4");
+    await run("ffmpeg", ["-hide_banner", "-loglevel", "error", "-n",
+      "-f", "lavfi", "-i", "color=red:s=320x180:r=30:d=1",
+      "-f", "lavfi", "-i", "color=lime:s=320x180:r=30:d=2",
+      "-f", "lavfi", "-i", "color=blue:s=320x180:r=30:d=1",
+      "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000:duration=3",
+      "-filter_complex", "[0:v]trim=end_frame=29,setpts=PTS-STARTPTS[a];[1:v]trim=end_frame=31,setpts=PTS-STARTPTS[b];[a][b][2:v]concat=n=3:v=1:a=0[v]",
+      "-map", "[v]", "-map", "3:a", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1",
+      "-pix_fmt", "yuv420p", "-c:a", "aac", "-t", "3", video]);
+    assert.equal(evaluateExportMeasurements(await measureExport(video)).status, "FAIL");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
