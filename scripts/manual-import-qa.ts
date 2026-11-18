@@ -150,16 +150,7 @@ export async function prepareManualImportFixture(outputDirectory: string) {
     await client.close().catch(() => undefined);
     await transport.close().catch(() => undefined);
   }
-  const snapshot = await new FcpxmlDocumentAdapter(artifactPath).readProject();
-  const sourceFor = (id: string | undefined) => snapshot.media.find((item) => item.mediaId === id)?.source;
-  const expected = sources.map((source) => join(destination, source.filename));
-  const clips = snapshot.timeline.clips.filter((clip) => clip.track === 0);
-  if (clips.length !== 3 || clips.some((clip, index) => sourceFor(clip.mediaId) !== expected[index] || clip.sourceStart !== 1 || clip.duration !== 1)) {
-    throw new Error("ARTIFACT_INVALID: source order or trimmed ranges differ from the independent reference");
-  }
-  if (snapshot.timeline.storyElements.find((element) => element.kind === "title")?.text !== "FRAMEKIT QA") throw new Error("ARTIFACT_INVALID: title text missing");
-  const xml = await readFile(artifactPath, "utf8");
-  if (!xml.includes('audioRole="music"') || !xml.includes('<adjust-volume amount="-12dB" />')) throw new Error("ARTIFACT_INVALID: music or static gain missing");
+  await verifyPreparedArtifact(artifactPath, destination);
   const sha = async (path: string) => createHash("sha256").update(await readFile(path)).digest("hex");
   const sourceRecords = await Promise.all(media.map(async ({ filename }) => ({ filename, sha256: await sha(join(destination, filename)) })));
   const git = (await run("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
@@ -174,6 +165,30 @@ export async function prepareManualImportFixture(outputDirectory: string) {
     evidence: { artifact: "PASS", nativeImport: "UNVERIFIED", finalCutExport: "UNVERIFIED", titleEditability: "UNVERIFIED" },
   }, null, 2)}\n`, { flag: "wx" });
   return { artifactPath, manifestPath, nativeImport: "UNVERIFIED" as const, finalCutExport: "UNVERIFIED" as const };
+}
+
+/** Compare the generated FCPXML with fixed source, timing, title and music expectations. */
+export async function verifyPreparedArtifact(artifactPath: string, fixtureDirectory: string): Promise<void> {
+  const snapshot = await new FcpxmlDocumentAdapter(artifactPath).readProject();
+  const sourceFor = (id: string | undefined) => snapshot.media.find((item) => item.mediaId === id)?.source;
+  const expected = ["red.mp4", "green.mp4", "blue.mp4"].map((name) => join(resolve(fixtureDirectory), name));
+  const clips = snapshot.timeline.clips.filter((clip) => clip.track === 0);
+  if (clips.length !== 3 || clips.some((clip, index) => sourceFor(clip.mediaId) !== expected[index]
+    || clip.start !== index || clip.sourceStart !== 1 || clip.duration !== 1)) {
+    throw new Error("ARTIFACT_INVALID: source order or trimmed ranges differ from the independent reference");
+  }
+  const title = snapshot.timeline.storyElements.find((element) => element.kind === "title");
+  if (!title || title.text !== "FRAMEKIT QA" || title.start !== 0 || title.duration !== 1) {
+    throw new Error("ARTIFACT_INVALID: title text or timing differs from the independent reference");
+  }
+  const music = snapshot.timeline.clips.filter((clip) => sourceFor(clip.mediaId) === join(resolve(fixtureDirectory), "music.wav"));
+  if (music.length !== 1 || music[0]!.start !== 0 || music[0]!.sourceStart !== 0 || music[0]!.duration !== 3) {
+    throw new Error("ARTIFACT_INVALID: music source or range differs from the independent reference");
+  }
+  const xml = await readFile(artifactPath, "utf8");
+  if (!xml.includes('audioRole="music"') || !xml.includes('<adjust-volume amount="-12dB" />')) {
+    throw new Error("ARTIFACT_INVALID: music or static gain missing");
+  }
 }
 
 /** Inspect a supplied movie and leave native provenance and human observations unresolved. */
