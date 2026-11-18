@@ -78,7 +78,16 @@ test("prepares three trimmed clips through production MCP without claiming nativ
     assert.equal(result.finalCutExport, "UNVERIFIED");
     const manifest = JSON.parse(await readFile(result.manifestPath, "utf8"));
     assert.equal(manifest.sources.length, 4);
+    assert.match(manifest.candidate.commit, /^[a-f0-9]{40}$/);
+    assert.equal(typeof manifest.candidate.dirty, "boolean");
+    assert.ok(manifest.candidate.framekitVersion);
+    assert.ok(manifest.environment.nodeVersion);
+    assert.match(manifest.environment.ffmpegVersion, /^ffmpeg version /);
+    assert.equal(manifest.environment.finalCutVersion, "UNVERIFIED");
+    assert.ok(manifest.environment.osVersion);
+    assert.equal(new Set(manifest.sources.map((source: { mediaId: string }) => source.mediaId)).size, 4);
     for (const source of manifest.sources) {
+      assert.ok(source.mediaId);
       const actual = createHash("sha256").update(await readFile(join(destination, source.filename))).digest("hex");
       assert.equal(actual, source.sha256);
     }
