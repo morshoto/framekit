@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
-import { evaluateExportMeasurements, measureExport } from "../../../scripts/manual-import-qa.js";
+import { createHash } from "node:crypto";
+import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
+import { evaluateExportMeasurements, measureExport, prepareManualImportFixture } from "../../../scripts/manual-import-qa.js";
 
 const valid = () => ({
   durationSeconds: 3,
@@ -55,5 +57,33 @@ test("measures real media and rejects a silent copy without claiming Final Cut p
     assert.equal(evaluateExportMeasurements(await measureExport(silent)).status, "FAIL");
   } finally {
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+
+test("prepares three trimmed clips through production MCP without claiming native acceptance", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-765-prepare-"));
+  try {
+    const destination = join(root, "fixture");
+    const result = await prepareManualImportFixture(destination);
+    assert.equal(result.nativeImport, "UNVERIFIED");
+    assert.equal(result.finalCutExport, "UNVERIFIED");
+    const manifest = JSON.parse(await readFile(result.manifestPath, "utf8"));
+    assert.equal(manifest.sources.length, 4);
+    for (const source of manifest.sources) {
+      const actual = createHash("sha256").update(await readFile(join(destination, source.filename))).digest("hex");
+      assert.equal(actual, source.sha256);
+    }
+    assert.equal(createHash("sha256").update(await readFile(result.artifactPath)).digest("hex"), manifest.artifact.sha256);
+    const xml = await new FcpxmlDocumentAdapter(result.artifactPath).readProject();
+    const source = (id: string | undefined) => xml.media.find((item) => item.mediaId === id)?.source;
+    assert.deepEqual(xml.timeline.clips.filter((clip) => clip.track === 0).map((clip) => [source(clip.mediaId), clip.sourceStart, clip.duration]), [
+      [join(destination, "red.mp4"), 1, 1], [join(destination, "green.mp4"), 1, 1], [join(destination, "blue.mp4"), 1, 1],
+    ]);
+    assert.equal(xml.timeline.storyElements.find((item) => item.kind === "title")?.text, "FRAMEKIT QA");
+    assert.match(await readFile(result.artifactPath, "utf8"), /<adjust-volume amount="-12dB" \/>/);
+    await assert.rejects(prepareManualImportFixture(destination), /EEXIST/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });
