@@ -123,8 +123,8 @@ movie path. After Final Cut finishes its export, run:
 node --import tsx scripts/manual-import-qa.ts inspect /path/to/qa-fixture /path/to/final-cut-export.mov /path/to/new-observation-directory
 ```
 
-The inspector rechecks artifact and source hashes, checks duration, samples
-frames at three independent reference times, measures the 880 Hz music tone,
+The inspector rechecks artifact and source hashes, checks duration, frame rate and frame count, samples
+clip interiors and adjacent boundary frames, measures the 880 Hz music tone,
 and saves a frame for human title-visibility inspection. It never asserts that
 a movie came from Final Cut, that import succeeded, or that the title is
 editable. Record those observations separately and verify title text in the

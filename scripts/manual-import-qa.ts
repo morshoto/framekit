@@ -12,20 +12,27 @@ const run = promisify(execFile);
 /** Artifact measurements cannot establish how a movie was produced or imported. */
 export interface ExportMeasurements {
   durationSeconds: number;
+  frameCount: number;
+  frameRate: string;
+  boundarySamples: Array<{ frameNumber: number; rgb: [number, number, number] }>;
   samples: Array<{ timeSeconds: number; rgb: [number, number, number] }>;
   toneAmplitudes: number[];
 }
 
 export function evaluateExportMeasurements(observed: ExportMeasurements) {
   const samples = [0.5, 1.5, 2.5];
-  const duration = Number.isFinite(observed.durationSeconds) && Math.abs(observed.durationSeconds - 3) <= 0.05;
-  const video = observed.samples.length === 3 && observed.samples.every((sample, index) => {
-    const [r, g, b] = sample.rgb;
-    const components = [r, g, b];
+  const duration = Number.isFinite(observed.durationSeconds) && Math.abs(observed.durationSeconds - 3) <= 0.05
+    && observed.frameCount === 90 && observed.frameRate === "30/1";
+  const isColor = (components: number[], index: number) => {
     const dominant = components[index]!;
-    return Math.abs(sample.timeSeconds - samples[index]!) < 0.001
-      && components.every((value) => Number.isFinite(value) && value >= 0 && value <= 255)
+    return components.length === 3 && components.every((value) => Number.isFinite(value) && value >= 0 && value <= 255)
       && dominant > 140 && components.every((value, channel) => channel === index || dominant - value > 100);
+  };
+  const expectedBoundaries = [{ frame: 29, color: 0 }, { frame: 30, color: 1 }, { frame: 59, color: 1 }, { frame: 60, color: 2 }];
+  const boundaries = observed.boundarySamples.length === expectedBoundaries.length && observed.boundarySamples.every((sample, index) =>
+    sample.frameNumber === expectedBoundaries[index]!.frame && isColor(sample.rgb, expectedBoundaries[index]!.color));
+  const video = boundaries && observed.samples.length === 3 && observed.samples.every((sample, index) => {
+    return Math.abs(sample.timeSeconds - samples[index]!) < 0.001 && isColor(sample.rgb, index);
   });
   const audio = observed.toneAmplitudes.length === 3 && observed.toneAmplitudes.every((value) => Number.isFinite(value) && value >= 0.002 && value <= 0.2);
   return {
@@ -42,11 +49,12 @@ export function evaluateExportMeasurements(observed: ExportMeasurements) {
 export async function measureExport(path: string): Promise<ExportMeasurements> {
   const ffprobe = process.env.FFPROBE_BIN || "ffprobe";
   const ffmpeg = process.env.FFMPEG_BIN || "ffmpeg";
-  const probe = JSON.parse((await run(ffprobe, ["-v", "error", "-show_entries", "format=duration:stream=codec_type", "-of", "json", path])).stdout) as {
-    format?: { duration?: string }; streams?: Array<{ codec_type?: string }>;
+  const probe = JSON.parse((await run(ffprobe, ["-v", "error", "-count_frames", "-show_entries", "format=duration:stream=codec_type,avg_frame_rate,nb_read_frames", "-of", "json", path])).stdout) as {
+    format?: { duration?: string }; streams?: Array<{ codec_type?: string; avg_frame_rate?: string; nb_read_frames?: string }>;
   };
-  if (!probe.streams?.some((stream) => stream.codec_type === "video")) throw new Error("EXPORT_INVALID: video stream missing");
-  const hasAudio = probe.streams.some((stream) => stream.codec_type === "audio");
+  const videoStream = probe.streams?.find((stream) => stream.codec_type === "video");
+  if (!videoStream) throw new Error("EXPORT_INVALID: video stream missing");
+  const hasAudio = probe.streams?.some((stream) => stream.codec_type === "audio") ?? false;
   const samples: ExportMeasurements["samples"] = [];
   const toneAmplitudes: number[] = [];
   for (const timeSeconds of [0.5, 1.5, 2.5]) {
@@ -69,7 +77,15 @@ export async function measureExport(path: string): Promise<ExportMeasurements> {
     }
     toneAmplitudes.push(2 * Math.hypot(sine, cosine) / count);
   }
-  return { durationSeconds: Number(probe.format?.duration), samples, toneAmplitudes };
+  const boundarySamples: ExportMeasurements["boundarySamples"] = [];
+  for (const frameNumber of [29, 30, 59, 60]) {
+    const pixels = await runBytes(ffmpeg, ["-v", "error", "-i", path,
+      "-vf", `select=eq(n\\,${frameNumber}),crop=2:2:2:2,format=rgb24`, "-fps_mode", "passthrough", "-frames:v", "1", "-f", "rawvideo", "pipe:1"]);
+    if (pixels.length !== 12) throw new Error(`EXPORT_INVALID: missing frame ${frameNumber}`);
+    boundarySamples.push({ frameNumber, rgb: [pixels[0]!, pixels[1]!, pixels[2]!] });
+  }
+  return { durationSeconds: Number(probe.format?.duration), frameCount: Number(videoStream.nb_read_frames),
+    frameRate: videoStream.avg_frame_rate ?? "", samples, boundarySamples, toneAmplitudes };
 }
 
 function runBytes(command: string, args: string[]): Promise<Buffer> {
@@ -160,7 +176,9 @@ export async function prepareManualImportFixture(outputDirectory: string) {
   await writeFile(manifestPath, `${JSON.stringify({ schemaVersion: 1, candidate: { commit: git, dirty, framekitVersion: packageVersion },
     sources: sourceRecords, artifact: { filename: "edit.fcpxml", sha256: await sha(artifactPath), revision: result.provenance.revision },
     expected: { sourceOrder: ["red.mp4", "green.mp4", "blue.mp4"], sourceStartSeconds: 1, clipDurationSeconds: 1,
-      durationSeconds: 3, samples: [{ timeSeconds: 0.5, color: "red" }, { timeSeconds: 1.5, color: "green" }, { timeSeconds: 2.5, color: "blue" }],
+      durationSeconds: 3, frameRate: "30/1", frameCount: 90,
+      boundaryFrames: [{ frameNumber: 29, color: "red" }, { frameNumber: 30, color: "green" }, { frameNumber: 59, color: "green" }, { frameNumber: 60, color: "blue" }],
+      samples: [{ timeSeconds: 0.5, color: "red" }, { timeSeconds: 1.5, color: "green" }, { timeSeconds: 2.5, color: "blue" }],
       title: { text: "FRAMEKIT QA", startSeconds: 0, durationSeconds: 1 }, music: { frequencyHz: 880, gainDb: -12 } },
     evidence: { artifact: "PASS", nativeImport: "UNVERIFIED", finalCutExport: "UNVERIFIED", titleEditability: "UNVERIFIED" },
   }, null, 2)}\n`, { flag: "wx" });

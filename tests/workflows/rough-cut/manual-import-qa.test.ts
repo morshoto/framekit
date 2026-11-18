@@ -11,6 +11,14 @@ import { evaluateExportMeasurements, measureExport, prepareManualImportFixture, 
 
 const valid = () => ({
   durationSeconds: 3,
+  frameCount: 90,
+  frameRate: "30/1",
+  boundarySamples: [
+    { frameNumber: 29, rgb: [235, 20, 20] as [number, number, number] },
+    { frameNumber: 30, rgb: [20, 235, 20] as [number, number, number] },
+    { frameNumber: 59, rgb: [20, 235, 20] as [number, number, number] },
+    { frameNumber: 60, rgb: [20, 20, 235] as [number, number, number] },
+  ],
   samples: [
     { timeSeconds: 0.5, rgb: [235, 20, 20] as [number, number, number] },
     { timeSeconds: 1.5, rgb: [20, 235, 20] as [number, number, number] },
