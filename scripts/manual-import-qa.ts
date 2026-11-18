@@ -1,5 +1,12 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
 
 const run = promisify(execFile);
 /** Artifact measurements cannot establish how a movie was produced or imported. */
@@ -72,4 +79,99 @@ function runBytes(command: string, args: string[]): Promise<Buffer> {
       else resolve(stdout);
     });
   });
+}
+
+
+/** Generate non-private inputs and the exact production-MCP FCPXML handoff. */
+export async function prepareManualImportFixture(outputDirectory: string) {
+  const destination = resolve(outputDirectory);
+  await mkdir(destination); // Exclusive: never overwrite a pre-existing directory.
+  const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+  const ffmpeg = process.env.FFMPEG_BIN || "ffmpeg";
+  const sources = [
+    { filename: "red.mp4", color: "red" },
+    { filename: "green.mp4", color: "lime" },
+    { filename: "blue.mp4", color: "blue" },
+  ];
+  for (const source of sources) {
+    await run(ffmpeg, ["-hide_banner", "-loglevel", "error", "-n",
+      "-f", "lavfi", "-i", "color=black:s=320x180:r=30:d=1",
+      "-f", "lavfi", "-i", `color=${source.color}:s=320x180:r=30:d=2`,
+      "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0[v]", "-map", "[v]", "-an",
+      "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-pix_fmt", "yuv420p", join(destination, source.filename)]);
+  }
+  await run(ffmpeg, ["-hide_banner", "-loglevel", "error", "-n", "-f", "lavfi", "-i",
+    "sine=frequency=880:sample_rate=48000:duration=3", "-c:a", "pcm_s16le", join(destination, "music.wav")]);
+  const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+  Object.assign(env, { FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1",
+    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0", FRAMEKIT_FINAL_CUT_SOCKET: join(destination, "absent.sock"),
+    FRAMEKIT_FCPXML_PATH: join(destination, "absent.fcpxml"), FRAMEKIT_STATE_DIR: join(destination, "state") });
+  const transport = new StdioClientTransport({ command: process.execPath,
+    args: ["--import", "tsx", join(repository, "apps/mcp-server/src/main.ts")], env, stderr: "pipe" });
+  const client = new Client({ name: "framekit-manual-import-qa", version: "1.0.0" });
+  const seconds = (value: number) => ({ value: String(value), timescale: "1" });
+  const projectId = `qa-${randomUUID()}`;
+  const sequenceId = `sequence-${randomUUID()}`;
+  const artifactPath = join(destination, "edit.fcpxml");
+  let result: any;
+  let media: Array<{ filename: string; id: string }> = [];
+  try {
+    await client.connect(transport);
+    const call = async (name: string, args: Record<string, unknown>): Promise<any> => {
+      const response = await client.callTool({ name, arguments: args });
+      const content = response.content as Array<{ type: string; text?: string }>;
+      if (response.isError || content[0]?.type !== "text") throw new Error(`${name}: ${content[0]?.text ?? "invalid response"}`);
+      return JSON.parse(content[0].text ?? "null");
+    };
+    const created = await call("headless.project.create", { timeline: {
+      schemaVersion: 1, project: { id: projectId, name: "Disposable Framekit QA" },
+      sequence: { id: sequenceId, name: "Manual import QA", durationTime: seconds(0), frameDuration: { value: "1", timescale: "30" },
+        occurrences: [], storyElements: [], markers: [], captions: [], titles: [], transitions: [] },
+      resources: [], revision: { id: "initial", sequence: 0, timestamp: "2026-01-01T00:00:00.000Z" },
+    } });
+    let revision = created.timeline.revision;
+    for (const filename of [...sources.map((source) => source.filename), "music.wav"]) {
+      const registered = await call("headless.media.register", { projectId, sourcePath: join(destination, filename), expectedRevision: revision });
+      media.push({ filename, id: registered.resource.id });
+      revision = registered.project.timeline.revision;
+    }
+    const edit = { schemaVersion: 1, clips: media.slice(0, 3).map((source, index) => ({
+      id: `clip-${index + 1}`, mediaId: source.id, sourceStartTime: seconds(1), durationTime: seconds(1),
+    })), title: { id: "title", text: "FRAMEKIT QA", startTime: seconds(0), durationTime: seconds(1) },
+    music: { id: "music", mediaId: media[3]!.id, sourceStartTime: seconds(0), startTime: seconds(0), durationTime: seconds(3), gainDb: -12 } };
+    const request = { projectId, sequenceId, expectedRevision: revision, edit };
+    const preview = await call("headless.edit-json.preview", request);
+    const executed = await call("headless.edit-json.execute", { ...request, approved: true, planDigest: preview.planDigest });
+    result = await call("headless.fcpxml.export", { projectId, sequenceId, expectedRevision: executed.after.timeline.revision,
+      outputPath: artifactPath, target: { provider: "final-cut", libraryUid: "disposable-library", eventUid: "disposable-event",
+        projectUid: `qa-${randomUUID()}`, sequenceUid: `qa-${randomUUID()}`, materialization: "versioned" } });
+    if (!result.artifact?.verified) throw new Error("ARTIFACT_INVALID: production export was not verified");
+  } finally {
+    await client.close().catch(() => undefined);
+    await transport.close().catch(() => undefined);
+  }
+  const snapshot = await new FcpxmlDocumentAdapter(artifactPath).readProject();
+  const sourceFor = (id: string | undefined) => snapshot.media.find((item) => item.mediaId === id)?.source;
+  const expected = sources.map((source) => join(destination, source.filename));
+  const clips = snapshot.timeline.clips.filter((clip) => clip.track === 0);
+  if (clips.length !== 3 || clips.some((clip, index) => sourceFor(clip.mediaId) !== expected[index] || clip.sourceStart !== 1 || clip.duration !== 1)) {
+    throw new Error("ARTIFACT_INVALID: source order or trimmed ranges differ from the independent reference");
+  }
+  if (snapshot.timeline.storyElements.find((element) => element.kind === "title")?.text !== "FRAMEKIT QA") throw new Error("ARTIFACT_INVALID: title text missing");
+  const xml = await readFile(artifactPath, "utf8");
+  if (!xml.includes('audioRole="music"') || !xml.includes('<adjust-volume amount="-12dB" />')) throw new Error("ARTIFACT_INVALID: music or static gain missing");
+  const sha = async (path: string) => createHash("sha256").update(await readFile(path)).digest("hex");
+  const sourceRecords = await Promise.all(media.map(async ({ filename }) => ({ filename, sha256: await sha(join(destination, filename)) })));
+  const git = (await run("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
+  const dirty = Boolean((await run("git", ["status", "--porcelain"], { cwd: repository })).stdout.trim());
+  const packageVersion = (JSON.parse(await readFile(join(repository, "package.json"), "utf8")) as { version: string }).version;
+  const manifestPath = join(destination, "reference.json");
+  await writeFile(manifestPath, `${JSON.stringify({ schemaVersion: 1, candidate: { commit: git, dirty, framekitVersion: packageVersion },
+    sources: sourceRecords, artifact: { filename: "edit.fcpxml", sha256: await sha(artifactPath), revision: result.provenance.revision },
+    expected: { sourceOrder: ["red.mp4", "green.mp4", "blue.mp4"], sourceStartSeconds: 1, clipDurationSeconds: 1,
+      durationSeconds: 3, samples: [{ timeSeconds: 0.5, color: "red" }, { timeSeconds: 1.5, color: "green" }, { timeSeconds: 2.5, color: "blue" }],
+      title: { text: "FRAMEKIT QA", startSeconds: 0, durationSeconds: 1 }, music: { frequencyHz: 880, gainDb: -12 } },
+    evidence: { artifact: "PASS", nativeImport: "UNVERIFIED", finalCutExport: "UNVERIFIED", titleEditability: "UNVERIFIED" },
+  }, null, 2)}\n`, { flag: "wx" });
+  return { artifactPath, manifestPath, nativeImport: "UNVERIFIED" as const, finalCutExport: "UNVERIFIED" as const };
 }
