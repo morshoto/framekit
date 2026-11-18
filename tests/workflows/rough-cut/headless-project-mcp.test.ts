@@ -1721,6 +1721,18 @@ test("external edit JSON previews registered clips, a title and music without mu
       { id: "clip-b", mediaId: a.resource.id, sourceStartTime: seconds(1), durationTime: seconds(1) },
     ], title: { id: "title", text: "Hello", startTime: seconds(0), durationTime: seconds(1) },
     music: { id: "music", mediaId: b.resource.id, sourceStartTime: seconds(0), startTime: seconds(0), durationTime: seconds(2), gainDb: -12 } };
+    for (const [name, invalidEdit] of [
+      ["unknown source", { ...edit, clips: [{ ...edit.clips[0], mediaId: "missing" }] }],
+      ["audio used as video", { ...edit, clips: [{ ...edit.clips[0], mediaId: b.resource.id }] }],
+      ["video used as music", { ...edit, music: { ...edit.music, mediaId: a.resource.id } }],
+      ["off-grid source start", { ...edit, clips: [{ ...edit.clips[0], sourceStartTime: { value: "1", timescale: "60" } }] }],
+      ["unsupported title styling", { ...edit, title: { ...edit.title, style: { color: "red" } } }],
+    ] as const) {
+      const rejected = await client.callTool({ name: "headless.edit-json.preview", arguments: {
+        projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit: invalidEdit,
+      } });
+      assert.equal(rejected.isError, true, name);
+    }
     const preview = payload(await client.callTool({ name: "headless.edit-json.preview", arguments: {
       projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit,
     } }));
