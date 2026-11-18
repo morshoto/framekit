@@ -11,6 +11,11 @@ export interface ExternalEdit {
 
 /** Convert the bounded interchange format to the existing project transaction operations. */
 export function externalEditOperations(edit: ExternalEdit, timeline: TimelineIr): TimelineIrEditOperation[] {
+  const sequence = timeline.sequence;
+  if (BigInt(sequence.durationTime.value) !== 0n || sequence.occurrences.length || sequence.storyElements.length
+    || sequence.markers.length || sequence.captions.length || sequence.titles?.length || sequence.transitions?.length) {
+    throw new Error("EXTERNAL_EDIT_INVALID: a new external edit requires an empty timeline");
+  }
   const assertSource = (id: string, kind: "video" | "audio") => {
     const resource = timeline.resources.find((item) => item.id === id);
     if (!resource || resource.mediaKind !== kind || resource.sourceKind !== "local-file" || !resource.sourceDigest) {

@@ -1705,20 +1705,28 @@ test("external edit JSON previews registered clips, a title and music without mu
   let client: Client | undefined;
   let transport: StdioClientTransport | undefined;
   try {
-    const video = join(directory, "video.mp4");
+    const video = join(directory, "a", "same.mp4");
+    const video2 = join(directory, "b", "same.mp4");
+    await mkdir(dirname(video), { recursive: true });
+    await mkdir(dirname(video2), { recursive: true });
     const music = join(directory, "music.wav");
     await generateSegmentedSource(video, [{ color: "red", duration: 3 }], 440);
+    await generateSegmentedSource(video2, [{ color: "blue", duration: 3 }], 660);
+    const sourcePaths = [video, video2, music];
     await execFileAsync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=880:duration=3", "-c:a", "pcm_s16le", music]);
     ({ client, transport } = await connectProductionClient(here, environment));
     const timeline = emptyTimeline();
     const initial = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline } }));
     const projectId = timeline.project.id;
     const a = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: video, expectedRevision: initial.timeline.revision } }));
-    const b = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: music, expectedRevision: a.project.timeline.revision } }));
+    const a2 = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: video2, expectedRevision: a.project.timeline.revision } }));
+    const b = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: music, expectedRevision: a2.project.timeline.revision } }));
+    assert.notEqual(a.resource.id, a2.resource.id);
+    const sourceDigests = await Promise.all(sourcePaths.map(async (path) => createHash("sha256").update(await readFile(path)).digest("hex")));
     const seconds = (n: number) => ({ value: String(n), timescale: "1" });
     const edit = { schemaVersion: 1, clips: [
       { id: "clip-a", mediaId: a.resource.id, sourceStartTime: seconds(0), durationTime: seconds(1) },
-      { id: "clip-b", mediaId: a.resource.id, sourceStartTime: seconds(1), durationTime: seconds(1) },
+      { id: "clip-b", mediaId: a2.resource.id, sourceStartTime: seconds(1), durationTime: seconds(1) },
     ], title: { id: "title", text: "Hello", startTime: seconds(0), durationTime: seconds(1) },
     music: { id: "music", mediaId: b.resource.id, sourceStartTime: seconds(0), startTime: seconds(0), durationTime: seconds(2), gainDb: -12 } };
     for (const [name, invalidEdit] of [
@@ -1746,6 +1754,22 @@ test("external edit JSON previews registered clips, a title and music without mu
     const inspected = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
     assert.deepEqual(inspected.timeline, b.project.timeline);
     assert.match(preview.planDigest, /^[a-f0-9]{64}$/);
+    const renamed = `${video}.saved`;
+    await rename(video, renamed);
+    try {
+      const missing = await client.callTool({ name: "headless.edit-json.execute", arguments: {
+        projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit, approved: true, planDigest: preview.planDigest,
+      } });
+      assert.equal(missing.isError, true, "missing source must block execution");
+      await writeFile(video, "changed source");
+      const changedSource = await client.callTool({ name: "headless.edit-json.execute", arguments: {
+        projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit, approved: true, planDigest: preview.planDigest,
+      } });
+      assert.equal(changedSource.isError, true, "changed source must block execution");
+      await unlink(video);
+    } finally {
+      await rename(renamed, video);
+    }
     const changed = await client.callTool({ name: "headless.edit-json.execute", arguments: {
       projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision,
       edit: { ...edit, title: { ...edit.title, text: "Changed" } }, approved: true, planDigest: preview.planDigest,
@@ -1771,9 +1795,11 @@ test("external edit JSON previews registered clips, a title and music without mu
     assert.equal(exported.artifact.verified, true);
     const parsed = await new FcpxmlDocumentAdapter(xmlPath).readProject();
     const sourceFor = (id: string | undefined) => parsed.media.find((item) => item.mediaId === id)?.source;
-    assert.deepEqual(parsed.timeline.clips.filter((clip) => sourceFor(clip.mediaId) === video).map((clip) => [clip.sourceStart, clip.duration]), [[0, 1], [1, 1]]);
+    assert.deepEqual(parsed.timeline.clips.filter((clip) => [video, video2].includes(sourceFor(clip.mediaId) ?? "")).map((clip) => [sourceFor(clip.mediaId), clip.sourceStart, clip.duration]), [[video, 0, 1], [video2, 1, 1]]);
     assert.deepEqual(parsed.timeline.clips.filter((clip) => sourceFor(clip.mediaId) === music).map((clip) => [clip.sourceStart, clip.duration]), [[0, 2]]);
     assert.equal(parsed.timeline.storyElements.find((item) => item.kind === "title")?.text, "Hello");
+    assert.match(await readFile(xmlPath, "utf8"), /<adjust-volume amount="-12dB" \/>/);
+    assert.deepEqual(await Promise.all(sourcePaths.map(async (path) => createHash("sha256").update(await readFile(path)).digest("hex"))), sourceDigests);
   } finally {
     await client?.close();
     await transport?.close();
