@@ -222,3 +222,31 @@ export async function verifyManualExport(fixtureDirectory: string, exportPath: s
   await writeFile(join(destination, "observation.json"), `${JSON.stringify(report, null, 2)}\n`, { flag: "wx" });
   return report;
 }
+
+async function main(args: string[]): Promise<void> {
+  const usage = [
+    "Usage: node --import tsx scripts/manual-import-qa.ts prepare NEW_DIRECTORY",
+    "       node --import tsx scripts/manual-import-qa.ts inspect FIXTURE_DIRECTORY VIDEO NEW_REPORT_DIRECTORY",
+    "These commands never operate Final Cut; native import, title editability and export provenance remain UNVERIFIED.",
+  ].join("\n");
+  if (args.length === 1 && args[0] === "--help") { process.stdout.write(`${usage}\n`); return; }
+  if (args[0] === "prepare" && args.length === 2) {
+    process.stdout.write(`${JSON.stringify(await prepareManualImportFixture(args[1]!), null, 2)}\n`);
+    return;
+  }
+  if (args[0] === "inspect" && args.length === 4) {
+    const report = await verifyManualExport(args[1]!, args[2]!, args[3]!);
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    if (report.measurements.status !== "PASS") process.exitCode = 1;
+    return;
+  }
+  process.stderr.write(`${usage}\n`);
+  process.exitCode = 2;
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main(process.argv.slice(2)).catch((error: unknown) => {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  });
+}
