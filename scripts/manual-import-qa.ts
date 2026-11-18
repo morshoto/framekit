@@ -175,3 +175,50 @@ export async function prepareManualImportFixture(outputDirectory: string) {
   }, null, 2)}\n`, { flag: "wx" });
   return { artifactPath, manifestPath, nativeImport: "UNVERIFIED" as const, finalCutExport: "UNVERIFIED" as const };
 }
+
+/** Inspect a supplied movie and leave native provenance and human observations unresolved. */
+export async function verifyManualExport(fixtureDirectory: string, exportPath: string, outputDirectory: string) {
+  const fixture = resolve(fixtureDirectory);
+  const destination = resolve(outputDirectory);
+  const manifest = JSON.parse(await readFile(join(fixture, "reference.json"), "utf8")) as {
+    schemaVersion: number;
+    sources: Array<{ filename: string; sha256: string }>;
+    artifact: { filename: string; sha256: string };
+    expected: { sourceOrder: string[]; sourceStartSeconds: number; clipDurationSeconds: number; durationSeconds: number;
+      title: { text: string; startSeconds: number; durationSeconds: number }; music: { frequencyHz: number; gainDb: number } };
+  };
+  const names = ["red.mp4", "green.mp4", "blue.mp4", "music.wav"];
+  if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.sources)
+    || JSON.stringify(manifest.sources.map((source) => source.filename)) !== JSON.stringify(names)
+    || manifest.artifact?.filename !== "edit.fcpxml"
+    || JSON.stringify(manifest.expected?.sourceOrder) !== JSON.stringify(names.slice(0, 3))
+    || manifest.expected.sourceStartSeconds !== 1 || manifest.expected.clipDurationSeconds !== 1 || manifest.expected.durationSeconds !== 3
+    || manifest.expected.title?.text !== "FRAMEKIT QA" || manifest.expected.title.startSeconds !== 0 || manifest.expected.title.durationSeconds !== 1
+    || manifest.expected.music?.frequencyHz !== 880 || manifest.expected.music.gainDb !== -12) {
+    throw new Error("REFERENCE_INVALID: unsupported or changed independent reference");
+  }
+  const sha = async (path: string) => createHash("sha256").update(await readFile(path)).digest("hex");
+  const checkSources = async () => {
+    for (const source of manifest.sources) {
+      if (!/^[a-f0-9]{64}$/.test(source.sha256) || await sha(join(fixture, source.filename)) !== source.sha256) {
+        throw new Error(`SOURCE_CHANGED: ${source.filename}`);
+      }
+    }
+    if (!/^[a-f0-9]{64}$/.test(manifest.artifact.sha256) || await sha(join(fixture, manifest.artifact.filename)) !== manifest.artifact.sha256) {
+      throw new Error("ARTIFACT_CHANGED: edit.fcpxml");
+    }
+  };
+  await checkSources();
+  const movieDigest = await sha(exportPath);
+  await mkdir(destination); // Existing reports are never replaced.
+  const observed = await measureExport(exportPath);
+  const titleFramePath = join(destination, "title-frame.png");
+  await run(process.env.FFMPEG_BIN || "ffmpeg", ["-hide_banner", "-loglevel", "error", "-n", "-ss", "0.5", "-i", exportPath, "-frames:v", "1", titleFramePath]);
+  await checkSources();
+  if (await sha(exportPath) !== movieDigest) throw new Error("EXPORT_CHANGED: video changed during inspection");
+  const report = { schemaVersion: 1, exportSha256: movieDigest, artifactSha256: manifest.artifact.sha256,
+    observed, measurements: evaluateExportMeasurements(observed), titleVisibility: "UNVERIFIED" as const,
+    titleFramePath, limitation: "Media measurements alone do not prove a Final Cut import, export, or title editability." };
+  await writeFile(join(destination, "observation.json"), `${JSON.stringify(report, null, 2)}\n`, { flag: "wx" });
+  return report;
+}
