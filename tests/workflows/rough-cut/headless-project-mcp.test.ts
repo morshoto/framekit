@@ -1711,7 +1711,7 @@ test("external edit JSON previews registered clips, a title and music without mu
     await mkdir(dirname(video2), { recursive: true });
     const music = join(directory, "music.wav");
     await generateSegmentedSource(video, [{ color: "red", duration: 3 }], 440);
-    await generateSegmentedSource(video2, [{ color: "blue", duration: 3 }], 660);
+    await generateVideoAtFrameRate(video2, 24, 3);
     const sourcePaths = [video, video2, music];
     await execFileAsync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=880:duration=3", "-c:a", "pcm_s16le", music]);
     ({ client, transport } = await connectProductionClient(here, environment));
@@ -1734,6 +1734,7 @@ test("external edit JSON previews registered clips, a title and music without mu
       ["audio used as video", { ...edit, clips: [{ ...edit.clips[0], mediaId: b.resource.id }] }],
       ["video used as music", { ...edit, music: { ...edit.music, mediaId: a.resource.id } }],
       ["off-grid source start", { ...edit, clips: [{ ...edit.clips[0], sourceStartTime: { value: "1", timescale: "60" } }] }],
+      ["source start between source frames", { ...edit, clips: [{ ...edit.clips[1], sourceStartTime: { value: "1", timescale: "30" } }] }],
       ["unsupported title styling", { ...edit, title: { ...edit.title, style: { color: "red" } } }],
       ["title crossing clip boundaries", { ...edit, title: { ...edit.title, durationTime: seconds(2) } }],
       ["source range outside media", { ...edit, clips: [{ ...edit.clips[0], sourceStartTime: seconds(3), durationTime: seconds(1) }] }],
