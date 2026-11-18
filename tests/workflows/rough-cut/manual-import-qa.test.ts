@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
-import { evaluateExportMeasurements, measureExport, prepareManualImportFixture, verifyManualExport } from "../../../scripts/manual-import-qa.js";
+import { evaluateExportMeasurements, measureExport, prepareManualImportFixture, verifyManualExport, verifyPreparedArtifact } from "../../../scripts/manual-import-qa.js";
 
 const valid = () => ({
   durationSeconds: 3,
@@ -81,7 +81,15 @@ test("prepares three trimmed clips through production MCP without claiming nativ
       [join(destination, "red.mp4"), 1, 1], [join(destination, "green.mp4"), 1, 1], [join(destination, "blue.mp4"), 1, 1],
     ]);
     assert.equal(xml.timeline.storyElements.find((item) => item.kind === "title")?.text, "FRAMEKIT QA");
-    assert.match(await readFile(result.artifactPath, "utf8"), /<adjust-volume amount="-12dB" \/>/);
+    const xmlText = await readFile(result.artifactPath, "utf8");
+    assert.match(xmlText, /<adjust-volume amount="-12dB" \/>/);
+    await verifyPreparedArtifact(result.artifactPath, destination);
+    const tags = xmlText.match(/<asset-clip\b[^>]*>/g) ?? [];
+    const primary = tags.find((tag) => !tag.includes('audioRole="music"'))!;
+    const music = tags.find((tag) => tag.includes('audioRole="music"'))!;
+    const primaryRef = /ref="([^"]+)"/.exec(primary)![1]!;
+    await writeFile(result.artifactPath, xmlText.replace(music, music.replace(/ref="[^"]+"/, `ref="${primaryRef}"`)));
+    await assert.rejects(verifyPreparedArtifact(result.artifactPath, destination), /music/i);
     await assert.rejects(prepareManualImportFixture(destination), /EEXIST/);
   } finally {
     await rm(root, { recursive: true, force: true });
