@@ -116,3 +116,13 @@ test("output inspection binds source hashes and keeps native evidence unverified
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("manual QA CLI explains preparation and never runs with missing arguments", async () => {
+  const run = promisify(execFile);
+  const script = join(process.cwd(), "scripts/manual-import-qa.ts");
+  const help = await run(process.execPath, ["--import", "tsx", script, "--help"]);
+  assert.match(help.stdout, /prepare/);
+  assert.match(help.stdout, /inspect/);
+  assert.match(help.stdout, /UNVERIFIED/);
+  await assert.rejects(run(process.execPath, ["--import", "tsx", script, "prepare"]), { code: 2 });
+});
