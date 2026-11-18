@@ -87,6 +87,56 @@ not launch or activate Final Cut Pro. Keep private media, raw tool output,
 credentials, local filesystem paths, and crash dumps out of committed test
 fixtures and reports.
 
+### Manual FCPXML import and export QA
+
+The following workflow prepares disposable, non-private media and an FCPXML
+artifact through production MCP. It does not open Final Cut or operate on a
+native project. Create the fixture in a **new** directory; the command refuses
+to reuse an existing one:
+
+```sh
+node --import tsx scripts/manual-import-qa.ts prepare /path/to/new-qa-fixture
+```
+
+`reference.json` records the candidate commit, whether the checkout was dirty,
+source and artifact SHA-256 hashes, and independently stated clip ranges,
+title, music, and expected samples. Use a clean checkout and pin the exact
+candidate. The three video inputs have a black lead-in; the JSON edit selects a
+one-second colored range starting at one second from each. A successful artifact
+check does not prove Final Cut behavior.
+
+For the headed portion, obtain explicit approval for the exact disposable
+library, generated FCPXML, operations, and new export path. In Final Cut,
+create and select a new isolated library; use **File > Import > XML** and import
+`edit.fcpxml`. Confirm the import targets the disposable library before
+proceeding; stop if the destination is ambiguous or an existing project could
+be overwritten. Confirm all three trimmed clips are present in red, green, blue
+order, play the timeline, and inspect the basic title and static music. Verify
+that the title text can be edited independently in the disposable project.
+Record the actual Framekit, Final Cut, and macOS versions, library and project
+identities, the import path, any warnings, and sanitized observations.
+
+Select the disposable project and use **File > Share > Export File** to a new
+movie path. After Final Cut finishes its export, run:
+
+```sh
+node --import tsx scripts/manual-import-qa.ts inspect /path/to/qa-fixture /path/to/final-cut-export.mov /path/to/new-observation-directory
+```
+
+The inspector rechecks artifact and source hashes, checks duration, samples
+frames at three independent reference times, measures the 880 Hz music tone,
+and saves a frame for human title-visibility inspection. It never asserts that
+a movie came from Final Cut, that import succeeded, or that the title is
+editable. Record those observations separately and verify title text in the
+saved frame. Missing media, import errors, missing/unsupported title assets,
+failed measurements, or ambiguous provenance are FAIL or BLOCKED; never
+convert an unobserved condition into PASS. Do not clear or replay a retained
+native reservation. A synthetic or FFmpeg-rendered movie is not a substitute
+for the actual Final Cut export.
+
+Apple documents [XML import](https://support.apple.com/guide/final-cut-pro/verdbd66ae/mac)
+and [Export File](https://support.apple.com/guide/final-cut-pro/export-final-mastering-files-ver0192a47b8/mac).
+
 For publisher QA, `pnpm run test:final-cut-publisher-headed --help` lists the
 approved artifact digest, verified rough-cut execution, clean candidate commit,
 new library destination, and explicit mutation consent required by the runner.
