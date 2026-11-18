@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { release as osRelease } from "node:os";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -168,12 +169,15 @@ export async function prepareManualImportFixture(outputDirectory: string) {
   }
   await verifyPreparedArtifact(artifactPath, destination);
   const sha = async (path: string) => createHash("sha256").update(await readFile(path)).digest("hex");
-  const sourceRecords = await Promise.all(media.map(async ({ filename }) => ({ filename, sha256: await sha(join(destination, filename)) })));
+  const sourceRecords = await Promise.all(media.map(async ({ filename, id }) => ({ filename, mediaId: id, sha256: await sha(join(destination, filename)) })));
   const git = (await run("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
   const dirty = Boolean((await run("git", ["status", "--porcelain"], { cwd: repository })).stdout.trim());
   const packageVersion = (JSON.parse(await readFile(join(repository, "package.json"), "utf8")) as { version: string }).version;
+  const ffmpegVersion = (await run(ffmpeg, ["-version"])).stdout.split("\n")[0];
+  const osVersion = process.platform === "darwin" ? (await run("sw_vers", ["-productVersion"])).stdout.trim() : `${process.platform} ${osRelease()}`;
   const manifestPath = join(destination, "reference.json");
   await writeFile(manifestPath, `${JSON.stringify({ schemaVersion: 1, candidate: { commit: git, dirty, framekitVersion: packageVersion },
+    environment: { nodeVersion: process.version, ffmpegVersion, osVersion, finalCutVersion: "UNVERIFIED" },
     sources: sourceRecords, artifact: { filename: "edit.fcpxml", sha256: await sha(artifactPath), revision: result.provenance.revision },
     expected: { sourceOrder: ["red.mp4", "green.mp4", "blue.mp4"], sourceStartSeconds: 1, clipDurationSeconds: 1,
       durationSeconds: 3, frameRate: "30/1", frameCount: 90,
