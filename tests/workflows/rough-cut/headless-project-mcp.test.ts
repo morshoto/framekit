@@ -1692,3 +1692,46 @@ function toneAmplitude(samples: Float32Array, frequency: number, sampleRate = 48
 function rationalSeconds(time: { value: string; timescale: string }): number {
   return Number(time.value) / Number(time.timescale);
 }
+
+test("external edit JSON previews registered clips, a title and music without mutation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-json-edit-"));
+  const here = dirname(fileURLToPath(import.meta.url));
+  const environment: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1",
+    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0", FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"),
+    FRAMEKIT_STATE_DIR: join(directory, "state"),
+  };
+  let client: Client | undefined;
+  let transport: StdioClientTransport | undefined;
+  try {
+    const video = join(directory, "video.mp4");
+    const music = join(directory, "music.wav");
+    await generateSegmentedSource(video, [{ color: "red", duration: 3 }], 440);
+    await execFileAsync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=880:duration=3", "-c:a", "pcm_s16le", music]);
+    ({ client, transport } = await connectProductionClient(here, environment));
+    const timeline = emptyTimeline();
+    const initial = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline } }));
+    const projectId = timeline.project.id;
+    const a = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: video, expectedRevision: initial.timeline.revision } }));
+    const b = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: music, expectedRevision: a.project.timeline.revision } }));
+    const seconds = (n: number) => ({ value: String(n), timescale: "1" });
+    const edit = { schemaVersion: 1, clips: [
+      { id: "clip-a", mediaId: a.resource.id, sourceStartTime: seconds(0), durationTime: seconds(1) },
+      { id: "clip-b", mediaId: a.resource.id, sourceStartTime: seconds(1), durationTime: seconds(1) },
+    ], title: { id: "title", text: "Hello", startTime: seconds(0), durationTime: seconds(1) },
+    music: { id: "music", mediaId: b.resource.id, sourceStartTime: seconds(0), startTime: seconds(0), durationTime: seconds(2), gainDb: -12 } };
+    const preview = payload(await client.callTool({ name: "headless.edit-json.preview", arguments: {
+      projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit,
+    } }));
+    assert.deepEqual(preview.after.timeline.sequence.occurrences.filter((item: any) => item.track === 0).map((item: any) => item.id), ["clip-a", "clip-b"]);
+    assert.equal(preview.after.timeline.sequence.titles[0].text, "Hello");
+    assert.equal(preview.after.timeline.sequence.occurrences.find((item: any) => item.id === "music").gainDb, -12);
+    const inspected = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
+    assert.deepEqual(inspected.timeline, b.project.timeline);
+  } finally {
+    await client?.close();
+    await transport?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
