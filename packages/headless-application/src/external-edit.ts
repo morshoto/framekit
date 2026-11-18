@@ -1,3 +1,4 @@
+import { compileTimelineIrToFcpxml } from "@framekit/final-cut/fcpxml";
 import type { RationalTime, TimelineIr, TimelineIrEditOperation } from "@framekit/runtime";
 
 export interface ExternalEdit {
@@ -35,4 +36,12 @@ export function externalEditOperations(edit: ExternalEdit, timeline: TimelineIr)
     { type: "insert-occurrence", occurrence: { ...edit.music, name: edit.music.id, track: 1, role: "music" } },
     { type: "add-title", title: { ...edit.title, lane: 1 } },
   ];
+}
+
+/** Check the actual compiler before a JSON edit can be committed. No artifact is written. */
+export function verifyExternalEditExportable(timeline: TimelineIr): void {
+  compileTimelineIrToFcpxml(timeline, { target: {
+    provider: "final-cut", libraryUid: "preview-library", eventUid: "preview-event",
+    projectUid: "preview-project", sequenceUid: "preview-sequence", materialization: "versioned",
+  } });
 }

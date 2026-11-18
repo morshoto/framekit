@@ -74,6 +74,7 @@ import {
 } from "./materialization-jobs.js";
 import {
   externalEditOperations,
+  verifyExternalEditExportable,
   type HeadlessProjectWorkflow,
   type HeadlessRoughCutExecutionRequest,
   type HeadlessRoughCutRequest,
@@ -1453,7 +1454,9 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     const service = requireHeadlessProjects();
     const project = await service.inspect(projectId);
     const operations = externalEditOperations(edit, project.timeline);
-    return service.previewEdit(projectId, { schemaVersion: 1, expectedRevision, operations }, sequenceId);
+    const preview = await service.previewEdit(projectId, { schemaVersion: 1, expectedRevision, operations }, sequenceId);
+    verifyExternalEditExportable(preview.after.timeline);
+    return preview;
   }));
 
   server.registerTool("headless.edit-json.execute", {
@@ -1463,6 +1466,8 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     const service = requireHeadlessProjects();
     const project = await service.inspect(projectId);
     const operations = externalEditOperations(edit, project.timeline);
+    const preview = await service.previewEdit(projectId, { schemaVersion: 1, expectedRevision, operations }, sequenceId);
+    verifyExternalEditExportable(preview.after.timeline);
     return service.executeEdit(projectId, { schemaVersion: 1, expectedRevision, operations }, sequenceId);
   }));
 
