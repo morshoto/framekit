@@ -72,6 +72,83 @@ project. `FRAMEKIT_FINAL_CUT_SOCKET` selects the local Workflow Extension
 socket. Inspect the reported capabilities before choosing an operation. A
 ready metadata-only bridge does not imply canonical timeline read or write.
 
+### Create an edit from JSON
+
+An MCP client can turn an AI-authored edit into a Framekit-owned project and a
+new editable FCPXML file without starting Final Cut Pro. Install FFmpeg and
+ffprobe to register local sources. Start the MCP server in headless mode, then:
+
+1. Call `headless.project.create` with an empty Timeline IR. For example, use
+   the timeline below; choose fresh project and sequence IDs for each edit.
+2. Call `headless.media.register` for each local video and audio file. Pass the
+   current `expectedRevision` each time and use the returned revision in the
+   next call. Save each returned `resource.id`; filenames are not identities.
+3. Replace the three media ID placeholders in the edit below with those IDs.
+   Call `headless.edit-json.preview` with `projectId`, `sequenceId`, the latest
+   `expectedRevision`, and the edit as `edit`. Review its proposed timeline.
+4. Call `headless.edit-json.execute` with the same arguments, `approved: true`,
+   and the `planDigest` returned by preview. Use the returned
+   `after.timeline.revision` as `expectedRevision` for
+   `headless.fcpxml.export`; provide a new output path and an explicit Final Cut
+   target with `materialization: "versioned"`.
+
+Empty `timeline` for step 1:
+
+```json
+{
+  "schemaVersion": 1,
+  "project": { "id": "example-project", "name": "My edit" },
+  "sequence": {
+    "id": "example-sequence", "name": "My edit",
+    "durationTime": { "value": "0", "timescale": "1" },
+    "frameDuration": { "value": "1", "timescale": "30" },
+    "occurrences": [], "storyElements": [], "markers": [], "captions": [],
+    "titles": [], "transitions": []
+  },
+  "resources": [],
+  "revision": { "id": "initial", "sequence": 0, "timestamp": "2026-01-01T00:00:00.000Z" }
+}
+```
+
+Example `edit` for step 3, with two one-second clips and a two-second music bed:
+
+```json
+{
+  "schemaVersion": 1,
+  "clips": [
+    { "id": "shot-1", "mediaId": "VIDEO_ID_1", "sourceStartTime": { "value": "0", "timescale": "1" }, "durationTime": { "value": "1", "timescale": "1" } },
+    { "id": "shot-2", "mediaId": "VIDEO_ID_2", "sourceStartTime": { "value": "1", "timescale": "1" }, "durationTime": { "value": "1", "timescale": "1" } }
+  ],
+  "title": { "id": "opening", "text": "Hello", "startTime": { "value": "0", "timescale": "1" }, "durationTime": { "value": "1", "timescale": "1" } },
+  "music": { "id": "bed", "mediaId": "AUDIO_ID", "sourceStartTime": { "value": "0", "timescale": "1" }, "startTime": { "value": "0", "timescale": "1" }, "durationTime": { "value": "2", "timescale": "1" }, "gainDb": -12 }
+}
+```
+
+For step 4, an export request has this shape; use the revision returned by the
+execute call and choose a new file path and unique target IDs:
+
+```json
+{
+  "projectId": "example-project", "sequenceId": "example-sequence",
+  "expectedRevision": { "id": "EXECUTED_REVISION_ID", "sequence": 4, "timestamp": "EXECUTED_REVISION_TIMESTAMP" },
+  "outputPath": "/path/to/new-edit.fcpxml",
+  "target": { "provider": "final-cut", "libraryUid": "my-library", "eventUid": "my-event", "projectUid": "my-project-v1", "sequenceUid": "my-sequence-v1", "materialization": "versioned" }
+}
+```
+
+Copy the complete revision object from the execute result; the revision values
+above are placeholders, not a fixed sequence number.
+
+Times are exact rational seconds and must align to the sequence frame grid.
+The source ranges must exist in the registered media. Version 1 supports an
+ordered primary video sequence, one basic unstyled title contained in a single
+clip, and one audio-only music source with static gain. The edit requires an
+empty timeline; styling, unsupported effects, stale revisions, changed media,
+and invalid or ambiguous sources are rejected. Preview and execute check
+FCPXML support before committing an edit. The resulting file is a candidate
+for manual import: artifact verification does not prove Final Cut import,
+playback, editability, or video export.
+
 ### Optional analysis providers
 
 Optional local analysis commands are selected with
