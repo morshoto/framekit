@@ -140,7 +140,8 @@ Copy the complete revision object from the execute result; the revision values
 above are placeholders, not a fixed sequence number.
 
 Times are exact rational seconds and must align to the sequence frame grid.
-The source ranges must exist in the registered media. Version 1 supports an
+Video source starts and durations must also align to the registered source frame
+rate; source ranges must exist in the registered media. Version 1 supports an
 ordered primary video sequence, one basic unstyled title contained in a single
 clip, and one audio-only music source with static gain. The edit requires an
 empty timeline; styling, unsupported effects, stale revisions, changed media,

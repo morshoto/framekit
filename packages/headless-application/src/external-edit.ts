@@ -21,17 +21,25 @@ export function externalEditOperations(edit: ExternalEdit, timeline: TimelineIr)
     if (!resource || resource.mediaKind !== kind || resource.sourceKind !== "local-file" || !resource.sourceDigest) {
       throw new Error(`EXTERNAL_EDIT_INVALID: ${id} is not a registered ${kind} source`);
     }
+    return resource;
   };
   const frame = timeline.sequence.frameDuration;
-  const aligned = (time: RationalTime) => {
-    const numerator = BigInt(time.value) * BigInt(frame.timescale);
-    const denominator = BigInt(time.timescale) * BigInt(frame.value);
+  const aligned = (time: RationalTime, grid: RationalTime = frame) => {
+    const numerator = BigInt(time.value) * BigInt(grid.timescale);
+    const denominator = BigInt(time.timescale) * BigInt(grid.value);
     if (denominator <= 0n || numerator % denominator !== 0n) throw new Error("EXTERNAL_EDIT_INVALID: timing must align to the sequence frame grid");
   };
   for (const clip of edit.clips) {
-    assertSource(clip.mediaId, "video");
+    const resource = assertSource(clip.mediaId, "video");
+    const rate = resource.metadata?.streams.find((stream) => stream.kind === "video")?.frameRate;
+    if (!rate || BigInt(rate.value) <= 0n || BigInt(rate.timescale) <= 0n) {
+      throw new Error(`EXTERNAL_EDIT_INVALID: ${clip.mediaId} has no supported source frame rate`);
+    }
+    const sourceFrame = { value: rate.timescale, timescale: rate.value };
     aligned(clip.sourceStartTime);
+    aligned(clip.sourceStartTime, sourceFrame);
     aligned(clip.durationTime);
+    aligned(clip.durationTime, sourceFrame);
   }
   assertSource(edit.music.mediaId, "audio");
   for (const time of [edit.music.sourceStartTime, edit.music.startTime, edit.music.durationTime, edit.title.startTime, edit.title.durationTime]) aligned(time);
