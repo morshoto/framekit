@@ -1729,6 +1729,20 @@ test("external edit JSON previews registered clips, a title and music without mu
     assert.equal(preview.after.timeline.sequence.occurrences.find((item: any) => item.id === "music").gainDb, -12);
     const inspected = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
     assert.deepEqual(inspected.timeline, b.project.timeline);
+    const executed = payload(await client.callTool({ name: "headless.edit-json.execute", arguments: {
+      projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit,
+    } }));
+    assert.equal(executed.committed, true);
+    assert.deepEqual(executed.after.timeline.sequence.occurrences.filter((item: any) => item.track === 0).map((item: any) => item.id), ["clip-a", "clip-b"]);
+    const xmlPath = join(directory, "edit.fcpxml");
+    const target = { provider: "final-cut", libraryUid: "library", eventUid: "event", projectUid: "project", sequenceUid: "sequence", materialization: "versioned" };
+    const exported = payload(await client.callTool({ name: "headless.fcpxml.export", arguments: {
+      projectId, sequenceId: timeline.sequence.id, expectedRevision: executed.after.timeline.revision, outputPath: xmlPath, target,
+    } }));
+    assert.equal(exported.artifact.verified, true);
+    const parsed = await new FcpxmlDocumentAdapter(xmlPath).readProject();
+    assert.deepEqual(parsed.timeline.clips.map((clip) => [clip.sourceStart, clip.duration]), [[0, 1], [1, 1]]);
+    assert.equal(parsed.timeline.storyElements.find((item) => item.kind === "title")?.text, "Hello");
   } finally {
     await client?.close();
     await transport?.close();
