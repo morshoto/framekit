@@ -1445,19 +1445,29 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       startTime: rationalTimeSchema, durationTime: rationalTimeSchema, gainDb: z.number().finite(),
     }).strict(),
   }).strict();
+  const externalEditOperations = (edit: z.infer<typeof externalEditSchema>): TimelineIrEditOperation[] => [
+    ...edit.clips.map((clip) => ({ type: "insert-occurrence" as const, placement: "append" as const, occurrence: {
+      ...clip, name: clip.id, startTime: { value: "0", timescale: "1" }, track: 0, role: "video" as const,
+    } })),
+    { type: "insert-occurrence", occurrence: { ...edit.music, name: edit.music.id, track: 1, role: "music" } },
+    { type: "add-title", title: { ...edit.title, lane: 1 } },
+  ];
   server.registerTool("headless.edit-json.preview", {
     description: "Preview a versioned external edit against a Framekit project without mutation.",
     inputSchema: { projectId: z.string().min(1), sequenceId: z.string().min(1), expectedRevision: revisionValueSchema, edit: externalEditSchema },
   }, async ({ projectId, sequenceId, expectedRevision, edit }) => sessionResult(() => requireHeadlessProjects().previewEdit(projectId, {
     schemaVersion: 1,
     expectedRevision,
-    operations: [
-      ...edit.clips.map((clip) => ({ type: "insert-occurrence" as const, placement: "append" as const, occurrence: {
-        ...clip, name: clip.id, startTime: { value: "0", timescale: "1" }, track: 0, role: "video" as const,
-      } })),
-      { type: "insert-occurrence" as const, occurrence: { ...edit.music, name: edit.music.id, track: 1, role: "music" as const } },
-      { type: "add-title" as const, title: { ...edit.title, lane: 1 } },
-    ],
+    operations: externalEditOperations(edit),
+  }, sequenceId)));
+
+  server.registerTool("headless.edit-json.execute", {
+    description: "Execute a versioned external edit against a Framekit project revision.",
+    inputSchema: { projectId: z.string().min(1), sequenceId: z.string().min(1), expectedRevision: revisionValueSchema, edit: externalEditSchema },
+  }, async ({ projectId, sequenceId, expectedRevision, edit }) => sessionResult(() => requireHeadlessProjects().executeEdit(projectId, {
+    schemaVersion: 1,
+    expectedRevision,
+    operations: externalEditOperations(edit),
   }, sequenceId)));
 
   server.registerTool("headless.edit.preview", {

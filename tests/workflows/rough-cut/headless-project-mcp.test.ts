@@ -1741,7 +1741,9 @@ test("external edit JSON previews registered clips, a title and music without mu
     } }));
     assert.equal(exported.artifact.verified, true);
     const parsed = await new FcpxmlDocumentAdapter(xmlPath).readProject();
-    assert.deepEqual(parsed.timeline.clips.map((clip) => [clip.sourceStart, clip.duration]), [[0, 1], [1, 1]]);
+    const sourceFor = (id: string | undefined) => parsed.media.find((item) => item.mediaId === id)?.source;
+    assert.deepEqual(parsed.timeline.clips.filter((clip) => sourceFor(clip.mediaId) === video).map((clip) => [clip.sourceStart, clip.duration]), [[0, 1], [1, 1]]);
+    assert.deepEqual(parsed.timeline.clips.filter((clip) => sourceFor(clip.mediaId) === music).map((clip) => [clip.sourceStart, clip.duration]), [[0, 2]]);
     assert.equal(parsed.timeline.storyElements.find((item) => item.kind === "title")?.text, "Hello");
   } finally {
     await client?.close();
