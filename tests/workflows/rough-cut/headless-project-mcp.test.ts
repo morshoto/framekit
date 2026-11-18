@@ -1745,8 +1745,15 @@ test("external edit JSON previews registered clips, a title and music without mu
     assert.equal(preview.after.timeline.sequence.occurrences.find((item: any) => item.id === "music").gainDb, -12);
     const inspected = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
     assert.deepEqual(inspected.timeline, b.project.timeline);
+    assert.match(preview.planDigest, /^[a-f0-9]{64}$/);
+    const changed = await client.callTool({ name: "headless.edit-json.execute", arguments: {
+      projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision,
+      edit: { ...edit, title: { ...edit.title, text: "Changed" } }, approved: true, planDigest: preview.planDigest,
+    } });
+    assert.equal(changed.isError, true, "execute must reject a different edit than the preview");
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, b.project.timeline);
     const executed = payload(await client.callTool({ name: "headless.edit-json.execute", arguments: {
-      projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit,
+      projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit, approved: true, planDigest: preview.planDigest,
     } }));
     assert.equal(executed.committed, true);
     assert.deepEqual(executed.after.timeline.sequence.occurrences.filter((item: any) => item.track === 0).map((item: any) => item.id), ["clip-a", "clip-b"]);
