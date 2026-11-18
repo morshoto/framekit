@@ -24,10 +24,10 @@ export function externalEditOperations(edit: ExternalEdit, timeline: TimelineIr)
     return resource;
   };
   const frame = timeline.sequence.frameDuration;
-  const aligned = (time: RationalTime, grid: RationalTime = frame) => {
+  const aligned = (time: RationalTime, grid: RationalTime = frame, label = "sequence") => {
     const numerator = BigInt(time.value) * BigInt(grid.timescale);
     const denominator = BigInt(time.timescale) * BigInt(grid.value);
-    if (denominator <= 0n || numerator % denominator !== 0n) throw new Error("EXTERNAL_EDIT_INVALID: timing must align to the sequence frame grid");
+    if (denominator <= 0n || numerator % denominator !== 0n) throw new Error(`EXTERNAL_EDIT_INVALID: timing must align to the ${label} frame grid`);
   };
   for (const clip of edit.clips) {
     const resource = assertSource(clip.mediaId, "video");
@@ -37,9 +37,9 @@ export function externalEditOperations(edit: ExternalEdit, timeline: TimelineIr)
     }
     const sourceFrame = { value: rate.timescale, timescale: rate.value };
     aligned(clip.sourceStartTime);
-    aligned(clip.sourceStartTime, sourceFrame);
+    aligned(clip.sourceStartTime, sourceFrame, "source");
     aligned(clip.durationTime);
-    aligned(clip.durationTime, sourceFrame);
+    aligned(clip.durationTime, sourceFrame, "source");
   }
   assertSource(edit.music.mediaId, "audio");
   for (const time of [edit.music.sourceStartTime, edit.music.startTime, edit.music.durationTime, edit.title.startTime, edit.title.durationTime]) aligned(time);
