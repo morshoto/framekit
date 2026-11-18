@@ -1430,6 +1430,36 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { projectId: z.string().min(1), query: z.string() },
   }, async ({ projectId, query }) => sessionResult(() => requireHeadlessProjects().searchMedia(projectId, query)));
 
+  const externalEditSchema = z.object({
+    schemaVersion: z.literal(1),
+    clips: z.array(z.object({
+      id: z.string().min(1), mediaId: z.string().min(1),
+      sourceStartTime: rationalTimeSchema, durationTime: rationalTimeSchema,
+    }).strict()).min(1),
+    title: z.object({
+      id: z.string().min(1), text: z.string().min(1),
+      startTime: rationalTimeSchema, durationTime: rationalTimeSchema,
+    }).strict(),
+    music: z.object({
+      id: z.string().min(1), mediaId: z.string().min(1), sourceStartTime: rationalTimeSchema,
+      startTime: rationalTimeSchema, durationTime: rationalTimeSchema, gainDb: z.number().finite(),
+    }).strict(),
+  }).strict();
+  server.registerTool("headless.edit-json.preview", {
+    description: "Preview a versioned external edit against a Framekit project without mutation.",
+    inputSchema: { projectId: z.string().min(1), sequenceId: z.string().min(1), expectedRevision: revisionValueSchema, edit: externalEditSchema },
+  }, async ({ projectId, sequenceId, expectedRevision, edit }) => sessionResult(() => requireHeadlessProjects().previewEdit(projectId, {
+    schemaVersion: 1,
+    expectedRevision,
+    operations: [
+      ...edit.clips.map((clip) => ({ type: "insert-occurrence" as const, placement: "append" as const, occurrence: {
+        ...clip, name: clip.id, startTime: { value: "0", timescale: "1" }, track: 0, role: "video" as const,
+      } })),
+      { type: "insert-occurrence" as const, occurrence: { ...edit.music, name: edit.music.id, track: 1, role: "music" as const } },
+      { type: "add-title" as const, title: { ...edit.title, lane: 1 } },
+    ],
+  }, sequenceId)));
+
   server.registerTool("headless.edit.preview", {
     description: "Preview supported Framekit Timeline IR edits without persisting or mutating the project.",
     inputSchema: {
