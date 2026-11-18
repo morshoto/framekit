@@ -1818,6 +1818,7 @@ test("external edit JSON previews registered clips, a title and music without mu
       projectId, sequenceId: timeline.sequence.id, expectedRevision: executed.after.timeline.revision, outputPath: xmlPath, target,
     } }));
     assert.equal(exported.artifact.verified, true);
+    assert.equal(exported.provenance.revision.id, executed.after.timeline.revision.id);
     const parsed = await new FcpxmlDocumentAdapter(xmlPath).readProject();
     const sourceFor = (id: string | undefined) => parsed.media.find((item) => item.mediaId === id)?.source;
     assert.deepEqual(parsed.timeline.clips.filter((clip) => [video, video2].includes(sourceFor(clip.mediaId) ?? "")).map((clip) => [sourceFor(clip.mediaId), clip.sourceStart, clip.duration]), [[video, 0, 1], [video2, 1, 1]]);
