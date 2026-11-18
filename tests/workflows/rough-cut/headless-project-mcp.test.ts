@@ -1757,6 +1757,9 @@ test("external edit JSON previews registered clips, a title and music without mu
           projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit: invalidEdit,
         } });
         assert.equal(rejected.isError, true, `${tool}: ${name}`);
+        if (tool === "headless.edit-json.preview" && name === "source start between source frames") {
+          assert.match(toolErrorText(rejected), /source frame grid/);
+        }
       }
     }
     const preview = payload(await client.callTool({ name: "headless.edit-json.preview", arguments: {
