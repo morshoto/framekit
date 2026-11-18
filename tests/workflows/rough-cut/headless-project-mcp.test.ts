@@ -1756,6 +1756,12 @@ test("external edit JSON previews registered clips, a title and music without mu
       projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit, approved: true, planDigest: preview.planDigest,
     } }));
     assert.equal(executed.committed, true);
+    const secondEdit = { ...edit, clips: edit.clips.map((clip) => ({ ...clip, id: `second-${clip.id}` })),
+      title: { ...edit.title, id: "second-title" }, music: { ...edit.music, id: "second-music" } };
+    const nonempty = await client.callTool({ name: "headless.edit-json.preview", arguments: {
+      projectId, sequenceId: timeline.sequence.id, expectedRevision: executed.after.timeline.revision, edit: secondEdit,
+    } });
+    assert.equal(nonempty.isError, true, "a complete external edit must not silently append to an existing timeline");
     assert.deepEqual(executed.after.timeline.sequence.occurrences.filter((item: any) => item.track === 0).map((item: any) => item.id), ["clip-a", "clip-b"]);
     const xmlPath = join(directory, "edit.fcpxml");
     const target = { provider: "final-cut", libraryUid: "library", eventUid: "event", projectUid: "project", sequenceUid: "sequence", materialization: "versioned" };
