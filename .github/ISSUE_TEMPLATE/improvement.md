@@ -2,7 +2,7 @@
 name: ♻️ Improvement
 about: Improve existing behavior, reliability, UX, tests, or documentation
 title: "[perf] "
-labels: "Type: Performance"
+labels: "Type: Performance, Status: Backlog"
 assignees: ""
 ---
 

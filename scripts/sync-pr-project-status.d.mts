@@ -5,7 +5,7 @@ export interface PullRequestStatusSnapshot {
 	issueNumbers: number[];
 	mergeable: string;
 	mergeStateStatus: string;
-	hasReviewComments: boolean;
+	isDraft: boolean;
 	checks: Array<{ required: boolean; status?: string; conclusion?: string | null; state?: string }>;
 }
 export interface PullRequestStatusSource {

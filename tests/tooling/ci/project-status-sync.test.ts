@@ -20,17 +20,17 @@ import {
 	syncPullRequestStatuses,
 } from '../../../scripts/sync-pr-project-status.mjs';
 
-test('PR creation starts progress; submitted review comments select review', () => {
+test('draft PRs select progress and ready PRs select review', () => {
 	const pr = {
 		mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN',
-		hasReviewComments: false, checks: [],
+		isDraft: true, checks: [],
 	};
 	assert.equal(choosePullRequestStatus(pr), 'In progress');
-	assert.equal(choosePullRequestStatus({ ...pr, hasReviewComments: true }), 'In review');
+	assert.equal(choosePullRequestStatus({ ...pr, isDraft: false }), 'In review');
 });
 
 test('only failed required CI, conflicts, or behind branches select Pending', () => {
-	const pr = { mergeable: 'MERGEABLE', mergeStateStatus: 'BLOCKED', hasReviewComments: true, checks: [] };
+	const pr = { mergeable: 'MERGEABLE', mergeStateStatus: 'BLOCKED', isDraft: false, checks: [] };
 	for (const mergeStateStatus of ['DIRTY', 'BEHIND']) {
 		assert.equal(choosePullRequestStatus({ ...pr, mergeStateStatus }), 'Pending');
 	}
@@ -98,7 +98,7 @@ test('PR source paginates links/checks, uses current heads and test-merge result
 			data = { repository: { pullRequest: { state: 'CLOSED' } } };
 		} else {
 			data = { repository: { pullRequest: {
-				number: 20, state: 'OPEN', body: 'Refs #8', mergeable: 'MERGEABLE', mergeStateStatus: 'BLOCKED',
+				number: 20, state: 'OPEN', isDraft: false, body: 'Refs #8', mergeable: 'MERGEABLE', mergeStateStatus: 'BLOCKED',
 				reviews: { totalCount: 0 }, reviewThreads: { totalCount: 1 },
 				closingIssuesReferences: { nodes: [
 					{ number: 10, repository: { nameWithOwner: 'morshoto/framekit' } },
@@ -123,6 +123,8 @@ test('PR source paginates links/checks, uses current heads and test-merge result
 	const snapshots = await source.readOpenPullRequests();
 	assert.equal(snapshots.length, 1);
 	assert.deepEqual(snapshots[0].issueNumbers, [8, 10, 12]);
+	assert.equal(snapshots[0].isDraft, false);
+	assert.equal(choosePullRequestStatus({ ...snapshots[0], isDraft: true }), 'In progress');
 	assert.equal(choosePullRequestStatus(snapshots[0]), 'In review');
 	assert.ok(calls.some((variables) => variables.after === 'pr-page-2'));
 	assert.ok(calls.some((variables) => variables.after === 'link-page-2'));
@@ -159,7 +161,7 @@ test('reconciliation uses current PR state, keeps closed issues Done, and combin
 	} as unknown as Parameters<typeof syncPullRequestStatuses>[0]['client'];
 	const pr = {
 		number: 20, issueNumbers: [8, 9, 10, 11, 12], mergeable: 'MERGEABLE',
-		mergeStateStatus: 'CLEAN', hasReviewComments: true, checks: [],
+		mergeStateStatus: 'CLEAN', isDraft: false, checks: [],
 	};
 	let pullRequests = [pr, { ...pr, number: 21, issueNumbers: [8], mergeStateStatus: 'BEHIND' }];
 	const source = { readOpenPullRequests: async () => pullRequests };
