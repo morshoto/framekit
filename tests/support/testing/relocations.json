@@ -3107,7 +3107,7 @@
       "\"artifact-first production MCP edits, restores, exports and renders fractional-frame media\""
     ],
     "tests/integration/project-status-sync.test.ts": [
-      "'PR creation starts progress; submitted review comments select review'",
+      "'draft PRs select progress and ready PRs select review'",
       "'only failed required CI, conflicts, or behind branches select Pending'",
       "'issue references include Refs and closing links but exclude other repositories'",
       "'missing reference targets are skipped without hiding real API failures'",
@@ -3296,7 +3296,7 @@
         "\"render and rough-cut execution history cannot replace projects with matching IDs\""
       ],
       "tests/integration/project-status-sync.test.ts": [
-        "'PR creation starts progress; submitted review comments select review'",
+        "'draft PRs select progress and ready PRs select review'",
         "'only failed required CI, conflicts, or behind branches select Pending'",
         "'issue references include Refs and closing links but exclude other repositories'",
         "'missing reference targets are skipped without hiding real API failures'",
