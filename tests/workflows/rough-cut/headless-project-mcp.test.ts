@@ -1705,6 +1705,19 @@ test("external edit JSON previews registered clips, a title and music without mu
   let client: Client | undefined;
   let transport: StdioClientTransport | undefined;
   try {
+    const calls = join(directory, "native-calls.log");
+    const sentinelBin = join(directory, "sentinel-bin");
+    await mkdir(sentinelBin);
+    for (const command of ["osascript", "swift", "open", "pluginkit"]) {
+      const script = join(sentinelBin, command);
+      await writeFile(script, `#!/usr/bin/env node\nrequire("node:fs").appendFileSync(${JSON.stringify(calls)}, ${JSON.stringify(`${command}\n`)}); process.exit(77);\n`);
+      await chmod(script, 0o755);
+    }
+    environment.PATH = `${sentinelBin}:${process.env.PATH ?? ""}`;
+    const reservationPath = join(directory, "state", "canonical-recovery", "pending.json");
+    const reservation = JSON.stringify({ version: 2, kind: "native-operation", owner: "00000000-0000-4000-8000-000000000001", operation: "native.searchmedia" }) + "\n";
+    await mkdir(dirname(reservationPath), { recursive: true });
+    await writeFile(reservationPath, reservation);
     const video = join(directory, "a", "same.mp4");
     const video2 = join(directory, "b", "same.mp4");
     await mkdir(dirname(video), { recursive: true });
@@ -1771,6 +1784,10 @@ test("external edit JSON previews registered clips, a title and music without mu
     } finally {
       await rename(renamed, video);
     }
+    const notApproved = await client.callTool({ name: "headless.edit-json.execute", arguments: {
+      projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit, approved: false, planDigest: preview.planDigest,
+    } });
+    assert.equal(notApproved.isError, true, "execution requires explicit approval");
     const changed = await client.callTool({ name: "headless.edit-json.execute", arguments: {
       projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision,
       edit: { ...edit, title: { ...edit.title, text: "Changed" } }, approved: true, planDigest: preview.planDigest,
@@ -1781,6 +1798,10 @@ test("external edit JSON previews registered clips, a title and music without mu
       projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit, approved: true, planDigest: preview.planDigest,
     } }));
     assert.equal(executed.committed, true);
+    const stale = await client.callTool({ name: "headless.edit-json.execute", arguments: {
+      projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit, approved: true, planDigest: preview.planDigest,
+    } });
+    assert.equal(stale.isError, true, "a stale preview cannot be executed again");
     const secondEdit = { ...edit, clips: edit.clips.map((clip) => ({ ...clip, id: `second-${clip.id}` })),
       title: { ...edit.title, id: "second-title" }, music: { ...edit.music, id: "second-music" } };
     const nonempty = await client.callTool({ name: "headless.edit-json.preview", arguments: {
@@ -1801,6 +1822,8 @@ test("external edit JSON previews registered clips, a title and music without mu
     assert.equal(parsed.timeline.storyElements.find((item) => item.kind === "title")?.text, "Hello");
     assert.match(await readFile(xmlPath, "utf8"), /<adjust-volume amount="-12dB" \/>/);
     assert.deepEqual(await Promise.all(sourcePaths.map(async (path) => createHash("sha256").update(await readFile(path)).digest("hex"))), sourceDigests);
+    assert.equal(await readFile(reservationPath, "utf8"), reservation);
+    assert.equal(existsSync(calls), false, "JSON workflow must not invoke native commands");
   } finally {
     await client?.close();
     await transport?.close();
