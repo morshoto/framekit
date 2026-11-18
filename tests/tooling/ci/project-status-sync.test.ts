@@ -97,9 +97,9 @@ test('PR source paginates links/checks, uses current heads and test-merge result
 		} else if (variables.number === 21) {
 			data = { repository: { pullRequest: { state: 'CLOSED' } } };
 		} else {
+			assert.match(query, /\bisDraft\b/);
 			data = { repository: { pullRequest: {
 				number: 20, state: 'OPEN', isDraft: false, body: 'Refs #8', mergeable: 'MERGEABLE', mergeStateStatus: 'BLOCKED',
-				reviews: { totalCount: 0 }, reviewThreads: { totalCount: 1 },
 				closingIssuesReferences: { nodes: [
 					{ number: 10, repository: { nameWithOwner: 'morshoto/framekit' } },
 					{ number: 99, repository: { nameWithOwner: 'other/repo' } },
