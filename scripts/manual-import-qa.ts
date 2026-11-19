@@ -112,8 +112,8 @@ export async function prepareManualImportFixture(outputDirectory: string) {
   ];
   for (const source of sources) {
     await run(ffmpeg, ["-hide_banner", "-loglevel", "error", "-n",
-      "-f", "lavfi", "-i", "color=black:s=320x180:r=30:d=1",
-      "-f", "lavfi", "-i", `color=${source.color}:s=320x180:r=30:d=2`,
+      "-f", "lavfi", "-i", "color=black:s=1280x720:r=30:d=1",
+      "-f", "lavfi", "-i", `color=${source.color}:s=1280x720:r=30:d=2`,
       "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0[v]", "-map", "[v]", "-an",
       "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-pix_fmt", "yuv420p", join(destination, source.filename)]);
   }
