@@ -807,6 +807,9 @@ function parseExactRational(value: { value: string; timescale: string }): { valu
 }
 
 function xmlEscape(value: string): string {
+  if (/[^\u0009\u000A\u000D\u0020-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/u.test(value)) {
+    throw new Error("FCPXML_INVALID: text contains an illegal XML character");
+  }
   return value
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")

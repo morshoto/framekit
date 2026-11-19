@@ -13,7 +13,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
 import { compileTimelineIrToFcpxml } from "../../../adapters/final-cut/typescript/src/timeline-ir-fcpxml.js";
-import { HeadlessProjectService } from "@framekit/headless-application";
+import { HeadlessProjectService, externalEditOperations } from "@framekit/headless-application";
 import { FramekitProjectStore, timelineIrDigest, type FramekitProjectDocument, type TimelineIr } from "@framekit/runtime";
 import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer } from "../../../adapters/headless/typescript/src/index.js";
 
@@ -1692,3 +1692,177 @@ function toneAmplitude(samples: Float32Array, frequency: number, sampleRate = 48
 function rationalSeconds(time: { value: string; timescale: string }): number {
   return Number(time.value) / Number(time.timescale);
 }
+
+test("external edit JSON previews registered clips, a title and music without mutation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-json-edit-"));
+  const here = dirname(fileURLToPath(import.meta.url));
+  const environment: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1",
+    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0", FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"),
+    FRAMEKIT_STATE_DIR: join(directory, "state"),
+  };
+  let client: Client | undefined;
+  let transport: StdioClientTransport | undefined;
+  try {
+    const calls = join(directory, "native-calls.log");
+    const sentinelBin = join(directory, "sentinel-bin");
+    await mkdir(sentinelBin);
+    for (const command of ["osascript", "swift", "open", "pluginkit"]) {
+      const script = join(sentinelBin, command);
+      await writeFile(script, `#!/usr/bin/env node\nrequire("node:fs").appendFileSync(${JSON.stringify(calls)}, ${JSON.stringify(`${command}\n`)}); process.exit(77);\n`);
+      await chmod(script, 0o755);
+    }
+    environment.PATH = `${sentinelBin}:${process.env.PATH ?? ""}`;
+    const reservationPath = join(directory, "state", "canonical-recovery", "pending.json");
+    const reservation = JSON.stringify({ version: 2, kind: "native-operation", owner: "00000000-0000-4000-8000-000000000001", operation: "native.searchmedia" }) + "\n";
+    await mkdir(dirname(reservationPath), { recursive: true });
+    await writeFile(reservationPath, reservation);
+    const video = join(directory, "a", "same.mp4");
+    const video2 = join(directory, "b", "same.mp4");
+    await mkdir(dirname(video), { recursive: true });
+    await mkdir(dirname(video2), { recursive: true });
+    const music = join(directory, "music.wav");
+    await generateSegmentedSource(video, [{ color: "red", duration: 3 }], 440);
+    await execFileAsync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=blue:s=320x180:r=24:d=1", "-f", "lavfi", "-i", "sine=frequency=440:duration=3", "-c:v", "libx264", "-threads", "1", "-c:a", "aac", video2]);
+    const sourcePaths = [video, video2, music];
+    await execFileAsync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=880:duration=3", "-c:a", "pcm_s16le", music]);
+    ({ client, transport } = await connectProductionClient(here, environment));
+    const timeline = emptyTimeline();
+    const initial = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline } }));
+    const projectId = timeline.project.id;
+    const a = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: video, expectedRevision: initial.timeline.revision } }));
+    const a2 = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: video2, expectedRevision: a.project.timeline.revision } }));
+    const b = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: music, expectedRevision: a2.project.timeline.revision } }));
+    assert.notEqual(a.resource.id, a2.resource.id);
+    const probeScript = join(directory, "probe-fixture.mjs");
+    const mockProbe = async (startPts: number, formatStart: string) => {
+      const response = { streams: [{ codec_type: "video", width: 320, height: 180, r_frame_rate: "30/1", time_base: "1/90000", start_pts: startPts, duration_ts: 90000 }], format: { duration: "3.000000", start_time: formatStart } };
+      await writeFile(probeScript, `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(JSON.stringify(response))});\n`);
+      await chmod(probeScript, 0o755);
+      return (await new FfmpegMediaMetadataProbe({ ffprobePath: probeScript }).probe(video)).streams[0]!.sourceRange;
+    };
+    assert.deepEqual(await mockProbe(6000, "0.066667"), { start: { value: "0", timescale: "1" }, duration: { value: "1", timescale: "1" } });
+    assert.deepEqual(await mockProbe(6000, "0.066666"), { start: { value: "1", timescale: "1500000" }, duration: { value: "1", timescale: "1" } });
+    assert.equal(await mockProbe(6000, "0.066668"), undefined);
+    assert.deepEqual(await mockProbe(9000, "0.000000"), { start: { value: "1", timescale: "10" }, duration: { value: "1", timescale: "1" } });
+    const sourceDigests = await Promise.all(sourcePaths.map(async (path) => createHash("sha256").update(await readFile(path)).digest("hex")));
+    const seconds = (n: number) => ({ value: String(n), timescale: "1" });
+    const edit = { schemaVersion: 1 as const, clips: [
+      { id: "clip-a", mediaId: a.resource.id, sourceStartTime: seconds(0), durationTime: seconds(1) },
+      { id: "clip-b", mediaId: a2.resource.id, sourceStartTime: seconds(0), durationTime: seconds(1) },
+    ], title: { id: "title", text: "Hello 世界 🎬", startTime: seconds(0), durationTime: seconds(1) },
+    music: { id: "music", mediaId: b.resource.id, sourceStartTime: seconds(0), startTime: seconds(0), durationTime: seconds(2), gainDb: -12 } };
+    const shiftedTimeline = structuredClone(b.project.timeline);
+    const shiftedStream = shiftedTimeline.resources.find((item: any) => item.id === a.resource.id).metadata.streams.find((item: any) => item.kind === "video");
+    shiftedStream.sourceRange.start = { value: "1", timescale: "100" };
+    const shiftedEdit = { ...edit, clips: [{ ...edit.clips[0], sourceStartTime: { value: "1", timescale: "30" } }] };
+    assert.throws(() => externalEditOperations(shiftedEdit, shiftedTimeline, shiftedTimeline.revision), /source frame grid/);
+    shiftedStream.sourceRange.start = { value: "1", timescale: "30" };
+    assert.doesNotThrow(() => externalEditOperations(shiftedEdit, shiftedTimeline, shiftedTimeline.revision));
+    for (const [name, invalidEdit] of [
+      ["video stream exhausted", { ...edit, clips: [{ ...edit.clips[1], sourceStartTime: seconds(1) }] }],
+      ["illegal XML title", { ...edit, title: { ...edit.title, text: "bad\u0000title" } }],
+      ["unknown source", { ...edit, clips: [{ ...edit.clips[0], mediaId: "missing" }] }],
+      ["audio used as video", { ...edit, clips: [{ ...edit.clips[0], mediaId: b.resource.id }] }],
+      ["video used as music", { ...edit, music: { ...edit.music, mediaId: a.resource.id } }],
+      ["off-grid source start", { ...edit, clips: [{ ...edit.clips[0], sourceStartTime: { value: "1", timescale: "60" } }] }],
+      ["source start between source frames", { ...edit, clips: [{ ...edit.clips[1], sourceStartTime: { value: "1", timescale: "30" }, durationTime: { value: "1", timescale: "2" } }] }],
+      ["unsupported title styling", { ...edit, title: { ...edit.title, style: { color: "red" } } }],
+      ["title crossing clip boundaries", { ...edit, title: { ...edit.title, durationTime: seconds(2) } }],
+      ["source range outside media", { ...edit, clips: [{ ...edit.clips[0], sourceStartTime: seconds(3), durationTime: seconds(1) }] }],
+    ] as const) {
+      for (const tool of ["headless.edit-json.preview", "headless.edit-json.execute"]) {
+        const rejected = await client.callTool({ name: tool, arguments: {
+          projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit: invalidEdit,
+          ...(tool === "headless.edit-json.execute" ? { approved: true, planDigest: "0".repeat(64) } : {}),
+        } });
+        assert.equal(rejected.isError, true, `${tool}: ${name}`);
+        if (name === "video stream exhausted") assert.match(toolErrorText(rejected), /video stream bounds/);
+        if (name === "illegal XML title") assert.match(toolErrorText(rejected), /illegal XML character/);
+        if (tool === "headless.edit-json.preview" && name === "source start between source frames") {
+          assert.match(toolErrorText(rejected), /source frame grid/);
+        }
+      }
+    }
+    const futureRevision = { ...b.project.timeline.revision, id: "future-revision", sequence: b.project.timeline.revision.sequence + 1 };
+    assert.throws(() => externalEditOperations(edit, b.project.timeline, futureRevision), /PROJECT_EDIT_STALE_REVISION/);
+    for (const tool of ["headless.edit-json.preview", "headless.edit-json.execute"]) {
+      const rejected = await client.callTool({ name: tool, arguments: { projectId, sequenceId: timeline.sequence.id,
+        expectedRevision: a.project.timeline.revision, edit,
+        ...(tool === "headless.edit-json.execute" ? { approved: true, planDigest: "0".repeat(64) } : {}) } });
+      assert.equal(rejected.isError, true);
+      assert.match(toolErrorText(rejected), /PROJECT_EDIT_STALE_REVISION/);
+    }
+    const preview = payload(await client.callTool({ name: "headless.edit-json.preview", arguments: {
+      projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit,
+    } }));
+    assert.deepEqual(preview.after.timeline.sequence.occurrences.filter((item: any) => item.track === 0).map((item: any) => item.id), ["clip-a", "clip-b"]);
+    assert.equal(preview.after.timeline.sequence.titles[0].text, "Hello 世界 🎬");
+    assert.equal(preview.after.timeline.sequence.occurrences.find((item: any) => item.id === "music").gainDb, -12);
+    const inspected = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
+    assert.deepEqual(inspected.timeline, b.project.timeline);
+    assert.match(preview.planDigest, /^[a-f0-9]{64}$/);
+    const renamed = `${video}.saved`;
+    await rename(video, renamed);
+    try {
+      const missing = await client.callTool({ name: "headless.edit-json.execute", arguments: {
+        projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit, approved: true, planDigest: preview.planDigest,
+      } });
+      assert.equal(missing.isError, true, "missing source must block execution");
+      await writeFile(video, "changed source");
+      const changedSource = await client.callTool({ name: "headless.edit-json.execute", arguments: {
+        projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit, approved: true, planDigest: preview.planDigest,
+      } });
+      assert.equal(changedSource.isError, true, "changed source must block execution");
+      await unlink(video);
+    } finally {
+      await rename(renamed, video);
+    }
+    const notApproved = await client.callTool({ name: "headless.edit-json.execute", arguments: {
+      projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit, approved: false, planDigest: preview.planDigest,
+    } });
+    assert.equal(notApproved.isError, true, "execution requires explicit approval");
+    const changed = await client.callTool({ name: "headless.edit-json.execute", arguments: {
+      projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision,
+      edit: { ...edit, title: { ...edit.title, text: "Changed" } }, approved: true, planDigest: preview.planDigest,
+    } });
+    assert.equal(changed.isError, true, "execute must reject a different edit than the preview");
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, b.project.timeline);
+    const executed = payload(await client.callTool({ name: "headless.edit-json.execute", arguments: {
+      projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit, approved: true, planDigest: preview.planDigest,
+    } }));
+    assert.equal(executed.committed, true);
+    const stale = await client.callTool({ name: "headless.edit-json.execute", arguments: {
+      projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit, approved: true, planDigest: preview.planDigest,
+    } });
+    assert.equal(stale.isError, true, "a stale preview cannot be executed again");
+    const secondEdit = { ...edit, clips: edit.clips.map((clip) => ({ ...clip, id: `second-${clip.id}` })),
+      title: { ...edit.title, id: "second-title" }, music: { ...edit.music, id: "second-music" } };
+    const nonempty = await client.callTool({ name: "headless.edit-json.preview", arguments: {
+      projectId, sequenceId: timeline.sequence.id, expectedRevision: executed.after.timeline.revision, edit: secondEdit,
+    } });
+    assert.equal(nonempty.isError, true, "a complete external edit must not silently append to an existing timeline");
+    assert.deepEqual(executed.after.timeline.sequence.occurrences.filter((item: any) => item.track === 0).map((item: any) => item.id), ["clip-a", "clip-b"]);
+    const xmlPath = join(directory, "edit.fcpxml");
+    const target = { provider: "final-cut", libraryUid: "library", eventUid: "event", projectUid: "project", sequenceUid: "sequence", materialization: "versioned" };
+    const exported = payload(await client.callTool({ name: "headless.fcpxml.export", arguments: {
+      projectId, sequenceId: timeline.sequence.id, expectedRevision: executed.after.timeline.revision, outputPath: xmlPath, target,
+    } }));
+    assert.equal(exported.artifact.verified, true);
+    assert.equal(exported.provenance.revision.id, executed.after.timeline.revision.id);
+    const parsed = await new FcpxmlDocumentAdapter(xmlPath).readProject();
+    const sourceFor = (id: string | undefined) => parsed.media.find((item) => item.mediaId === id)?.source;
+    assert.deepEqual(parsed.timeline.clips.filter((clip) => [video, video2].includes(sourceFor(clip.mediaId) ?? "")).map((clip) => [sourceFor(clip.mediaId), clip.sourceStart, clip.duration]), [[video, 0, 1], [video2, 0, 1]]);
+    assert.deepEqual(parsed.timeline.clips.filter((clip) => sourceFor(clip.mediaId) === music).map((clip) => [clip.sourceStart, clip.duration]), [[0, 2]]);
+    assert.equal(parsed.timeline.storyElements.find((item) => item.kind === "title")?.text, "Hello 世界 🎬");
+    assert.match(await readFile(xmlPath, "utf8"), /<adjust-volume amount="-12dB" \/>/);
+    assert.deepEqual(await Promise.all(sourcePaths.map(async (path) => createHash("sha256").update(await readFile(path)).digest("hex"))), sourceDigests);
+    assert.equal(await readFile(reservationPath, "utf8"), reservation);
+    assert.equal(existsSync(calls), false, "JSON workflow must not invoke native commands");
+  } finally {
+    await client?.close();
+    await transport?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});

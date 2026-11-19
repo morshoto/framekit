@@ -49,6 +49,7 @@ export interface TimelineIrMediaStream {
   width?: number;
   height?: number;
   frameRate?: RationalTime;
+  sourceRange?: { start: RationalTime; duration: RationalTime };
   sampleRate?: number;
   channels?: number;
 }
@@ -639,6 +640,10 @@ function validateMediaMetadata(metadata: TimelineIrMediaMetadata, field: string)
     const streamField = `${field}.streams[${index}]`;
     if (!stream || (stream.kind !== "video" && stream.kind !== "audio")) {
       throw new Error(`TIMELINE_IR_INVALID: ${streamField}.kind is unsupported`);
+    }
+    if (stream.sourceRange) {
+      validateRational(stream.sourceRange.start, `${streamField}.sourceRange.start`, false);
+      validateRational(stream.sourceRange.duration, `${streamField}.sourceRange.duration`, true);
     }
     if (stream.codec !== undefined) requireText(stream.codec, `${streamField}.codec`);
     if (stream.kind === "video") {

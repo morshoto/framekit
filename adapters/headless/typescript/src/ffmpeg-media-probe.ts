@@ -24,14 +24,14 @@ export class FfmpegMediaMetadataProbe implements LocalMediaMetadataProbe {
     if (!details.isFile() || details.isSymbolicLink()) throw new Error(`HEADLESS_MEDIA_INVALID: source is not a regular file: ${sourcePath}`);
     const result = await execFileAsync(this.ffprobePath, [
       "-v", "error",
-      "-show_entries", "stream=codec_type,codec_name,width,height,r_frame_rate,sample_rate,channels",
-      "-show_entries", "format=duration",
+      "-show_entries", "stream=codec_type,codec_name,width,height,r_frame_rate,sample_rate,channels,time_base,start_pts,duration_ts",
+      "-show_entries", "format=duration,start_time",
       "-of", "json",
       sourcePath,
     ], { env: this.environment, maxBuffer: 2 * 1024 * 1024 });
     const parsed = JSON.parse(result.stdout) as {
-      streams?: Array<{ codec_type?: string; codec_name?: string; width?: number; height?: number; r_frame_rate?: string; sample_rate?: string; channels?: number }>;
-      format?: { duration?: string };
+      streams?: Array<{ codec_type?: string; codec_name?: string; width?: number; height?: number; r_frame_rate?: string; sample_rate?: string; channels?: number; time_base?: string; start_pts?: number; duration_ts?: number }>;
+      format?: { duration?: string; start_time?: string };
     };
     const duration = decimalToRational(Number(parsed.format?.duration));
     if (!parsed.streams || !duration) throw new Error("HEADLESS_MEDIA_INVALID: ffprobe returned incomplete metadata");
@@ -43,6 +43,7 @@ export class FfmpegMediaMetadataProbe implements LocalMediaMetadataProbe {
         ...(stream.width !== undefined ? { width: stream.width } : {}),
         ...(stream.height !== undefined ? { height: stream.height } : {}),
         ...(stream.r_frame_rate ? { frameRate: parseRate(stream.r_frame_rate) } : {}),
+        ...(stream.codec_type === "video" && streamBounds(stream, parsed.format?.start_time) ? { sourceRange: streamBounds(stream, parsed.format?.start_time)! } : {}),
         ...(stream.sample_rate ? { sampleRate: Number(stream.sample_rate) } : {}),
         ...(stream.channels !== undefined ? { channels: stream.channels } : {}),
       } satisfies TimelineIrMediaStream];
@@ -71,4 +72,24 @@ function gcd(left: bigint, right: bigint): bigint {
     right = remainder;
   }
   return left || 1n;
+}
+
+function streamBounds(stream: { time_base?: string; start_pts?: number; duration_ts?: number }, formatStart?: string): { start: RationalTime; duration: RationalTime } | undefined {
+  if (!stream.time_base || !/^\d+\/\d+$/.test(stream.time_base) || !Number.isSafeInteger(stream.start_pts) || !Number.isSafeInteger(stream.duration_ts) || stream.duration_ts! <= 0 || !formatStart || !/^-?\d+(?:\.\d+)?$/.test(formatStart)) return undefined;
+  const [baseValue, baseScale] = stream.time_base.split("/").map(BigInt);
+  if (baseValue <= 0n || baseScale <= 0n) return undefined;
+  const [whole, fraction = ""] = formatStart.replace("-", "").split(".");
+  const scale = 10n ** BigInt(fraction.length);
+  const origin = (formatStart.startsWith("-") ? -1n : 1n) * (BigInt(whole!) * scale + BigInt(fraction || "0"));
+  let startValue = BigInt(stream.start_pts!) * baseValue * scale - origin * baseScale;
+  const startScale = baseScale * scale;
+  // ffprobe formats the container origin at microsecond precision. Treat an
+  // offset within half a microsecond as zero, in either rounding direction.
+  const magnitude = startValue < 0n ? -startValue : startValue;
+  if (magnitude * 2_000_000n <= startScale) startValue = 0n;
+  if (startValue < 0n) return undefined;
+  const startDivisor = gcd(startValue < 0n ? -startValue : startValue, startScale);
+  const durationValue = BigInt(stream.duration_ts!) * baseValue;
+  const durationDivisor = gcd(durationValue, baseScale);
+  return { start: { value: String(startValue / startDivisor), timescale: String(startScale / startDivisor) }, duration: { value: String(durationValue / durationDivisor), timescale: String(baseScale / durationDivisor) } };
 }
