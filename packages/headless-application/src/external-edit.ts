@@ -31,9 +31,16 @@ export function externalEditOperations(edit: ExternalEdit, timeline: TimelineIr)
   };
   for (const clip of edit.clips) {
     const resource = assertSource(clip.mediaId, "video");
-    const rate = resource.metadata?.streams.find((stream) => stream.kind === "video")?.frameRate;
+    const stream = resource.metadata?.streams.find((item) => item.kind === "video");
+    const rate = stream?.frameRate;
     if (!rate || BigInt(rate.value) <= 0n || BigInt(rate.timescale) <= 0n) {
       throw new Error(`EXTERNAL_EDIT_INVALID: ${clip.mediaId} has no supported source frame rate`);
+    }
+    if (!stream?.sourceRange) throw new Error(`EXTERNAL_EDIT_INVALID: ${clip.mediaId} has no verified video stream bounds; register the source in a new project`);
+    const addRationalTimes = (a: RationalTime, b: RationalTime): RationalTime => ({ value: String(BigInt(a.value) * BigInt(b.timescale) + BigInt(b.value) * BigInt(a.timescale)), timescale: String(BigInt(a.timescale) * BigInt(b.timescale)) });
+    const compare = (a: RationalTime, b: RationalTime) => BigInt(a.value) * BigInt(b.timescale) - BigInt(b.value) * BigInt(a.timescale);
+    if (compare(clip.sourceStartTime, stream.sourceRange.start) < 0n || compare(addRationalTimes(clip.sourceStartTime, clip.durationTime), addRationalTimes(stream.sourceRange.start, stream.sourceRange.duration)) > 0n) {
+      throw new Error(`EXTERNAL_EDIT_INVALID: ${clip.mediaId} range exceeds video stream bounds`);
     }
     const sourceFrame = { value: rate.timescale, timescale: rate.value };
     aligned(clip.sourceStartTime);

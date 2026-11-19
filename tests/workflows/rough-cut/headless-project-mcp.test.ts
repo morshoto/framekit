@@ -1724,7 +1724,7 @@ test("external edit JSON previews registered clips, a title and music without mu
     await mkdir(dirname(video2), { recursive: true });
     const music = join(directory, "music.wav");
     await generateSegmentedSource(video, [{ color: "red", duration: 3 }], 440);
-    await generateVideoAtFrameRate(video2, 24, 3);
+    await execFileAsync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=blue:s=320x180:r=24:d=1", "-f", "lavfi", "-i", "sine=frequency=440:duration=3", "-c:v", "libx264", "-threads", "1", "-c:a", "aac", video2]);
     const sourcePaths = [video, video2, music];
     await execFileAsync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=880:duration=3", "-c:a", "pcm_s16le", music]);
     ({ client, transport } = await connectProductionClient(here, environment));
@@ -1739,15 +1739,17 @@ test("external edit JSON previews registered clips, a title and music without mu
     const seconds = (n: number) => ({ value: String(n), timescale: "1" });
     const edit = { schemaVersion: 1, clips: [
       { id: "clip-a", mediaId: a.resource.id, sourceStartTime: seconds(0), durationTime: seconds(1) },
-      { id: "clip-b", mediaId: a2.resource.id, sourceStartTime: seconds(1), durationTime: seconds(1) },
-    ], title: { id: "title", text: "Hello", startTime: seconds(0), durationTime: seconds(1) },
+      { id: "clip-b", mediaId: a2.resource.id, sourceStartTime: seconds(0), durationTime: seconds(1) },
+    ], title: { id: "title", text: "Hello 世界 🎬", startTime: seconds(0), durationTime: seconds(1) },
     music: { id: "music", mediaId: b.resource.id, sourceStartTime: seconds(0), startTime: seconds(0), durationTime: seconds(2), gainDb: -12 } };
     for (const [name, invalidEdit] of [
+      ["video stream exhausted", { ...edit, clips: [{ ...edit.clips[1], sourceStartTime: seconds(1) }] }],
+      ["illegal XML title", { ...edit, title: { ...edit.title, text: "bad\u0000title" } }],
       ["unknown source", { ...edit, clips: [{ ...edit.clips[0], mediaId: "missing" }] }],
       ["audio used as video", { ...edit, clips: [{ ...edit.clips[0], mediaId: b.resource.id }] }],
       ["video used as music", { ...edit, music: { ...edit.music, mediaId: a.resource.id } }],
       ["off-grid source start", { ...edit, clips: [{ ...edit.clips[0], sourceStartTime: { value: "1", timescale: "60" } }] }],
-      ["source start between source frames", { ...edit, clips: [{ ...edit.clips[1], sourceStartTime: { value: "1", timescale: "30" } }] }],
+      ["source start between source frames", { ...edit, clips: [{ ...edit.clips[1], sourceStartTime: { value: "1", timescale: "30" }, durationTime: { value: "1", timescale: "2" } }] }],
       ["unsupported title styling", { ...edit, title: { ...edit.title, style: { color: "red" } } }],
       ["title crossing clip boundaries", { ...edit, title: { ...edit.title, durationTime: seconds(2) } }],
       ["source range outside media", { ...edit, clips: [{ ...edit.clips[0], sourceStartTime: seconds(3), durationTime: seconds(1) }] }],
@@ -1755,8 +1757,11 @@ test("external edit JSON previews registered clips, a title and music without mu
       for (const tool of ["headless.edit-json.preview", "headless.edit-json.execute"]) {
         const rejected = await client.callTool({ name: tool, arguments: {
           projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit: invalidEdit,
+          ...(tool === "headless.edit-json.execute" ? { approved: true, planDigest: "0".repeat(64) } : {}),
         } });
         assert.equal(rejected.isError, true, `${tool}: ${name}`);
+        if (name === "video stream exhausted") assert.match(toolErrorText(rejected), /video stream bounds/);
+        if (name === "illegal XML title") assert.match(toolErrorText(rejected), /illegal XML character/);
         if (tool === "headless.edit-json.preview" && name === "source start between source frames") {
           assert.match(toolErrorText(rejected), /source frame grid/);
         }
@@ -1766,7 +1771,7 @@ test("external edit JSON previews registered clips, a title and music without mu
       projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit,
     } }));
     assert.deepEqual(preview.after.timeline.sequence.occurrences.filter((item: any) => item.track === 0).map((item: any) => item.id), ["clip-a", "clip-b"]);
-    assert.equal(preview.after.timeline.sequence.titles[0].text, "Hello");
+    assert.equal(preview.after.timeline.sequence.titles[0].text, "Hello 世界 🎬");
     assert.equal(preview.after.timeline.sequence.occurrences.find((item: any) => item.id === "music").gainDb, -12);
     const inspected = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
     assert.deepEqual(inspected.timeline, b.project.timeline);
@@ -1821,9 +1826,9 @@ test("external edit JSON previews registered clips, a title and music without mu
     assert.equal(exported.provenance.revision.id, executed.after.timeline.revision.id);
     const parsed = await new FcpxmlDocumentAdapter(xmlPath).readProject();
     const sourceFor = (id: string | undefined) => parsed.media.find((item) => item.mediaId === id)?.source;
-    assert.deepEqual(parsed.timeline.clips.filter((clip) => [video, video2].includes(sourceFor(clip.mediaId) ?? "")).map((clip) => [sourceFor(clip.mediaId), clip.sourceStart, clip.duration]), [[video, 0, 1], [video2, 1, 1]]);
+    assert.deepEqual(parsed.timeline.clips.filter((clip) => [video, video2].includes(sourceFor(clip.mediaId) ?? "")).map((clip) => [sourceFor(clip.mediaId), clip.sourceStart, clip.duration]), [[video, 0, 1], [video2, 0, 1]]);
     assert.deepEqual(parsed.timeline.clips.filter((clip) => sourceFor(clip.mediaId) === music).map((clip) => [clip.sourceStart, clip.duration]), [[0, 2]]);
-    assert.equal(parsed.timeline.storyElements.find((item) => item.kind === "title")?.text, "Hello");
+    assert.equal(parsed.timeline.storyElements.find((item) => item.kind === "title")?.text, "Hello 世界 🎬");
     assert.match(await readFile(xmlPath, "utf8"), /<adjust-volume amount="-12dB" \/>/);
     assert.deepEqual(await Promise.all(sourcePaths.map(async (path) => createHash("sha256").update(await readFile(path)).digest("hex"))), sourceDigests);
     assert.equal(await readFile(reservationPath, "utf8"), reservation);
