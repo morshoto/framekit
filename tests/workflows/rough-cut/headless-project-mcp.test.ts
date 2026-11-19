@@ -13,7 +13,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
 import { compileTimelineIrToFcpxml } from "../../../adapters/final-cut/typescript/src/timeline-ir-fcpxml.js";
-import { HeadlessProjectService } from "@framekit/headless-application";
+import { HeadlessProjectService, externalEditOperations } from "@framekit/headless-application";
 import { FramekitProjectStore, timelineIrDigest, type FramekitProjectDocument, type TimelineIr } from "@framekit/runtime";
 import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer } from "../../../adapters/headless/typescript/src/index.js";
 
@@ -1735,13 +1735,31 @@ test("external edit JSON previews registered clips, a title and music without mu
     const a2 = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: video2, expectedRevision: a.project.timeline.revision } }));
     const b = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: music, expectedRevision: a2.project.timeline.revision } }));
     assert.notEqual(a.resource.id, a2.resource.id);
+    const probeScript = join(directory, "probe-fixture.mjs");
+    const mockProbe = async (startPts: number, formatStart: string) => {
+      const response = { streams: [{ codec_type: "video", width: 320, height: 180, r_frame_rate: "30/1", time_base: "1/90000", start_pts: startPts, duration_ts: 90000 }], format: { duration: "3.000000", start_time: formatStart } };
+      await writeFile(probeScript, `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(JSON.stringify(response))});\n`);
+      await chmod(probeScript, 0o755);
+      return (await new FfmpegMediaMetadataProbe({ ffprobePath: probeScript }).probe(video)).streams[0]!.sourceRange;
+    };
+    assert.deepEqual(await mockProbe(6000, "0.066667"), { start: { value: "0", timescale: "1" }, duration: { value: "1", timescale: "1" } });
+    assert.deepEqual(await mockProbe(6000, "0.066666"), { start: { value: "1", timescale: "1500000" }, duration: { value: "1", timescale: "1" } });
+    assert.equal(await mockProbe(6000, "0.066668"), undefined);
+    assert.deepEqual(await mockProbe(9000, "0.000000"), { start: { value: "1", timescale: "10" }, duration: { value: "1", timescale: "1" } });
     const sourceDigests = await Promise.all(sourcePaths.map(async (path) => createHash("sha256").update(await readFile(path)).digest("hex")));
     const seconds = (n: number) => ({ value: String(n), timescale: "1" });
-    const edit = { schemaVersion: 1, clips: [
+    const edit = { schemaVersion: 1 as const, clips: [
       { id: "clip-a", mediaId: a.resource.id, sourceStartTime: seconds(0), durationTime: seconds(1) },
       { id: "clip-b", mediaId: a2.resource.id, sourceStartTime: seconds(0), durationTime: seconds(1) },
     ], title: { id: "title", text: "Hello 世界 🎬", startTime: seconds(0), durationTime: seconds(1) },
     music: { id: "music", mediaId: b.resource.id, sourceStartTime: seconds(0), startTime: seconds(0), durationTime: seconds(2), gainDb: -12 } };
+    const shiftedTimeline = structuredClone(b.project.timeline);
+    const shiftedStream = shiftedTimeline.resources.find((item: any) => item.id === a.resource.id).metadata.streams.find((item: any) => item.kind === "video");
+    shiftedStream.sourceRange.start = { value: "1", timescale: "100" };
+    const shiftedEdit = { ...edit, clips: [{ ...edit.clips[0], sourceStartTime: { value: "1", timescale: "30" } }] };
+    assert.throws(() => externalEditOperations(shiftedEdit, shiftedTimeline, shiftedTimeline.revision), /source frame grid/);
+    shiftedStream.sourceRange.start = { value: "1", timescale: "30" };
+    assert.doesNotThrow(() => externalEditOperations(shiftedEdit, shiftedTimeline, shiftedTimeline.revision));
     for (const [name, invalidEdit] of [
       ["video stream exhausted", { ...edit, clips: [{ ...edit.clips[1], sourceStartTime: seconds(1) }] }],
       ["illegal XML title", { ...edit, title: { ...edit.title, text: "bad\u0000title" } }],
@@ -1766,6 +1784,15 @@ test("external edit JSON previews registered clips, a title and music without mu
           assert.match(toolErrorText(rejected), /source frame grid/);
         }
       }
+    }
+    const futureRevision = { ...b.project.timeline.revision, id: "future-revision", sequence: b.project.timeline.revision.sequence + 1 };
+    assert.throws(() => externalEditOperations(edit, b.project.timeline, futureRevision), /PROJECT_EDIT_STALE_REVISION/);
+    for (const tool of ["headless.edit-json.preview", "headless.edit-json.execute"]) {
+      const rejected = await client.callTool({ name: tool, arguments: { projectId, sequenceId: timeline.sequence.id,
+        expectedRevision: a.project.timeline.revision, edit,
+        ...(tool === "headless.edit-json.execute" ? { approved: true, planDigest: "0".repeat(64) } : {}) } });
+      assert.equal(rejected.isError, true);
+      assert.match(toolErrorText(rejected), /PROJECT_EDIT_STALE_REVISION/);
     }
     const preview = payload(await client.callTool({ name: "headless.edit-json.preview", arguments: {
       projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit,

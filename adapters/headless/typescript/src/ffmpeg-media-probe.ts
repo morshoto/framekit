@@ -81,9 +81,13 @@ function streamBounds(stream: { time_base?: string; start_pts?: number; duration
   const [whole, fraction = ""] = formatStart.replace("-", "").split(".");
   const scale = 10n ** BigInt(fraction.length);
   const origin = (formatStart.startsWith("-") ? -1n : 1n) * (BigInt(whole!) * scale + BigInt(fraction || "0"));
-  const startValue = BigInt(stream.start_pts!) * baseValue * scale - origin * baseScale;
-  if (startValue < 0n) return undefined;
+  let startValue = BigInt(stream.start_pts!) * baseValue * scale - origin * baseScale;
   const startScale = baseScale * scale;
+  // ffprobe formats the container origin at microsecond precision. Treat an
+  // offset within half a microsecond as zero, in either rounding direction.
+  const magnitude = startValue < 0n ? -startValue : startValue;
+  if (magnitude * 2_000_000n <= startScale) startValue = 0n;
+  if (startValue < 0n) return undefined;
   const startDivisor = gcd(startValue < 0n ? -startValue : startValue, startScale);
   const durationValue = BigInt(stream.duration_ts!) * baseValue;
   const durationDivisor = gcd(durationValue, baseScale);

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { compileTimelineIrToFcpxml } from "@framekit/final-cut/fcpxml";
-import type { ProjectEditCommand, RationalTime, TimelineIr, TimelineIrEditOperation } from "@framekit/runtime";
+import { ProjectTransactionError } from "@framekit/runtime";
+import type { ContextRevision, ProjectEditCommand, RationalTime, TimelineIr, TimelineIrEditOperation } from "@framekit/runtime";
 
 export interface ExternalEdit {
   schemaVersion: 1;
@@ -10,7 +11,12 @@ export interface ExternalEdit {
 }
 
 /** Convert the bounded interchange format to the existing project transaction operations. */
-export function externalEditOperations(edit: ExternalEdit, timeline: TimelineIr): TimelineIrEditOperation[] {
+export function externalEditOperations(edit: ExternalEdit, timeline: TimelineIr, expectedRevision: ContextRevision): TimelineIrEditOperation[] {
+  if (timeline.revision.id !== expectedRevision.id || timeline.revision.sequence !== expectedRevision.sequence) {
+    throw new ProjectTransactionError("PROJECT_EDIT_STALE_REVISION", "expected project revision does not match the inspected project", {
+      expectedRevision, actualRevision: timeline.revision,
+    });
+  }
   const sequence = timeline.sequence;
   if (BigInt(sequence.durationTime.value) !== 0n || sequence.occurrences.length || sequence.storyElements.length
     || sequence.markers.length || sequence.captions.length || sequence.titles?.length || sequence.transitions?.length) {
@@ -44,7 +50,8 @@ export function externalEditOperations(edit: ExternalEdit, timeline: TimelineIr)
     }
     const sourceFrame = { value: rate.timescale, timescale: rate.value };
     aligned(clip.sourceStartTime);
-    aligned(clip.sourceStartTime, sourceFrame, "source");
+    const sourceOffset = { value: String(BigInt(clip.sourceStartTime.value) * BigInt(stream.sourceRange.start.timescale) - BigInt(stream.sourceRange.start.value) * BigInt(clip.sourceStartTime.timescale)), timescale: String(BigInt(clip.sourceStartTime.timescale) * BigInt(stream.sourceRange.start.timescale)) };
+    aligned(sourceOffset, sourceFrame, "source");
     aligned(clip.durationTime);
     aligned(clip.durationTime, sourceFrame, "source");
   }
