@@ -100,8 +100,9 @@ evidence has been independently reviewed.
 ## Project status automation
 
 The `Assign` workflow keeps issue `Status:` labels and Project #3's Status
-field aligned. Opening or reopening an issue selects Backlog; closing selects
-Done. Adding a status label selects that status and removes the previous status
+field aligned. Issue templates apply `Status: Backlog`. Opening or reopening an issue selects
+Backlog; closing selects Done. To signal local work before opening a PR, add
+`Status: In progress`. Adding a status label selects that status and removes the previous status
 label. Removing the last status label resets it to Backlog. Manual dispatch
 backfills existing issue cards, using a single status label first or seeding a
 missing label from the board. Multiple labels are reported as conflicts.
@@ -112,8 +113,8 @@ or issue URLs), as well as GitHub's linked closing issues:
 
 | Current related PR state | Issue label and project status |
 | --- | --- |
-| Open PR, including a draft | In progress |
-| Submitted review or inline review comments | In review |
+| Open draft PR | In progress |
+| Open PR ready for review | In review |
 | Failed required CI, merge conflict, or branch behind the base | Pending |
 
 Pending takes precedence over In review, which takes precedence over In progress
