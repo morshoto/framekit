@@ -99,6 +99,7 @@ test("prepares three trimmed clips through production MCP without claiming nativ
     ]);
     assert.equal(xml.timeline.storyElements.find((item) => item.kind === "title")?.text, "FRAMEKIT QA");
     const xmlText = await readFile(result.artifactPath, "utf8");
+    assert.match(xmlText, /<format id="r1" name="FFVideoFormat720p30" frameDuration="1\/30s" width="1280" height="720"\s*\/>/);
     assert.match(xmlText, /<adjust-volume amount="-12dB" \/>/);
     await verifyPreparedArtifact(result.artifactPath, destination);
     const tags = xmlText.match(/<asset-clip\b[^>]*>/g) ?? [];
