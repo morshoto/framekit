@@ -1757,9 +1757,9 @@ test("external edit JSON previews registered clips, a title and music without mu
     const shiftedStream = shiftedTimeline.resources.find((item: any) => item.id === a.resource.id).metadata.streams.find((item: any) => item.kind === "video");
     shiftedStream.sourceRange.start = { value: "1", timescale: "100" };
     const shiftedEdit = { ...edit, clips: [{ ...edit.clips[0], sourceStartTime: { value: "1", timescale: "30" } }] };
-    assert.throws(() => externalEditOperations(shiftedEdit, shiftedTimeline), /source frame grid/);
+    assert.throws(() => externalEditOperations(shiftedEdit, shiftedTimeline, shiftedTimeline.revision), /source frame grid/);
     shiftedStream.sourceRange.start = { value: "1", timescale: "30" };
-    assert.doesNotThrow(() => externalEditOperations(shiftedEdit, shiftedTimeline));
+    assert.doesNotThrow(() => externalEditOperations(shiftedEdit, shiftedTimeline, shiftedTimeline.revision));
     for (const [name, invalidEdit] of [
       ["video stream exhausted", { ...edit, clips: [{ ...edit.clips[1], sourceStartTime: seconds(1) }] }],
       ["illegal XML title", { ...edit, title: { ...edit.title, text: "bad\u0000title" } }],
@@ -1784,6 +1784,15 @@ test("external edit JSON previews registered clips, a title and music without mu
           assert.match(toolErrorText(rejected), /source frame grid/);
         }
       }
+    }
+    const futureRevision = { ...b.project.timeline.revision, id: "future-revision", sequence: b.project.timeline.revision.sequence + 1 };
+    assert.throws(() => externalEditOperations(edit, b.project.timeline, futureRevision), /PROJECT_EDIT_STALE_REVISION/);
+    for (const tool of ["headless.edit-json.preview", "headless.edit-json.execute"]) {
+      const rejected = await client.callTool({ name: tool, arguments: { projectId, sequenceId: timeline.sequence.id,
+        expectedRevision: a.project.timeline.revision, edit,
+        ...(tool === "headless.edit-json.execute" ? { approved: true, planDigest: "0".repeat(64) } : {}) } });
+      assert.equal(rejected.isError, true);
+      assert.match(toolErrorText(rejected), /PROJECT_EDIT_STALE_REVISION/);
     }
     const preview = payload(await client.callTool({ name: "headless.edit-json.preview", arguments: {
       projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit,
