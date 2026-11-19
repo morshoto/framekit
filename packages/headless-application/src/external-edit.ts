@@ -44,7 +44,8 @@ export function externalEditOperations(edit: ExternalEdit, timeline: TimelineIr)
     }
     const sourceFrame = { value: rate.timescale, timescale: rate.value };
     aligned(clip.sourceStartTime);
-    aligned(clip.sourceStartTime, sourceFrame, "source");
+    const sourceOffset = { value: String(BigInt(clip.sourceStartTime.value) * BigInt(stream.sourceRange.start.timescale) - BigInt(stream.sourceRange.start.value) * BigInt(clip.sourceStartTime.timescale)), timescale: String(BigInt(clip.sourceStartTime.timescale) * BigInt(stream.sourceRange.start.timescale)) };
+    aligned(sourceOffset, sourceFrame, "source");
     aligned(clip.durationTime);
     aligned(clip.durationTime, sourceFrame, "source");
   }
