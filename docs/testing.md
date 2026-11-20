@@ -105,6 +105,11 @@ candidate. The three video inputs have a black lead-in; the JSON edit selects a
 one-second colored range starting at one second from each. A successful artifact
 check does not prove Final Cut behavior.
 
+The exclusive fixture directory also contains `input-edit.json`,
+`preview-receipt.json`, and `execution-receipt.json`: the submitted edit, its
+preview digest, and the approved execution and export identities. Their hashes
+are recorded in `reference.json`. These files do not establish native import.
+
 For the headed portion, obtain explicit approval for the exact disposable
 library, generated FCPXML, operations, and new export path. In Final Cut,
 create and select a new isolated library; use **File > Import > XML** and import

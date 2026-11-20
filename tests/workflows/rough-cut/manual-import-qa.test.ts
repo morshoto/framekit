@@ -77,6 +77,26 @@ test("prepares three trimmed clips through production MCP without claiming nativ
     assert.equal(result.nativeImport, "UNVERIFIED");
     assert.equal(result.finalCutExport, "UNVERIFIED");
     const manifest = JSON.parse(await readFile(result.manifestPath, "utf8"));
+    const input = JSON.parse(await readFile(join(destination, "input-edit.json"), "utf8"));
+    const preview = JSON.parse(await readFile(join(destination, "preview-receipt.json"), "utf8"));
+    const execution = JSON.parse(await readFile(join(destination, "execution-receipt.json"), "utf8"));
+    assert.equal(input.schemaVersion, 1);
+    assert.equal(input.request.projectId, preview.projectId);
+    assert.equal(input.request.sequenceId, preview.sequenceId);
+    assert.deepEqual(input.request.expectedRevision, preview.baseRevision);
+    assert.deepEqual(input.request.edit.clips.map((clip: { mediaId: string }) => clip.mediaId), manifest.sources.slice(0, 3).map((source: { mediaId: string }) => source.mediaId));
+    assert.equal(input.request.edit.music.mediaId, manifest.sources[3].mediaId);
+    assert.match(preview.planDigest, /^[a-f0-9]{64}$/);
+    assert.equal(execution.planDigest, preview.planDigest);
+    assert.equal(execution.approved, true);
+    assert.equal(execution.committed, true);
+    assert.deepEqual(execution.revision, manifest.artifact.revision);
+    assert.equal(execution.export.sha256, manifest.artifact.sha256);
+    assert.equal(execution.export.digest, execution.export.sha256);
+    assert.equal(execution.export.verified, true);
+    for (const filename of ["input-edit.json", "preview-receipt.json", "execution-receipt.json"]) {
+      assert.equal(createHash("sha256").update(await readFile(join(destination, filename))).digest("hex"), manifest.receipts[filename]);
+    }
     assert.equal(manifest.sources.length, 4);
     assert.match(manifest.candidate.commit, /^[a-f0-9]{40}$/);
     assert.equal(typeof manifest.candidate.dirty, "boolean");

@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { link, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { release as osRelease } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -10,6 +10,17 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
 
 const run = promisify(execFile);
+async function writeReceipt(directory: string, filename: string, value: unknown): Promise<string> {
+  const content = `${JSON.stringify(value, null, 2)}\n`;
+  const temporary = join(directory, `.${randomUUID()}.tmp`);
+  await writeFile(temporary, content, { flag: "wx" });
+  try {
+    await link(temporary, join(directory, filename)); // Atomic and create-only.
+  } finally {
+    await unlink(temporary);
+  }
+  return createHash("sha256").update(content).digest("hex");
+}
 /** Artifact measurements cannot establish how a movie was produced or imported. */
 export interface ExportMeasurements {
   durationSeconds: number;
@@ -131,6 +142,7 @@ export async function prepareManualImportFixture(outputDirectory: string) {
   const sequenceId = `sequence-${randomUUID()}`;
   const artifactPath = join(destination, "edit.fcpxml");
   let result: any;
+  const receipts: Record<string, string> = {};
   let media: Array<{ filename: string; id: string }> = [];
   try {
     await client.connect(transport);
@@ -157,12 +169,23 @@ export async function prepareManualImportFixture(outputDirectory: string) {
     })), title: { id: "title", text: "FRAMEKIT QA", startTime: seconds(0), durationTime: seconds(1) },
     music: { id: "music", mediaId: media[3]!.id, sourceStartTime: seconds(0), startTime: seconds(0), durationTime: seconds(3), gainDb: -12 } };
     const request = { projectId, sequenceId, expectedRevision: revision, edit };
+    receipts["input-edit.json"] = await writeReceipt(destination, "input-edit.json", { schemaVersion: 1, request });
     const preview = await call("headless.edit-json.preview", request);
+    receipts["preview-receipt.json"] = await writeReceipt(destination, "preview-receipt.json", {
+      schemaVersion: 1, projectId, sequenceId, baseRevision: revision, planDigest: preview.planDigest,
+    });
     const executed = await call("headless.edit-json.execute", { ...request, approved: true, planDigest: preview.planDigest });
+    const target = { provider: "final-cut", libraryUid: "disposable-library", eventUid: "disposable-event",
+      projectUid: `qa-${randomUUID()}`, sequenceUid: `qa-${randomUUID()}`, materialization: "versioned" };
     result = await call("headless.fcpxml.export", { projectId, sequenceId, expectedRevision: executed.after.timeline.revision,
-      outputPath: artifactPath, target: { provider: "final-cut", libraryUid: "disposable-library", eventUid: "disposable-event",
-        projectUid: `qa-${randomUUID()}`, sequenceUid: `qa-${randomUUID()}`, materialization: "versioned" } });
+      outputPath: artifactPath, target });
     if (!result.artifact?.verified) throw new Error("ARTIFACT_INVALID: production export was not verified");
+    receipts["execution-receipt.json"] = await writeReceipt(destination, "execution-receipt.json", {
+      schemaVersion: 1, projectId, sequenceId, planDigest: preview.planDigest, approved: true,
+      committed: executed.committed, revision: executed.after.timeline.revision,
+      export: { target, verified: result.artifact.verified, digest: result.artifact.digest,
+        sha256: createHash("sha256").update(await readFile(artifactPath)).digest("hex") },
+    });
   } finally {
     await client.close().catch(() => undefined);
     await transport.close().catch(() => undefined);
@@ -178,7 +201,7 @@ export async function prepareManualImportFixture(outputDirectory: string) {
   const manifestPath = join(destination, "reference.json");
   await writeFile(manifestPath, `${JSON.stringify({ schemaVersion: 1, candidate: { commit: git, dirty, framekitVersion: packageVersion },
     environment: { nodeVersion: process.version, ffmpegVersion, osVersion, finalCutVersion: "UNVERIFIED" },
-    sources: sourceRecords, artifact: { filename: "edit.fcpxml", sha256: await sha(artifactPath), revision: result.provenance.revision },
+    sources: sourceRecords, receipts, artifact: { filename: "edit.fcpxml", sha256: await sha(artifactPath), revision: result.provenance.revision },
     expected: { sourceOrder: ["red.mp4", "green.mp4", "blue.mp4"], sourceStartSeconds: 1, clipDurationSeconds: 1,
       durationSeconds: 3, frameRate: "30/1", frameCount: 90,
       boundaryFrames: [{ frameNumber: 29, color: "red" }, { frameNumber: 30, color: "green" }, { frameNumber: 59, color: "green" }, { frameNumber: 60, color: "blue" }],
