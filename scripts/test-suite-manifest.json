@@ -3878,6 +3878,17 @@
       "network": "none"
     },
     {
+      "path": "tests/workflows/rough-cut/manual-import-qa.test.ts",
+      "owner": "scripts",
+      "tags": ["fixture-e2e", "headless", "integration"],
+      "requires": ["ffmpeg", "ffprobe"],
+      "reviewed": true,
+      "evidence": "process",
+      "dependsOn": ["scripts", "apps/mcp-server", "packages/headless-application", "adapters/final-cut/typescript"],
+      "platforms": ["any"],
+      "network": "none"
+    },
+    {
       "path": "tests/workflows/rough-cut/rough-cut-headed-evidence.test.ts",
       "owner": "scripts",
       "tags": [
