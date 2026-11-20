@@ -154,6 +154,30 @@ test("artifact-first production MCP edits, restores, exports and renders fractio
     assert.equal(video.r_frame_rate, "24000/1001");
     assert.equal(Number(video.nb_read_frames), 72);
     assert.ok(Math.abs(Number(video.duration) - 3.003) < 0.002);
+    const trimRemove = [
+      { type: "trim-occurrence", occurrenceId: "repeat-a", sourceStartTime: frame(36), durationTime: frame(12) },
+      { type: "remove-occurrence", occurrenceId: "b" },
+    ];
+    const beforeTrim = payload(await callTool({ name: "headless.project.inspect", arguments: { projectId } }));
+    const trimPreview = payload(await callTool({ name: "headless.edit.preview", arguments: { projectId, sequenceId, expectedRevision: revision, operations: trimRemove } }));
+    const revisedClip = trimPreview.after.timeline.sequence.occurrences.find((item: any) => item.id === "repeat-a");
+    assert.deepEqual(revisedClip.sourceStartTime, { value: "3003", timescale: "2000" });
+    assert.deepEqual(revisedClip.durationTime, { value: "1001", timescale: "2000" });
+    assert.equal(trimPreview.after.timeline.sequence.occurrences.some((item: any) => item.id === "b"), false);
+    assert.deepEqual(payload(await callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, beforeTrim.timeline);
+    const wrongTarget = await callTool({ name: "headless.edit.execute", arguments: { projectId, sequenceId: "wrong-sequence", expectedRevision: revision, operations: trimRemove } });
+    assert.equal(wrongTarget.isError, true);
+    const trimmed = payload(await callTool({ name: "headless.edit.execute", arguments: { projectId, sequenceId, expectedRevision: revision, operations: trimRemove } }));
+    const v3Path = join(directory, "version-3.fcpxml");
+    const v3Target = { ...v1Target, projectUid: "project-v3", sequenceUid: "sequence-v3" };
+    const v3 = payload(await callTool({ name: "headless.fcpxml.export", arguments: { projectId, sequenceId, expectedRevision: trimmed.after.timeline.revision, outputPath: v3Path, target: v3Target } }));
+    assert.equal(v3.artifact.verified, true);
+    const v3Document = await new FcpxmlDocumentAdapter(v3Path).readProject();
+    assert.deepEqual(v3Document.timeline.clips.map((clip) => [clip.sourceStart, clip.duration]), [[0.5005, 0.5005], [1.001, 0.5005], [1.5015, 0.5005]]);
+    const restored = payload(await callTool({ name: "headless.edit.undo", arguments: { projectId, sequenceId, expectedRevision: trimmed.after.timeline.revision, undoId: trimmed.undoId } }));
+    assert.equal(restored.verification.verified, true);
+    assert.deepEqual(restored.project.timeline.sequence, beforeTrim.timeline.sequence);
+    assert.equal(await sha(v1Path), v1Digest);
     const hiddenPath = `${paths[1]!}.missing`;
     await rename(paths[1]!, hiddenPath);
     try {
