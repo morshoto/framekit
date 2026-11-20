@@ -81,6 +81,25 @@ test("artifact-first production MCP edits, restores, exports and renders fractio
       projectId, sequenceId, expectedRevision: b.project.timeline.revision,
       operations: placements.map((item) => ({ type: "insert-occurrence", placement: "append", occurrence: item })),
     } }));
+    // Publish the first immutable version before restarting the production server.
+    const v1Path = join(directory, "version-1.fcpxml");
+    const v1Target = { provider: "final-cut", libraryUid: "library", eventUid: "event", projectUid: "project-v1", sequenceUid: "sequence-v1", materialization: "versioned" };
+    const v1 = payload(await callTool({ name: "headless.fcpxml.export", arguments: {
+      projectId, sequenceId, expectedRevision: placed.after.timeline.revision, outputPath: v1Path, target: v1Target,
+    } }));
+    assert.equal(v1.artifact.verified, true);
+    const v1Digest = await sha(v1Path);
+    await client!.close();
+    await transport!.close();
+    ({ client, transport } = await connectProductionClient(here, environment));
+    const afterRestart = payload(await callTool({ name: "headless.project.inspect", arguments: { projectId } }));
+    assert.deepEqual(afterRestart.timeline, placed.after.timeline);
+    const splitOperation = [{ type: "split-occurrence", occurrenceId: "a", splitOffsetTime: frame(12), newOccurrenceId: "a-right" }];
+    const preview = payload(await callTool({ name: "headless.edit.preview", arguments: {
+      projectId, sequenceId, expectedRevision: placed.after.timeline.revision, operations: splitOperation,
+    } }));
+    assert.equal(preview.after.timeline.sequence.occurrences.length, 4);
+    assert.deepEqual(payload(await callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, afterRestart.timeline);
     const split = payload(await callTool({ name: "headless.edit.execute", arguments: {
       projectId, sequenceId, expectedRevision: placed.after.timeline.revision,
       operations: [{ type: "split-occurrence", occurrenceId: "a", splitOffsetTime: frame(12), newOccurrenceId: "a-right" }],
@@ -102,6 +121,11 @@ test("artifact-first production MCP edits, restores, exports and renders fractio
     const target = { provider: "final-cut", libraryUid: "library", eventUid: "event", projectUid: "project", sequenceUid: "sequence", materialization: "versioned" };
     const exported = payload(await callTool({ name: "headless.fcpxml.export", arguments: { projectId, sequenceId, expectedRevision: revision, outputPath: xmlPath, target } }));
     assert.equal(exported.artifact.verified, true);
+    assert.notEqual(exported.provenance.revision.id, v1.provenance.revision.id);
+    assert.equal(await sha(v1Path), v1Digest);
+    const overwrite = await callTool({ name: "headless.fcpxml.export", arguments: { projectId, sequenceId, expectedRevision: revision, outputPath: v1Path, target: v1Target } });
+    assert.equal(overwrite.isError, true);
+    assert.equal(await sha(v1Path), v1Digest);
     const render = payload(await callTool({ name: "headless.render", arguments: { projectId, sequenceId, expectedRevision: revision, parameters: { outputPath, format: "mp4", width: 320, height: 180, frameRate: { value: "24000", timescale: "1001" } } } }));
     assert.equal(render.status, "passed");
     const parsed = await new FcpxmlDocumentAdapter(xmlPath).readProject();
