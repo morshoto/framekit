@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "exportSha256": "6ff0d9d1154a11d603c9566e4f6c8e917ac72d41870d01e2c4a3dae7069036e9",
+  "artifactSha256": "6360546ac3da1cddda63ba5f74ab00716c91b3d6cd4db0da910f1bb38ae903c5",
+  "observed": {
+    "durationSeconds": 3,
+    "frameCount": 90,
+    "frameRate": "30/1",
+    "samples": [
+      {
+        "timeSeconds": 0.5,
+        "rgb": [
+          255,
+          23,
+          0
+        ]
+      },
+      {
+        "timeSeconds": 1.5,
+        "rgb": [
+          0,
+          215,
+          0
+        ]
+      },
+      {
+        "timeSeconds": 2.5,
+        "rgb": [
+          0,
+          13,
+          255
+        ]
+      }
+    ],
+    "boundarySamples": [
+      {
+        "frameNumber": 29,
+        "rgb": [
+          255,
+          23,
+          0
+        ]
+      },
+      {
+        "frameNumber": 30,
+        "rgb": [
+          0,
+          215,
+          0
+        ]
+      },
+      {
+        "frameNumber": 59,
+        "rgb": [
+          0,
+          215,
+          0
+        ]
+      },
+      {
+        "frameNumber": 60,
+        "rgb": [
+          0,
+          13,
+          255
+        ]
+      }
+    ],
+    "toneAmplitudes": [
+      0.01569106351601739,
+      0.01569106351601739,
+      0.01569106351601739
+    ]
+  },
+  "measurements": {
+    "status": "PASS",
+    "checks": {
+      "duration": true,
+      "video": true,
+      "audio": true
+    },
+    "nativeImport": "UNVERIFIED",
+    "titleEditability": "UNVERIFIED",
+    "finalCutProvenance": "UNVERIFIED"
+  },
+  "titleVisibility": "UNVERIFIED",
+  "titleFramePath": "title-frame.png",
+  "limitation": "Media measurements alone do not prove a Final Cut import, export, or title editability."
+}
