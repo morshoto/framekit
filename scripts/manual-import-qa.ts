@@ -131,6 +131,7 @@ export async function prepareManualImportFixture(outputDirectory: string) {
   await run(ffmpeg, ["-hide_banner", "-loglevel", "error", "-n", "-f", "lavfi", "-i",
     "sine=frequency=880:sample_rate=48000:duration=3", "-c:a", "pcm_s16le", join(destination, "music.wav")]);
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+  delete env.FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER;
   Object.assign(env, { FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1",
     FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0", FRAMEKIT_FINAL_CUT_SOCKET: join(destination, "absent.sock"),
     FRAMEKIT_FCPXML_PATH: join(destination, "absent.fcpxml"), FRAMEKIT_STATE_DIR: join(destination, "state") });
@@ -215,6 +216,10 @@ export async function prepareManualImportFixture(outputDirectory: string) {
 /** Compare the generated FCPXML with fixed source, timing, title and music expectations. */
 export async function verifyPreparedArtifact(artifactPath: string, fixtureDirectory: string): Promise<void> {
   const snapshot = await new FcpxmlDocumentAdapter(artifactPath).readProject();
+  const frameDuration = snapshot.timeline.frameDuration;
+  if (!frameDuration || BigInt(frameDuration.value) * 30n !== BigInt(frameDuration.timescale)) {
+    throw new Error("ARTIFACT_INVALID: sequence frame duration differs from 1/30s");
+  }
   const sourceFor = (id: string | undefined) => snapshot.media.find((item) => item.mediaId === id)?.source;
   const expected = ["red.mp4", "green.mp4", "blue.mp4"].map((name) => join(resolve(fixtureDirectory), name));
   const clips = snapshot.timeline.clips.filter((clip) => clip.track === 0);
@@ -227,12 +232,9 @@ export async function verifyPreparedArtifact(artifactPath: string, fixtureDirect
     throw new Error("ARTIFACT_INVALID: title text or timing differs from the independent reference");
   }
   const music = snapshot.timeline.clips.filter((clip) => sourceFor(clip.mediaId) === join(resolve(fixtureDirectory), "music.wav"));
-  if (music.length !== 1 || music[0]!.start !== 0 || music[0]!.sourceStart !== 0 || music[0]!.duration !== 3) {
+  if (music.length !== 1 || music[0]!.start !== 0 || music[0]!.sourceStart !== 0 || music[0]!.duration !== 3
+    || music[0]!.role !== "music" || music[0]!.gainDb !== -12) {
     throw new Error("ARTIFACT_INVALID: music source or range differs from the independent reference");
-  }
-  const xml = await readFile(artifactPath, "utf8");
-  if (!xml.includes('audioRole="music"') || !xml.includes('<adjust-volume amount="-12dB" />')) {
-    throw new Error("ARTIFACT_INVALID: music or static gain missing");
   }
 }
 

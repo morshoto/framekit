@@ -73,7 +73,14 @@ test("prepares three trimmed clips through production MCP without claiming nativ
   const root = await mkdtemp(join(tmpdir(), "framekit-765-prepare-"));
   try {
     const destination = join(root, "fixture");
-    const result = await prepareManualImportFixture(destination);
+    const previousProvider = process.env.FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER;
+    process.env.FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER = "native";
+    let result: Awaited<ReturnType<typeof prepareManualImportFixture>>;
+    try { result = await prepareManualImportFixture(destination); }
+    finally {
+      if (previousProvider === undefined) delete process.env.FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER;
+      else process.env.FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER = previousProvider;
+    }
     assert.equal(result.nativeImport, "UNVERIFIED");
     assert.equal(result.finalCutExport, "UNVERIFIED");
     const manifest = JSON.parse(await readFile(result.manifestPath, "utf8"));
@@ -122,6 +129,14 @@ test("prepares three trimmed clips through production MCP without claiming nativ
     assert.match(xmlText, /<format id="r1" name="FFVideoFormat720p30" frameDuration="1\/30s" width="1280" height="720"\s*\/>/);
     assert.match(xmlText, /<adjust-volume amount="-12dB" \/>/);
     await verifyPreparedArtifact(result.artifactPath, destination);
+    await writeFile(result.artifactPath, xmlText.replace('frameDuration="1/30s"', 'frameDuration="1/25s"'));
+    await assert.rejects(verifyPreparedArtifact(result.artifactPath, destination), /frame duration/i);
+    await writeFile(result.artifactPath, xmlText.replace('frameDuration="1/30s"', 'frameDuration="2/60s"'));
+    await verifyPreparedArtifact(result.artifactPath, destination);
+    const gainMoved = xmlText.replace('<adjust-volume amount="-12dB" />', '')
+      .replace(/(<asset-clip\b[^>]*name="clip-1"[^>]*>)/, '$1<adjust-volume amount="-12dB" />');
+    await writeFile(result.artifactPath, gainMoved);
+    await assert.rejects(verifyPreparedArtifact(result.artifactPath, destination), /music/i);
     const tags = xmlText.match(/<asset-clip\b[^>]*>/g) ?? [];
     const primary = tags.find((tag) => !tag.includes('audioRole="music"'))!;
     const music = tags.find((tag) => tag.includes('audioRole="music"'))!;
