@@ -111,6 +111,37 @@ test("native dissolve readback preserves visible semantics without inventing str
   assert.ok(readback.sequence.storyElements.some((element) => element.kind === "transition"));
 });
 
+test("dissolve plans preserve source frames across rates and odd durations", () => {
+  for (const [rate, scale] of [[24, 1], [25, 1], [30, 1], [30000, 1001]] as const) {
+    for (const transitionFrames of [1, 2, 3, 5, 6, 15]) {
+      const value = timeline();
+      const frameTime = (frames: number) => ({ value: String(frames * scale), timescale: String(rate) });
+      const frames = (time: { value: string; timescale: string }) => {
+        const n = BigInt(time.value) * BigInt(rate), d = BigInt(time.timescale) * BigInt(scale);
+        assert.equal(n % d, 0n, `unaligned plan time at ${rate}/${scale}`);
+        return Number(n / d);
+      };
+      value.sequence.frameDuration = frameTime(1);
+      value.resources[0]!.metadata!.streams[0]!.frameRate = { value: String(rate), timescale: String(scale) };
+      value.resources[0]!.metadata!.streams[1]!.channels = 1;
+      value.sequence.occurrences = [
+        { id: "before", name: "Before", mediaId: "media-1", role: "video", track: 0, startTime: frameTime(0), sourceStartTime: frameTime(0), durationTime: frameTime(60) },
+        { id: "after", name: "After", mediaId: "media-1", role: "video", track: 0, startTime: frameTime(60), sourceStartTime: frameTime(120), durationTime: frameTime(60) },
+      ];
+      value.sequence.transitions = [{ id: "fade", kind: "cross-dissolve", beforeOccurrenceId: "before", afterOccurrenceId: "after", durationTime: frameTime(transitionFrames) }];
+      const plan = planFcpxmlDissolve(value);
+      assert.equal(frames(plan.startTime), 60 - transitionFrames);
+      assert.equal(frames(plan.durationTime), transitionFrames);
+      assert.equal(frames(plan.beforeDurationTime), frames(plan.afterStartTime));
+      for (const timelineFrame of [60, 61, 89, 119]) {
+        const nativeSourceFrame = frames(plan.afterSourceStartTime) + timelineFrame - frames(plan.afterStartTime);
+        assert.equal(nativeSourceFrame, 120 + timelineFrame - 60, `incoming source drift at ${rate}/${scale}, ${transitionFrames} frames`);
+      }
+      assert.equal(frames(plan.afterStartTime) + frames(plan.afterDurationTime), 120);
+    }
+  }
+});
+
 test("exports an adjacent cross-dissolve with its media references", async () => {
   const value = timeline();
   value.sequence.frameDuration = { value: "1", timescale: "30" };
