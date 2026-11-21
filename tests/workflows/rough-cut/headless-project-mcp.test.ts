@@ -1545,6 +1545,16 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     );
     await writeFile(executionPath, currentExecution);
     assert.deepEqual(await (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path), proof);
+    const savedXml = `${request.fcpxml.path}.saved`;
+    await rename(request.fcpxml.path, savedXml);
+    await symlink(savedXml, request.fcpxml.path);
+    await assert.rejects(
+      (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path),
+      /HEADLESS_ROUGH_CUT_ARTIFACT_CHANGED:/,
+    );
+    await unlink(request.fcpxml.path);
+    await rename(savedXml, request.fcpxml.path);
+    assert.deepEqual(await (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path), proof);
     await writeFile(request.fcpxml.path, "tampered FCPXML");
     await assert.rejects(
       (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path),
