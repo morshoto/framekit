@@ -221,7 +221,8 @@ and invalid or ambiguous sources are rejected. Preview and execute check
 FCPXML support before committing an edit. For a title, preview selects a font
 covering its text and binds its face and file digest to the edit. If the font
 changes, preview the edit again; later rendering and FCPXML export also reject
-a changed bound font. The exported FCPXML requests that face, but its availability
+a changed bound font. Standalone FCPXML export rejects older titles without a
+bound font; create a new previewed edit to bind one. The exported FCPXML requests that face, but its availability
 on the Final Cut target remains unverified. The resulting file is a candidate
 for manual import: artifact verification does not prove Final Cut import,
 playback, editability, or video export.
