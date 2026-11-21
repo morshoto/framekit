@@ -684,29 +684,31 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       || !sameRevision(project.timeline.revision, record.canonicalRevision)) {
       throw new Error("HEADLESS_ROUGH_CUT_STALE_REVISION: canonical project changed after the approved rough cut");
     }
-    let artifact: string;
-    try {
-      const file = await open(record.artifactPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const readApprovedArtifact = async (): Promise<string> => {
       try {
-        const before = await file.stat();
-        if (!before.isFile() || before.size !== record.artifactBytes) throw new Error("invalid FCPXML file");
-        const bytes = await file.readFile();
-        const after = await file.stat();
-        const current = await lstat(record.artifactPath);
-        if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size
-          || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs
-          || !current.isFile() || current.dev !== after.dev || current.ino !== after.ino
-          || current.size !== after.size || current.mtimeMs !== after.mtimeMs || current.ctimeMs !== after.ctimeMs
-          || bytes.length !== record.artifactBytes || createHash("sha256").update(bytes).digest("hex") !== record.artifactDigest) {
-          throw new Error("FCPXML differs from the approved artifact");
+        const file = await open(record.artifactPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+        try {
+          const before = await file.stat();
+          if (!before.isFile() || before.size !== record.artifactBytes) throw new Error("invalid FCPXML file");
+          const bytes = await file.readFile();
+          const after = await file.stat();
+          const current = await lstat(record.artifactPath);
+          if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size
+            || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs
+            || !current.isFile() || current.dev !== after.dev || current.ino !== after.ino
+            || current.size !== after.size || current.mtimeMs !== after.mtimeMs || current.ctimeMs !== after.ctimeMs
+            || bytes.length !== record.artifactBytes || createHash("sha256").update(bytes).digest("hex") !== record.artifactDigest) {
+            throw new Error("FCPXML differs from the approved artifact");
+          }
+          return bytes.toString("utf8");
+        } finally {
+          await file.close();
         }
-        artifact = bytes.toString("utf8");
-      } finally {
-        await file.close();
+      } catch (cause) {
+        throw new Error("HEADLESS_ROUGH_CUT_ARTIFACT_CHANGED: approved FCPXML is missing or has changed", { cause });
       }
-    } catch (cause) {
-      throw new Error("HEADLESS_ROUGH_CUT_ARTIFACT_CHANGED: approved FCPXML is missing or has changed", { cause });
-    }
+    };
+    const artifact = await readApprovedArtifact();
     const approvedSnapshot = FcpxmlDocumentAdapter.readProjectFromContent(record.artifactPath, artifact, {
       allowMissingImmutableIdsForReadback: true,
     });
@@ -758,6 +760,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     } catch (cause) {
       throw new Error("HEADLESS_ROUGH_CUT_RENDER_CHANGED: verified render is missing or has changed", { cause });
     }
+    await readApprovedArtifact();
     if (!record.fcpxml.target.libraryUid?.trim()
       || !record.fcpxml.destination.projectUid?.trim()
       || !record.fcpxml.destination.sequenceUid?.trim()) {
