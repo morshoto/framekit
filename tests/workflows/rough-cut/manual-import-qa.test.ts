@@ -47,6 +47,25 @@ test("revised export checks verify clip boundaries and music through the black t
   assert.equal(evaluateRevisedExportMeasurements({ ...revised, durationSeconds: 2.5 }).status, "FAIL");
 });
 
+test("revised export measurement decodes real clip and tail boundaries", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-revised-measure-"));
+  try {
+    const video = join(directory, "revised.mp4");
+    await promisify(execFile)("ffmpeg", ["-hide_banner", "-loglevel", "error", "-n",
+      "-f", "lavfi", "-i", "color=blue:s=320x180:r=30:d=1",
+      "-f", "lavfi", "-i", "color=red:s=320x180:r=30:d=1",
+      "-f", "lavfi", "-i", "color=lime:s=320x180:r=30:d=0.5",
+      "-f", "lavfi", "-i", "color=black:s=320x180:r=30:d=0.5",
+      "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000:duration=3",
+      "-filter_complex", "[0:v][1:v][2:v][3:v]concat=n=4:v=1:a=0[v]", "-map", "[v]", "-map", "4:a",
+      "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-pix_fmt", "yuv420p", "-c:a", "aac", "-t", "3", video]);
+    const measured = await measureExport(video, "revised");
+    assert.equal(evaluateRevisedExportMeasurements(measured).status, "PASS");
+    assert.equal(evaluateRevisedExportMeasurements(measured).finalCutProvenance, "UNVERIFIED");
+    assert.equal(evaluateExportMeasurements(measured).status, "FAIL");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("manual import output checks independently verify timing, clip colors and music", () => {
   const result = evaluateExportMeasurements(valid());
   assert.equal(result.status, "PASS");
