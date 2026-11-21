@@ -2286,6 +2286,68 @@ function rationalSeconds(time: { value: string; timescale: string }): number {
   return Number(time.value) / Number(time.timescale);
 }
 
+test("external JSON binds one font through preview, render and FCPXML", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-json-title-font-"));
+  const here = dirname(fileURLToPath(import.meta.url));
+  const fontPath = join(directory, "font.otf");
+  const fontBytes = Buffer.from(await readFile(join(process.cwd(), "tests/fixtures/fonts/noto-sans-jp-test.otf.base64"), "utf8"), "base64");
+  await writeFile(fontPath, fontBytes);
+  const environment: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1",
+    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0", FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"),
+    FRAMEKIT_STATE_DIR: join(directory, "state"), FRAMEKIT_RENDER_FONT: fontPath,
+  };
+  let client: Client | undefined;
+  let transport: StdioClientTransport | undefined;
+  try {
+    const video = join(directory, "source.mp4");
+    await generateVideoAtFrameRate(video, 30, 2);
+    ({ client, transport } = await connectProductionClient(here, environment));
+    const initial = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: emptyTimeline() } }));
+    const projectId = initial.timeline.project.id;
+    const sequenceId = initial.timeline.sequence.id;
+    const source = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: video, expectedRevision: initial.timeline.revision } }));
+    const revision = source.project.timeline.revision;
+    const edit = { schemaVersion: 1, clips: [{ id: "clip", mediaId: source.resource.id, sourceStartTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" } }], title: { id: "title", text: "A日", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" } } };
+    const args = { projectId, sequenceId, expectedRevision: revision, edit };
+    const preview = payload(await client.callTool({ name: "headless.edit-json.preview", arguments: args }));
+    const font = { family: "Noto Sans CJK JP", style: "Regular", postscriptName: "NotoSansCJKjp-Regular", digest: createHash("sha256").update(fontBytes).digest("hex") };
+    assert.deepEqual(preview.after.timeline.sequence.titles[0].font, font);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, source.project.timeline);
+    await writeFile(fontPath, Buffer.concat([fontBytes, Buffer.from([0])]));
+    const changed = await client.callTool({ name: "headless.edit-json.execute", arguments: { ...args, approved: true, planDigest: preview.planDigest } });
+    assert.equal(changed.isError, true);
+    assert.match(toolErrorText(changed), /STALE_PREVIEW|FONT/i);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, source.project.timeline);
+    await writeFile(fontPath, fontBytes);
+    const executed = payload(await client.callTool({ name: "headless.edit-json.execute", arguments: { ...args, approved: true, planDigest: preview.planDigest } }));
+    assert.deepEqual(executed.after.timeline.sequence.titles[0].font, font);
+    const target = { provider: "final-cut", libraryUid: "library", eventUid: "event", projectUid: "project", sequenceUid: "sequence", materialization: "versioned" };
+    const xmlPath = join(directory, "edit.fcpxml");
+    const exported = payload(await client.callTool({ name: "headless.fcpxml.export", arguments: { projectId, sequenceId, expectedRevision: executed.after.timeline.revision, outputPath: xmlPath, target } }));
+    assert.ok(exported.coverage.degraded.includes("native-title-font-availability-unverified"));
+    const xml = await readFile(xmlPath, "utf8");
+    assert.match(xml, /font="Noto Sans CJK JP" fontFace="Regular"/);
+    assert.ok(xml.includes(`key="com.framekit.title-font-sha256" value="${font.digest}"`));
+    const parsed = await new FcpxmlDocumentAdapter(xmlPath).readProject();
+    assert.equal(parsed.timeline.storyElements.find(({ kind }) => kind === "title")?.text, "A日");
+    const output = join(directory, "render.mp4");
+    const renderArgs = { projectId, sequenceId, expectedRevision: executed.after.timeline.revision, parameters: { outputPath: output, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } };
+    await writeFile(fontPath, Buffer.concat([fontBytes, Buffer.from([0])]));
+    const wrongFont = await client.callTool({ name: "headless.render", arguments: renderArgs });
+    assert.equal(wrongFont.isError, true);
+    assert.equal(existsSync(output), false);
+    await writeFile(fontPath, fontBytes);
+    const rendered = payload(await client.callTool({ name: "headless.render", arguments: renderArgs }));
+    assert.equal(rendered.status, "passed");
+  } finally {
+    await client?.close();
+    await transport?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("external edit JSON previews registered clips, a title and music without mutation", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-json-edit-"));
   const here = dirname(fileURLToPath(import.meta.url));
