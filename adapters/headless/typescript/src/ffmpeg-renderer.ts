@@ -486,7 +486,7 @@ function addAudioComposition(
   if (transition) {
     const duration = rationalSeconds(transition.durationTime, `${transition.id}.durationTime`);
     const output = "audio-crossfade";
-    filters.push(`${labels[0]}${labels[1]}acrossfade=d=${formatNumber(duration)}:c1=tri:c2=tri[${output}]`);
+    filters.push(`${labels[0]}${labels[1]}acrossfade=d=${formatNumber(duration)}:c1=hsin:c2=hsin[${output}]`);
     filters.push(`[${output}]atrim=duration=${formatNumber(model.duration)},asetpts=PTS-STARTPTS[${output}-padded]`);
     return `${output}-padded`;
   }
