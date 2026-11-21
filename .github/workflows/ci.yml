@@ -31,7 +31,8 @@ jobs:
         run: |
           ( while sleep 30; do
               echo 'Diagnostic process snapshot:'
-              ps -eo pid,ppid,etime,stat,comm | grep -E '(^ *PID|node|pnpm|ffmpeg|ffprobe)' || true
+              ps -eo pid,ppid,etime,stat,rss,vsz,comm | grep -E '(^ *PID|node|pnpm|ffmpeg|ffprobe)' || true
+              find /tmp -type f -path '*/.framekit-render-*/render.mp4' -printf '%s %p\n' | head -20
             done ) &
           watcher=$!
           trap 'kill "$watcher" 2>/dev/null || true' EXIT
