@@ -94,6 +94,11 @@ test("video parity comparison binds bytes and reports unverified native evidence
     assert.equal(report.referenceSha256, createHash("sha256").update(await readFile(reference)).digest("hex"));
     assert.equal(report.candidateSha256, createHash("sha256").update(await readFile(candidate)).digest("hex"));
     await assert.rejects(compareDissolveVideos(reference, reference, join(directory, "wrong-format")), /AUDIO_FORMAT_UNSUPPORTED/);
+    const quiet = join(directory, "quiet.mp4");
+    await promisify(execFile)(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-i", candidate, "-c:v", "copy", "-af", "volume=-2dB", "-c:a", "aac", quiet]);
+    const negative = await compareDissolveVideos(reference, quiet, join(directory, "quiet-report"));
+    assert.equal(negative.comparison.status, "FAIL");
+    assert.equal(negative.comparison.checks.audio, false);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
