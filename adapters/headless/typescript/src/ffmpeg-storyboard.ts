@@ -92,8 +92,8 @@ export class FfmpegStoryboardRenderer {
           if (title.style || title.position) throw new Error("HEADLESS_STORYBOARD_UNSUPPORTED: styled titles are not supported");
           const filename = `title-${index}-${titleIndex}.txt`;
           await writeFile(join(dir, filename), title.text, "utf8");
-          const fontSize = Math.max(1, Math.round(32 * scale));
-          filters.push(`drawtext=${font ? `fontfile='${escapeFilterValue(font)}':` : ""}textfile='${filename}':expansion=none:fontcolor=white:fontsize=${fontSize}:x=(w-text_w)/2:y=(h-text_h)/2`);
+          const fontSize = Math.max(1, Math.round(dimensions.height * 44 / 720 * scale));
+          filters.push(`drawtext=${font ? `fontfile='${escapeFilterValue(font)}':` : ""}textfile='${filename}':expansion=none:fontcolor=white:fontsize=${fontSize}:x=(w-text_w)/2:y=h/2-text_h`);
         }
         const frame = join(dir, `${index}.png`);
         await run(this.options.ffmpegPath ?? process.env.FFMPEG_BIN ?? "ffmpeg", ["-hide_banner", "-loglevel", "error", "-nostdin", "-ss", String(sample.sourceSeconds), "-i", resolve(resource.source!), "-vf", filters.join(","), "-frames:v", "1", "-threads", "1", "-y", frame], { cwd: dir, signal, timeout: 30000, maxBuffer: 1024 * 1024 });
