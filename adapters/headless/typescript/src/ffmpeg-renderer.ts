@@ -30,6 +30,7 @@ export interface FfmpegTimelineRendererOptions {
 }
 
 export type FfmpegRenderErrorCode =
+  | "DEPENDENCY_MISSING"
   | "HEADLESS_RENDER_UNAVAILABLE"
   | "HEADLESS_RENDER_UNSUPPORTED"
   | "HEADLESS_RENDER_MEDIA_MISSING"
@@ -111,8 +112,10 @@ export class FfmpegTimelineRenderer implements FramekitRenderProvider {
           maxBuffer: 8 * 1024 * 1024,
         });
       } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
-        throw new FfmpegRenderError("HEADLESS_RENDER_FAILED", detail);
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          throw new FfmpegRenderError("DEPENDENCY_MISSING", "ffmpeg is required; install FFmpeg and ensure ffmpeg is on PATH");
+        }
+        throw new FfmpegRenderError("HEADLESS_RENDER_FAILED", "FFmpeg could not render the timeline; check the media and render settings");
       }
       if (!(await isRegularFile(stagingPath))) {
         throw new FfmpegRenderError("HEADLESS_RENDER_FAILED", "FFmpeg completed without producing an output file");

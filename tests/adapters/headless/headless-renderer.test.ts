@@ -53,6 +53,10 @@ test("FFmpeg renderer preserves apostrophes in title text", async () => {
       const plan = createFramekitRenderPlan(request, renderer.capabilities(request));
       return renderer.render(plan);
     };
+    const missingRenderer = new FfmpegTimelineRenderer({ ffmpegPath: join(directory, "missing-ffmpeg") });
+    const missingRequest = createFramekitRenderRequest({ timeline: sourceWithApostrophe, target: { projectId: sourceWithApostrophe.project.id, sequenceId: sourceWithApostrophe.sequence.id }, parameters: parameters(join(directory, "missing.mp4")) });
+    const missingPlan = createFramekitRenderPlan(missingRequest, missingRenderer.capabilities(missingRequest));
+    await assert.rejects(missingRenderer.render(missingPlan), (error: unknown) => error instanceof Error && /^DEPENDENCY_MISSING:.*ffmpeg/.test(error.message) && !/ENOENT|spawn/.test(error.message));
     const withApostrophePath = join(directory, "with-apostrophe.mp4");
     const withoutApostrophePath = join(directory, "without-apostrophe.mp4");
     await render(sourceWithApostrophe, withApostrophePath);

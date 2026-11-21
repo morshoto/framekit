@@ -305,6 +305,13 @@ test("render verification measures decoded mix true peak", async () => {
         const unavailable = await new FfmpegRenderVerifier({ ffmpegPath: join(directory, "missing-ffmpeg") }).verify(plan, result);
         assert.equal(unavailable.status, "failed");
         assert.match(unavailable.checks.find((item) => item.name === "audio-true-peak")!.detail, /could not measure/);
+        const detail = unavailable.checks.find((item) => item.name === "audio-true-peak")!.detail;
+        assert.match(detail, /DEPENDENCY_MISSING:.*ffmpeg/);
+        assert.doesNotMatch(detail, /ENOENT|spawn/);
+        const missingProbe = await new FfmpegRenderVerifier({ ffprobePath: join(directory, "missing-ffprobe") }).verify(plan, result);
+        assert.equal(missingProbe.status, "unavailable");
+        assert.equal(missingProbe.error?.code, "DEPENDENCY_MISSING");
+        assert.match(missingProbe.error!.message, /ffprobe.*install/i);
       }
     }
   } finally {
