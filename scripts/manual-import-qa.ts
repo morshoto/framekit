@@ -80,8 +80,8 @@ export function compareDissolveParity(reference: DissolveExportMeasurements, can
     && box.x >= 0 && box.y >= 0 && box.width > 0 && box.height > 0
     && box.x + box.width <= 1280 && box.y + box.height <= 720;
   const titles = validBounds(referenceTitle) && validBounds(candidateTitle);
-  const titleSize = titles && Math.abs(candidateTitle.width / referenceTitle.width - 1) <= 0.1
-    && Math.abs(candidateTitle.height / referenceTitle.height - 1) <= 0.1;
+  const titleSize = titles && Math.abs(candidateTitle.width - referenceTitle.width) <= referenceTitle.width * 0.1
+    && Math.abs(candidateTitle.height - referenceTitle.height) <= referenceTitle.height * 0.1;
   const titlePosition = titles
     && Math.abs(candidateTitle.x + candidateTitle.width / 2 - referenceTitle.x - referenceTitle.width / 2) <= 12.8
     && Math.abs(candidateTitle.y + candidateTitle.height / 2 - referenceTitle.y - referenceTitle.height / 2) <= 7.2;
