@@ -40,7 +40,7 @@ try {
     await page.goto(`${origin}${base}/en/docs/introduction/`, { waitUntil:'networkidle' });
     await page.getByRole('button', { name:'Search docs' }).click();
     await page.getByRole('combobox').fill('HEADLESS_ROUGH_CUT_HISTORY_UNCONFIRMED');
-    const result = page.getByRole('option').filter({ hasText:'Error Reference' }).first();
+    const result = page.locator('[role=option][href*="/en/docs/error-reference/"]').first();
     await result.waitFor();
     assert.ok((await result.getAttribute('href')).includes('/en/docs/error-reference/'));
     await page.close();
