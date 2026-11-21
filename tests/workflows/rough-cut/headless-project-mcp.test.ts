@@ -2312,6 +2312,14 @@ test("external edit JSON previews registered clips, a title and music without mu
     ];
     const validGenericPreview = await client.callTool({ name: "headless.edit.preview", arguments: { projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, operations: validGeneric } });
     assert.notEqual(validGenericPreview.isError, true, "bounded WAV remains valid for general editing");
+    const shortRoughCut = { projectId: shortTimeline.project.id, sequenceId: shortTimeline.sequence.id,
+      plan: { planner: { id: "short-music-test", version: 1 }, revision: shortAudio.project.timeline.revision, query: { query: "test" }, warnings: [],
+        shots: [{ order: 1, sourceIdentity: { mediaId: shortVideo.resource.id, source: shortVideo.resource.source, sourceDigest: shortVideo.resource.sourceDigest, mediaKind: "video", duration: 3 }, range: { start: 0, end: 2 }, confidence: 1, matchedProperties: [], rationale: "test" }] },
+      operations: [genericOperations[2]], render: { outputPath: join(directory, "short-music.mp4"), format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } },
+      fcpxml: { path: join(directory, "short-music.fcpxml"), target: { provider: "final-cut", libraryUid: "library", eventUid: "event", projectUid: "short", sequenceUid: "short", materialization: "versioned" } } };
+    const shortRoughPreview = await client.callTool({ name: "headless.rough-cut.preview", arguments: shortRoughCut });
+    assert.equal(shortRoughPreview.isError, true, "rough-cut preview must reject unverifiable music bounds");
+    assert.match(toolErrorText(shortRoughPreview), /audio stream bounds/);
     const rejectedShort = await client.callTool({ name: "headless.edit-json.preview", arguments: shortArgs });
     assert.equal(rejectedShort.isError, true);
     assert.match(toolErrorText(rejectedShort), /audio stream bounds/);
