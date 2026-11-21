@@ -61,6 +61,16 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     } };
     const mismatched = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: mismatchedProbe });
     await assert.rejects(mismatched.previewRoughCut(request), /MEDIA_METADATA_CHANGED/);
+    const directTimeline = structuredClone((await service.open(created.timeline.project.id)).timeline);
+    directTimeline.project.id = "direct-dissolve-check";
+    directTimeline.sequence.durationTime = { value: "2", timescale: "1" };
+    directTimeline.sequence.occurrences = [
+      { id: "a", name: "A", mediaId: resources[0]!.id, role: "video", track: 0, startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" }, sourceStartTime: { value: "1", timescale: "5" } },
+      { id: "b", name: "B", mediaId: resources[1]!.id, role: "video", track: 0, startTime: { value: "1", timescale: "1" }, durationTime: { value: "1", timescale: "1" }, sourceStartTime: { value: "1", timescale: "2" } },
+    ];
+    directTimeline.sequence.transitions = [{ id: "fade", kind: "cross-dissolve", beforeOccurrenceId: "a", afterOccurrenceId: "b", durationTime: { value: "1", timescale: "5" } }];
+    const direct = await service.create(directTimeline);
+    await assert.rejects(mismatched.exportFcpxml(direct.timeline.project.id, direct.timeline.sequence.id, direct.timeline.revision, join(directory, "direct.fcpxml"), request.fcpxml.target), /MEDIA_METADATA_CHANGED/);
     const preview = await service.previewRoughCut(request, undefined, true);
     assert.match(preview.storyboardUnavailable!, /HEADLESS_STORYBOARD_UNSUPPORTED/);
     assert.match(preview.planDigest, /^[a-f0-9]{64}$/);
