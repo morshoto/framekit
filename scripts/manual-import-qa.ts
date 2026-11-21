@@ -63,9 +63,9 @@ export async function measureFixtureTitleBounds(path: string, frameNumber: numbe
 }
 
 /** Compare only the sampled synthetic fixture; native provenance and exact boundaries require separate proof. */
-export function compareDissolveParity(reference: DissolveExportMeasurements, candidate: DissolveExportMeasurements, referenceTitle: TitleBounds, candidateTitle: TitleBounds) {
-  const signals = evaluateDissolveExportMeasurements(reference).status === "PASS"
-    && evaluateDissolveExportMeasurements(candidate).status === "PASS";
+export function compareDissolveParity(reference: DissolveExportMeasurements, candidate: DissolveExportMeasurements, referenceTitle: TitleBounds, candidateTitle: TitleBounds, musicGainDb = -12) {
+  const signals = evaluateDissolveExportMeasurements(reference, musicGainDb).status === "PASS"
+    && evaluateDissolveExportMeasurements(candidate, musicGainDb).status === "PASS";
   const colors = signals && reference.frames.every((frame, index) => frame.rgb.every((value, channel) =>
     Math.abs(value - candidate.frames[index]!.rgb[channel]!) <= 20));
   const audio = signals && reference.audio.every((window, index) => {
@@ -94,7 +94,9 @@ export function compareDissolveParity(reference: DissolveExportMeasurements, can
 }
 
 /** Check only sampled signals; this does not establish native provenance or title editability. */
-export function evaluateDissolveExportMeasurements(observed: DissolveExportMeasurements) {
+export function evaluateDissolveExportMeasurements(observed: DissolveExportMeasurements, musicGainDb = -12) {
+  if (musicGainDb !== -12 && musicGainDb !== -9) throw new Error("MUSIC_GAIN_UNSUPPORTED: fixture supports -12 or -9 dB");
+  const expectedMusicRatio = 10 ** (musicGainDb / 20);
   const duration = Number.isFinite(observed.durationSeconds) && Math.abs(observed.durationSeconds - 2) <= 0.05
     && observed.frameCount === 60 && observed.frameRate === "30/1";
   const frameNumbers = [23, 25, 27, 29, 30];
@@ -123,7 +125,7 @@ export function evaluateDissolveExportMeasurements(observed: DissolveExportMeasu
       && ratio(early!.outgoing, outgoingBase, 0.9, 1.1) && ratio(early!.incoming, incomingBase, 0, 0.1)
       && ratio(middle!.outgoing, outgoingBase, 0.3, 0.7) && ratio(middle!.incoming, incomingBase, 0.3, 0.7)
       && ratio(late!.outgoing, outgoingBase, 0, 0.1) && ratio(late!.incoming, incomingBase, 0.9, 1.1)
-      && observed.audio.every((window) => ratio(window.music, outgoingBase, 0.17, 0.34));
+      && observed.audio.every((window) => ratio(window.music, outgoingBase, expectedMusicRatio * 10 ** (-2 / 20), expectedMusicRatio * 10 ** (2 / 20)));
   }
   return { status: duration && video && audio ? "PASS" as const : "FAIL" as const, checks: { duration, video, audio }, nativeImport: "UNVERIFIED" as const, titleEditability: "UNVERIFIED" as const, finalCutProvenance: "UNVERIFIED" as const };
 }
@@ -167,7 +169,8 @@ export async function measureDissolveExport(path: string, stereoDownmix = false)
 }
 
 /** Compare two fixed-fixture videos; this does not authenticate their provenance. */
-export async function compareDissolveVideos(referencePath: string, candidatePath: string, outputDirectory: string) {
+export async function compareDissolveVideos(referencePath: string, candidatePath: string, outputDirectory: string, musicGainDb = -12) {
+  if (musicGainDb !== -12 && musicGainDb !== -9) throw new Error("MUSIC_GAIN_UNSUPPORTED: fixture supports -12 or -9 dB");
   const reference = resolve(referencePath), candidate = resolve(candidatePath), destination = resolve(outputDirectory);
   const sha = async (path: string) => createHash("sha256").update(await readFile(path)).digest("hex");
   const [referenceSha256, candidateSha256] = await Promise.all([sha(reference), sha(candidate)]);
@@ -185,9 +188,9 @@ export async function compareDissolveVideos(referencePath: string, candidatePath
   ]);
   if (await sha(reference) !== referenceSha256 || await sha(candidate) !== candidateSha256) throw new Error("EXPORT_CHANGED: video changed during comparison");
   const report = { schemaVersion: 1, scenario: "synthetic-six-frame-dissolve-720p", referenceSha256, candidateSha256,
-    downmix: "mono = 0.7071067811865476 * left + 0.7071067811865476 * right; 48000 Hz",
+    downmix: "mono = 0.7071067811865476 * left + 0.7071067811865476 * right; 48000 Hz", musicGainDb,
     referenceMeasurements, candidateMeasurements, referenceTitle, candidateTitle,
-    comparison: compareDissolveParity(referenceMeasurements, candidateMeasurements, referenceTitle, candidateTitle),
+    comparison: compareDissolveParity(referenceMeasurements, candidateMeasurements, referenceTitle, candidateTitle, musicGainDb),
     limitation: "Sampled parity does not establish approved source identity, exact boundaries, title text or editability, Final Cut import, or export provenance.",
   };
   await mkdir(destination);
@@ -484,7 +487,7 @@ async function main(args: string[]): Promise<void> {
     "Usage: node --import tsx scripts/manual-import-qa.ts prepare NEW_DIRECTORY",
     "       node --import tsx scripts/manual-import-qa.ts inspect FIXTURE_DIRECTORY VIDEO NEW_REPORT_DIRECTORY",
     "       node --import tsx scripts/manual-import-qa.ts inspect-dissolve VIDEO NEW_REPORT_DIRECTORY",
-    "       node --import tsx scripts/manual-import-qa.ts compare-dissolve REFERENCE_STEREO VIDEO_MONO NEW_REPORT_DIRECTORY",
+    "       node --import tsx scripts/manual-import-qa.ts compare-dissolve REFERENCE_STEREO VIDEO_MONO NEW_REPORT_DIRECTORY [MUSIC_GAIN_DB]",
     "These commands never operate Final Cut; native import, title editability and export provenance remain UNVERIFIED.",
   ].join("\n");
   if (args.length === 1 && args[0] === "--help") { process.stdout.write(`${usage}\n`); return; }
@@ -504,8 +507,8 @@ async function main(args: string[]): Promise<void> {
     if (report.measurements.status !== "PASS") process.exitCode = 1;
     return;
   }
-  if (args[0] === "compare-dissolve" && args.length === 4) {
-    const report = await compareDissolveVideos(args[1]!, args[2]!, args[3]!);
+  if (args[0] === "compare-dissolve" && (args.length === 4 || args.length === 5)) {
+    const report = await compareDissolveVideos(args[1]!, args[2]!, args[3]!, args[4] === undefined ? -12 : Number(args[4]));
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
     if (report.comparison.status !== "PASS") process.exitCode = 1;
     return;

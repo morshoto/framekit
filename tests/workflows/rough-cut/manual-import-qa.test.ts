@@ -103,6 +103,10 @@ test("video parity comparison binds bytes and reports unverified native evidence
     await promisify(execFile)(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-i", reference, "-c:v", "copy", "-af", "pan=mono|c0=0.7071067811865476*c0+0.7071067811865476*c1", "-c:a", "aac", "-ar", "48000", candidate]);
     const report = await compareDissolveVideos(reference, candidate, join(directory, "report"));
     assert.equal(report.comparison.status, "PASS");
+    assert.equal(report.musicGainDb, -12);
+    const wrongGain = await compareDissolveVideos(reference, candidate, join(directory, "wrong-gain"), -9);
+    assert.equal(wrongGain.musicGainDb, -9);
+    assert.equal(wrongGain.comparison.status, "FAIL");
     assert.equal(report.comparison.exactBoundaries, "UNVERIFIED");
     assert.equal(report.comparison.finalCutProvenance, "UNVERIFIED");
     assert.equal(report.referenceSha256, createHash("sha256").update(await readFile(reference)).digest("hex"));

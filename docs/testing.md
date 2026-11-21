@@ -160,6 +160,12 @@ candidate using the agreed sampled color, title-bounds, and audio-level limits:
 node --import tsx scripts/manual-import-qa.ts compare-dissolve /path/to/reference.mov /path/to/candidate.mp4 /path/to/new-parity-report
 ```
 
+For this equal-level synthetic source fixture, the expected music gain defaults
+to -12 dB. Pass `-9` as a final argument for the approved revised fixture; other
+gains are rejected. The signal check permits 2 dB around the expected music to
+source ratio, and the cross-output comparison permits 1 dB between outputs.
+The report records the selected gain. These limits are specific to this fixture.
+
 The reference is downmixed as `0.7071067811865476 * left +
 0.7071067811865476 * right`. Title measurement detects white pixels in the
 fixture's central region at frame 27; it does not identify the text. A sampled
