@@ -100,6 +100,8 @@ export interface HeadlessProjectWorkflow {
     command: HeadlessProjectEditCommand,
     sequenceId: string,
   ): Promise<ProjectEditResult & { undoId: string }>;
+  previewApprovedEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string): Promise<Awaited<ReturnType<ProjectTransactionService["preview"]>> & { previewToken: string }>;
+  executeApprovedEdit(projectId: string, sequenceId: string, previewToken: string): Promise<ProjectEditResult & { undoId: string }>;
   undoEdit(projectId: string, sequenceId: string, undoId: string, expectedRevision: ContextRevision): Promise<HeadlessUndoResult>;
   exportFcpxml(projectId: string, sequenceId: string, expectedRevision: ContextRevision, outputPath: string, target: TimelineIrToFcpxmlTarget): Promise<{ artifact: { path: string; digest: string; bytes: number; verified: true }; provenance: TimelineIrToFcpxmlResult["provenance"]; coverage: TimelineIrToFcpxmlResult["coverage"] }>;
   previewRoughCut(request: HeadlessRoughCutRequest, signal?: AbortSignal, requireStoryboard?: boolean): Promise<HeadlessRoughCutPreview>;
@@ -249,6 +251,7 @@ export interface HeadlessRoughCutPublishProof {
   canonicalRevision: ContextRevision;
   planDigest: string;
   renderId: string;
+  renderer: { id: string; version: string };
   renderArtifact: { path: string; digest: string; bytes: number };
   titleFont?: HeadlessRoughCutPreview["titleFont"];
   artifactPath: string;
@@ -282,6 +285,7 @@ interface HeadlessRoughCutExecutionRecord {
   planDigest: string;
   inputDigest: string;
   renderId: string;
+  renderer: { id: string; version: string };
   renderArtifact: { path: string; digest: string; bytes: number };
   artifactPath: string;
   artifactDigest: string;
@@ -314,6 +318,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
   private readonly verifier?: FramekitRenderArtifactVerifier;
   private readonly storyboard?: StoryboardRenderer;
   private readonly clock: () => string;
+  private readonly approvedEdits = new Map<string, { projectId: string; sequenceId: string; command: HeadlessProjectEditCommand; baseDigest: string; resultDigest: string; expiresAt: number }>();
 
   public constructor(options: HeadlessProjectServiceOptions) {
     this.directory = options.directory;
@@ -421,7 +426,27 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     return preview;
   }
 
-  public async executeEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string) {
+  public async previewApprovedEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string) {
+    const preview = await this.previewEdit(projectId, command, sequenceId);
+    const now = Date.now();
+    for (const [token, entry] of this.approvedEdits) if (entry.expiresAt <= now) this.approvedEdits.delete(token);
+    while (this.approvedEdits.size >= 256) this.approvedEdits.delete(this.approvedEdits.keys().next().value!);
+    const previewToken = `headless-edit-${randomUUID()}`;
+    this.approvedEdits.set(previewToken, { projectId, sequenceId, command: structuredClone(preview.command), baseDigest: timelineIrDigest(preview.before.timeline), resultDigest: timelineIrDigest(preview.after.timeline), expiresAt: now + 10 * 60 * 1000 });
+    return { ...preview, previewToken };
+  }
+
+  public async executeApprovedEdit(projectId: string, sequenceId: string, previewToken: string) {
+    const entry = this.approvedEdits.get(previewToken);
+    if (!entry || entry.expiresAt <= Date.now() || entry.projectId !== projectId || entry.sequenceId !== sequenceId) {
+      throw new Error("HEADLESS_EDIT_PREVIEW_INVALID: preview token is unknown, expired or belongs to another target");
+    }
+    // Consume synchronously before the first await so concurrent requests cannot reuse the token.
+    this.approvedEdits.delete(previewToken);
+    return this.executeEdit(projectId, entry.command, sequenceId, entry);
+  }
+
+  public async executeEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string, approvedDigests?: { baseDigest: string; resultDigest: string }) {
     const project = await this.open(projectId);
     const timestamp = this.clock();
     const transaction = new ProjectTransactionService(this.snapshotStore(projectId, project), { clock: () => timestamp });
@@ -431,6 +456,10 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     };
     const preview = await transaction.preview(editCommand);
     await this.verifyConnectedAudioMetadata(projectId, preview.after.timeline, preview.before.timeline);
+    if (approvedDigests && (timelineIrDigest(preview.before.timeline) !== approvedDigests.baseDigest
+      || timelineIrDigest(preview.after.timeline) !== approvedDigests.resultDigest)) {
+      throw new Error("HEADLESS_EDIT_PREVIEW_MISMATCH: project or proposed edit differs from the approved preview");
+    }
     const recordId = `undo-${randomUUID()}`;
     const afterDigest = timelineIrDigest(preview.after.timeline);
     const record = {
@@ -667,6 +696,9 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       throw new Error(`HEADLESS_ROUGH_CUT_RENDER_FAILED: render verification status was ${outcome.status}; inspect ${renderId}`);
     }
     const renderedArtifact = outcome.verification?.artifact;
+    if (!outcome.plan?.renderer?.id?.trim() || !outcome.plan.renderer.version?.trim()) {
+      throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: renderer identity is unavailable");
+    }
     if (!renderedArtifact || resolve(renderedArtifact.path) !== resolve(request.render.outputPath)
       || !/^[a-f0-9]{64}$/.test(renderedArtifact.fileDigest) || !Number.isSafeInteger(renderedArtifact.sizeBytes) || renderedArtifact.sizeBytes <= 0) {
       throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: verified render artifact identity is unavailable or inconsistent");
@@ -696,6 +728,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
         planDigest: approval.planDigest,
         inputDigest: prepared.inputDigest,
         renderId,
+        renderer: structuredClone(outcome.plan.renderer),
         renderArtifact: { path: resolve(renderedArtifact.path), digest: renderedArtifact.fileDigest, bytes: renderedArtifact.sizeBytes },
         artifactPath: resolve(fcpxmlArtifact.path),
         artifactDigest: fcpxmlArtifact.digest,
@@ -831,38 +864,41 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       || !sameRevision(render.requestedRevision, record.canonicalRevision)) {
       throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render evidence does not match the approved revision");
     }
-    if (project.timeline.sequence.titles?.length) {
-      const outcome = render.outcome as FramekitRenderAndVerifyResult | undefined;
-      const plan = outcome?.plan;
-      const verification = outcome?.verification;
-      const verifiedArtifact = verification?.artifact;
-      if (!approval.titleFont || outcome?.status !== "passed" || !plan || typeof plan !== "object"
-        || outcome.render?.status !== "rendered" || verification?.status !== "passed"
-        || !Array.isArray(verification.checks) || !verification.checks.length || verification.checks.some((check) => check?.passed !== true)
-        || !record.renderArtifact || typeof record.renderArtifact.path !== "string" || typeof verifiedArtifact?.path !== "string"
-        || resolve(verifiedArtifact.path) !== resolve(record.renderArtifact.path)
-        || verifiedArtifact.fileDigest !== record.renderArtifact.digest || verifiedArtifact.sizeBytes !== record.renderArtifact.bytes
-        || plan.capabilities?.titleFontDigest !== approval.titleFont.digest
-        || stableJson(plan.capabilities?.titleFontFace) !== stableJson(approval.titleFont.face)
-        || stableJson(plan.renderer) !== stableJson(approval.titleFont.renderer)
-        || stableJson(plan.capabilities?.renderer) !== stableJson(approval.titleFont.renderer)
-        || stableJson(outcome.render?.renderer) !== stableJson(approval.titleFont.renderer)
-        || outcome.render?.planDigest !== plan.planDigest
-        || stableJson(plan.target) !== stableJson({ projectId: record.projectId, sequenceId: record.sequenceId })
-        || stableJson(outcome.render?.target) !== stableJson(plan.target)
-        || stableJson(plan.projectRevision) !== stableJson(record.canonicalRevision)
-        || stableJson(outcome.render?.projectRevision) !== stableJson(record.canonicalRevision)
-        || stableJson(plan.parameters) !== stableJson(record.outputIntent.render)
-        || stableJson(outcome.render?.output) !== stableJson({ path: record.outputIntent.render.outputPath, format: record.outputIntent.render.format })
-        || !plan.timeline || typeof plan.timeline !== "object" || Array.isArray(plan.timeline)
-        || stableJson(plan.timeline.revision) !== stableJson(record.canonicalRevision)
-        || timelineIrDigest(plan.timeline) !== timelineIrDigest(project.timeline)) {
-        throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render font or timeline differs from the approved preview");
-      }
-      const { planDigest, ...planBase } = plan;
-      if (typeof planDigest !== "string" || hash(stableJson(planBase)) !== planDigest) {
-        throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render font plan is invalid");
-      }
+    const outcome = render.outcome as FramekitRenderAndVerifyResult | undefined;
+    const plan = outcome?.plan;
+    const verifiedArtifact = outcome?.verification?.artifact;
+    if (outcome?.status !== "passed" || outcome.verification?.status !== "passed" || !verifiedArtifact
+      || !Array.isArray(outcome.verification.checks) || !outcome.verification.checks.length || outcome.verification.checks.some((check) => check?.passed !== true)
+      || verifiedArtifact.fileDigest !== record.renderArtifact?.digest || verifiedArtifact.sizeBytes !== record.renderArtifact?.bytes
+      || typeof verifiedArtifact.path !== "string" || resolve(verifiedArtifact.path) !== resolve(record.outputIntent.render.outputPath)
+      || !plan || typeof plan !== "object" || outcome.render?.status !== "rendered"
+      || outcome.render.contractVersion !== plan.contractVersion || outcome.render.verificationRequired !== true
+      || typeof record.renderer?.id !== "string" || !record.renderer.id.trim()
+      || typeof record.renderer?.version !== "string" || !record.renderer.version.trim()
+      || stableJson(record.renderer) !== stableJson(plan.renderer)
+      || stableJson(plan.capabilities?.renderer) !== stableJson(plan.renderer)
+      || stableJson(outcome.render?.renderer) !== stableJson(plan.renderer)
+      || outcome.render?.planDigest !== plan.planDigest
+      || stableJson(plan.target) !== stableJson({ projectId: record.projectId, sequenceId: record.sequenceId })
+      || stableJson(outcome.render?.target) !== stableJson(plan.target)
+      || stableJson(plan.projectRevision) !== stableJson(record.canonicalRevision)
+      || stableJson(outcome.render?.projectRevision) !== stableJson(record.canonicalRevision)
+      || stableJson(plan.parameters) !== stableJson(record.outputIntent.render)
+      || stableJson(outcome.render?.output) !== stableJson({ path: record.outputIntent.render.outputPath, format: record.outputIntent.render.format })
+      || !plan.timeline || typeof plan.timeline !== "object" || Array.isArray(plan.timeline)
+      || stableJson(plan.timeline.revision) !== stableJson(record.canonicalRevision)
+      || timelineIrDigest(plan.timeline) !== timelineIrDigest(project.timeline)) {
+      throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render font, plan or verification differs from the approved preview");
+    }
+    const { planDigest, ...planBase } = plan;
+    if (typeof planDigest !== "string" || hash(stableJson(planBase)) !== planDigest) {
+      throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render font or plan is invalid");
+    }
+    if (project.timeline.sequence.titles?.length && (!approval.titleFont
+      || plan.capabilities?.titleFontDigest !== approval.titleFont.digest
+      || stableJson(plan.capabilities?.titleFontFace) !== stableJson(approval.titleFont.face)
+      || stableJson(plan.renderer) !== stableJson(approval.titleFont.renderer))) {
+      throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render font differs from the approved preview");
     }
     const boundRender = record.renderArtifact;
     if (!boundRender || typeof boundRender.path !== "string" || resolve(boundRender.path) !== resolve(record.outputIntent.render.outputPath)
@@ -906,6 +942,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       canonicalRevision: structuredClone(record.canonicalRevision),
       planDigest: record.planDigest,
       renderId: record.renderId,
+      renderer: structuredClone(record.renderer),
       renderArtifact: structuredClone(boundRender),
       ...(project.timeline.sequence.titles?.length && approval.titleFont ? { titleFont: structuredClone(approval.titleFont) } : {}),
       artifactPath: record.artifactPath,

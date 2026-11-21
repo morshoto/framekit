@@ -268,6 +268,63 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     assert.deepEqual(actual.durationTime, expected.durationTime);
     assert.deepEqual(actual.sourceStartTime, expected.sourceStartTime);
     assert.equal(readback.media.find((item) => item.mediaId === actual.mediaId)?.source, resources[1]!.source);
+    // Revise the approved finishing edit without changing its dissolve or source bindings.
+    const v1Revision = executed.after.timeline.revision;
+    const v1XmlDigest = createHash("sha256").update(xml).digest("hex");
+    const v1VideoDigest = createHash("sha256").update(await readFile(request.render.outputPath)).digest("hex");
+    const command = { schemaVersion: 1 as const, expectedRevision: v1Revision, operations: [
+      { type: "remove-title" as const, titleId: "title" },
+      { type: "add-title" as const, title: { id: "title-v2", text: "FADE 2", startTime: { value: "4", timescale: "5" }, durationTime: { value: "1", timescale: "6" }, lane: 1, font: { ...preview.titleFont!.face, digest: preview.titleFont!.digest } } },
+      { type: "set-gain" as const, occurrenceId: "music", gainDb: -9 },
+    ] };
+    const v2Preview = await service.previewEdit(request.projectId, command, request.sequenceId);
+    assert.deepEqual((await service.open(request.projectId)).timeline.revision, v1Revision);
+    assert.equal(v2Preview.after.timeline.sequence.titles?.[0]?.text, "FADE 2");
+    assert.equal(v2Preview.after.timeline.sequence.occurrences.find((item) => item.id === "music")?.gainDb, -9);
+    const revised = await service.executeEdit(request.projectId, command, request.sequenceId);
+    const v2Revision = revised.after.timeline.revision;
+    assert.notEqual(v2Revision.id, v1Revision.id);
+    assert.deepEqual(revised.after.timeline.sequence.transitions, preview.after.timeline.sequence.transitions);
+    assert.deepEqual(revised.after.timeline.sequence.occurrences.filter((item) => item.role === "video"), preview.after.timeline.sequence.occurrences.filter((item) => item.role === "video"));
+    const v2XmlPath = join(directory, "edit-v2.fcpxml");
+    await assert.rejects(service.exportFcpxml(request.projectId, request.sequenceId, v1Revision, v2XmlPath, request.fcpxml.target), /STALE/);
+    const v2Xml = await service.exportFcpxml(request.projectId, request.sequenceId, v2Revision, v2XmlPath, request.fcpxml.target);
+    const v2VideoPath = join(directory, "render-v2.mp4");
+    await assert.rejects(service.render(request.projectId, request.sequenceId, { ...request.render, outputPath: v2VideoPath }, v1Revision), /STALE/);
+    const v2Render = await service.render(request.projectId, request.sequenceId, { ...request.render, outputPath: v2VideoPath }, v2Revision);
+    assert.equal(v2Render.status, "passed");
+    assert.deepEqual(v2Render.requestedRevision, v2Revision);
+    assert.deepEqual(v2Xml.provenance.revision, v2Revision);
+    assert.notEqual(v2Xml.provenance.destination.projectUid, executed.fcpxml.provenance.destination.projectUid);
+    const revisedXml = await readFile(v2XmlPath, "utf8");
+    assert.match(revisedXml, /<text><text-style ref="title-style-1">FADE 2<\/text-style><\/text>/);
+    assert.match(revisedXml, /<adjust-volume amount="-9dB"/);
+    assert.match(revisedXml, /<transition name="Cross Dissolve" offset="4\/5s" duration="1\/5s"/);
+    const v2Readback = await new FcpxmlDocumentAdapter(v2XmlPath).readProject();
+    const v2Timeline = createTimelineIrFromProjectSnapshot(v2Readback);
+    assert.deepEqual(v2Timeline.sequence.transitions, revised.after.timeline.sequence.transitions);
+    for (const expectedClip of revised.after.timeline.sequence.occurrences.filter((item) => item.role === "video")) {
+      const observedClip = v2Timeline.sequence.occurrences.find((item) => item.id === expectedClip.id)!;
+      assert.ok(observedClip);
+      assert.deepEqual([observedClip.sourceStartTime, observedClip.startTime, observedClip.durationTime], [expectedClip.sourceStartTime, expectedClip.startTime, expectedClip.durationTime]);
+      assert.equal(v2Readback.media.find((item) => item.mediaId === observedClip.mediaId)?.source, resources.find((item) => item.id === expectedClip.mediaId)?.source);
+    }
+    const oldMusic = toneAmplitude(await readAudioWindow(request.render.outputPath, 0.2), 1760);
+    const newMusic = toneAmplitude(await readAudioWindow(v2VideoPath, 0.2), 1760);
+    assert.ok(oldMusic > 0.002 && Math.abs(20 * Math.log10(newMusic / oldMusic) - 3) < 0.5, "the revised render must contain the approved 3 dB music increase");
+    const centerBrightPixels = (frame: Buffer) => {
+      let count = 0;
+      for (let y = 50; y < 100; y++) for (let x = 110; x < 210; x++) {
+        const offset = (y * 320 + x) * 3;
+        if (frame[offset]! > 200 && frame[offset + 1]! > 200 && frame[offset + 2]! > 200) count++;
+      }
+      return count;
+    };
+    const beforeTitle = centerBrightPixels(await readVideoFrame(v2VideoPath, 0.7));
+    const duringTitle = centerBrightPixels(await readVideoFrame(v2VideoPath, 0.85));
+    assert.ok(duringTitle > beforeTitle + 20, "the revised title window must add bright pixels in the title region");
+    assert.equal(createHash("sha256").update(await readFile(request.fcpxml.path)).digest("hex"), v1XmlDigest);
+    assert.equal(createHash("sha256").update(await readFile(request.render.outputPath)).digest("hex"), v1VideoDigest);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -686,6 +743,91 @@ test("production MCP exports an edited headless project as FCPXML without a roug
     await transport?.close();
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("approved headless edits execute only a matching issued preview", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-approved-edit-"));
+  const here = dirname(fileURLToPath(import.meta.url));
+  const environment: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1",
+    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0", FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"),
+    FRAMEKIT_STATE_DIR: join(directory, "state"),
+  };
+  let client: Client | undefined;
+  let transport: StdioClientTransport | undefined;
+  try {
+    ({ client, transport } = await connectProductionClient(here, environment));
+    const initial = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: emptyTimeline() } }));
+    const projectId = initial.timeline.project.id, sequenceId = initial.timeline.sequence.id;
+    const request = { projectId, sequenceId, expectedRevision: initial.timeline.revision,
+      operations: [{ type: "add-marker", marker: { id: "approved", name: "Approved", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } } }] };
+    const preview = payload(await client.callTool({ name: "headless.edit.approved-preview", arguments: request }));
+    assert.equal(typeof preview.previewToken, "string");
+    const stalePreview = payload(await client.callTool({ name: "headless.edit.approved-preview", arguments: request }));
+    const execute = { projectId, sequenceId, previewToken: preview.previewToken, approved: true };
+    for (const invalid of [{ ...execute, sequenceId: "wrong-sequence" }, { ...execute, previewToken: "missing-token" }, { ...execute, approved: false }]) {
+      const result = await client.callTool({ name: "headless.edit.approved-execute", arguments: invalid });
+      assert.equal(result.isError, true);
+    }
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, initial.timeline);
+    const attempts = await Promise.all([
+      client.callTool({ name: "headless.edit.approved-execute", arguments: execute }),
+      client.callTool({ name: "headless.edit.approved-execute", arguments: execute }),
+    ]);
+    assert.equal(attempts.filter((result) => !result.isError).length, 1);
+    assert.equal(attempts.filter((result) => result.isError).length, 1);
+    const committed = payload(attempts.find((result) => !result.isError)!);
+    assert.equal(committed.after.timeline.sequence.markers[0].id, "approved");
+    assert.equal((await client.callTool({ name: "headless.edit.approved-execute", arguments: execute })).isError, true);
+    const stale = await client.callTool({ name: "headless.edit.approved-execute", arguments: { ...execute, previewToken: stalePreview.previewToken } });
+    assert.equal(stale.isError, true);
+    assert.match(toolErrorText(stale), /STALE/);
+    const next = payload(await client.callTool({ name: "headless.edit.approved-preview", arguments: { ...request, expectedRevision: committed.after.timeline.revision, operations: [{ ...request.operations[0], marker: { ...request.operations[0].marker, id: "after-restart" } }] } }));
+    await client.close(); await transport.close();
+    ({ client, transport } = await connectProductionClient(here, environment));
+    const lost = await client.callTool({ name: "headless.edit.approved-execute", arguments: { projectId, sequenceId, previewToken: next.previewToken, approved: true } });
+    assert.equal(lost.isError, true);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, committed.after.timeline);
+  } finally {
+    await client?.close(); await transport?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("approved headless edit rejects a changed base with the same revision", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-approved-base-"));
+  try {
+    const service = new HeadlessProjectService({ directory });
+    const initial = await service.create(emptyTimeline());
+    const projectId = initial.timeline.project.id, sequenceId = initial.timeline.sequence.id;
+    const marker = (id: string) => ({ id, name: id, startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } });
+    const preview = await service.previewApprovedEdit(projectId, { schemaVersion: 1, expectedRevision: initial.timeline.revision,
+      operations: [{ type: "add-marker", marker: marker("approved") }] }, sequenceId);
+    const store = new FramekitProjectStore(join(directory, `${projectId}.json`));
+    const changed = await store.load();
+    changed.timeline.sequence.markers.push(marker("unapproved"));
+    await store.save(changed, initial.timeline.revision);
+    await assert.rejects(service.executeApprovedEdit(projectId, sequenceId, preview.previewToken), /HEADLESS_EDIT_PREVIEW_MISMATCH/);
+    assert.deepEqual((await service.open(projectId)).timeline, changed.timeline);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("approved headless edit tokens expire without mutation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-approved-expiry-"));
+  const realNow = Date.now;
+  try {
+    let now = realNow();
+    Date.now = () => now;
+    const service = new HeadlessProjectService({ directory });
+    const initial = await service.create(emptyTimeline());
+    const projectId = initial.timeline.project.id, sequenceId = initial.timeline.sequence.id;
+    const preview = await service.previewApprovedEdit(projectId, { schemaVersion: 1, expectedRevision: initial.timeline.revision,
+      operations: [{ type: "add-marker", marker: { id: "expired", name: "Expired", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } } }] }, sequenceId);
+    now += 10 * 60 * 1000;
+    await assert.rejects(service.executeApprovedEdit(projectId, sequenceId, preview.previewToken), /HEADLESS_EDIT_PREVIEW_INVALID/);
+    assert.deepEqual((await service.open(projectId)).timeline, initial.timeline);
+  } finally { Date.now = realNow; await rm(directory, { recursive: true, force: true }); }
 });
 
 test("headless edit Undo survives MCP restart and verifies the restored project", async () => {
@@ -1729,6 +1871,7 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     assert.equal(proof.sourceRevision.id, plan.revision.id);
     assert.equal(proof.canonicalRevision.id, executed.after.timeline.revision.id);
     assert.equal(proof.planDigest, preview.planDigest);
+    assert.deepEqual(proof.renderer, (executed.render.outcome as any).plan.renderer);
     assert.equal(proof.destination.projectUid, executed.fcpxml.destination.projectUid);
     assert.equal(proof.destination.sequenceUid, executed.fcpxml.destination.sequenceUid);
     assert.deepEqual(proof.sourceMediaDigests, [{ source: source.source, sha256: source.sourceDigest }]);
@@ -1746,6 +1889,41 @@ test("headless rough-cut preview and execution preserve provenance and produce v
       verifier: new FfmpegRenderVerifier(),
     });
     assert.deepEqual(await (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path), proof);
+    // A render record is separate from the approved execution record. Even a
+    // self-consistent digest must not authorize a different no-title render.
+    const renderRecordPath = join(directory, "projects", `${executed.render.renderId}.json`);
+    const originalRenderRecord = await readFile(renderRecordPath, "utf8");
+    const stableRender = (value: any): string => value === null || typeof value !== "object" ? JSON.stringify(value)
+      : Array.isArray(value) ? `[${value.map(stableRender).join(",")}]`
+      : `{${Object.entries(value).filter(([, child]) => child !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => `${JSON.stringify(key)}:${stableRender(child)}`).join(",")}}`;
+    for (const mutation of ["title", "target", "revision", "parameters", "output", "missing-verification", "artifact-digest", "artifact-path", "renderer", "renderer-all", "contract-version", "verification-required", "failed-check", "empty-checks"] as const) {
+      const saved = JSON.parse(originalRenderRecord);
+      if (mutation === "title") saved.outcome.plan.timeline.sequence.titles = [{ id: "injected", text: "not approved", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "2" }, lane: 1 }];
+      if (mutation === "target") saved.outcome.plan.target.sequenceId = "other-sequence";
+      if (mutation === "revision") saved.outcome.plan.projectRevision.sequence++;
+      if (mutation === "parameters") saved.outcome.plan.parameters.width++;
+      if (mutation === "output") saved.outcome.render.output.path = join(directory, "other.mp4");
+      if (mutation === "missing-verification") delete saved.outcome.verification;
+      if (mutation === "artifact-digest") saved.outcome.verification.artifact.fileDigest = "f".repeat(64);
+      if (mutation === "artifact-path") delete saved.outcome.verification.artifact.path;
+      if (mutation === "renderer") saved.outcome.render.renderer.id = "other-renderer";
+      if (mutation === "renderer-all") {
+        saved.outcome.plan.renderer.id = "other-renderer";
+        saved.outcome.plan.capabilities.renderer.id = "other-renderer";
+        saved.outcome.render.renderer.id = "other-renderer";
+      }
+      if (mutation === "contract-version") saved.outcome.render.contractVersion++;
+      if (mutation === "verification-required") saved.outcome.render.verificationRequired = false;
+      if (mutation === "failed-check") saved.outcome.verification.checks[0].passed = false;
+      if (mutation === "empty-checks") saved.outcome.verification.checks = [];
+      const { planDigest: _oldDigest, ...planBase } = saved.outcome.plan;
+      saved.outcome.plan.planDigest = createHash("sha256").update(stableRender(planBase)).digest("hex");
+      saved.outcome.render.planDigest = saved.outcome.plan.planDigest;
+      await writeFile(renderRecordPath, JSON.stringify(saved));
+      await assert.rejects(restarted.verifyPublishableRoughCut(executionId, request.fcpxml.path), /HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH/, mutation);
+    }
+    await writeFile(renderRecordPath, originalRenderRecord);
+    assert.deepEqual(await restarted.verifyPublishableRoughCut(executionId, request.fcpxml.path), proof);
     const originalRender = await readFile(request.render.outputPath);
     const alteredRender = Buffer.from(originalRender);
     alteredRender[Math.floor(alteredRender.length / 2)]! ^= 1;
@@ -1804,22 +1982,24 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     );
     await writeFile(source.source!, originalSource);
     assert.deepEqual(await (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path), proof);
-    // A genuine pre-upgrade execution record has a valid checksum but no
-    // verified video identity, so it cannot authorize a new publication.
+    // Records predating either binding have valid checksums but cannot authorize publication.
     const executionPath = join(directory, "projects", `${executionId}.json`);
     const currentExecution = await readFile(executionPath, "utf8");
-    const legacy = JSON.parse(currentExecution);
-    delete legacy.renderArtifact;
-    delete legacy.evidenceDigest;
     const stable = (value: any): string => value === null || typeof value !== "object" ? JSON.stringify(value)
       : Array.isArray(value) ? `[${value.map(stable).join(",")}]`
       : `{${Object.entries(value).filter(([, child]) => child !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => `${JSON.stringify(key)}:${stable(child)}`).join(",")}}`;
-    legacy.evidenceDigest = createHash("sha256").update(stable(legacy)).digest("hex");
-    await writeFile(executionPath, JSON.stringify(legacy));
-    await assert.rejects(
-      (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path),
-      /HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH:/,
-    );
+    for (const missing of ["renderArtifact", "renderer"]) {
+      const legacy = JSON.parse(currentExecution);
+      delete legacy[missing];
+      delete legacy.evidenceDigest;
+      legacy.evidenceDigest = createHash("sha256").update(stable(legacy)).digest("hex");
+      await writeFile(executionPath, JSON.stringify(legacy));
+      await assert.rejects(
+        (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path),
+        /HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH:/,
+        missing,
+      );
+    }
     await writeFile(executionPath, currentExecution);
     assert.deepEqual(await (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path), proof);
     const savedXml = `${request.fcpxml.path}.saved`;
