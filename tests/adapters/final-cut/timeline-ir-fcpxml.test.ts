@@ -111,6 +111,9 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
   const missingRate = structuredClone(value);
   delete missingRate.resources[0]!.metadata!.streams[0]!.frameRate;
   assert.throws(() => planFcpxmlDissolve(missingRate), /FCPXML_.*frame.rate/i);
+  const unalignedBefore = structuredClone(value);
+  unalignedBefore.sequence.occurrences[0]!.sourceStartTime = { value: "1", timescale: "60" };
+  assert.throws(() => planFcpxmlDissolve(unalignedBefore), /FCPXML_DISSOLVE_FRAME_ALIGNMENT/);
   const unaligned = structuredClone(value);
   unaligned.sequence.transitions![0]!.durationTime = { value: "1", timescale: "7" };
   assert.throws(() => planFcpxmlDissolve(unaligned), /FCPXML_.*frame/i);
