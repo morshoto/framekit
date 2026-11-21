@@ -78,7 +78,7 @@ export interface FramekitRenderProvider {
   readonly version: string;
   capabilities(request: FramekitRenderRequest): FramekitRenderCapabilityReport;
   /** Reject output destinations that would replace a title rendering asset. */
-  validateTitleOutput?(request: FramekitRenderRequest): Promise<void>;
+  validateTitleOutput?(request: FramekitRenderRequest, additionalOutputPaths?: readonly string[]): Promise<void>;
   render(plan: FramekitRenderPlan): Promise<FramekitRenderProviderResult>;
 }
 

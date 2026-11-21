@@ -488,7 +488,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
         throw new Error("RENDER_CAPABILITY_UNAVAILABLE: required title font or semantics are unavailable (titles)");
       }
       if (!this.renderer.validateTitleOutput) throw new Error("HEADLESS_ROUGH_CUT_RENDER_UNAVAILABLE: renderer cannot validate title output safety");
-      await this.renderer.validateTitleOutput(renderRequest);
+      await this.renderer.validateTitleOutput(renderRequest, [request.fcpxml.path]);
       titleFont = { renderer: capabilities.renderer, digest: capabilities.titleFontDigest! };
     }
     const approval = createRoughCutApproval({
@@ -590,6 +590,8 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       if (capabilities.features.titles !== "supported" || !approval.titleFont || stableJson(currentFont) !== stableJson(approval.titleFont)) {
         throw new Error("HEADLESS_ROUGH_CUT_PLAN_MISMATCH: title font or renderer changed after preview");
       }
+      if (!this.renderer.validateTitleOutput) throw new Error("HEADLESS_ROUGH_CUT_RENDER_UNAVAILABLE: renderer cannot validate title output safety");
+      await this.renderer.validateTitleOutput(renderRequest, [request.fcpxml.path]);
     }
     const outcome = await renderAndVerifyFramekitProject(renderRequest, this.renderer, this.verifier, { capabilities });
     const renderId = `render-${randomUUID()}`;
@@ -612,6 +614,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: verified render artifact identity is unavailable or inconsistent");
     }
     await this.assertOutputSeparation(prepared.project, [request.render.outputPath, request.fcpxml.path]);
+    if (preview.after.timeline.sequence.titles?.length) await this.renderer.validateTitleOutput!(renderRequest, [request.fcpxml.path]);
     const fcpxmlArtifact = await writeVerifiedFcpxml(
       request.fcpxml.path,
       fcpxml.xml,

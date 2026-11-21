@@ -156,6 +156,13 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
       assert.equal(result.storyboard, undefined);
       assert.match(result.storyboardUnavailable!, /STORYBOARD_UNSUPPORTED.*font/i);
     }
+    const swappableXml = { ...titleRequest, fcpxml: { ...titleRequest.fcpxml, overwrite: true } };
+    const beforeSwap = await fontService.previewRoughCut(swappableXml);
+    await link(fontPath, swappableXml.fcpxml.path);
+    await assert.rejects(fontService.executeRoughCut({ ...swappableXml, approved: true, planDigest: beforeSwap.planDigest }), /OUTPUT_INVALID.*font/i);
+    assert.deepEqual(await readFile(fontPath), originalFontBeforePreview);
+    assert.equal(existsSync(request.render.outputPath), false);
+    await unlink(swappableXml.fcpxml.path);
     const approvedTitle = await fontService.previewRoughCut(titleRequest);
     const originalFont = await readFile(fontPath);
     assert.equal(approvedTitle.titleFont?.digest, createHash("sha256").update(originalFont).digest("hex"));

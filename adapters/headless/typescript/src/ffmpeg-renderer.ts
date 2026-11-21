@@ -96,9 +96,11 @@ export class FfmpegTimelineRenderer implements FramekitRenderProvider {
     };
   }
 
-  public async validateTitleOutput(request: FramekitRenderRequest): Promise<void> {
+  public async validateTitleOutput(request: FramekitRenderRequest, additionalOutputPaths: readonly string[] = []): Promise<void> {
     if (request.timeline.sequence.titles?.length && this.fontFile) {
-      await assertFontOutputSeparation(resolve(request.parameters.outputPath), this.fontFile);
+      for (const path of [request.parameters.outputPath, ...additionalOutputPaths]) {
+        await assertFontOutputSeparation(resolve(path), this.fontFile);
+      }
     }
   }
 
@@ -702,7 +704,7 @@ async function assertFontOutputSeparation(outputPath: string, fontPath: string):
   }
   const font = await stat(fontPath);
   if (output.dev === font.dev && output.ino === font.ino) {
-    throw new FfmpegRenderError("HEADLESS_RENDER_OUTPUT_INVALID", "render output must not replace the selected title font");
+    throw new FfmpegRenderError("HEADLESS_RENDER_OUTPUT_INVALID", "output must not replace the selected title font");
   }
 }
 
