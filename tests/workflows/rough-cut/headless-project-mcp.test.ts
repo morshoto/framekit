@@ -2302,6 +2302,10 @@ test("external edit JSON previews registered clips, a title and music without mu
     const genericPreview = await client.callTool({ name: "headless.edit.preview", arguments: { projectId: shortTimeline.project.id, sequenceId: shortTimeline.sequence.id, expectedRevision: shortAudio.project.timeline.revision, operations: genericOperations } });
     assert.equal(genericPreview.isError, true, "general editing must also reject unverifiable music bounds");
     assert.match(toolErrorText(genericPreview), /audio stream bounds/);
+    const genericAudioOperations = genericOperations.map((operation, index) => index === 2 ? { ...operation, occurrence: { ...operation.occurrence, role: "audio" } } : operation);
+    const genericAudioPreview = await client.callTool({ name: "headless.edit.preview", arguments: { projectId: shortTimeline.project.id, sequenceId: shortTimeline.sequence.id, expectedRevision: shortAudio.project.timeline.revision, operations: genericAudioOperations } });
+    assert.equal(genericAudioPreview.isError, true, "audio role must not bypass music source bounds");
+    assert.match(toolErrorText(genericAudioPreview), /audio stream bounds/);
     const genericExecution = await client.callTool({ name: "headless.edit.execute", arguments: { projectId: shortTimeline.project.id, sequenceId: shortTimeline.sequence.id, expectedRevision: shortAudio.project.timeline.revision, operations: genericOperations } });
     assert.equal(genericExecution.isError, true);
     assert.match(toolErrorText(genericExecution), /audio stream bounds/);
