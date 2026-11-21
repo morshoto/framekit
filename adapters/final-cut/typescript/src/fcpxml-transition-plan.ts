@@ -45,7 +45,8 @@ export function planFcpxmlDissolve(timeline: TimelineIr) {
   if (compare(duration, zero) <= 0 || compare(duration, fraction(before.durationTime)) > 0 || compare(duration, fraction(after.durationTime)) > 0) throw new Error("FCPXML_DISSOLVE_DURATION: transition must fit both clips");
   if (compare(cut, beforeEnd) !== 0) throw new Error("FCPXML_DISSOLVE_ADJACENCY: transition requires a contiguous cut");
   const frame = fraction(timeline.sequence.frameDuration);
-  if (![duration, cut, source, fraction(before.startTime), fraction(before.durationTime), fraction(after.durationTime)].every((time) => aligned(time, frame))) throw new Error("FCPXML_DISSOLVE_FRAME_ALIGNMENT: transition and clip times must align to the sequence frame grid");
+  const beforeSource = fraction(before.sourceStartTime ?? { value: "0", timescale: "1" });
+  if (![duration, cut, source, beforeSource, fraction(before.startTime), fraction(before.durationTime), fraction(after.durationTime)].every((time) => aligned(time, frame))) throw new Error("FCPXML_DISSOLVE_FRAME_ALIGNMENT: transition and clip times must align to the sequence frame grid");
   for (const clip of [before, after]) {
     const video = timeline.resources.find((item) => item.id === clip.mediaId)?.metadata?.streams.find((stream) => stream.kind === "video");
     const rate = video?.frameRate && fraction(video.frameRate);
