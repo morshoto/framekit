@@ -2365,6 +2365,7 @@ test("external edit JSON previews registered clips, a title and music without mu
       edit: { ...edit, clips: [{ ...edit.clips[0], nativeAudioRole: "dialogue.alternate" }, edit.clips[1]] }, approved: true, planDigest: preview.planDigest,
     } });
     assert.equal(changedRole.isError, true, "execute must reject a role different from the approved preview");
+    assert.match(toolErrorText(changedRole), /EXTERNAL_EDIT_STALE_PREVIEW/);
     assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, b.project.timeline);
     const executed = payload(await client.callTool({ name: "headless.edit-json.execute", arguments: {
       projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit, approved: true, planDigest: preview.planDigest,
