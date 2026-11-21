@@ -181,6 +181,7 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     const v2Revision = revised.after.timeline.revision;
     assert.notEqual(v2Revision.id, v1Revision.id);
     assert.deepEqual(revised.after.timeline.sequence.transitions, preview.after.timeline.sequence.transitions);
+    assert.deepEqual(revised.after.timeline.sequence.occurrences.filter((item) => item.role === "video"), preview.after.timeline.sequence.occurrences.filter((item) => item.role === "video"));
     const v2XmlPath = join(directory, "edit-v2.fcpxml");
     await assert.rejects(service.exportFcpxml(request.projectId, request.sequenceId, v1Revision, v2XmlPath, request.fcpxml.target), /STALE/);
     const v2Xml = await service.exportFcpxml(request.projectId, request.sequenceId, v2Revision, v2XmlPath, request.fcpxml.target);
@@ -195,6 +196,15 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     assert.match(revisedXml, /<text>FADE 2<\/text>/);
     assert.match(revisedXml, /<adjust-volume amount="-9dB"/);
     assert.match(revisedXml, /<transition name="Cross Dissolve" offset="4\/5s" duration="1\/5s"/);
+    const v2Readback = await new FcpxmlDocumentAdapter(v2XmlPath).readProject();
+    const v2Timeline = createTimelineIrFromProjectSnapshot(v2Readback);
+    assert.deepEqual(v2Timeline.sequence.transitions, revised.after.timeline.sequence.transitions);
+    for (const expectedClip of revised.after.timeline.sequence.occurrences.filter((item) => item.role === "video")) {
+      const observedClip = v2Timeline.sequence.occurrences.find((item) => item.id === expectedClip.id)!;
+      assert.ok(observedClip);
+      assert.deepEqual([observedClip.sourceStartTime, observedClip.startTime, observedClip.durationTime], [expectedClip.sourceStartTime, expectedClip.startTime, expectedClip.durationTime]);
+      assert.equal(v2Readback.media.find((item) => item.mediaId === observedClip.mediaId)?.source, resources.find((item) => item.id === expectedClip.mediaId)?.source);
+    }
     const oldMusic = toneAmplitude(await readAudioWindow(request.render.outputPath, 0.2), 1760);
     const newMusic = toneAmplitude(await readAudioWindow(v2VideoPath, 0.2), 1760);
     assert.ok(oldMusic > 0.002 && Math.abs(20 * Math.log10(newMusic / oldMusic) - 3) < 0.5, "the revised render must contain the approved 3 dB music increase");
