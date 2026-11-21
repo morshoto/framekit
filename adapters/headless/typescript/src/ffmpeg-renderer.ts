@@ -424,6 +424,12 @@ function buildFfmpegArguments(
     const inputs = [...(audioOutput ? [`[${audioOutput}]`] : []), ...musicLabels];
     audioOutput = addAudioMix(filters, inputs, model.duration);
   }
+  const audioStreams = [...model.occurrences, ...model.audioOccurrences].flatMap((occurrence) =>
+    model.resources.get(occurrence.mediaId!)?.metadata?.streams.filter((stream) => stream.kind === "audio") ?? []);
+  if (audioOutput && audioStreams.length > 0 && audioStreams.every((stream) => stream.channels === 1)) {
+    filters.push(`[${audioOutput}]volume=0.7071067811865476[audio-mono-final-cut]`);
+    audioOutput = "audio-mono-final-cut";
+  }
   const args = ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", ...inputArguments, "-filter_complex", filters.join(";")];
   args.push("-map", `[${videoOutput}]`, "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-pix_fmt", "yuv420p", "-r", fps);
   if (audioOutput) {

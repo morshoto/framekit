@@ -456,7 +456,7 @@ test("FFmpeg Timeline IR renderer honors explicit output frame rate without muta
     assert.ok(scaledMarkerPixel.r > 150 && scaledMarkerPixel.g > 150 && scaledMarkerPixel.b > 150, `expected scale 1.25 to move the white marker over the left edge, got ${JSON.stringify(scaledMarkerPixel)}`);
     const sourceMeanVolume = await meanVolume(redPath, directory, "source-volume");
     const outputMeanVolume = await meanVolume(parameters.outputPath, directory, "output-volume");
-    assert.ok(Math.abs((outputMeanVolume - sourceMeanVolume) - 6) < 1.5, `expected +6 dB gain, got ${outputMeanVolume - sourceMeanVolume} dB`);
+    assert.ok(Math.abs((outputMeanVolume - sourceMeanVolume) - (6 - 3.0103)) < 1.5, `expected +6 dB gain with mono downmix, got ${outputMeanVolume - sourceMeanVolume} dB`);
 
     const transformed = structuredClone(source);
     transformed.sequence.occurrences[0]!.transform = { scaleX: 0.5, scaleY: 0.5, positionX: 90, positionY: 0 };
@@ -665,7 +665,6 @@ test("FFmpeg mixes independent music with source audio at the requested gain", a
     const observedMusicAmplitude = frequencyAmplitude(samples, 1_760, 48_000);
     const expectedMusicAmplitude = frequencyAmplitude(sourceMusicPcm.stdout as unknown as Buffer, 1_760, 48_000) * 10 ** (-6 / 20);
     assert.ok(observedMusicAmplitude > 0.002, "independent music should remain audible in the mix");
-    assert.ok(Math.abs(observedMusicAmplitude - expectedMusicAmplitude) < expectedMusicAmplitude * 0.25, "music gain should match the requested -6 dB");
     const nativeDownmixExpected = expectedMusicAmplitude * Math.SQRT1_2;
     assert.ok(Math.abs(20 * Math.log10(observedMusicAmplitude / nativeDownmixExpected)) <= 1,
       `mono music must match the Final Cut stereo downmix within 1 dB: ${observedMusicAmplitude} vs ${nativeDownmixExpected}`);
