@@ -1590,6 +1590,8 @@ test("production stdio MCP persists and reopens the headless project and render 
       expectedRevision: first.after.timeline.revision,
       operations: [{ type: "insert-occurrence", placement: "append", occurrence: { ...occurrence("occurrence-blue", blueResource.id), sourceStartTime: { value: "1", timescale: "4" } } }],
     } }));
+    const selectedFont = new FfmpegTimelineRenderer({ env: environment }).inspectTitleFont(["OPEN"]);
+    assert.ok(selectedFont);
     const finished = payload(await client.callTool({ name: "headless.edit.execute", arguments: {
       projectId: "mcp-headless-project",
       sequenceId: "mcp-headless-sequence",
@@ -1597,7 +1599,7 @@ test("production stdio MCP persists and reopens the headless project and render 
       operations: [
         { type: "set-gain", occurrenceId: "occurrence-red", gainDb: 6 },
         { type: "set-transform", occurrenceId: "occurrence-red", transform: { scaleX: 1.25, scaleY: 1.25 } },
-        { type: "add-title", title: { id: "title-opening", text: "OPEN", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "2" }, lane: 1 } },
+        { type: "add-title", title: { id: "title-opening", text: "OPEN", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "2" }, lane: 1, font: selectedFont } },
         { type: "add-transition", transition: { id: "transition-red-blue", kind: "cross-dissolve", beforeOccurrenceId: "occurrence-red", afterOccurrenceId: "occurrence-blue", durationTime: { value: "1", timescale: "4" } } },
       ],
     } }));
@@ -2547,6 +2549,13 @@ test("external JSON binds one font through preview, render and FCPXML", async ()
     assert.equal(legacyExport.isError, true);
     assert.match(toolErrorText(legacyExport), /TITLE_FONT_UNBOUND/);
     assert.equal(existsSync(legacyPath), false);
+    const legacyRenderPath = join(directory, "legacy.mp4");
+    await writeFile(fontPath, Buffer.concat([fontBytes, Buffer.from([0])]));
+    const legacyRender = await client.callTool({ name: "headless.render", arguments: { projectId: legacy.timeline.project.id, sequenceId, expectedRevision: legacy.timeline.revision, parameters: { outputPath: legacyRenderPath, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } } });
+    assert.equal(legacyRender.isError, true, "unbound legacy titles must not render with an implicit font");
+    assert.match(toolErrorText(legacyRender), /TITLE_FONT_UNBOUND/);
+    assert.equal(existsSync(legacyRenderPath), false);
+    await writeFile(fontPath, fontBytes);
     const output = join(directory, "render.mp4");
     const renderArgs = { projectId, sequenceId, expectedRevision: executed.after.timeline.revision, parameters: { outputPath: output, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } };
     await writeFile(fontPath, Buffer.concat([fontBytes, Buffer.from([0])]));

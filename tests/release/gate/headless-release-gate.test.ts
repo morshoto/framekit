@@ -9,6 +9,7 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { TimelineIr } from "@framekit/runtime";
+import { FfmpegTimelineRenderer } from "../../../adapters/headless/typescript/src/index.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -144,6 +145,8 @@ test("production stdio MCP completes the v0.1.15 headless edit-to-video release 
           }],
         },
       }));
+      const selectedFont = new FfmpegTimelineRenderer().inspectTitleFont(["OPEN", "CLOSE"]);
+      assert.ok(selectedFont);
       const finished = payload(await first.client.callTool({
         name: "headless.edit.execute",
         arguments: {
@@ -153,8 +156,8 @@ test("production stdio MCP completes the v0.1.15 headless edit-to-video release 
           operations: [
             { type: "set-gain", occurrenceId: "occurrence-red", gainDb: fixtureManifest.expectedWorkflow.audioGainDb },
             { type: "set-transform", occurrenceId: "occurrence-blue", transform: fixtureManifest.expectedWorkflow.transform },
-            { type: "add-title", title: { ...fixtureManifest.expectedWorkflow.titleWindows[0], text: "OPEN", lane: 1, style: { fontSize: 24, color: "white", alignment: "center" } } },
-            { type: "add-title", title: { ...fixtureManifest.expectedWorkflow.titleWindows[1], text: "CLOSE", lane: 1, style: { fontSize: 24, color: "white", alignment: "center" } } },
+            { type: "add-title", title: { ...fixtureManifest.expectedWorkflow.titleWindows[0], text: "OPEN", lane: 1, font: selectedFont, style: { fontSize: 24, color: "white", alignment: "center" } } },
+            { type: "add-title", title: { ...fixtureManifest.expectedWorkflow.titleWindows[1], text: "CLOSE", lane: 1, font: selectedFont, style: { fontSize: 24, color: "white", alignment: "center" } } },
             { type: "add-transition", transition: { id: "transition-red-blue", kind: fixtureManifest.expectedWorkflow.transition.kind, beforeOccurrenceId: "occurrence-red", afterOccurrenceId: "occurrence-blue", durationTime: fixtureManifest.expectedWorkflow.transition.durationTime } },
           ],
         },
