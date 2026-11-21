@@ -167,6 +167,20 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
     assert.deepEqual(incomingStory?.startTime, incoming?.startTime);
     assert.deepEqual(incomingStory?.durationTime, incoming?.durationTime);
     validateTimelineIr(reconstructed);
+    // A title may begin before the dissolve and extend past the shortened
+    // outgoing FCPXML clip. Its original timeline interval must survive.
+    const crossing = structuredClone(value);
+    crossing.sequence.titles![0]!.startTime = { value: "7", timescale: "5" };
+    crossing.sequence.titles![0]!.durationTime = { value: "1", timescale: "2" };
+    const crossingXml = compileTimelineIrToFcpxml(crossing, { target }).xml;
+    assert.match(crossingXml, /name="Before"[^>]*>[\s\S]*?<title[^>]*name="title-over-dissolve"[^>]*offset="12\/5s"[^>]*duration="1\/2s"/);
+    const crossingPath = join(directory, "crossing.fcpxml");
+    await writeFile(crossingPath, crossingXml);
+    validateWithInstalledFinalCut(crossingPath);
+    const crossingSnapshot = await new FcpxmlDocumentAdapter(crossingPath).readProject();
+    const crossingTitle = crossingSnapshot.timeline.storyElements.find((item) => item.id === "title-over-dissolve");
+    assert.equal(crossingTitle?.start, 1.4);
+    assert.equal(crossingTitle?.duration, 0.5);
     const tampered = structuredClone(snapshot);
     tampered.timeline.storyElements.find((item) => item.id === "dissolve")!.beforeClipId = "missing";
     assert.throws(() => createTimelineIrFromProjectSnapshot(tampered), /TIMELINE_IR_.*transition/i);
