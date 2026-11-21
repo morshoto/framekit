@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, link, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { join, relative } from "node:path";
@@ -108,6 +108,16 @@ test("FFmpeg renders a supported mixed-script title without tofu", async () => {
     source.sequence.occurrences[0]!.sourceStartTime = { value: "1", timescale: "5" };
     const output = join(directory, "mixed.mp4");
     const renderer = new FfmpegTimelineRenderer({ env: { FRAMEKIT_RENDER_FONT: relativeFont } });
+    const originalFontBytes = await readFile(fontPath);
+    const fontSymlink = join(directory, "font-symlink.otf");
+    const fontHardlink = join(directory, "font-hardlink.otf");
+    await symlink(fontPath, fontSymlink);
+    await link(fontPath, fontHardlink);
+    for (const destination of [fontPath, fontSymlink, fontHardlink]) {
+      const collision = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: { ...parameters(destination), width: 1280, height: 720, overwrite: true } });
+      await assert.rejects(renderer.render(createFramekitRenderPlan(collision, renderer.capabilities(collision))), /OUTPUT_INVALID.*font/i);
+      assert.deepEqual(await readFile(fontPath), originalFontBytes);
+    }
     const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: { ...parameters(output), width: 1280, height: 720 } });
     const plan = createFramekitRenderPlan(request, renderer.capabilities(request));
     const originalFont = await readFile(fontPath);
