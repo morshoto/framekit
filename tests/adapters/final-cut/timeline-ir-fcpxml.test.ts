@@ -92,6 +92,7 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
   ];
   value.sequence.transitions = [{ id: "dissolve", kind: "cross-dissolve", beforeOccurrenceId: "before", afterOccurrenceId: "after", durationTime: { value: "1", timescale: "2" } }];
   value.resources[0]!.metadata!.streams[0]!.frameRate = { value: "30", timescale: "1" };
+  value.resources[0]!.metadata!.streams[1]!.channels = 1;
   value.sequence.occurrences.push({ id: "music", name: "Music", startTime: { value: "1", timescale: "2" }, durationTime: { value: "3", timescale: "1" }, sourceStartTime: { value: "1", timescale: "1" }, track: 1, role: "music", mediaId: "music-source", gainDb: -12 });
   value.sequence.titles = [{ id: "title-over-dissolve", text: "Blend", startTime: { value: "3", timescale: "2" }, durationTime: { value: "1", timescale: "2" }, lane: 2 }];
   value.resources.push({ id: "music-source", name: "music.wav", mediaKind: "audio", source: "/media/music.wav", metadata: { durationTime: { value: "10", timescale: "1" }, streams: [{ kind: "audio", channels: 1, sampleRate: 48000 }] } });
@@ -230,6 +231,7 @@ test("dissolve planning rejects unknown or non-BT.709 colors", () => {
   ];
   value.sequence.transitions = [{ id: "dissolve", kind: "cross-dissolve", beforeOccurrenceId: "before", afterOccurrenceId: "after", durationTime: { value: "1", timescale: "2" } }];
   value.resources[0]!.metadata!.streams[0]!.frameRate = { value: "30", timescale: "1" };
+  value.resources[0]!.metadata!.streams[1]!.channels = 1;
   assert.doesNotThrow(() => planFcpxmlDissolve(value));
   const unknown = structuredClone(value);
   delete unknown.resources[0]!.metadata!.streams[0]!.color;
@@ -237,12 +239,19 @@ test("dissolve planning rejects unknown or non-BT.709 colors", () => {
   const wide = structuredClone(value);
   wide.resources[0]!.metadata!.streams[0]!.color!.primaries = "bt2020";
   assert.throws(() => planFcpxmlDissolve(wide), /FCPXML_DISSOLVE_COLOR_UNSUPPORTED/);
+  const stereo = structuredClone(value);
+  stereo.resources[0]!.metadata!.streams[1]!.channels = 2;
+  assert.throws(() => planFcpxmlDissolve(stereo), /FCPXML_DISSOLVE_AUDIO_UNSUPPORTED/);
+  const unknownAudio = structuredClone(value);
+  delete unknownAudio.resources[0]!.metadata!.streams[1]!.channels;
+  assert.throws(() => planFcpxmlDissolve(unknownAudio), /FCPXML_DISSOLVE_AUDIO_UNSUPPORTED/);
 });
 
 test("unverified dissolve export fails closed", () => {
   const value = timeline();
   value.sequence.frameDuration = { value: "1", timescale: "30" };
   value.resources[0]!.metadata!.streams[0]!.frameRate = { value: "30", timescale: "1" };
+  value.resources[0]!.metadata!.streams[1]!.channels = 1;
   value.sequence.storyElements = []; value.sequence.markers = []; value.sequence.captions = [];
   value.sequence.occurrences = [
     { id: "a", name: "A", startTime: { value: "0", timescale: "1" }, durationTime: { value: "2", timescale: "1" }, sourceStartTime: { value: "1", timescale: "1" }, track: 0, role: "video", mediaId: "media-1" },
@@ -256,6 +265,7 @@ test("dissolve planning preserves fractional frame timing and bounds", async () 
   const value = timeline();
   value.sequence.frameDuration = { value: "1001", timescale: "30000" };
   value.resources[0]!.metadata!.streams[0]!.frameRate = { value: "30000", timescale: "1001" };
+  value.resources[0]!.metadata!.streams[1]!.channels = 1;
   value.sequence.occurrences = [
     { id: "first", name: "First", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1001", timescale: "500" }, sourceStartTime: { value: "0", timescale: "1" }, track: 0, role: "video", mediaId: "media-1" },
     { id: "second", name: "Second", startTime: { value: "1001", timescale: "500" }, durationTime: { value: "1001", timescale: "500" }, sourceStartTime: { value: "3003", timescale: "1000" }, track: 0, role: "video", mediaId: "media-1" },
