@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createReadStream } from "node:fs";
 import { lstat, stat } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -20,6 +20,7 @@ const execFileAsync = promisify(execFile);
 
 export interface FfmpegRenderVerifierOptions {
   ffprobePath?: string;
+  ffmpegPath?: string;
   durationToleranceSeconds?: number;
   env?: NodeJS.ProcessEnv;
 }
@@ -27,11 +28,13 @@ export interface FfmpegRenderVerifierOptions {
 /** Independently verifies the committed output; it does not trust provider metadata. */
 export class FfmpegRenderVerifier implements FramekitRenderArtifactVerifier {
   private readonly ffprobePath: string;
+  private readonly ffmpegPath: string;
   private readonly durationToleranceSeconds?: number;
   private readonly environment: NodeJS.ProcessEnv;
 
   public constructor(options: FfmpegRenderVerifierOptions = {}) {
     this.ffprobePath = options.ffprobePath ?? process.env.FFPROBE_BIN ?? "ffprobe";
+    this.ffmpegPath = options.ffmpegPath ?? process.env.FFMPEG_BIN ?? "ffmpeg";
     this.durationToleranceSeconds = options.durationToleranceSeconds;
     this.environment = { ...process.env, ...options.env };
   }
@@ -63,6 +66,18 @@ export class FfmpegRenderVerifier implements FramekitRenderArtifactVerifier {
         return unavailable("ffprobe is not configured", "RENDER_VERIFIER_UNAVAILABLE");
       }
       return failed(checks, error instanceof Error ? error.message : String(error), "RENDER_OUTPUT_UNPLAYABLE");
+    }
+    if (probe.streams.some((stream) => stream.codec_type === "audio")) {
+      try {
+        const peak = await this.truePeak(outputPath);
+        // FFmpeg reports tenths of a dB; reject a rounded 0.0 conservatively.
+        const passed = peak === "-inf" || peak < 0;
+        checks.push({ name: "audio-true-peak", passed, detail: passed
+          ? `decoded audio true peak is ${peak} dBFS (ceiling: below 0 dBFS)`
+          : `decoded audio true peak is ${peak} dBFS; reduce mix gain below 0 dBFS and render again`, expected: "below 0 dBFS", observed: peak });
+      } catch (error) {
+        checks.push({ name: "audio-true-peak", passed: false, detail: `could not measure decoded audio true peak: ${error instanceof Error ? error.message : String(error)}` });
+      }
     }
     let finalDetails;
     try {
@@ -117,6 +132,23 @@ export class FfmpegRenderVerifier implements FramekitRenderArtifactVerifier {
     };
     const passed = checks.every((check) => check.passed);
     return { status: passed ? "passed" : "failed", checks, artifact };
+  }
+
+  private async truePeak(path: string): Promise<number | "-inf"> {
+    const stderr = await new Promise<string>((resolvePromise, reject) => {
+      const child = spawn(this.ffmpegPath, ["-hide_banner", "-nostats", "-v", "info", "-i", path, "-map", "0:a:0", "-af", "ebur128=peak=true", "-f", "null", "-"], { env: this.environment, stdio: ["ignore", "ignore", "pipe"] });
+      let tail = "";
+      child.stderr.setEncoding("utf8");
+      child.stderr.on("data", (chunk: string) => { tail = (tail + chunk).slice(-32768); });
+      child.once("error", reject);
+      child.once("close", (code) => code === 0 ? resolvePromise(tail) : reject(new Error(`ffmpeg peak measurement exited with code ${code}`)));
+    });
+    const match = stderr.match(/True peak:\s*\n\s*Peak:\s*(-inf|[+-]?(?:\d+(?:\.\d+)?))\s*dBFS/i);
+    if (!match) throw new Error("ffmpeg returned no true peak measurement");
+    if (match[1]!.toLowerCase() === "-inf") return "-inf";
+    const peak = Number(match[1]);
+    if (!Number.isFinite(peak)) throw new Error("ffmpeg returned an invalid true peak measurement");
+    return peak;
   }
 
   private async probe(path: string): Promise<ProbeResult> {

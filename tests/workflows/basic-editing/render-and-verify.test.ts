@@ -281,6 +281,37 @@ test("ffprobe verifier accepts renderer audio resampling", async () => {
   }
 });
 
+test("render verification measures decoded mix true peak", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-render-peak-"));
+  try {
+    for (const [name, gain, expected] of [["hot", 7.2, false], ["safe", 1, true], ["silent", 0, true]] as const) {
+      const path = join(directory, `${name}.mp4`);
+      await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", [
+        "-v", "error", "-f", "lavfi", "-i", "color=c=red:s=320x180:r=30:d=2",
+        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2",
+        "-filter_complex", `[1:a]volume=${gain},asplit=2[a][b];[a][b]amix=inputs=2:normalize=0[mix]`,
+        "-map", "0:v:0", "-map", "[mix]", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", path,
+      ], { cwd: repositoryRoot, env: process.env });
+      const timeline = minimalTimeline();
+      const request = createFramekitRenderRequest({ timeline, target: { projectId: timeline.project.id, sequenceId: timeline.sequence.id }, parameters: renderParameters(path) });
+      const plan = createFramekitRenderPlan(request, { renderer: { id: "ffmpeg-headless", version: "1" }, features: { "local-media": "supported", "structural-edits": "supported" } });
+      const result = createFramekitRenderResult(plan, { path, format: "mp4" });
+      const verification = await new FfmpegRenderVerifier().verify(plan, result);
+      const check = verification.checks.find((item) => item.name === "audio-true-peak");
+      assert.equal(check?.passed, expected, `${name}: ${JSON.stringify(verification)}`);
+      assert.equal(verification.status, expected ? "passed" : "failed");
+      if (!expected) assert.match(check!.detail, /peak|gain/i);
+      if (name === "safe") {
+        const unavailable = await new FfmpegRenderVerifier({ ffmpegPath: join(directory, "missing-ffmpeg") }).verify(plan, result);
+        assert.equal(unavailable.status, "failed");
+        assert.match(unavailable.checks.find((item) => item.name === "audio-true-peak")!.detail, /could not measure/);
+      }
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("ffprobe verifier requires AAC for FFmpeg headless renders", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-render-verifier-codec-"));
   try {
