@@ -185,6 +185,7 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
 test("unverified dissolve export fails closed", () => {
   const value = timeline();
   value.sequence.frameDuration = { value: "1", timescale: "30" };
+  value.resources[0]!.metadata!.streams[0]!.frameRate = { value: "30", timescale: "1" };
   value.sequence.storyElements = []; value.sequence.markers = []; value.sequence.captions = [];
   value.sequence.occurrences = [
     { id: "a", name: "A", startTime: { value: "0", timescale: "1" }, durationTime: { value: "2", timescale: "1" }, sourceStartTime: { value: "1", timescale: "1" }, track: 0, role: "video", mediaId: "media-1" },
