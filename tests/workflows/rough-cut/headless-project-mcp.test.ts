@@ -2272,6 +2272,14 @@ test("external edit JSON previews registered clips, a title and music without mu
     assert.throws(() => externalEditOperations(shiftedEdit, shiftedTimeline, shiftedTimeline.revision), /source frame grid/);
     shiftedStream.sourceRange.start = { value: "1", timescale: "30" };
     assert.doesNotThrow(() => externalEditOperations(shiftedEdit, shiftedTimeline, shiftedTimeline.revision));
+    // A multi-stream music file must not silently select its first audio stream.
+    const ambiguousMusic = structuredClone(b.project.timeline);
+    const multistreamMusic = join(directory, "multistream.m4a");
+    await execFileAsync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=1:sample_rate=48000", "-f", "lavfi", "-i", "sine=frequency=880:duration=3:sample_rate=48000", "-map", "0:a", "-map", "1:a", "-c:a", "aac", multistreamMusic]);
+    const musicMetadata = await new FfmpegMediaMetadataProbe().probe(multistreamMusic);
+    assert.equal(musicMetadata.streams.filter((stream) => stream.kind === "audio").length, 2);
+    ambiguousMusic.resources.find((item: any) => item.id === b.resource.id).metadata = musicMetadata;
+    assert.throws(() => externalEditOperations(edit, ambiguousMusic, ambiguousMusic.revision), /EXTERNAL_EDIT_INVALID:.*exactly one audio stream/);
     for (const gainDb of [-60, 12]) {
       assert.doesNotThrow(() => externalEditOperations({ ...edit, music: { ...edit.music, gainDb } }, b.project.timeline, b.project.timeline.revision));
     }
