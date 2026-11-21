@@ -91,6 +91,7 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
     { id: "after", name: "After", startTime: { value: "2", timescale: "1" }, durationTime: { value: "2", timescale: "1" }, sourceStartTime: { value: "4", timescale: "1" }, track: 0, role: "video", mediaId: "media-1" },
   ];
   value.sequence.transitions = [{ id: "dissolve", kind: "cross-dissolve", beforeOccurrenceId: "before", afterOccurrenceId: "after", durationTime: { value: "1", timescale: "2" } }];
+  value.resources[0]!.metadata!.streams[0]!.frameRate = { value: "30", timescale: "1" };
   value.sequence.occurrences.push({ id: "music", name: "Music", startTime: { value: "1", timescale: "2" }, durationTime: { value: "3", timescale: "1" }, sourceStartTime: { value: "1", timescale: "1" }, track: 1, role: "music", mediaId: "music-source", gainDb: -12 });
   value.sequence.titles = [{ id: "title-over-dissolve", text: "Blend", startTime: { value: "3", timescale: "2" }, durationTime: { value: "1", timescale: "2" }, lane: 2 }];
   value.resources.push({ id: "music-source", name: "music.wav", mediaKind: "audio", source: "/media/music.wav", metadata: { durationTime: { value: "10", timescale: "1" }, streams: [{ kind: "audio", channels: 1, sampleRate: 48000 }] } });
@@ -101,6 +102,9 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
   noHandle.sequence.occurrences[1]!.sourceStartTime = { value: "0", timescale: "1" };
   assert.throws(() => planFcpxmlDissolve(noHandle), /FCPXML_.*handle/i);
   assert.throws(() => compileTimelineIrToFcpxml(noHandle, { target }), /FCPXML_.*handle/i);
+  const incompatibleRate = structuredClone(value);
+  incompatibleRate.resources[0]!.metadata!.streams[0]!.frameRate = { value: "24", timescale: "1" };
+  assert.throws(() => planFcpxmlDissolve(incompatibleRate), /FCPXML_.*frame.rate/i);
   const unaligned = structuredClone(value);
   unaligned.sequence.transitions![0]!.durationTime = { value: "1", timescale: "7" };
   assert.throws(() => planFcpxmlDissolve(unaligned), /FCPXML_.*frame/i);
@@ -193,6 +197,7 @@ test("unverified dissolve export fails closed", () => {
 test("dissolve planning preserves fractional frame timing and bounds", () => {
   const value = timeline();
   value.sequence.frameDuration = { value: "1001", timescale: "30000" };
+  value.resources[0]!.metadata!.streams[0]!.frameRate = { value: "30000", timescale: "1001" };
   value.sequence.occurrences = [
     { id: "first", name: "First", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1001", timescale: "500" }, sourceStartTime: { value: "0", timescale: "1" }, track: 0, role: "video", mediaId: "media-1" },
     { id: "second", name: "Second", startTime: { value: "1001", timescale: "500" }, durationTime: { value: "1001", timescale: "500" }, sourceStartTime: { value: "3003", timescale: "1000" }, track: 0, role: "video", mediaId: "media-1" },
