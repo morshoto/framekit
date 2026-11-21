@@ -649,6 +649,7 @@ test("encodes an explicitly selected basic title font", async () => {
   assert.notEqual(artifact.destination.projectUid, changedFont.destination.projectUid);
   assert.notEqual(artifact.destination.sequenceUid, changedFont.destination.sequenceUid);
   assert.notEqual(artifact.destination.projectUid, compileTimelineIrToFcpxml(value, { target }).destination.projectUid);
+  assert.notEqual(artifact.destination.projectUid, compileTimelineIrToFcpxml(value, { target, basicTitleFont: { ...titleFont, style: "Bold" } }).destination.projectUid);
   const escapedFont = compileTimelineIrToFcpxml(value, { target, basicTitleFont: { ...titleFont, family: 'Noto & "Friends"', style: "Maker's" } });
   assert.match(escapedFont.xml, /font="Noto &amp; &quot;Friends&quot;" fontFace="Maker&apos;s"/);
   for (const invalid of [null as unknown as typeof titleFont, { ...titleFont, family: " " }, { ...titleFont, style: "\u0000" }, { ...titleFont, digest: "bad" }]) {
@@ -661,6 +662,15 @@ test("encodes an explicitly selected basic title font", async () => {
     validateWithInstalledFinalCut(path);
     const readback = await new FcpxmlDocumentAdapter(path).readProject();
     assert.equal(readback.timeline.storyElements.find(({ kind }) => kind === "title")?.text, "A日 & 'quote'");
+    const multiple = structuredClone(value);
+    multiple.sequence.titles!.push({ ...multiple.sequence.titles![0]!, id: "second-title", text: "Second", startTime: { value: "2", timescale: "1" } });
+    const multipleArtifact = compileTimelineIrToFcpxml(multiple, { target, basicTitleFont: titleFont });
+    assert.match(multipleArtifact.xml, /<text-style-def id="title-style-1">/);
+    assert.match(multipleArtifact.xml, /<text-style-def id="title-style-2">/);
+    await writeFile(path, multipleArtifact.xml);
+    validateWithInstalledFinalCut(path);
+    const multipleReadback = await new FcpxmlDocumentAdapter(path).readProject();
+    assert.deepEqual(multipleReadback.timeline.storyElements.filter(({ kind }) => kind === "title").map(({ text }) => text), ["A日 & 'quote'", "Second"]);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
