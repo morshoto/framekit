@@ -2628,6 +2628,41 @@ test("external edit JSON previews registered clips, a title and music without mu
     const a2 = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: video2, expectedRevision: a.project.timeline.revision } }));
     const b = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: music, expectedRevision: a2.project.timeline.revision } }));
     assert.notEqual(a.resource.id, a2.resource.id);
+    {
+      // A caller-created project must not forge audio stream metadata for a silent video.
+      const silentVideo = join(directory, "silent.mp4");
+      await execFileAsync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=red:s=320x180:r=30:d=2", "-c:v", "libx264", "-threads", "1", silentVideo]);
+      const silentTimeline = emptyTimeline();
+      silentTimeline.project.id = "silent-role-source";
+      const silentCreated = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: silentTimeline } }));
+      const silentRegistered = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId: silentTimeline.project.id, sourcePath: silentVideo, expectedRevision: silentCreated.timeline.revision } }));
+      const forgedTimeline = structuredClone(silentRegistered.project.timeline);
+      forgedTimeline.project.id = "forged-dialogue-source";
+      forgedTimeline.resources[0].metadata.streams.push(structuredClone(a.resource.metadata.streams.find((item: any) => item.kind === "audio")));
+      const forged = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: forgedTimeline } }));
+      const forgedArgs = { projectId: forgedTimeline.project.id, sequenceId: forgedTimeline.sequence.id, expectedRevision: forged.timeline.revision, edit: { schemaVersion: 1, clips: [{ id: "clip", mediaId: silentRegistered.resource.id, sourceStartTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" }, nativeAudioRole: "dialogue" }] } };
+      for (const tool of ["headless.edit-json.preview", "headless.edit-json.execute"]) {
+        const result = await client.callTool({ name: tool, arguments: { ...forgedArgs, ...(tool.endsWith("execute") ? { approved: true, planDigest: "0".repeat(64) } : {}) } });
+        assert.equal(result.isError, true, `${tool} must re-probe source audio streams`);
+        assert.match(toolErrorText(result), /MEDIA_METADATA_CHANGED/);
+      }
+      assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId: forgedTimeline.project.id } })).timeline, forged.timeline);
+      const existing = structuredClone(forgedTimeline);
+      existing.project.id = "forged-existing-dialogue";
+      existing.sequence.occurrences = [{ ...occurrence("clip", silentRegistered.resource.id), nativeAudioRole: "dialogue" }];
+      existing.sequence.durationTime = { value: "1", timescale: "1" };
+      const createdExisting = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: existing } }));
+      const xmlPath = join(directory, "forged-dialogue.fcpxml");
+      const exported = await client.callTool({ name: "headless.fcpxml.export", arguments: { projectId: existing.project.id, sequenceId: existing.sequence.id, expectedRevision: createdExisting.timeline.revision, outputPath: xmlPath, target: { provider: "final-cut", libraryUid: "library", eventUid: "event", projectUid: "project", sequenceUid: "sequence", materialization: "versioned" } } });
+      assert.equal(exported.isError, true);
+      assert.match(toolErrorText(exported), /MEDIA_METADATA_CHANGED/);
+      assert.equal(existsSync(xmlPath), false);
+      const renderPath = join(directory, "forged-dialogue.mp4");
+      const rendered = await client.callTool({ name: "headless.render", arguments: { projectId: existing.project.id, sequenceId: existing.sequence.id, expectedRevision: createdExisting.timeline.revision, parameters: { outputPath: renderPath, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } } });
+      assert.equal(rendered.isError, true);
+      assert.match(toolErrorText(rendered), /MEDIA_METADATA_CHANGED/);
+      assert.equal(existsSync(renderPath), false);
+    }
     const probeScript = join(directory, "probe-fixture.mjs");
     const mockProbe = async (startPts: number, formatStart: string) => {
       const response = { streams: [{ codec_type: "video", width: 320, height: 180, r_frame_rate: "30/1", time_base: "1/90000", start_pts: startPts, duration_ts: 90000 }], format: { duration: "3.000000", start_time: formatStart } };
@@ -2642,7 +2677,7 @@ test("external edit JSON previews registered clips, a title and music without mu
     const sourceDigests = await Promise.all(sourcePaths.map(async (path) => createHash("sha256").update(await readFile(path)).digest("hex")));
     const seconds = (n: number) => ({ value: String(n), timescale: "1" });
     const edit = { schemaVersion: 1 as const, clips: [
-      { id: "clip-a", mediaId: a.resource.id, sourceStartTime: seconds(0), durationTime: seconds(1) },
+      { id: "clip-a", mediaId: a.resource.id, sourceStartTime: seconds(0), durationTime: seconds(1), nativeAudioRole: "dialogue" },
       { id: "clip-b", mediaId: a2.resource.id, sourceStartTime: seconds(0), durationTime: seconds(1) },
     ], title: { id: "title", text: "A日", startTime: seconds(0), durationTime: seconds(1) },
     music: { id: "music", mediaId: b.resource.id, sourceStartTime: seconds(0), startTime: seconds(0), durationTime: seconds(2), gainDb: -12 } };
@@ -2821,6 +2856,22 @@ test("external edit JSON previews registered clips, a title and music without mu
     assert.match(toolErrorText(rejectedMulti), /exactly one audio stream/);
     const multiAfter = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId: multiTimeline.project.id } }));
     assert.deepEqual(multiAfter.timeline, multiAudio.project.timeline);
+    for (const count of [0, 2]) {
+      const ambiguous = structuredClone(b.project.timeline);
+      const resource = ambiguous.resources.find((item: any) => item.id === a.resource.id);
+      const audio = resource.metadata.streams.find((item: any) => item.kind === "audio");
+      resource.metadata.streams = resource.metadata.streams.filter((item: any) => item.kind !== "audio");
+      for (let index = 0; index < count; index++) resource.metadata.streams.push(structuredClone(audio));
+      assert.throws(() => externalEditOperations(edit, ambiguous, ambiguous.revision), /requires one audio stream/);
+    }
+    assert.throws(() => externalEditOperations({ ...edit, clips: [{ ...edit.clips[0]!, nativeAudioRole: "music" }] }, b.project.timeline, b.project.timeline.revision), /supported dialogue role/);
+    assert.doesNotThrow(() => externalEditOperations({ ...edit, clips: [{ ...edit.clips[0]!, nativeAudioRole: "dialogue.alternate" }] }, b.project.timeline, b.project.timeline.revision));
+    for (const nativeAudioRole of ["dialogue.inter\nview", "dialogue.inter\rview", "dialogue.inter\tview", "dialogue\n"]) {
+      const invalidRole = { ...edit, clips: [{ ...edit.clips[0]!, nativeAudioRole }] };
+      assert.throws(() => externalEditOperations(invalidRole, b.project.timeline, b.project.timeline.revision), /supported dialogue role/);
+      const result = await client.callTool({ name: "headless.edit-json.preview", arguments: { projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit: invalidRole } });
+      assert.equal(result.isError, true, nativeAudioRole);
+    }
     for (const gainDb of [-60, 12]) {
       assert.doesNotThrow(() => externalEditOperations({ ...edit, music: { ...edit.music, gainDb } }, b.project.timeline, b.project.timeline.revision));
     }
@@ -2835,6 +2886,7 @@ test("external edit JSON previews registered clips, a title and music without mu
       ["audio used as video", { ...edit, clips: [{ ...edit.clips[0], mediaId: b.resource.id }] }],
       ["video used as music", { ...edit, music: { ...edit.music, mediaId: a.resource.id } }],
       ["excessive music gain", { ...edit, music: { ...edit.music, gainDb: 40 } }],
+      ["unsupported clip audio role", { ...edit, clips: [{ ...edit.clips[0], nativeAudioRole: "music" }] }],
       ["off-grid source start", { ...edit, clips: [{ ...edit.clips[0], sourceStartTime: { value: "1", timescale: "60" } }] }],
       ["source start between source frames", { ...edit, clips: [{ ...edit.clips[1], sourceStartTime: { value: "1", timescale: "30" }, durationTime: { value: "1", timescale: "2" } }] }],
       ["unsupported title styling", { ...edit, title: { ...edit.title, style: { color: "red" } } }],
@@ -2867,6 +2919,8 @@ test("external edit JSON previews registered clips, a title and music without mu
       projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit,
     } }));
     assert.deepEqual(preview.after.timeline.sequence.occurrences.filter((item: any) => item.track === 0).map((item: any) => item.id), ["clip-a", "clip-b"]);
+    assert.equal(preview.after.timeline.sequence.occurrences.find((item: any) => item.id === "clip-a").nativeAudioRole, "dialogue");
+    assert.equal(preview.after.timeline.sequence.occurrences.find((item: any) => item.id === "clip-b").nativeAudioRole, undefined);
     assert.equal(preview.after.timeline.sequence.titles[0].text, "A日");
     assert.equal(preview.after.timeline.sequence.occurrences.find((item: any) => item.id === "music").gainDb, -12);
     const inspected = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
@@ -2897,6 +2951,12 @@ test("external edit JSON previews registered clips, a title and music without mu
       edit: { ...edit, title: { ...edit.title, text: "日A" } }, approved: true, planDigest: preview.planDigest,
     } });
     assert.equal(changed.isError, true, "execute must reject a different edit than the preview");
+    const changedRole = await client.callTool({ name: "headless.edit-json.execute", arguments: {
+      projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision,
+      edit: { ...edit, clips: [{ ...edit.clips[0], nativeAudioRole: "dialogue.alternate" }, edit.clips[1]] }, approved: true, planDigest: preview.planDigest,
+    } });
+    assert.equal(changedRole.isError, true, "execute must reject a role different from the approved preview");
+    assert.match(toolErrorText(changedRole), /EXTERNAL_EDIT_STALE_PREVIEW/);
     assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, b.project.timeline);
     const executed = payload(await client.callTool({ name: "headless.edit-json.execute", arguments: {
       projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit, approved: true, planDigest: preview.planDigest,
@@ -2921,6 +2981,8 @@ test("external edit JSON previews registered clips, a title and music without mu
     assert.equal(exported.artifact.verified, true);
     assert.equal(exported.provenance.revision.id, executed.after.timeline.revision.id);
     const parsed = await new FcpxmlDocumentAdapter(xmlPath).readProject();
+    assert.equal(parsed.timeline.clips.find((clip) => clip.id === "clip-a")?.nativeAudioRole, "dialogue");
+    assert.match(await readFile(xmlPath, "utf8"), /<asset-clip[^>]*audioRole="dialogue"/);
     const sourceFor = (id: string | undefined) => parsed.media.find((item) => item.mediaId === id)?.source;
     assert.deepEqual(parsed.timeline.clips.filter((clip) => [video, video2].includes(sourceFor(clip.mediaId) ?? "")).map((clip) => [sourceFor(clip.mediaId), clip.sourceStart, clip.duration]), [[video, 0, 1], [video2, 0, 1]]);
     assert.deepEqual(parsed.timeline.clips.filter((clip) => sourceFor(clip.mediaId) === music).map((clip) => [clip.sourceStart, clip.duration]), [[0, 2]]);
