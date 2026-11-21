@@ -48,6 +48,21 @@ test("FFmpeg renderer refuses an unimplemented nonzero source origin", async () 
   await assert.rejects(renderer.render(plan), /HEADLESS_RENDER_UNSUPPORTED.*source.*origin/i);
 });
 
+test("FFmpeg renderer rejects a missing explicitly configured title font", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-title-font-"));
+  try {
+    await mediaFixtures.copyTo(directory);
+    const source = await timeline(join(directory, "fixture-red-440hz.mp4"), join(directory, "fixture-blue-880hz.mp4"));
+    const output = join(directory, "output.mp4");
+    const renderer = new FfmpegTimelineRenderer({ env: { FRAMEKIT_RENDER_FONT: join(directory, "missing.otf") } });
+    const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(output) });
+    await assert.rejects(renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request))), /title font.*(available|inspect)/i);
+    await assert.rejects(readFile(output), /ENOENT/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("FFmpeg renderer rejects titles with unavailable glyphs", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-title-glyphs-"));
   try {
