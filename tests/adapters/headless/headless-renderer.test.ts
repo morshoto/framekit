@@ -80,9 +80,9 @@ test("FFmpeg renderer ends titles before the cut frame", async () => {
     source.sequence.titles = [source.sequence.titles![0]!];
     source.sequence.titles[0]!.durationTime = { value: "1", timescale: "1" };
     const renderer = new FfmpegTimelineRenderer();
-    const render = async (timeline: TimelineIr, label: string) => {
+    const render = async (timeline: TimelineIr, label: string, frameRate = { value: "30", timescale: "1" }) => {
       const output = join(directory, `${label}.mp4`);
-      const request = createFramekitRenderRequest({ timeline, target: { projectId: timeline.project.id, sequenceId: timeline.sequence.id }, parameters: parameters(output) });
+      const request = createFramekitRenderRequest({ timeline, target: { projectId: timeline.project.id, sequenceId: timeline.sequence.id }, parameters: { ...parameters(output), frameRate } });
       await renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request)));
       return output;
     };
@@ -95,9 +95,9 @@ test("FFmpeg renderer ends titles before the cut frame", async () => {
       await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-i", path, "-vf", `select=eq(n\\,${index})`, "-frames:v", "1", frame]);
       return countBrightPixels(await readFile(frame), 80, 240, 40, 140);
     };
-    const assertTitle = async (path: string, index: number, present: boolean, label: string) => {
+    const assertTitle = async (path: string, index: number, present: boolean, label: string, referencePath = baselinePath) => {
       const actual = await bright(path, index, label);
-      const reference = await bright(baselinePath, index, `${label}-baseline`);
+      const reference = await bright(referencePath, index, `${label}-baseline`);
       const difference = actual - reference;
       assert.ok(present ? difference > 30 : Math.abs(difference) < 30,
         `frame ${index}: expected title ${present ? "present" : "absent"}; bright-pixel difference ${difference}`);
@@ -109,6 +109,20 @@ test("FFmpeg renderer ends titles before the cut frame", async () => {
     const fractionalOutput = await render(source, "fractional");
     for (const [index, present] of [[32, false], [33, false], [1, false], [2, true], [31, true]] as const) {
       await assertTitle(fractionalOutput, index, present, "fractional");
+    }
+    source.sequence.titles[0]!.startTime = { value: "1", timescale: "20" };
+    source.sequence.titles[0]!.durationTime = { value: "9", timescale: "10" };
+    const offGridOutput = await render(source, "off-grid");
+    for (const [index, present] of [[1, false], [2, true], [28, true], [29, false]] as const) {
+      await assertTitle(offGridOutput, index, present, "off-grid");
+    }
+    const fractionalRate = { value: "30000", timescale: "1001" };
+    const rateBaseline = await render(baseline, "rate-baseline", fractionalRate);
+    source.sequence.titles[0]!.startTime = { value: "1001", timescale: "15000" };
+    source.sequence.titles[0]!.durationTime = { value: "1001", timescale: "1000" };
+    const rateOutput = await render(source, "fractional-rate", fractionalRate);
+    for (const [index, present] of [[1, false], [2, true], [31, true], [32, false], [33, false]] as const) {
+      await assertTitle(rateOutput, index, present, "fractional-rate", rateBaseline);
     }
   } finally {
     await rm(directory, { recursive: true, force: true });
