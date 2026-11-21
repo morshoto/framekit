@@ -12,6 +12,7 @@ import {
   type TimelineIrToFcpxmlTarget,
 } from "@framekit/final-cut/fcpxml";
 import type { TimelineIr } from "@framekit/runtime";
+import { planFcpxmlDissolve } from "../../../adapters/final-cut/typescript/src/fcpxml-transition-plan.js";
 
 function timeline(): TimelineIr {
   return {
@@ -91,6 +92,8 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
   ];
   value.sequence.transitions = [{ id: "dissolve", kind: "cross-dissolve", beforeOccurrenceId: "before", afterOccurrenceId: "after", durationTime: { value: "1", timescale: "2" } }];
 
+  const plan = planFcpxmlDissolve(value);
+  assert.deepEqual(plan, { id: "dissolve", beforeId: "before", afterId: "after", startTime: { value: "3", timescale: "2" }, durationTime: { value: "1", timescale: "2" }, afterSourceStartTime: { value: "7", timescale: "2" }, afterDurationTime: { value: "5", timescale: "2" } });
   const noHandle = structuredClone(value);
   noHandle.sequence.occurrences[1]!.sourceStartTime = { value: "0", timescale: "1" };
   assert.throws(() => compileTimelineIrToFcpxml(noHandle, { target }), /FCPXML_.*handle/i);
