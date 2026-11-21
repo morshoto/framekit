@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { constants, existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chmod, link, mkdir, open, readFile, readdir, mkdtemp, rename, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
@@ -1494,6 +1494,24 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     await unlink(request.render.outputPath);
     await rename(relocatedRender, request.render.outputPath);
     assert.deepEqual(await (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path), proof);
+    if (process.platform !== "win32") {
+      await rename(request.render.outputPath, relocatedRender);
+      await execFileAsync("mkfifo", [request.render.outputPath]);
+      const result = (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path)
+        .then(() => "unexpected success", (error: Error) => error.message);
+      let timer: NodeJS.Timeout | undefined;
+      const observed = await Promise.race([result, new Promise<string>((resolve) => { timer = setTimeout(() => resolve("timed out"), 500); })]);
+      if (timer) clearTimeout(timer);
+      if (observed === "timed out") {
+        // Unblock a defective reader so the test can fail and clean up.
+        const fifo = await open(request.render.outputPath, constants.O_RDWR | constants.O_NONBLOCK);
+        await fifo.close();
+        await result;
+      }
+      await unlink(request.render.outputPath);
+      await rename(relocatedRender, request.render.outputPath);
+      assert.match(observed, /HEADLESS_ROUGH_CUT_RENDER_CHANGED:/);
+    }
     const originalSource = await readFile(source.source!);
     const alteredSource = Buffer.from(originalSource);
     alteredSource[Math.floor(alteredSource.length / 2)]! ^= 1;
