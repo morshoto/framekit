@@ -2755,3 +2755,30 @@ test("external edit JSON previews registered clips, a title and music without mu
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("rough cut binds appended titles to an existing selected font", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-review-title-"));
+  try {
+    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], { cwd: process.cwd(), env: process.env });
+    const service = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: new FfmpegMediaMetadataProbe(), renderer: new FfmpegTimelineRenderer(), verifier: new FfmpegRenderVerifier() });
+    const created = await service.create(emptyTimeline());
+    const registered = await service.registerMedia(created.timeline.project.id, join(directory, "fixture-red-440hz.mp4"), created.timeline.revision);
+    const font = service.selectTitleFont(["FIRST", "SECOND"]);
+    const edit = await service.executeEdit(created.timeline.project.id, { schemaVersion: 1, expectedRevision: registered.project.timeline.revision, operations: [
+      { type: "insert-occurrence", placement: "append", occurrence: occurrence("first", registered.resource.id) },
+      { type: "add-title", title: { id: "first-title", text: "FIRST", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "2" }, lane: 1, font } },
+    ] }, created.timeline.sequence.id);
+    const source = registered.resource;
+    const request = { projectId: created.timeline.project.id, sequenceId: created.timeline.sequence.id,
+      plan: { planner: { id: "framekit.rough-cut", version: 1 }, revision: edit.after.timeline.revision, query: { query: "speech" }, shots: [{ order: 1, sourceIdentity: { mediaId: source.id, source: source.source!, sourceDigest: source.sourceDigest!, mediaKind: "video" as const, duration: 2 }, range: { start: 0.25, end: 1.25 }, confidence: 0.91, matchedProperties: ["query:speech"], rationale: "test" }], warnings: [] },
+      operations: [{ type: "add-title" as const, title: { id: "second-title", text: "SECOND", startTime: { value: "1", timescale: "1" }, durationTime: { value: "1", timescale: "2" }, lane: 1 } }],
+      render: { outputPath: join(directory, "render.mp4"), format: "mp4" as const, width: 320, height: 180, frameRate: { value: "30", timescale: "1" } },
+      fcpxml: { path: join(directory, "render.fcpxml"), target: { provider: "final-cut" as const, libraryUid: "lib", eventUid: "event", projectUid: "project", sequenceUid: "sequence" } },
+    };
+    await assert.rejects(service.previewRoughCut({ ...request, operations: [{ ...request.operations[0]!, title: { ...request.operations[0]!.title, font: { ...font, digest: "0".repeat(64) } } }] }), /FCPXML_TITLE_FONT_MISMATCH/);
+    const preview = await service.previewRoughCut(request);
+    assert.deepEqual(preview.after.timeline.sequence.titles?.find((title) => title.id === "second-title")?.font, font);
+    const result = await service.executeRoughCut({ ...request, approved: true, planDigest: preview.planDigest });
+    assert.deepEqual(result.after.timeline.sequence.titles?.find((title) => title.id === "second-title")?.font, font);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});

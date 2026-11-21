@@ -1125,6 +1125,18 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
         ...(shotWithEvidence.evidence ? { evidence: structuredClone(shotWithEvidence.evidence) } : {}),
       });
     }
+    // An existing bound title requires newly added titles to carry the same
+    // selected font before the first FCPXML compilation and transaction replay.
+    const existingTitles = project.timeline.sequence.titles ?? [];
+    if (existingTitles.some((title) => title.font) && operations.some((operation) => operation.type === "add-title" && !operation.title.font)) {
+      const selected = this.selectTitleFont([
+        ...existingTitles.map((title) => title.text),
+        ...operations.flatMap((operation) => operation.type === "add-title" ? [operation.title.text] : []),
+      ]);
+      for (const operation of operations) {
+        if (operation.type === "add-title" && !operation.title.font) operation.title.font = structuredClone(selected);
+      }
+    }
     const editOperations = [...planOperations, ...operations];
     const command: ProjectEditCommand = {
       schemaVersion: 1,
