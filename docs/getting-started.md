@@ -111,6 +111,12 @@ Set `FRAMEKIT_RENDER_FONT` to a suitable font file when the default lacks the
 needed characters. Glyph coverage alone does not establish visual correctness
 or shaping.
 
+Headless render verification measures the first output audio stream's decoded
+true peak using FFmpeg. The reported peak must be below 0 dBFS; a value rounded
+to 0.0 dBFS fails conservatively. If verification reports an excessive peak,
+reduce the mix gain and render again. A measurement failure also fails
+verification. Silent audio is accepted.
+
 Empty `timeline` for step 1:
 
 ```json

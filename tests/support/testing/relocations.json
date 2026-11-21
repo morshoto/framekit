@@ -2608,6 +2608,7 @@
       "\"ffprobe verifier treats missing output as failure\"",
       "\"ffprobe verifier requires canonical audio streams\"",
       "\"ffprobe verifier accepts renderer audio resampling\"",
+      "\"render verification measures decoded mix true peak\"",
       "\"ffprobe verifier requires AAC for FFmpeg headless renders\"",
       "\"ffprobe verifier rejects output identity or bytes changing during verification\"",
       "\"render-and-verify preserves explicit unavailable state\""
