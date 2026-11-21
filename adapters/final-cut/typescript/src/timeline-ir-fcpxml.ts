@@ -429,7 +429,7 @@ function resolveDestination(
   }
 
   const fontBinding = timeline.sequence.titles?.length && titleFont
-    ? `:title-font:${JSON.stringify([titleFont.family, titleFont.style, titleFont.postscriptName, titleFont.digest])}`
+    ? `:title-font:${JSON.stringify([titleFont.family, titleFont.style, titleFont.postscriptName, titleFont.digest])}:basic-title-defaults:63:center`
     : "";
   const revisionKey = shortHash(`${timeline.project.id}:${timeline.sequence.id}:${timeline.revision.id}:${timeline.revision.sequence}:${timeline.revision.timestamp}:${timelineIrDigest(timeline)}${fontBinding}`);
   const revisionName = `${safeId(timeline.revision.id)}-${timeline.revision.sequence}`;
@@ -759,7 +759,7 @@ function renderElements(elements: RenderableElement[], titleFont?: TimelineIrToF
       if (element.kind === "title" && titleFont) {
         const styleId = `title-style-${++titleStyleNumber}`;
         lines.push(`${indent}  <text><text-style ref="${styleId}">${xmlEscape(element.text ?? "")}</text-style></text>`);
-        lines.push(`${indent}  <text-style-def id="${styleId}"><text-style font="${xmlEscape(titleFont.family)}" fontFace="${xmlEscape(titleFont.style)}" /></text-style-def>`);
+        lines.push(`${indent}  <text-style-def id="${styleId}"><text-style font="${xmlEscape(titleFont.family)}" fontFace="${xmlEscape(titleFont.style)}" fontSize="63" alignment="center" /></text-style-def>`);
       } else if (element.kind === "title" || element.kind === "caption") {
         lines.push(`${indent}  <text>${xmlEscape(element.text ?? "")}</text>`);
       }

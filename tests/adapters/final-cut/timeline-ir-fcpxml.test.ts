@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -11,7 +12,7 @@ import {
   compileTimelineIrToFcpxml,
   type TimelineIrToFcpxmlTarget,
 } from "@framekit/final-cut/fcpxml";
-import { createTimelineIrFromProjectSnapshot, validateTimelineIr, type TimelineIr } from "@framekit/runtime";
+import { createTimelineIrFromProjectSnapshot, timelineIrDigest, validateTimelineIr, type TimelineIr } from "@framekit/runtime";
 import { planFcpxmlDissolve } from "../../../adapters/final-cut/typescript/src/fcpxml-transition-plan.js";
 import { verifyFinalCutPublishReadback } from "@framekit/final-cut";
 
@@ -705,8 +706,15 @@ test("encodes an explicitly selected basic title font", async () => {
   value.sequence.titles = [{ id: "opening-title", text: "A日 & 'quote'", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" }, lane: 1 }];
   const titleFont = { family: "Noto Sans CJK JP", style: "Regular", postscriptName: "NotoSansCJKjp-Regular", digest: "a".repeat(64) };
   const artifact = compileTimelineIrToFcpxml(value, { target, basicTitleFont: titleFont });
+  // Final Cut's Basic Title preset uses 63 points and centered alignment at
+  // the independently measured 720p reference. Omitting these attributes
+  // when binding a font resets the imported title to 12 points.
+  assert.match(artifact.xml, /<text-style font="Noto Sans CJK JP" fontFace="Regular" fontSize="63" alignment="center" \/>/);
+  const previousFontBinding = `:title-font:${JSON.stringify([titleFont.family, titleFont.style, titleFont.postscriptName, titleFont.digest])}`;
+  const previousKey = createHash("sha256").update(`${value.project.id}:${value.sequence.id}:${value.revision.id}:${value.revision.sequence}:${value.revision.timestamp}:${timelineIrDigest(value)}${previousFontBinding}`).digest("hex").slice(0, 10);
+  assert.ok(!artifact.destination.projectUid.endsWith(previousKey), "a corrected title must not reuse the old materialization identity");
   assert.match(artifact.xml, /<text><text-style ref="title-style-1">A日 &amp; &apos;quote&apos;<\/text-style><\/text>/);
-  assert.match(artifact.xml, /<text-style-def id="title-style-1"><text-style font="Noto Sans CJK JP" fontFace="Regular" \/><\/text-style-def>/);
+  assert.match(artifact.xml, /<text-style-def id="title-style-1"><text-style font="Noto Sans CJK JP" fontFace="Regular" fontSize="63" alignment="center" \/><\/text-style-def>/);
   assert.match(artifact.xml, /key="com\.framekit\.title-font-sha256" value="a{64}"/);
   assert.match(artifact.xml, /key="com\.framekit\.title-font-postscript" value="NotoSansCJKjp-Regular"/);
   assert.ok(artifact.coverage.degraded.includes("native-title-font-availability-unverified"));
@@ -719,7 +727,7 @@ test("encodes an explicitly selected basic title font", async () => {
   const canonical = structuredClone(value);
   canonical.sequence.titles![0]!.font = titleFont;
   const canonicalArtifact = compileTimelineIrToFcpxml(canonical, { target });
-  assert.match(canonicalArtifact.xml, /<text-style-def id="title-style-1"><text-style font="Noto Sans CJK JP" fontFace="Regular" \/><\/text-style-def>/);
+  assert.match(canonicalArtifact.xml, /<text-style-def id="title-style-1"><text-style font="Noto Sans CJK JP" fontFace="Regular" fontSize="63" alignment="center" \/><\/text-style-def>/);
   assert.equal(canonicalArtifact.digest, compileTimelineIrToFcpxml(canonical, { target, basicTitleFont: titleFont }).digest);
   assert.throws(() => compileTimelineIrToFcpxml(canonical, { target, basicTitleFont: { ...titleFont, digest: "b".repeat(64) } }), /FCPXML_TITLE_FONT_MISMATCH/);
   const mixed = structuredClone(canonical);
