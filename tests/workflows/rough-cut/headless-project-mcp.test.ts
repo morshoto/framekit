@@ -931,6 +931,14 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
         },
       },
     };
+    const unsampledRequest = { ...request, plan: { ...plan, shots: Array.from({ length: 13 }, (_, index) => shot(index + 1, "a", 0, 1)) }, operations: [] };
+    const unsampledResult = await client.callTool({ name: "headless.rough-cut.preview", arguments: unsampledRequest });
+    assert.notEqual(unsampledResult.isError, true);
+    const unsampled = payload(unsampledResult);
+    assert.match(unsampled.planDigest, /^[a-f0-9]{64}$/);
+    assert.equal(unsampled.storyboard, undefined);
+    assert.match(unsampled.storyboardUnavailable, /HEADLESS_STORYBOARD_LIMIT/);
+    assert.equal((unsampledResult.content as Array<{ type: string }>).some((item) => item.type === "image"), false);
     const previewResult = await client.callTool({ name: "headless.rough-cut.preview", arguments: request });
     let preview = payload(previewResult);
     const storyboardImage = (previewResult.content as Array<{ type: string; data?: string; mimeType?: string }>).find((item) => item.type === "image");
