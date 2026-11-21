@@ -233,6 +233,18 @@ test("canonical dissolve recovery rejects invalid provider readback", () => {
   const result = createTimelineIrFromProjectSnapshot(source);
   assert.deepEqual(result.sequence.occurrences[1]!.sourceStartTime, { value: "4", timescale: "1" });
   assert.equal(result.sequence.transitions?.[0]?.afterOccurrenceId, "b");
+  const fractional = structuredClone(source);
+  fractional.timeline.frameDuration = { value: "1001", timescale: "30000" };
+  fractional.timeline.clips[0]!.durationTime = { value: "1001", timescale: "500" };
+  fractional.timeline.clips[1]!.startTime = { value: "3003", timescale: "2000" };
+  fractional.timeline.clips[1]!.durationTime = { value: "1001", timescale: "400" };
+  fractional.timeline.clips[1]!.sourceStartTime = { value: "1001", timescale: "400" };
+  fractional.timeline.storyElements[0]!.startTime = { value: "3003", timescale: "2000" };
+  fractional.timeline.storyElements[0]!.durationTime = { value: "1001", timescale: "2000" };
+  const recovered = createTimelineIrFromProjectSnapshot(fractional);
+  assert.deepEqual(recovered.sequence.occurrences[1]!.startTime, { value: "1001", timescale: "500" });
+  assert.deepEqual(recovered.sequence.occurrences[1]!.sourceStartTime, { value: "3003", timescale: "1000" });
+  assert.deepEqual(recovered.sequence.occurrences[1]!.durationTime, { value: "1001", timescale: "500" });
   for (const mutation of ["negative-source", "audio-endpoint", "overlap-before", "missing-source"] as const) {
     const invalid = structuredClone(source);
     if (mutation === "negative-source") invalid.timeline.clips[1]!.sourceStartTime = { value: "-1", timescale: "1" };
