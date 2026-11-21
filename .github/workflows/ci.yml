@@ -36,6 +36,8 @@ jobs:
         timeout-minutes: 8
         run: |
           mkdir -p /tmp/framekit-stress
+          printf '%s\n' '#!/bin/bash' 'args=("$@"); for i in "${!args[@]}"; do args[$i]="${args[$i]//normalize=0,apad,atrim=duration=/normalize=0,atrim=duration=}"; done; exec /usr/bin/ffmpeg "${args[@]}"' > /tmp/framekit-stress/ffmpeg-no-mix-apad
+          chmod +x /tmp/framekit-stress/ffmpeg-no-mix-apad
           ( while sleep 10; do
               echo 'Stress process snapshot:'
               ps -eo pid,ppid,etime,stat,rss,vsz,comm | grep -E '(^ *PID|node|ffmpeg|ffprobe)' || true
@@ -47,7 +49,7 @@ jobs:
           seq 1 64 | xargs -P 8 -I '{}' bash -c '
             i="$1"
             mkdir -p "/tmp/framekit-stress/$i/tmp"
-            TMPDIR="/tmp/framekit-stress/$i/tmp" timeout --kill-after=5s 50s node --import tsx --test --test-name-pattern="FFmpeg renderer fills a trailing video gap with black while music continues" tests/adapters/headless/headless-renderer.test.ts > "/tmp/framekit-stress/$i/output.log" 2>&1
+            FFMPEG_BIN=/tmp/framekit-stress/ffmpeg-no-mix-apad TMPDIR="/tmp/framekit-stress/$i/tmp" timeout --kill-after=5s 50s node --import tsx --test --test-name-pattern="FFmpeg renderer fills a trailing video gap with black while music continues" tests/adapters/headless/headless-renderer.test.ts > "/tmp/framekit-stress/$i/output.log" 2>&1
             status=$?
             if [ "$status" -ne 0 ]; then echo "stress $i failed status=$status"; cat "/tmp/framekit-stress/$i/output.log"; exit "$status"; fi
             echo "stress $i passed"
