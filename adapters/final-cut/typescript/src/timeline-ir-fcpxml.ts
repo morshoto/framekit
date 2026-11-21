@@ -127,11 +127,23 @@ export function compileTimelineIrToFcpxml(
     }
     for (const value of [font.family, font.style, font.postscriptName]) xmlEscape(value);
   }
+  const titles = timeline.sequence.titles ?? [];
+  const boundFonts = titles.map(({ font }) => font).filter((font): font is NonNullable<typeof font> => font !== undefined);
+  if (boundFonts.length && boundFonts.length !== titles.length) {
+    throw new Error("FCPXML_TITLE_FONT_UNBOUND: every title must bind the selected font");
+  }
+  const sameFont = (left: NonNullable<typeof boundFonts[number]>, right: NonNullable<typeof boundFonts[number]>) =>
+    left.family === right.family && left.style === right.style && left.postscriptName === right.postscriptName && left.digest === right.digest;
+  const canonicalFont = boundFonts[0];
+  if (canonicalFont && (boundFonts.some((font) => !sameFont(font, canonicalFont)) || options.basicTitleFont && !sameFont(canonicalFont, options.basicTitleFont))) {
+    throw new Error("FCPXML_TITLE_FONT_MISMATCH: title fonts must match the selected asset");
+  }
+  const explicitTitleFont = canonicalFont ?? options.basicTitleFont;
   const unsupported = unsupportedFeatures(timeline);
   if (unsupported.length > 0) {
     throw new Error(`FCPXML_UNSUPPORTED_TIMELINE_FEATURE: ${unsupported.join(", ")}`);
   }
-  const destination = resolveDestination(timeline, options.target, options.basicTitleFont);
+  const destination = resolveDestination(timeline, options.target, explicitTitleFont);
   const dissolve = timeline.sequence.transitions?.length ? planFcpxmlDissolve(timeline) : undefined;
 
   const resourceIds = createResourceIds(timeline);
@@ -210,7 +222,7 @@ export function compileTimelineIrToFcpxml(
     `      <project uid="${xmlEscape(destination.projectUid)}" name="${xmlEscape(destination.projectName)}">`,
     `        <sequence format="${formatId}" duration="${formatRational(timeline.sequence.durationTime, "sequence.durationTime")}"${timeline.sequence.timecodeStart ? ` tcStart="${formatRational(timeline.sequence.timecodeStart, "sequence.timecodeStart")}"` : ""}>`,
     "          <spine>",
-    ...renderElements(elements, options.basicTitleFont),
+    ...renderElements(elements, explicitTitleFont),
     "          </spine>",
     "        </sequence>",
     "      </project>",
@@ -229,7 +241,7 @@ export function compileTimelineIrToFcpxml(
     target: structuredClone(options.target),
     destination,
     resourceIds: Object.fromEntries([...resourceIds.entries()].sort(([left], [right]) => left.localeCompare(right))),
-    coverage: materializationCoverage(timeline, destination.mode, elements, options.basicTitleFont !== undefined),
+    coverage: materializationCoverage(timeline, destination.mode, elements, explicitTitleFont !== undefined),
     provenance: {
       source: "framekit-timeline-ir",
       schemaVersion: 1,

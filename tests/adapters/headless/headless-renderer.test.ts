@@ -109,6 +109,19 @@ test("FFmpeg renders a supported mixed-script title without tofu", async () => {
     const output = join(directory, "mixed.mp4");
     const renderer = new FfmpegTimelineRenderer({ env: { FRAMEKIT_RENDER_FONT: relativeFont } });
     const originalFontBytes = await readFile(fontPath);
+    source.sequence.titles![0]!.font = { family: "Noto Sans CJK JP", style: "Regular", postscriptName: "NotoSansCJKjp-Regular", digest: createHash("sha256").update(originalFontBytes).digest("hex") };
+    assert.deepEqual(renderer.inspectTitleFont(["A日"]), source.sequence.titles![0]!.font);
+    assert.equal(renderer.inspectTitleFont(["A\u{10ffff}"]), undefined);
+    for (const changedFont of [{ ...source.sequence.titles![0]!.font, digest: "f".repeat(64) }, { ...source.sequence.titles![0]!.font, family: "Different family" }]) {
+      const changed = structuredClone(source);
+      changed.sequence.titles![0]!.font = changedFont;
+      const changedRequest = createFramekitRenderRequest({ timeline: changed, target: { projectId: changed.project.id, sequenceId: changed.sequence.id }, parameters: { ...parameters(output), width: 1280, height: 720 } });
+      const capabilities = renderer.capabilities(changedRequest);
+      assert.equal(capabilities.features.titles, "unsupported");
+      const forcedPlan = createFramekitRenderPlan(changedRequest, { ...capabilities, features: { ...capabilities.features, titles: "supported" } });
+      await assert.rejects(renderer.render(forcedPlan), /HEADLESS_RENDER_UNSUPPORTED.*title font/i);
+      await assert.rejects(readFile(output), /ENOENT/);
+    }
     const fontSymlink = join(directory, "font-symlink.otf");
     const fontHardlink = join(directory, "font-hardlink.otf");
     await symlink(fontPath, fontSymlink);

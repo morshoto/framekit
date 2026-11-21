@@ -1784,6 +1784,7 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     assert.equal(proof.sourceRevision.id, plan.revision.id);
     assert.equal(proof.canonicalRevision.id, executed.after.timeline.revision.id);
     assert.equal(proof.planDigest, preview.planDigest);
+    assert.deepEqual(proof.renderer, (executed.render.outcome as any).plan.renderer);
     assert.equal(proof.destination.projectUid, executed.fcpxml.destination.projectUid);
     assert.equal(proof.destination.sequenceUid, executed.fcpxml.destination.sequenceUid);
     assert.deepEqual(proof.sourceMediaDigests, [{ source: source.source, sha256: source.sourceDigest }]);
@@ -1808,7 +1809,7 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     const stableRender = (value: any): string => value === null || typeof value !== "object" ? JSON.stringify(value)
       : Array.isArray(value) ? `[${value.map(stableRender).join(",")}]`
       : `{${Object.entries(value).filter(([, child]) => child !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => `${JSON.stringify(key)}:${stableRender(child)}`).join(",")}}`;
-    for (const mutation of ["title", "target", "revision", "parameters", "output", "missing-verification", "artifact-digest", "artifact-path", "renderer", "contract-version", "verification-required", "failed-check", "empty-checks"] as const) {
+    for (const mutation of ["title", "target", "revision", "parameters", "output", "missing-verification", "artifact-digest", "artifact-path", "renderer", "renderer-all", "contract-version", "verification-required", "failed-check", "empty-checks"] as const) {
       const saved = JSON.parse(originalRenderRecord);
       if (mutation === "title") saved.outcome.plan.timeline.sequence.titles = [{ id: "injected", text: "not approved", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "2" }, lane: 1 }];
       if (mutation === "target") saved.outcome.plan.target.sequenceId = "other-sequence";
@@ -1819,6 +1820,11 @@ test("headless rough-cut preview and execution preserve provenance and produce v
       if (mutation === "artifact-digest") saved.outcome.verification.artifact.fileDigest = "f".repeat(64);
       if (mutation === "artifact-path") delete saved.outcome.verification.artifact.path;
       if (mutation === "renderer") saved.outcome.render.renderer.id = "other-renderer";
+      if (mutation === "renderer-all") {
+        saved.outcome.plan.renderer.id = "other-renderer";
+        saved.outcome.plan.capabilities.renderer.id = "other-renderer";
+        saved.outcome.render.renderer.id = "other-renderer";
+      }
       if (mutation === "contract-version") saved.outcome.render.contractVersion++;
       if (mutation === "verification-required") saved.outcome.render.verificationRequired = false;
       if (mutation === "failed-check") saved.outcome.verification.checks[0].passed = false;
@@ -1889,22 +1895,24 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     );
     await writeFile(source.source!, originalSource);
     assert.deepEqual(await (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path), proof);
-    // A genuine pre-upgrade execution record has a valid checksum but no
-    // verified video identity, so it cannot authorize a new publication.
+    // Records predating either binding have valid checksums but cannot authorize publication.
     const executionPath = join(directory, "projects", `${executionId}.json`);
     const currentExecution = await readFile(executionPath, "utf8");
-    const legacy = JSON.parse(currentExecution);
-    delete legacy.renderArtifact;
-    delete legacy.evidenceDigest;
     const stable = (value: any): string => value === null || typeof value !== "object" ? JSON.stringify(value)
       : Array.isArray(value) ? `[${value.map(stable).join(",")}]`
       : `{${Object.entries(value).filter(([, child]) => child !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => `${JSON.stringify(key)}:${stable(child)}`).join(",")}}`;
-    legacy.evidenceDigest = createHash("sha256").update(stable(legacy)).digest("hex");
-    await writeFile(executionPath, JSON.stringify(legacy));
-    await assert.rejects(
-      (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path),
-      /HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH:/,
-    );
+    for (const missing of ["renderArtifact", "renderer"]) {
+      const legacy = JSON.parse(currentExecution);
+      delete legacy[missing];
+      delete legacy.evidenceDigest;
+      legacy.evidenceDigest = createHash("sha256").update(stable(legacy)).digest("hex");
+      await writeFile(executionPath, JSON.stringify(legacy));
+      await assert.rejects(
+        (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path),
+        /HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH:/,
+        missing,
+      );
+    }
     await writeFile(executionPath, currentExecution);
     assert.deepEqual(await (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path), proof);
     const savedXml = `${request.fcpxml.path}.saved`;
@@ -2393,6 +2401,74 @@ function rationalSeconds(time: { value: string; timescale: string }): number {
   return Number(time.value) / Number(time.timescale);
 }
 
+test("external JSON binds one font through preview, render and FCPXML", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-json-title-font-"));
+  const here = dirname(fileURLToPath(import.meta.url));
+  const fontPath = join(directory, "font.otf");
+  const fontBytes = Buffer.from(await readFile(join(process.cwd(), "tests/fixtures/fonts/noto-sans-jp-test.otf.base64"), "utf8"), "base64");
+  await writeFile(fontPath, fontBytes);
+  const environment: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1",
+    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0", FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"),
+    FRAMEKIT_STATE_DIR: join(directory, "state"), FRAMEKIT_RENDER_FONT: fontPath,
+  };
+  let client: Client | undefined;
+  let transport: StdioClientTransport | undefined;
+  try {
+    const video = join(directory, "source.mp4");
+    await generateVideoAtFrameRate(video, 30, 2);
+    ({ client, transport } = await connectProductionClient(here, environment));
+    const initial = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: emptyTimeline() } }));
+    const projectId = initial.timeline.project.id;
+    const sequenceId = initial.timeline.sequence.id;
+    const source = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: video, expectedRevision: initial.timeline.revision } }));
+    const revision = source.project.timeline.revision;
+    const edit = { schemaVersion: 1, clips: [{ id: "clip", mediaId: source.resource.id, sourceStartTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" } }], title: { id: "title", text: "A日", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" } } };
+    const args = { projectId, sequenceId, expectedRevision: revision, edit };
+    const preview = payload(await client.callTool({ name: "headless.edit-json.preview", arguments: args }));
+    const font = { family: "Noto Sans CJK JP", style: "Regular", postscriptName: "NotoSansCJKjp-Regular", digest: createHash("sha256").update(fontBytes).digest("hex") };
+    assert.deepEqual(preview.after.timeline.sequence.titles[0].font, font);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, source.project.timeline);
+    await writeFile(fontPath, Buffer.concat([fontBytes, Buffer.from([0])]));
+    const changed = await client.callTool({ name: "headless.edit-json.execute", arguments: { ...args, approved: true, planDigest: preview.planDigest } });
+    assert.equal(changed.isError, true);
+    assert.match(toolErrorText(changed), /STALE_PREVIEW|FONT/i);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, source.project.timeline);
+    await writeFile(fontPath, fontBytes);
+    const executed = payload(await client.callTool({ name: "headless.edit-json.execute", arguments: { ...args, approved: true, planDigest: preview.planDigest } }));
+    assert.deepEqual(executed.after.timeline.sequence.titles[0].font, font);
+    const target = { provider: "final-cut", libraryUid: "library", eventUid: "event", projectUid: "project", sequenceUid: "sequence", materialization: "versioned" };
+    const xmlPath = join(directory, "edit.fcpxml");
+    const exportArgs = { projectId, sequenceId, expectedRevision: executed.after.timeline.revision, outputPath: xmlPath, target };
+    await writeFile(fontPath, Buffer.concat([fontBytes, Buffer.from([0])]));
+    const wrongExport = await client.callTool({ name: "headless.fcpxml.export", arguments: exportArgs });
+    assert.equal(wrongExport.isError, true);
+    assert.equal(existsSync(xmlPath), false);
+    await writeFile(fontPath, fontBytes);
+    const exported = payload(await client.callTool({ name: "headless.fcpxml.export", arguments: exportArgs }));
+    assert.ok(exported.coverage.degraded.includes("native-title-font-availability-unverified"));
+    const xml = await readFile(xmlPath, "utf8");
+    assert.match(xml, /font="Noto Sans CJK JP" fontFace="Regular"/);
+    assert.ok(xml.includes(`key="com.framekit.title-font-sha256" value="${font.digest}"`));
+    const parsed = await new FcpxmlDocumentAdapter(xmlPath).readProject();
+    assert.equal(parsed.timeline.storyElements.find(({ kind }) => kind === "title")?.text, "A日");
+    const output = join(directory, "render.mp4");
+    const renderArgs = { projectId, sequenceId, expectedRevision: executed.after.timeline.revision, parameters: { outputPath: output, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } };
+    await writeFile(fontPath, Buffer.concat([fontBytes, Buffer.from([0])]));
+    const wrongFont = await client.callTool({ name: "headless.render", arguments: renderArgs });
+    assert.equal(payload(wrongFont).status, "unavailable");
+    assert.equal(existsSync(output), false);
+    await writeFile(fontPath, fontBytes);
+    const rendered = payload(await client.callTool({ name: "headless.render", arguments: renderArgs }));
+    assert.equal(rendered.status, "passed");
+  } finally {
+    await client?.close();
+    await transport?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("external edit JSON previews registered clips, a title and music without mutation", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-json-edit-"));
   const here = dirname(fileURLToPath(import.meta.url));
@@ -2400,11 +2476,12 @@ test("external edit JSON previews registered clips, a title and music without mu
     ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
     FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1",
     FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0", FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"),
-    FRAMEKIT_STATE_DIR: join(directory, "state"),
+    FRAMEKIT_STATE_DIR: join(directory, "state"), FRAMEKIT_RENDER_FONT: join(directory, "font.otf"),
   };
   let client: Client | undefined;
   let transport: StdioClientTransport | undefined;
   try {
+    await writeFile(environment.FRAMEKIT_RENDER_FONT!, Buffer.from(await readFile(join(process.cwd(), "tests/fixtures/fonts/noto-sans-jp-test.otf.base64"), "utf8"), "base64"));
     const calls = join(directory, "native-calls.log");
     const sentinelBin = join(directory, "sentinel-bin");
     await mkdir(sentinelBin);
@@ -2451,7 +2528,7 @@ test("external edit JSON previews registered clips, a title and music without mu
     const edit = { schemaVersion: 1 as const, clips: [
       { id: "clip-a", mediaId: a.resource.id, sourceStartTime: seconds(0), durationTime: seconds(1), nativeAudioRole: "dialogue" },
       { id: "clip-b", mediaId: a2.resource.id, sourceStartTime: seconds(0), durationTime: seconds(1) },
-    ], title: { id: "title", text: "Hello 世界 🎬", startTime: seconds(0), durationTime: seconds(1) },
+    ], title: { id: "title", text: "A日", startTime: seconds(0), durationTime: seconds(1) },
     music: { id: "music", mediaId: b.resource.id, sourceStartTime: seconds(0), startTime: seconds(0), durationTime: seconds(2), gainDb: -12 } };
     for (const [variant, withTitle, withMusic] of [["clips", false, false], ["title", true, false], ["music", false, true]] as const) {
       const newTimeline = emptyTimeline();
@@ -2646,6 +2723,7 @@ test("external edit JSON previews registered clips, a title and music without mu
     }
     for (const [name, invalidEdit] of [
       ["video stream exhausted", { ...edit, clips: [{ ...edit.clips[1], sourceStartTime: seconds(1) }] }],
+      ["unsupported title glyphs", { ...edit, title: { ...edit.title, text: "Hello 世界 🎬" } }],
       ["illegal XML title", { ...edit, title: { ...edit.title, text: "bad\u0000title" } }],
       ["unknown source", { ...edit, clips: [{ ...edit.clips[0], mediaId: "missing" }] }],
       ["audio used as video", { ...edit, clips: [{ ...edit.clips[0], mediaId: b.resource.id }] }],
@@ -2686,7 +2764,7 @@ test("external edit JSON previews registered clips, a title and music without mu
     assert.deepEqual(preview.after.timeline.sequence.occurrences.filter((item: any) => item.track === 0).map((item: any) => item.id), ["clip-a", "clip-b"]);
     assert.equal(preview.after.timeline.sequence.occurrences.find((item: any) => item.id === "clip-a").nativeAudioRole, "dialogue");
     assert.equal(preview.after.timeline.sequence.occurrences.find((item: any) => item.id === "clip-b").nativeAudioRole, undefined);
-    assert.equal(preview.after.timeline.sequence.titles[0].text, "Hello 世界 🎬");
+    assert.equal(preview.after.timeline.sequence.titles[0].text, "A日");
     assert.equal(preview.after.timeline.sequence.occurrences.find((item: any) => item.id === "music").gainDb, -12);
     const inspected = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
     assert.deepEqual(inspected.timeline, b.project.timeline);
@@ -2713,7 +2791,7 @@ test("external edit JSON previews registered clips, a title and music without mu
     assert.equal(notApproved.isError, true, "execution requires explicit approval");
     const changed = await client.callTool({ name: "headless.edit-json.execute", arguments: {
       projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision,
-      edit: { ...edit, title: { ...edit.title, text: "Changed" } }, approved: true, planDigest: preview.planDigest,
+      edit: { ...edit, title: { ...edit.title, text: "日A" } }, approved: true, planDigest: preview.planDigest,
     } });
     assert.equal(changed.isError, true, "execute must reject a different edit than the preview");
     const changedRole = await client.callTool({ name: "headless.edit-json.execute", arguments: {
@@ -2751,7 +2829,7 @@ test("external edit JSON previews registered clips, a title and music without mu
     const sourceFor = (id: string | undefined) => parsed.media.find((item) => item.mediaId === id)?.source;
     assert.deepEqual(parsed.timeline.clips.filter((clip) => [video, video2].includes(sourceFor(clip.mediaId) ?? "")).map((clip) => [sourceFor(clip.mediaId), clip.sourceStart, clip.duration]), [[video, 0, 1], [video2, 0, 1]]);
     assert.deepEqual(parsed.timeline.clips.filter((clip) => sourceFor(clip.mediaId) === music).map((clip) => [clip.sourceStart, clip.duration]), [[0, 2]]);
-    assert.equal(parsed.timeline.storyElements.find((item) => item.kind === "title")?.text, "Hello 世界 🎬");
+    assert.equal(parsed.timeline.storyElements.find((item) => item.kind === "title")?.text, "A日");
     assert.match(await readFile(xmlPath, "utf8"), /<adjust-volume amount="-12dB" \/>/);
     assert.deepEqual(await Promise.all(sourcePaths.map(async (path) => createHash("sha256").update(await readFile(path)).digest("hex"))), sourceDigests);
     assert.equal(await readFile(reservationPath, "utf8"), reservation);
