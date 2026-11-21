@@ -91,6 +91,9 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
     { id: "after", name: "After", startTime: { value: "2", timescale: "1" }, durationTime: { value: "2", timescale: "1" }, sourceStartTime: { value: "4", timescale: "1" }, track: 0, role: "video", mediaId: "media-1" },
   ];
   value.sequence.transitions = [{ id: "dissolve", kind: "cross-dissolve", beforeOccurrenceId: "before", afterOccurrenceId: "after", durationTime: { value: "1", timescale: "2" } }];
+  value.sequence.occurrences.push({ id: "music", name: "Music", startTime: { value: "1", timescale: "2" }, durationTime: { value: "3", timescale: "1" }, sourceStartTime: { value: "1", timescale: "1" }, track: 1, role: "music", mediaId: "music-source", gainDb: -12 });
+  value.sequence.titles = [{ id: "title-over-dissolve", text: "Blend", startTime: { value: "3", timescale: "2" }, durationTime: { value: "1", timescale: "2" }, lane: 2 }];
+  value.resources.push({ id: "music-source", name: "music.wav", mediaKind: "audio", source: "/media/music.wav", metadata: { durationTime: { value: "10", timescale: "1" }, streams: [{ kind: "audio", channels: 1, sampleRate: 48000 }] } });
 
   const plan = planFcpxmlDissolve(value);
   assert.deepEqual(plan, { id: "dissolve", beforeId: "before", afterId: "after", startTime: { value: "3", timescale: "2" }, durationTime: { value: "1", timescale: "2" }, afterSourceStartTime: { value: "7", timescale: "2" }, afterDurationTime: { value: "5", timescale: "2" } });
@@ -113,6 +116,10 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
   assert.match(result.xml, /<filter-video[^>]*ref="effect-cross-dissolve"/);
   assert.match(result.xml, /<effect[^>]*name="Audio Crossfade"[^>]*uid="FFAudioTransition"/);
   assert.match(result.xml, /<filter-audio[^>]*ref="effect-audio-crossfade"/);
+  assert.match(result.xml, /<asset[^>]*hasAudio="1"/);
+  assert.match(result.xml, /<asset-clip[^>]*name="Music"[^>]*offset="3\/2s"[^>]*start="1s"[^>]*duration="3s"/);
+  assert.match(result.xml, /<adjust-volume amount="-12dB"/);
+  assert.match(result.xml, /<title[^>]*name="title-over-dissolve"[^>]*offset="5\/2s"[^>]*duration="1\/2s"/);
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-dissolve-dtd-"));
   try {
     const path = join(directory, "timeline.fcpxml");
