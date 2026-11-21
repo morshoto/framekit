@@ -45,7 +45,11 @@ export class FfmpegStoryboardRenderer {
     for (const clip of clips) add("shot", clip.id, seconds(clip.startTime));
     for (const title of titles) {
       const midpoint = seconds(title.startTime) + seconds(title.durationTime) / 2;
-      add("title", title.id, Math.floor((midpoint + 1e-8) / frameDuration) * frameDuration);
+      const sampleTime = Math.floor((midpoint + 1e-8) / frameDuration) * frameDuration;
+      if (sampleTime < seconds(title.startTime) || sampleTime >= seconds(title.startTime) + seconds(title.durationTime)) {
+        throw new Error("HEADLESS_STORYBOARD_UNSUPPORTED: title midpoint has no sample on the sequence frame grid");
+      }
+      add("title", title.id, sampleTime);
     }
     samples.sort((a, b) => a.timelineSeconds - b.timelineSeconds || a.kind.localeCompare(b.kind));
     const identities = new Map<string, string>();

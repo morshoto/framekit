@@ -1526,6 +1526,13 @@ test("storyboard rejects stale media and cleans up after cancellation", async ()
     await assert.rejects(renderer.render(timeline, { width: 320, height: 180 }), /HEADLESS_STORYBOARD_SOURCE_CHANGED/);
     await generateVideoAtFrameRate(source, 30, 2);
     timeline.resources[0]!.sourceDigest = createHash("sha256").update(await readFile(source)).digest("hex");
+    const changing = join(directory, "changing-ffmpeg");
+    await writeFile(changing, `#!/usr/bin/env node\nconst { spawnSync } = require('node:child_process'); const { appendFileSync } = require('node:fs'); const result = spawnSync('ffmpeg', process.argv.slice(2)); appendFileSync(${JSON.stringify(source)}, 'changed'); process.exit(result.status ?? 1);\n`);
+    await chmod(changing, 0o755);
+    await assert.rejects(new FfmpegStoryboardRenderer({ temporaryDirectory: directory, ffmpegPath: changing }).render(timeline, { width: 320, height: 180 }), /HEADLESS_STORYBOARD_SOURCE_CHANGED/);
+    assert.equal((await readdir(directory)).filter((name) => name.startsWith("framekit-storyboard-")).length, 0);
+    await generateVideoAtFrameRate(source, 30, 2);
+    timeline.resources[0]!.sourceDigest = createHash("sha256").update(await readFile(source)).digest("hex");
     const slow = join(directory, "slow-ffmpeg");
     await writeFile(slow, "#!/usr/bin/env node\nsetTimeout(() => process.exit(0), 30000);\n");
     await chmod(slow, 0o755);
