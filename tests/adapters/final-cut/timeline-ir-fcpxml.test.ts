@@ -338,7 +338,8 @@ test("unverified dissolve export fails closed", () => {
     { id: "b", name: "B", startTime: { value: "2", timescale: "1" }, durationTime: { value: "2", timescale: "1" }, sourceStartTime: { value: "4", timescale: "1" }, track: 0, role: "video", mediaId: "media-1" },
   ];
   value.sequence.transitions = [{ id: "t", kind: "cross-dissolve", beforeOccurrenceId: "a", afterOccurrenceId: "b", durationTime: { value: "1", timescale: "2" } }];
-  assert.throws(() => compileTimelineIrToFcpxml(value, { target }), /FCPXML_DISSOLVE_UNVERIFIED/);
+  delete value.resources[0]!.metadata!.streams[0]!.color;
+  assert.throws(() => compileTimelineIrToFcpxml(value, { target }), /FCPXML_DISSOLVE_COLOR_UNSUPPORTED/);
 });
 
 test("dissolve planning preserves fractional frame timing and bounds", async () => {

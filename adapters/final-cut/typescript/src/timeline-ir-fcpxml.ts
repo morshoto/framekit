@@ -124,7 +124,6 @@ export function compileTimelineIrToFcpxml(
   }
   const destination = resolveDestination(timeline, options.target);
   const dissolve = timeline.sequence.transitions?.length ? planFcpxmlDissolve(timeline) : undefined;
-  if (dissolve) requireVerifiedDissolve();
 
   const resourceIds = createResourceIds(timeline);
   const resourceNames = uniqueResourceNames(timeline);
@@ -241,10 +240,6 @@ export function compileTimelineIrToFcpxml(
       },
     },
   };
-}
-
-function requireVerifiedDissolve(): void {
-  throw new Error("FCPXML_DISSOLVE_UNVERIFIED: transition audio and canonical readback are not yet verified");
 }
 
 function unsupportedFeatures(timeline: TimelineIr): string[] {
