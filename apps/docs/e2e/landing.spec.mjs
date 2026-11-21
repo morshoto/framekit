@@ -44,7 +44,7 @@ test("all English entry points offer working product and contributor routes", as
   page,
   site,
 }) => {
-  for (const route of ["/", "/en/", "/en/docs/"]) {
+  for (const route of ["/", "/en/"]) {
     await page.goto(`${site}${route}`);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(
       /Video editing,\s*in your own words/,
@@ -58,6 +58,8 @@ test("all English entry points offer working product and contributor routes", as
       "Installation",
     );
   }
+  await page.goto(`${site}/en/docs/`);
+  await expect(page).toHaveURL(`${site}/en/docs/introduction/`);
   for (const [name, slug, heading] of [
     [/Work with a Framekit project/, "headless-editing", "Headless Editing"],
     [/Set up the integration/, "final-cut-pro", "Final Cut Pro"],

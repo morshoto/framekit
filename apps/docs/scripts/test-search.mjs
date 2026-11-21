@@ -35,6 +35,17 @@ try {
     }
     assert.deepEqual(errors,[]); await context.close();
   }
+  {
+    const page = await browser.newPage();
+    await page.goto(`${origin}${base}/en/`, {waitUntil:'networkidle'});
+    await page.getByRole('button', {name:'Search docs'}).click();
+    await page.getByRole('combobox').fill('render');
+    await page.getByRole('option').first().waitFor();
+    const hrefs = await page.getByRole('option').evaluateAll(options => options.map(option => new URL(option.href).pathname));
+    assert.equal(hrefs.filter(href => href === `${base}/en/`).length, 1);
+    assert.ok(!hrefs.includes(`${base}/`) && !hrefs.includes(`${base}/en/docs/`));
+    await page.close();
+  }
   for (const colorScheme of ['light', 'dark']) {
     const offline=await browser.newContext({colorScheme}); const page=await offline.newPage(); await page.route('**/pagefind/**',route=>route.abort());
     await page.goto(`${origin}${base}/en/docs/introduction/`,{waitUntil:'networkidle'}); await page.getByRole('button',{name:'Search docs'}).click(); await page.getByRole('combobox').fill('Framekit'); await page.getByRole('link',{name:'Browse docs'}).waitFor(); const offlineAxe = await new AxeBuilder({ page }).include('[role=dialog]').analyze(); assert.deepEqual(offlineAxe.violations.map(item => item.id), []); await offline.close();
