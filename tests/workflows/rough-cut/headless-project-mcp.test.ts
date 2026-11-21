@@ -208,7 +208,17 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     const oldMusic = toneAmplitude(await readAudioWindow(request.render.outputPath, 0.2), 1760);
     const newMusic = toneAmplitude(await readAudioWindow(v2VideoPath, 0.2), 1760);
     assert.ok(oldMusic > 0.002 && Math.abs(20 * Math.log10(newMusic / oldMusic) - 3) < 0.5, "the revised render must contain the approved 3 dB music increase");
-    assert.ok(countBrightPixels(await readVideoFrame(v2VideoPath, 0.85)) > 20, "the revised title window must contain visible title pixels");
+    const centerBrightPixels = (frame: Buffer) => {
+      let count = 0;
+      for (let y = 50; y < 100; y++) for (let x = 110; x < 210; x++) {
+        const offset = (y * 320 + x) * 3;
+        if (frame[offset]! > 200 && frame[offset + 1]! > 200 && frame[offset + 2]! > 200) count++;
+      }
+      return count;
+    };
+    const beforeTitle = centerBrightPixels(await readVideoFrame(v2VideoPath, 0.7));
+    const duringTitle = centerBrightPixels(await readVideoFrame(v2VideoPath, 0.85));
+    assert.ok(duringTitle > beforeTitle + 20, "the revised title window must add bright pixels in the title region");
     assert.equal(createHash("sha256").update(await readFile(request.fcpxml.path)).digest("hex"), v1XmlDigest);
     assert.equal(createHash("sha256").update(await readFile(request.render.outputPath)).digest("hex"), v1VideoDigest);
   } finally {
