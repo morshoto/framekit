@@ -594,6 +594,15 @@ test("FFmpeg mixes independent music with source audio at the requested gain", a
     assert.ok(frequencyAmplitude(blendAudio, 440, 48_000) > 0.002, "outgoing audio must be present during the dissolve");
     assert.ok(frequencyAmplitude(blendAudio, 880, 48_000) > 0.002, "incoming audio must be present during the dissolve");
     assert.ok(frequencyAmplitude(blendAudio, 1_760, 48_000) > 0.002, "music must remain present during the dissolve");
+    // Independent Final Cut export measurements follow a half-sine envelope.
+    // Sample each quiet edge against its own unblended source level so that
+    // overall gain and channel-layout differences do not mask the curve.
+    const incomingBase = frequencyAmplitude(window(1.5, 1.9), 880, 48_000);
+    const outgoingBase = frequencyAmplitude(window(0.1, 0.5), 440, 48_000);
+    const incomingEdge = frequencyAmplitude(window(0.78, 0.80), 880, 48_000) / incomingBase;
+    const outgoingEdge = frequencyAmplitude(window(0.95, 0.97), 440, 48_000) / outgoingBase;
+    assert.ok(incomingEdge > 0.02 && incomingEdge < 0.11, `incoming dissolve edge should follow half-sine, got ${incomingEdge}`);
+    assert.ok(outgoingEdge > 0.02 && outgoingEdge < 0.11, `outgoing dissolve edge should follow half-sine, got ${outgoingEdge}`);
     const noTitle = structuredClone(source);
     noTitle.sequence.titles = [];
     const plain = join(directory, "music-no-title.mp4");
