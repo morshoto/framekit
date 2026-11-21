@@ -155,8 +155,10 @@ test("FFmpeg dissolve preserves incoming video and audio timing", async () => {
     const frameSize = 320 * 180 * 3;
     assert.equal(frames.length, 60 * frameSize);
     const pixel = (index: number) => Array.from(frames.subarray(index * frameSize, index * frameSize + 3));
-    const pre = pixel(24), mixed = pixel(27), cut = pixel(30), last = pixel(59);
+    const pre = pixel(24), start = pixel(25), firstBlend = pixel(26), mixed = pixel(27), cut = pixel(30), last = pixel(59);
     assert.ok(pre[0]! > 220 && pre[2]! < 20, `frame 24 must be red: ${pre}`);
+    assert.ok(start[0]! > 220 && start[2]! < 20, `frame 25 must start on red: ${start}`);
+    assert.ok(firstBlend[0]! > 30 && firstBlend[2]! > 30, `frame 26 must blend: ${firstBlend}`);
     assert.ok(mixed[0]! > 30 && mixed[2]! > 30, `frame 27 must blend: ${mixed}`);
     assert.ok(cut[2]! > 220 && cut[0]! < 20, `frame 30 must be blue: ${cut}`);
     assert.ok(last[2]! > 220 && last[0]! < 20, `frame 59 must be blue: ${last}`);
