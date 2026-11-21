@@ -28,7 +28,10 @@ export class FfmpegMediaMetadataProbe implements LocalMediaMetadataProbe {
       "-show_entries", "format=duration,start_time,format_name",
       "-of", "json",
       sourcePath,
-    ], { env: this.environment, maxBuffer: 2 * 1024 * 1024 });
+    ], { env: this.environment, maxBuffer: 2 * 1024 * 1024 }).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") throw new Error("DEPENDENCY_MISSING: ffprobe is required; install FFmpeg and ensure ffprobe is on PATH", { cause: error });
+      throw new Error(`MEDIA_PROBE_FAILED: could not inspect media ${sourcePath}; check that it is a complete supported file`, { cause: error });
+    });
     const parsed = JSON.parse(result.stdout) as {
       streams?: Array<{ codec_type?: string; codec_name?: string; width?: number; height?: number; r_frame_rate?: string; sample_rate?: string; channels?: number; time_base?: string; start_pts?: number; duration_ts?: number; color_primaries?: string; color_transfer?: string; color_space?: string; color_range?: string }>;
       format?: { duration?: string; start_time?: string; format_name?: string };

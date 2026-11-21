@@ -1970,6 +1970,7 @@
       "\"rough-cut dissolve preview binds render and FCPXML output\"",
       "\"production stdio MCP persists and reopens the headless project and render record\"",
       "\"headless project open fails closed when local media has no metadata probe\"",
+      "\"media probing reports actionable coded failures\"",
       "\"headless rough-cut preview and execution preserve provenance and produce verified artifacts\"",
       "\"rough cut binds appended titles to an existing selected font\"",
       "\"inferred rough-cut ranges align duration to the sequence frame grid\""
