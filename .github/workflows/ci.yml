@@ -32,6 +32,25 @@ jobs:
           watcher=$!
           trap 'kill "$watcher" 2>/dev/null || true' EXIT
           pnpm test --file tests/adapters/headless/headless-renderer.test.ts --test-name-pattern 'FFmpeg renderer fills a trailing video gap with black while music continues'
+      - name: Stress trailing-gap render concurrently
+        timeout-minutes: 8
+        run: |
+          mkdir -p /tmp/framekit-stress
+          ( while sleep 10; do
+              echo 'Stress process snapshot:'
+              ps -eo pid,ppid,etime,stat,rss,vsz,comm | grep -E '(^ *PID|node|ffmpeg|ffprobe)' || true
+              find /tmp/framekit-stress -type f -path '*/.framekit-render-*/render.mp4' -printf '%s %p\n' | head -20
+            done ) &
+          watcher=$!
+          trap 'kill "$watcher" 2>/dev/null || true' EXIT
+          seq 1 64 | xargs -P 8 -I '{}' bash -c '
+            i="$1"
+            mkdir -p "/tmp/framekit-stress/$i/v8" "/tmp/framekit-stress/$i/tmp"
+            NODE_V8_COVERAGE="/tmp/framekit-stress/$i/v8" TMPDIR="/tmp/framekit-stress/$i/tmp" timeout --kill-after=5s 50s node --import tsx --test --test-name-pattern="FFmpeg renderer fills a trailing video gap with black while music continues" tests/adapters/headless/headless-renderer.test.ts > "/tmp/framekit-stress/$i/output.log" 2>&1
+            status=$?
+            if [ "$status" -ne 0 ]; then echo "stress $i failed status=$status"; cat "/tmp/framekit-stress/$i/output.log"; exit "$status"; fi
+            echo "stress $i passed"
+          ' _ '{}'
       - name: Run complete suite with process snapshots
         env:
           NODE_V8_COVERAGE: ${{ github.workspace }}/artifacts/test-results/v8

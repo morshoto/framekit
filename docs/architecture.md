@@ -394,7 +394,11 @@ dispatch cannot be reclaimed just because its owner exited or the library has
 not appeared. The publisher retains the dispatched FCPXML across process
 restarts while the import is unresolved and removes it after successful
 verification. Native acceptance requires matching project and sequence
-readback. `editor.inspect` reports `artifactPublishDispatchGuarantee`
+readback. When comparing transitions, readback includes the observed video and
+audio effect identities, enabled states, and simple parameters. Unknown,
+disabled, or incompletely observed transition effects cannot establish a match;
+parameter defaults omitted by one export are not assumed equivalent. This does
+not infer canonical endpoint IDs or prove native editability. `editor.inspect` reports `artifactPublishDispatchGuarantee`
 as `requested-unverified`; the publishing capability's `native-verified`
 guarantee describes the evidence required for a completed handoff, not the
 result of its dispatch step.
