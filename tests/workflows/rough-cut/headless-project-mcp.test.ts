@@ -1343,7 +1343,7 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
     if (existsSync(finalCutDtd)) {
       await execFileAsync("xmllint", ["--noout", "--dtdvalid", pathToFileURL(finalCutDtd).href, fcpxmlPath]);
     }
-    assert.match(xml, /<text>Revised title<\/text>/);
+    assert.match(xml, /<text><text-style ref="title-style-1">Revised title<\/text-style><\/text>/);
     assert.match(xml, /<asset-clip [^>]*duration="30s"[^>]*lane="1"[^>]*audioRole="music"/);
     assert.match(xml, /<md key="com\.framekit\.id" value="issue-517-music" \/>/);
     assert.match(xml, /<adjust-volume amount="-12dB" \/>/);

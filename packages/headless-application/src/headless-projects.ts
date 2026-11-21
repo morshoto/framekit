@@ -475,7 +475,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     if (requireStoryboard && !this.storyboard) throw new Error("HEADLESS_STORYBOARD_UNAVAILABLE: storyboard renderer is not configured");
     const prepared = await this.prepareRoughCut(request);
     const timestamp = this.clock();
-    const { preview, fcpxml } = await this.previewPreparedRoughCut(request, prepared, timestamp);
+    let { preview, fcpxml } = await this.previewPreparedRoughCut(request, prepared, timestamp);
     let titleFont: HeadlessRoughCutPreview["titleFont"];
     if (preview.after.timeline.sequence.titles?.length) {
       if (!this.renderer) throw new Error("HEADLESS_ROUGH_CUT_RENDER_UNAVAILABLE: renderer is required to check title support");
@@ -493,6 +493,10 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       if (!this.renderer.validateTitleOutput) throw new Error("HEADLESS_ROUGH_CUT_RENDER_UNAVAILABLE: renderer cannot validate title output safety");
       await this.renderer.validateTitleOutput(renderRequest, [request.fcpxml.path]);
       titleFont = { renderer: capabilities.renderer, digest: capabilities.titleFontDigest!, face: capabilities.titleFontFace };
+      fcpxml = compileTimelineIrToFcpxml(preview.after.timeline, {
+        target: request.fcpxml.target,
+        basicTitleFont: { ...titleFont.face, digest: titleFont.digest },
+      });
     }
     const approval = createRoughCutApproval({
       inputDigest: prepared.inputDigest,
@@ -567,12 +571,19 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     const transaction = new ProjectTransactionService(this.snapshotStore(request.projectId, prepared.project), {
       clock: () => approval.canonicalRevision.timestamp,
     });
-    const { preview, fcpxml } = await this.previewPreparedRoughCut(
+    let { preview, fcpxml } = await this.previewPreparedRoughCut(
       request,
       prepared,
       approval.canonicalRevision.timestamp,
       transaction,
     );
+    if (preview.after.timeline.sequence.titles?.length) {
+      if (!approval.titleFont?.face) throw new Error("HEADLESS_ROUGH_CUT_PLAN_MISMATCH: title font is not bound to the preview");
+      fcpxml = compileTimelineIrToFcpxml(preview.after.timeline, {
+        target: request.fcpxml.target,
+        basicTitleFont: { ...approval.titleFont.face, digest: approval.titleFont.digest },
+      });
+    }
     if (!sameRevision(preview.after.timeline.revision, approval.canonicalRevision)
       || fcpxml.digest !== approval.artifactDigest) {
       throw new Error("HEADLESS_ROUGH_CUT_PLAN_MISMATCH: replayed preview differs from the approved revision or FCPXML digest");
