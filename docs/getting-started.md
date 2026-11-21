@@ -127,6 +127,8 @@ binds the font digest, family, face and renderer identity; execution rejects a c
 renders from a checked copy. The video and FCPXML output paths must not replace that font, including
 through an alias. Publish verification checks the saved render's font binding
 against the approval and reports the verified headless font digest and renderer.
+The rough-cut FCPXML requests the same family and face and records the font digest;
+it reports native font availability as unverified until checked on the Final Cut target.
 Title-bearing approvals created before font and face binding
 must be previewed again. A storyboard using a different or unverified font is
 reported unavailable. Glyph coverage alone does not establish visual correctness

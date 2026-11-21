@@ -632,6 +632,50 @@ test("compiles an opening Timeline IR title as editable Final Cut text", async (
   }
 });
 
+test("encodes an explicitly selected basic title font", async () => {
+  const value = timeline();
+  value.sequence.occurrences = [{ ...value.sequence.occurrences[0]!, startTime: { value: "0", timescale: "1" }, durationTime: { value: "10", timescale: "1" }, sourceStartTime: { value: "0", timescale: "1" } }];
+  value.sequence.storyElements = [];
+  value.sequence.titles = [{ id: "opening-title", text: "A日 & 'quote'", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" }, lane: 1 }];
+  const titleFont = { family: "Noto Sans CJK JP", style: "Regular", postscriptName: "NotoSansCJKjp-Regular", digest: "a".repeat(64) };
+  const artifact = compileTimelineIrToFcpxml(value, { target, basicTitleFont: titleFont });
+  assert.match(artifact.xml, /<text><text-style ref="title-style-1">A日 &amp; &apos;quote&apos;<\/text-style><\/text>/);
+  assert.match(artifact.xml, /<text-style-def id="title-style-1"><text-style font="Noto Sans CJK JP" fontFace="Regular" \/><\/text-style-def>/);
+  assert.match(artifact.xml, /key="com\.framekit\.title-font-sha256" value="a{64}"/);
+  assert.match(artifact.xml, /key="com\.framekit\.title-font-postscript" value="NotoSansCJKjp-Regular"/);
+  assert.ok(artifact.coverage.degraded.includes("native-title-font-availability-unverified"));
+  assert.equal(artifact.digest, compileTimelineIrToFcpxml(value, { target, basicTitleFont: titleFont }).digest);
+  const changedFont = compileTimelineIrToFcpxml(value, { target, basicTitleFont: { ...titleFont, digest: "b".repeat(64) } });
+  assert.notEqual(artifact.destination.projectUid, changedFont.destination.projectUid);
+  assert.notEqual(artifact.destination.sequenceUid, changedFont.destination.sequenceUid);
+  assert.notEqual(artifact.destination.projectUid, compileTimelineIrToFcpxml(value, { target }).destination.projectUid);
+  assert.notEqual(artifact.destination.projectUid, compileTimelineIrToFcpxml(value, { target, basicTitleFont: { ...titleFont, style: "Bold" } }).destination.projectUid);
+  const escapedFont = compileTimelineIrToFcpxml(value, { target, basicTitleFont: { ...titleFont, family: 'Noto & "Friends"', style: "Maker's" } });
+  assert.match(escapedFont.xml, /font="Noto &amp; &quot;Friends&quot;" fontFace="Maker&apos;s"/);
+  for (const invalid of [null as unknown as typeof titleFont, { ...titleFont, family: " " }, { ...titleFont, style: "\u0000" }, { ...titleFont, digest: "bad" }]) {
+    assert.throws(() => compileTimelineIrToFcpxml(value, { target, basicTitleFont: invalid }), /FCPXML_(TITLE_FONT_INVALID|INVALID)/);
+  }
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-explicit-title-"));
+  try {
+    const path = join(directory, "title.fcpxml");
+    await writeFile(path, artifact.xml);
+    validateWithInstalledFinalCut(path);
+    const readback = await new FcpxmlDocumentAdapter(path).readProject();
+    assert.equal(readback.timeline.storyElements.find(({ kind }) => kind === "title")?.text, "A日 & 'quote'");
+    const multiple = structuredClone(value);
+    multiple.sequence.titles!.push({ ...multiple.sequence.titles![0]!, id: "second-title", text: "Second", startTime: { value: "2", timescale: "1" } });
+    const multipleArtifact = compileTimelineIrToFcpxml(multiple, { target, basicTitleFont: titleFont });
+    assert.match(multipleArtifact.xml, /<text-style-def id="title-style-1">/);
+    assert.match(multipleArtifact.xml, /<text-style-def id="title-style-2">/);
+    await writeFile(path, multipleArtifact.xml);
+    validateWithInstalledFinalCut(path);
+    const multipleReadback = await new FcpxmlDocumentAdapter(path).readProject();
+    assert.deepEqual(multipleReadback.timeline.storyElements.filter(({ kind }) => kind === "title").map(({ text }) => text), ["A日 & 'quote'", "Second"]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("anchors titles after a primary clip source in-point", async () => {
   const value = timeline();
   value.sequence.occurrences = [{

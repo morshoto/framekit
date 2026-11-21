@@ -3263,6 +3263,7 @@
       "\"BT.709 dissolve samples meet the 720p Final Cut reference bounds\""
     ],
     "tests/integration/timeline-ir-fcpxml.test.ts": [
+      "\"encodes an explicitly selected basic title font\"",
       "\"dissolve plans preserve source frames across rates and odd durations\"",
       "\"native dissolve readback preserves visible semantics without inventing stripped IDs\"",
       "\"dissolve planning rejects unknown or non-BT.709 colors\"",
