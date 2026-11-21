@@ -574,7 +574,7 @@ test("requires an explicit Final Cut target and fails closed for unsupported IR"
         }],
       },
     }, { target }),
-    /FCPXML_UNSUPPORTED_TIMELINE_FEATURE: transitions/,
+    /FCPXML_DISSOLVE_FRAME_ALIGNMENT/,
   );
   assert.throws(
     () => compileTimelineIrToFcpxml({

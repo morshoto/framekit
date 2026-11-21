@@ -1,3 +1,4 @@
+import { planFcpxmlDissolve } from "./fcpxml-transition-plan.js";
 import { createHash } from "node:crypto";
 import { isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -9,6 +10,8 @@ import type {
 import { timelineIrDigest, validateTimelineIr } from "@framekit/runtime";
 
 export const FRAMEKIT_FCPXML_VERSION = "1.11" as const;
+const CROSS_DISSOLVE_EFFECT_ID = "effect-cross-dissolve";
+const CROSS_DISSOLVE_EFFECT_UID = "FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265";
 const BASIC_TITLE_EFFECT_ID = "effect-basic-title";
 const AUDIO_FORMAT_ID = "format-audio";
 const BASIC_TITLE_EFFECT_UID = ".../Titles.localized/Bumper:Opener.localized/Basic Title.localized/Basic Title.moti";
@@ -74,7 +77,7 @@ export interface TimelineIrToFcpxmlResult {
 
 interface RenderableElement {
   id: string;
-  kind: "asset-clip" | "gap" | "title" | "marker" | "caption";
+  kind: "asset-clip" | "gap" | "title" | "marker" | "caption" | "transition";
   startTime: { value: string; timescale: string };
   durationTime: { value: string; timescale: string };
   lane?: number;
@@ -117,6 +120,8 @@ export function compileTimelineIrToFcpxml(
     throw new Error(`FCPXML_UNSUPPORTED_TIMELINE_FEATURE: ${unsupported.join(", ")}`);
   }
   const destination = resolveDestination(timeline, options.target);
+  const dissolve = timeline.sequence.transitions?.length ? planFcpxmlDissolve(timeline) : undefined;
+  if (dissolve) throw new Error("FCPXML_DISSOLVE_UNVERIFIED: transition audio and canonical readback are not yet verified");
 
   const resourceIds = createResourceIds(timeline);
   const resourceNames = uniqueResourceNames(timeline);
@@ -126,6 +131,14 @@ export function compileTimelineIrToFcpxml(
     timeline.sequence.frameDuration,
     new Set(resources.filter(({ mediaKind }) => mediaKind === "audio").map(({ id }) => resourceIds.get(id)!)),
   );
+  if (dissolve) {
+    const after = elements.find((element) => element.id === dissolve.afterId);
+    if (!after || after.kind !== "asset-clip" || after.parentId !== undefined) throw new Error("FCPXML_DISSOLVE_ADJACENCY: incoming clip is not a primary asset");
+    after.startTime = dissolve.startTime;
+    after.sourceStartTime = dissolve.afterSourceStartTime;
+    after.durationTime = dissolve.afterDurationTime;
+    elements.push({ id: dissolve.id, kind: "transition", startTime: dissolve.startTime, durationTime: dissolve.durationTime, name: "Cross Dissolve", resourceId: CROSS_DISSOLVE_EFFECT_ID });
+  }
   const sourceBounds = new Map(resources.filter((resource) => resource.sourceRange).map((resource) => [resourceIds.get(resource.id)!, resource.sourceRange!]));
   for (const element of elements) {
     if (element.kind !== "asset-clip" || !element.resourceId) continue;
@@ -164,6 +177,7 @@ export function compileTimelineIrToFcpxml(
     ...(timeline.sequence.titles?.length
       ? [`    <effect id="${BASIC_TITLE_EFFECT_ID}" name="Basic Title" uid="${BASIC_TITLE_EFFECT_UID}" />`]
       : []),
+    ...(dissolve ? [`    <effect id="${CROSS_DISSOLVE_EFFECT_ID}" name="Cross Dissolve" uid="${CROSS_DISSOLVE_EFFECT_UID}" />`] : []),
     ...resources.map((resource) => renderResource(resource, resourceIds.get(resource.id)!, resourceNames.get(resource.id)!)),
     "  </resources>",
     "  <library>",
@@ -217,7 +231,6 @@ function unsupportedFeatures(timeline: TimelineIr): string[] {
   if (timeline.sequence.titles?.some(({ style, position }) => style !== undefined || position !== undefined)) {
     unsupported.add("styled-or-positioned-titles");
   }
-  if (timeline.sequence.transitions?.length) unsupported.add("transitions");
   for (const occurrence of timeline.sequence.occurrences) {
     if (occurrence.transform !== undefined) unsupported.add("transforms");
     if (occurrence.fadeIn !== undefined || occurrence.fadeOut !== undefined) unsupported.add("audio-fades");
@@ -248,6 +261,10 @@ function materializationCoverage(
     degraded.add("video-edit-frame-rounding");
   }
   if (elements.some(({ sourceRangeAdjusted }) => sourceRangeAdjusted)) exact.delete("source-ranges");
+  if (timeline.sequence.transitions?.length) {
+    exact.delete("source-ranges");
+    degraded.add("transition-audio-and-roundtrip-unverified");
+  }
   if (elements.some(({ parentId }) => parentId !== undefined)) exact.add("connected-elements");
   if (timeline.sequence.occurrences.some(({ role }) => role !== undefined)) exact.add("roles");
   if (timeline.sequence.occurrences.some(({ gainDb }) => gainDb !== undefined)) exact.add("gain");
@@ -613,6 +630,10 @@ function renderElements(elements: RenderableElement[]): string[] {
   }
   for (const siblings of byParent.values()) {
     siblings.sort((left, right) => {
+      if (compareExactTimes(left.startTime, right.startTime) === 0 && left.kind !== right.kind) {
+        if (left.kind === "transition") return -1;
+        if (right.kind === "transition") return 1;
+      }
       if (left.kind === "marker" && right.kind !== "marker") return 1;
       if (right.kind === "marker" && left.kind !== "marker") return -1;
       return compareTimedItems(left, right);
@@ -671,6 +692,13 @@ function renderElements(elements: RenderableElement[]): string[] {
               `offset="${formatRational(offsetTime, `${element.id}.startTime`)}"`,
               `duration="${formatRational(element.durationTime, `${element.id}.durationTime`)}"`,
             ];
+      if (element.kind === "transition") {
+        lines.push(`${indent}<transition name="Cross Dissolve" offset="${formatRational(offsetTime, `${element.id}.startTime`)}" duration="${formatRational(element.durationTime, `${element.id}.durationTime`)}">`);
+        lines.push(`${indent}  <filter-video ref="${CROSS_DISSOLVE_EFFECT_ID}" name="Cross Dissolve" />`);
+        lines.push(`${indent}  <metadata><md key="com.framekit.id" value="${xmlEscape(element.id)}" /></metadata>`);
+        lines.push(`${indent}</transition>`);
+        continue;
+      }
       if (element.kind === "marker") {
         lines.push(`${indent}<marker ${attributes.join(" ")} />`);
         continue;
