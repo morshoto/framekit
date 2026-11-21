@@ -150,7 +150,7 @@ export async function measureDissolveExport(path: string, stereoDownmix = false)
   const audio: DissolveExportMeasurements["audio"] = [];
   const hasAudio = probe.streams?.some((stream) => stream.codec_type === "audio") ?? false;
   for (const timeSeconds of [0.5, 0.825, 0.9, 0.975, 1.5]) {
-    const pcm = hasAudio ? await runBytes(ffmpeg, ["-v", "error", "-ss", String(timeSeconds - 0.0125), "-i", path, "-t", "0.025", "-vn", ...(stereoDownmix ? ["-af", "pan=mono|c0=0.7071067811865476*c0+0.7071067811865476*c1"] : []), "-ac", "1", "-ar", "48000", "-f", "f32le", "pipe:1"]) : Buffer.alloc(0);
+    const pcm = hasAudio ? await runBytes(ffmpeg, ["-v", "error", "-ss", String(timeSeconds - 0.0125), "-i", path, "-t", "0.025", "-map", "0:a:0", "-vn", ...(stereoDownmix ? ["-af", "pan=mono|c0=0.7071067811865476*c0+0.7071067811865476*c1"] : []), "-ac", "1", "-ar", "48000", "-f", "f32le", "pipe:1"]) : Buffer.alloc(0);
     const count = Math.floor(pcm.length / 4);
     const amplitude = (frequency: number) => {
       if (count < 1200) return 0;
