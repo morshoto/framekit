@@ -795,6 +795,24 @@ test("approved headless edits execute only a matching issued preview", async () 
   }
 });
 
+test("approved headless edit rejects a changed base with the same revision", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-approved-base-"));
+  try {
+    const service = new HeadlessProjectService({ directory });
+    const initial = await service.create(emptyTimeline());
+    const projectId = initial.timeline.project.id, sequenceId = initial.timeline.sequence.id;
+    const marker = (id: string) => ({ id, name: id, startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } });
+    const preview = await service.previewApprovedEdit(projectId, { schemaVersion: 1, expectedRevision: initial.timeline.revision,
+      operations: [{ type: "add-marker", marker: marker("approved") }] }, sequenceId);
+    const store = new FramekitProjectStore(join(directory, `${projectId}.json`));
+    const changed = await store.load();
+    changed.timeline.sequence.markers.push(marker("unapproved"));
+    await store.save(changed, initial.timeline.revision);
+    await assert.rejects(service.executeApprovedEdit(projectId, sequenceId, preview.previewToken), /HEADLESS_EDIT_PREVIEW_MISMATCH/);
+    assert.deepEqual((await service.open(projectId)).timeline, changed.timeline);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("headless edit Undo survives MCP restart and verifies the restored project", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-headless-undo-"));
   const here = dirname(fileURLToPath(import.meta.url));
