@@ -78,6 +78,27 @@ const target: TimelineIrToFcpxmlTarget = {
   eventName: "Framekit Event",
 };
 
+test("exports an adjacent cross-dissolve with its media references", () => {
+  const value = timeline();
+  value.sequence.frameDuration = { value: "1", timescale: "30" };
+  value.sequence.durationTime = { value: "4", timescale: "1" };
+  value.sequence.storyElements = [];
+  value.sequence.markers = [];
+  value.sequence.captions = [];
+  value.sequence.occurrences = [
+    { id: "before", name: "Before", startTime: { value: "0", timescale: "1" }, durationTime: { value: "2", timescale: "1" }, sourceStartTime: { value: "1", timescale: "1" }, track: 0, role: "video", mediaId: "media-1" },
+    { id: "after", name: "After", startTime: { value: "2", timescale: "1" }, durationTime: { value: "2", timescale: "1" }, sourceStartTime: { value: "4", timescale: "1" }, track: 0, role: "video", mediaId: "media-1" },
+  ];
+  value.sequence.transitions = [{ id: "dissolve", kind: "cross-dissolve", beforeOccurrenceId: "before", afterOccurrenceId: "after", durationTime: { value: "1", timescale: "2" } }];
+
+  const result = compileTimelineIrToFcpxml(value, { target });
+  assert.match(result.xml, /<transition\b/);
+  assert.match(result.xml, /duration="1\/2s"/);
+  assert.ok(result.xml.indexOf('name="Before"') < result.xml.indexOf("<transition"));
+  assert.ok(result.xml.indexOf("<transition") < result.xml.indexOf('name="After"'));
+  assert.match(result.xml, /Cross Dissolve/);
+});
+
 test("FCPXML compilation preserves explicit nonzero source bounds", async () => {
   const value = timeline();
   value.resources[0]!.metadata = undefined;
