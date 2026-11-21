@@ -1001,6 +1001,26 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     const audioRef = audioFilter && attribute(audioFilter, "ref");
     const audioEffect = audioRef === undefined ? undefined : this.effectAssetId(String(audioRef));
     const enabled = (filter: XmlNode | undefined) => filter !== undefined && (attribute(filter, "enabled") === undefined || String(attribute(filter, "enabled")) === "1");
+    const transitionAttributes = new Set(["@_name", "@_offset", "@_duration"]);
+    const transitionComplete = Object.keys(attributes(node)).every((key) => transitionAttributes.has(key))
+      && storyEntries(node).every(({ kind: childKind }) => ["filter-video", "filter-audio", "metadata"].includes(childKind));
+    const transitionEffects: NonNullable<StoryElement["transitionEffects"]> = filters.map(({ kind: filterKind, node: filter }) => {
+      const ref = attribute(filter, "ref");
+      const identity = ref === undefined ? undefined : this.effectAssetId(String(ref));
+      const children = storyEntries(filter);
+      const allowedAttributes = new Set(["@_ref", "@_name", "@_enabled"]);
+      const allowedParameterAttributes = new Set(["@_name", "@_key", "@_value", "@_auxValue", "@_enabled"]);
+      const enabledValue = attribute(filter, "enabled");
+      const complete = transitionComplete && identity !== undefined && Object.keys(attributes(filter)).every((key) => allowedAttributes.has(key))
+        && (enabledValue === undefined || String(enabledValue) === "0" || String(enabledValue) === "1")
+        && children.every(({ kind: childKind, node: child }) => childKind === "param" && storyEntries(child).length === 0
+          && typeof attribute(child, "name") === "string" && String(attribute(child, "name")).length > 0
+          && Object.keys(attributes(child)).every((key) => allowedParameterAttributes.has(key))
+          && (attribute(child, "enabled") === undefined || ["0", "1"].includes(String(attribute(child, "enabled")))));
+      const parameters = children.filter(({ kind: childKind }) => childKind === "param").map(({ node: child }) =>
+        Object.fromEntries(Object.entries(attributes(child)).map(([key, value]) => [key, String(value)])));
+      return { kind: filterKind === "filter-video" ? "video" : "audio", ...(identity ? { assetId: identity } : {}), enabled: enabled(filter), parameters, complete };
+    });
     if ((transitionMarker || beforeMetadata || afterMetadata) && (kind !== "transition" || transitionKind !== "cross-dissolve" || assetId !== "fcpxml:effect:FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265" || audioEffect !== "fcpxml:effect:FFAudioTransition" || videoFilters.length !== 1 || audioFilters.length !== 1 || !enabled(videoFilter) || !enabled(audioFilter) || !canonicalDissolveSettings(node, videoFilter, audioFilter) || !beforeValue || !afterValue || beforeAttribute !== undefined && String(beforeAttribute) !== String(beforeValue) || afterAttribute !== undefined && String(afterAttribute) !== String(afterValue))) {
       throw new Error("FCPXML_TRANSITION_METADATA_INVALID: unverified canonical transition metadata");
     }
@@ -1017,6 +1037,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
         : {}),
       ...(attribute(node, "framekit-attached-to") !== undefined ? { attachedTo: String(attribute(node, "framekit-attached-to")) } : {}),
       ...(assetId ? { assetId } : {}),
+      ...(kind === "transition" ? { transitionEffects } : {}),
       ...(text !== undefined ? { text } : {}),
       ...(transitionKind === "cross-dissolve" ? { transitionKind, beforeClipId: String(attribute(beforeMetadata!, "value") ?? ""), afterClipId: String(attribute(afterMetadata!, "value") ?? "") } : {}),
       ...(attribute(node, "framekit-before-clip") !== undefined

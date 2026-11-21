@@ -170,7 +170,7 @@ optional. When present, each section must satisfy its normal validation rules.
 
 New or changed local connected audio in headless edits requires exactly one audio
 stream with verified bounds covering the requested source range. Rough-cut output,
-Rough-cut output, FCPXML export, headless rendering and publication proof require those bounds for
+FCPXML export, headless rendering and publication proof require those bounds for
 all local connected audio. Files with ambiguous streams or unavailable bounds are
 rejected. Framekit re-probes referenced connected audio and rejects metadata that
 differs from the registered source. Older registrations without stream bounds
