@@ -1500,6 +1500,30 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     operations: operations as TimelineIrEditOperation[],
   }, sequenceId)));
 
+  server.registerTool("headless.edit.approved-preview", {
+    description: "Preview a revision-bound headless edit and issue a single-use approval token.",
+    inputSchema: {
+      projectId: z.string().min(1),
+      sequenceId: z.string().min(1),
+      expectedRevision: revisionValueSchema,
+      operations: z.array(z.unknown()),
+    },
+  }, async ({ projectId, sequenceId, expectedRevision, operations }) => sessionResult(() => requireHeadlessProjects().previewApprovedEdit(projectId, {
+    schemaVersion: 1,
+    expectedRevision,
+    operations: operations as TimelineIrEditOperation[],
+  }, sequenceId)));
+
+  server.registerTool("headless.edit.approved-execute", {
+    description: "Execute exactly the previously previewed headless edit after explicit approval.",
+    inputSchema: {
+      projectId: z.string().min(1),
+      sequenceId: z.string().min(1),
+      previewToken: z.string().min(1),
+      approved: z.literal(true),
+    },
+  }, async ({ projectId, sequenceId, previewToken }) => sessionResult(() => requireHeadlessProjects().executeApprovedEdit(projectId, sequenceId, previewToken)));
+
   server.registerTool("headless.edit.execute", {
     description: "Execute supported Framekit Timeline IR edits against the expected canonical revision and persist exactly one revision.",
     inputSchema: {
