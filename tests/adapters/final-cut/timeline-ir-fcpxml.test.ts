@@ -78,7 +78,7 @@ const target: TimelineIrToFcpxmlTarget = {
   eventName: "Framekit Event",
 };
 
-test("exports an adjacent cross-dissolve with its media references", () => {
+test("exports an adjacent cross-dissolve with its media references", async () => {
   const value = timeline();
   value.sequence.frameDuration = { value: "1", timescale: "30" };
   value.sequence.durationTime = { value: "4", timescale: "1" };
@@ -96,7 +96,18 @@ test("exports an adjacent cross-dissolve with its media references", () => {
   assert.match(result.xml, /duration="1\/2s"/);
   assert.ok(result.xml.indexOf('name="Before"') < result.xml.indexOf("<transition"));
   assert.ok(result.xml.indexOf("<transition") < result.xml.indexOf('name="After"'));
-  assert.match(result.xml, /Cross Dissolve/);
+  assert.match(result.xml, /<effect[^>]*name="Cross Dissolve"[^>]*uid="FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265"/);
+  assert.match(result.xml, /<transition[^>]*offset="3\/2s"[^>]*duration="1\/2s"/);
+  assert.match(result.xml, /<asset-clip[^>]*name="After"[^>]*offset="3\/2s"[^>]*start="7\/2s"[^>]*duration="5\/2s"/);
+  assert.match(result.xml, /<filter-video[^>]*ref="effect-cross-dissolve"/);
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-dissolve-dtd-"));
+  try {
+    const path = join(directory, "timeline.fcpxml");
+    await writeFile(path, result.xml);
+    validateWithInstalledFinalCut(path);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("FCPXML compilation preserves explicit nonzero source bounds", async () => {
