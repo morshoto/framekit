@@ -13,6 +13,7 @@ import {
 } from "@framekit/final-cut/fcpxml";
 import { createTimelineIrFromProjectSnapshot, validateTimelineIr, type TimelineIr } from "@framekit/runtime";
 import { planFcpxmlDissolve } from "../../../adapters/final-cut/typescript/src/fcpxml-transition-plan.js";
+import { verifyFinalCutPublishReadback } from "@framekit/final-cut";
 
 function timeline(): TimelineIr {
   return {
@@ -171,6 +172,17 @@ test("native dissolve without canonical metadata stays unbound", async () => {
     assert.equal(transition.transitionKind, undefined);
     assert.equal(transition.beforeClipId, undefined);
     assert.equal(transition.afterClipId, undefined);
+    assert.equal(verifyFinalCutPublishReadback(snapshot, snapshot).verified, true);
+    for (const alteredXml of [
+      xml.replace('<filter-audio ref="audio"', '<filter-audio enabled="0" ref="audio"'),
+      xml.replace('<filter-audio ref="audio" name="Audio Crossfade"/>', ''),
+      xml.replace('value="11 (Video)"', 'value="10 (Film)"'),
+    ]) {
+      const alteredPath = join(directory, "altered.fcpxml");
+      await writeFile(alteredPath, alteredXml);
+      const altered = await new FcpxmlDocumentAdapter(alteredPath).readProject();
+      assert.throws(() => verifyFinalCutPublishReadback(snapshot, altered), /FINAL_CUT_PUBLISH_SEMANTIC_MISMATCH/);
+    }
     const reconstructed = createTimelineIrFromProjectSnapshot(snapshot);
     assert.equal(reconstructed.sequence.transitions, undefined);
     assert.ok(reconstructed.sequence.storyElements.some((item) => item.kind === "transition"));
