@@ -231,6 +231,7 @@ export interface HeadlessRoughCutPublishProof {
   planDigest: string;
   renderId: string;
   renderArtifact: { path: string; digest: string; bytes: number };
+  titleFont?: HeadlessRoughCutPreview["titleFont"];
   artifactPath: string;
   artifactDigest: string;
   sourceAudioPolicy: "preserve-and-mix";
@@ -834,6 +835,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       planDigest: record.planDigest,
       renderId: record.renderId,
       renderArtifact: structuredClone(boundRender),
+      ...(project.timeline.sequence.titles?.length && approval.titleFont ? { titleFont: structuredClone(approval.titleFont) } : {}),
       artifactPath: record.artifactPath,
       artifactDigest: record.artifactDigest,
       sourceAudioPolicy: record.outputIntent.sourceAudioPolicy,

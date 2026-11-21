@@ -123,7 +123,8 @@ that can inspect the selected font and cover the requested characters. The previ
 binds the font digest and renderer identity; execution rejects a changed font and
 renders from a checked copy. The video and FCPXML output paths must not replace that font, including
 through an alias. Publish verification checks the saved render's font binding
-against the approval. Title-bearing approvals created before font binding
+against the approval and reports the verified headless font digest and renderer.
+Title-bearing approvals created before font binding
 must be previewed again. A storyboard using a different or unverified font is
 reported unavailable. Glyph coverage alone does not establish visual correctness
 or shaping. Unstyled, unpositioned titles use a canvas-scaled size (44 pixels
