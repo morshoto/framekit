@@ -5,7 +5,7 @@ import { access, link, lstat, mkdtemp, readFile, rename, rm, stat, unlink, write
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { titleGlyphProblem } from "./title-glyphs.js";
+import { inspectTitleFont, titleGlyphProblem } from "./title-glyphs.js";
 import { HEADLESS_AUDIO_CHANNELS, HEADLESS_AUDIO_CODEC, HEADLESS_AUDIO_SAMPLE_RATE } from "./audio-output.js";
 import {
   createFramekitRenderResult,
@@ -72,18 +72,18 @@ export class FfmpegTimelineRenderer implements FramekitRenderProvider {
     const timeline = request.timeline;
     const texts = (timeline.sequence.titles ?? []).map((title) => title.text);
     let titleFontDigest: string | undefined;
+    let titleFontFace: FramekitRenderCapabilityReport["titleFontFace"];
     if (texts.length && this.fontFile) {
       try {
-        const before = createHash("sha256").update(readFileSync(this.fontFile)).digest("hex");
-        if (!titleGlyphProblem(this.fontFile, texts)) {
-          const after = createHash("sha256").update(readFileSync(this.fontFile)).digest("hex");
-          if (before === after) titleFontDigest = before;
-        }
+        const bytes = readFileSync(this.fontFile);
+        titleFontFace = inspectTitleFont(bytes, texts).face;
+        if (titleFontFace) titleFontDigest = createHash("sha256").update(bytes).digest("hex");
       } catch { /* unavailable fonts cannot establish a capability */ }
     }
     return {
       renderer: { id: this.id, version: this.version },
       ...(titleFontDigest ? { titleFontDigest } : {}),
+      ...(titleFontFace ? { titleFontFace } : {}),
       features: {
         "local-media": supportsLocalMedia(timeline) ? "supported" : "unsupported",
         "structural-edits": supportsStructuralEdits(timeline) ? "supported" : "unsupported",

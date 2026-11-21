@@ -195,7 +195,7 @@ export interface HeadlessRoughCutPreview extends ProjectEditPreview {
   provenance: HeadlessRoughCutShotProvenance[];
   storyboard?: StoryboardImage & { planDigest: string; revision: ContextRevision };
   storyboardUnavailable?: string;
-  titleFont?: { renderer: { id: string; version: string }; digest: string };
+  titleFont?: { renderer: { id: string; version: string }; digest: string; face: { family: string; style: string; postscriptName: string } };
   outputIntent: {
     sourceAudioPolicy: "preserve-and-mix";
     render: FramekitRenderParameters;
@@ -486,12 +486,13 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
         parameters: request.render,
       });
       const capabilities = this.renderer.capabilities(renderRequest);
-      if (capabilities.features.titles !== "supported" || !/^[a-f0-9]{64}$/.test(capabilities.titleFontDigest ?? "")) {
+      if (capabilities.features.titles !== "supported" || !/^[a-f0-9]{64}$/.test(capabilities.titleFontDigest ?? "") || !capabilities.titleFontFace
+        || ![capabilities.titleFontFace.family, capabilities.titleFontFace.style, capabilities.titleFontFace.postscriptName].every((value) => typeof value === "string" && value.trim())) {
         throw new Error("RENDER_CAPABILITY_UNAVAILABLE: required title font or semantics are unavailable (titles)");
       }
       if (!this.renderer.validateTitleOutput) throw new Error("HEADLESS_ROUGH_CUT_RENDER_UNAVAILABLE: renderer cannot validate title output safety");
       await this.renderer.validateTitleOutput(renderRequest, [request.fcpxml.path]);
-      titleFont = { renderer: capabilities.renderer, digest: capabilities.titleFontDigest! };
+      titleFont = { renderer: capabilities.renderer, digest: capabilities.titleFontDigest!, face: capabilities.titleFontFace };
     }
     const approval = createRoughCutApproval({
       inputDigest: prepared.inputDigest,
@@ -588,7 +589,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     }
     const capabilities = this.renderer.capabilities(renderRequest);
     if (preview.after.timeline.sequence.titles?.length) {
-      const currentFont = { renderer: capabilities.renderer, digest: capabilities.titleFontDigest };
+      const currentFont = { renderer: capabilities.renderer, digest: capabilities.titleFontDigest, face: capabilities.titleFontFace };
       if (capabilities.features.titles !== "supported" || !approval.titleFont || stableJson(currentFont) !== stableJson(approval.titleFont)) {
         throw new Error("HEADLESS_ROUGH_CUT_PLAN_MISMATCH: title font or renderer changed after preview");
       }
@@ -803,6 +804,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     }
     if (project.timeline.sequence.titles?.length && (!approval.titleFont
       || plan.capabilities?.titleFontDigest !== approval.titleFont.digest
+      || stableJson(plan.capabilities?.titleFontFace) !== stableJson(approval.titleFont.face)
       || stableJson(plan.renderer) !== stableJson(approval.titleFont.renderer))) {
       throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render font differs from the approved preview");
     }

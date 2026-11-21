@@ -144,6 +144,8 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     const concreteRenderer = new FfmpegTimelineRenderer({ env: { FRAMEKIT_RENDER_FONT: fontPath } });
     const noDestinationCheck = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: new FfmpegMediaMetadataProbe(), renderer: { id: concreteRenderer.id, version: concreteRenderer.version, capabilities: (input) => concreteRenderer.capabilities(input), render: (plan) => concreteRenderer.render(plan) } });
     await assert.rejects(noDestinationCheck.previewRoughCut(titleRequest), /RENDER_UNAVAILABLE.*output safety/);
+    const noFace = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: new FfmpegMediaMetadataProbe(), renderer: { id: concreteRenderer.id, version: concreteRenderer.version, capabilities: (input) => ({ ...concreteRenderer.capabilities(input), titleFontFace: undefined }), validateTitleOutput: (input, paths) => concreteRenderer.validateTitleOutput(input, paths), render: (plan) => concreteRenderer.render(plan) } });
+    await assert.rejects(noFace.previewRoughCut(titleRequest), /RENDER_CAPABILITY_UNAVAILABLE.*titles/);
     const originalFontBeforePreview = await readFile(fontPath);
     const fontCollision = { ...titleRequest, render: { ...titleRequest.render, outputPath: fontPath, overwrite: true } };
     await assert.rejects(fontService.previewRoughCut(fontCollision), /OUTPUT_INVALID.*font/i);
@@ -166,18 +168,23 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     const approvedTitle = await fontService.previewRoughCut(titleRequest);
     const originalFont = await readFile(fontPath);
     assert.equal(approvedTitle.titleFont?.digest, createHash("sha256").update(originalFont).digest("hex"));
-    // A pre-upgrade approval has a valid checksum but no approved font identity.
-    const legacy = JSON.parse(await readFile(join(directory, "projects", `${approvedTitle.planDigest}.approval.json`), "utf8"));
-    delete legacy.titleFont;
-    delete legacy.planDigest;
-    delete legacy.evidenceDigest;
+    assert.deepEqual(approvedTitle.titleFont?.face, { family: "Noto Sans CJK JP", style: "Regular", postscriptName: "NotoSansCJKjp-Regular" });
+    // Pre-upgrade approvals may have no font identity or only the old digest.
+    const approvalRecord = await readFile(join(directory, "projects", `${approvedTitle.planDigest}.approval.json`), "utf8");
     const stable = (value: any): string => value === null || typeof value !== "object" ? JSON.stringify(value)
       : Array.isArray(value) ? `[${value.map(stable).join(",")}]`
       : `{${Object.entries(value).filter(([, child]) => child !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => `${JSON.stringify(key)}:${stable(child)}`).join(",")}}`;
-    legacy.planDigest = createHash("sha256").update(stable(legacy)).digest("hex");
-    legacy.evidenceDigest = createHash("sha256").update(stable(legacy)).digest("hex");
-    await writeFile(join(directory, "projects", `${legacy.planDigest}.approval.json`), JSON.stringify(legacy));
-    await assert.rejects(fontService.executeRoughCut({ ...titleRequest, approved: true, planDigest: legacy.planDigest }), /PLAN_MISMATCH.*font/i);
+    for (const legacyKind of ["font", "face"] as const) {
+      const legacy = JSON.parse(approvalRecord);
+      if (legacyKind === "font") delete legacy.titleFont;
+      else delete legacy.titleFont.face;
+      delete legacy.planDigest;
+      delete legacy.evidenceDigest;
+      legacy.planDigest = createHash("sha256").update(stable(legacy)).digest("hex");
+      legacy.evidenceDigest = createHash("sha256").update(stable(legacy)).digest("hex");
+      await writeFile(join(directory, "projects", `${legacy.planDigest}.approval.json`), JSON.stringify(legacy));
+      await assert.rejects(fontService.executeRoughCut({ ...titleRequest, approved: true, planDigest: legacy.planDigest }), /PLAN_MISMATCH.*font/i);
+    }
     await writeFile(fontPath, Buffer.concat([originalFont, Buffer.from([0])]));
     await assert.rejects(fontService.executeRoughCut({ ...titleRequest, approved: true, planDigest: approvedTitle.planDigest }), /PLAN_MISMATCH.*font/i);
     assert.equal(existsSync(request.render.outputPath), false);
@@ -211,9 +218,10 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     assert.deepEqual(proof.titleFont, preview.titleFont);
     const renderRecordPath = join(directory, "projects", `${executed.render.renderId}.json`);
     const originalRenderRecord = await readFile(renderRecordPath, "utf8");
-    for (const mutation of ["font", "renderer", "missing", "title", "revision", "render-revision", "target", "output", "verification", "verified-artifact", "failed-check", "empty-checks"] as const) {
+    for (const mutation of ["font", "face", "renderer", "missing", "title", "revision", "render-revision", "target", "output", "verification", "verified-artifact", "failed-check", "empty-checks"] as const) {
       const record = JSON.parse(originalRenderRecord);
       if (mutation === "font") record.outcome.plan.capabilities.titleFontDigest = "f".repeat(64);
+      if (mutation === "face") record.outcome.plan.capabilities.titleFontFace.family = "Different family";
       if (mutation === "renderer") {
         record.outcome.plan.renderer.version = "different";
         record.outcome.plan.capabilities.renderer.version = "different";

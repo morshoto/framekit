@@ -47,6 +47,7 @@ export interface FramekitRenderCapabilityReport {
   features: Partial<Record<FramekitRenderFeature, FramekitRenderCapabilityStatus>>;
   /** SHA-256 of the exact font bytes inspected for the requested titles. */
   titleFontDigest?: string;
+  titleFontFace?: { family: string; style: string; postscriptName: string };
 }
 
 export interface FramekitRenderPlan {
