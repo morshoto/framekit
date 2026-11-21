@@ -71,7 +71,8 @@ export class FfmpegStoryboardRenderer {
       for (const [index, sample] of samples.entries()) {
         signal?.throwIfAborted();
         const resource = resources.get(sample.mediaId)!;
-        const activeTitles = titles.filter((title) => sample.timelineSeconds >= seconds(title.startTime) && sample.timelineSeconds < seconds(title.startTime) + seconds(title.durationTime));
+        // The render provider's drawtext filter includes both endpoints.
+        const activeTitles = titles.filter((title) => sample.timelineSeconds >= seconds(title.startTime) && sample.timelineSeconds <= seconds(title.startTime) + seconds(title.durationTime));
         const filters = [`scale=${width}:${height}:force_original_aspect_ratio=disable`];
         for (const [titleIndex, title] of activeTitles.entries()) {
           if (title.style || title.position) throw new Error("HEADLESS_STORYBOARD_UNSUPPORTED: styled titles are not supported");
