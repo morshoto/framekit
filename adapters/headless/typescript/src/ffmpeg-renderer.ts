@@ -442,7 +442,9 @@ function buildFfmpegArguments(
 function addAudioMix(filters: string[], labels: string[], duration: number): string {
   if (labels.length === 1) return labels[0]!.slice(1, -1);
   const output = "audio-mix";
-  filters.push(`${labels.join("")}amix=inputs=${labels.length}:duration=longest:dropout_transition=0:normalize=0,apad,atrim=duration=${formatNumber(duration)},asetpts=PTS-STARTPTS[${output}]`);
+  // Every music input is already padded through the sequence; avoid an
+  // unbounded pad after the mix, which can stall FFmpeg under concurrency.
+  filters.push(`${labels.join("")}amix=inputs=${labels.length}:duration=longest:dropout_transition=0:normalize=0,atrim=duration=${formatNumber(duration)},asetpts=PTS-STARTPTS[${output}]`);
   return output;
 }
 
