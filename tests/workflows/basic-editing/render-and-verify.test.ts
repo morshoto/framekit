@@ -301,6 +301,11 @@ test("render verification measures decoded mix true peak", async () => {
       assert.equal(check?.passed, expected, `${name}: ${JSON.stringify(verification)}`);
       assert.equal(verification.status, expected ? "passed" : "failed");
       if (!expected) assert.match(check!.detail, /peak|gain/i);
+      if (name === "safe") {
+        const unavailable = await new FfmpegRenderVerifier({ ffmpegPath: join(directory, "missing-ffmpeg") }).verify(plan, result);
+        assert.equal(unavailable.status, "failed");
+        assert.match(unavailable.checks.find((item) => item.name === "audio-true-peak")!.detail, /could not measure/);
+      }
     }
   } finally {
     await rm(directory, { recursive: true, force: true });
