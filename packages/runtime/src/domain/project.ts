@@ -122,6 +122,8 @@ export interface StoryElement {
   attachedTo?: string;
   beforeClipId?: string;
   afterClipId?: string;
+  /** Explicitly identified transition semantics, when supplied by a provider. */
+  transitionKind?: "cross-dissolve";
   position?: PictureInPicturePosition;
   scale?: number;
   crop?: PictureInPictureCrop;

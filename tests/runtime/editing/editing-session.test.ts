@@ -216,3 +216,41 @@ test("can construct an IR from a canonical snapshot without leaking editor types
   assert.equal(ir.resources[0]?.source, "/media/opening.mov");
   assert.equal("clips" in ir.sequence, false);
 });
+
+
+test("canonical dissolve recovery rejects invalid provider readback", () => {
+  const source = {
+    projectId: "p", projectName: "P", revision: { id: "r", sequence: 0, timestamp: "2026-01-01T00:00:00.000Z" },
+    timeline: { id: "s", name: "S", duration: 4, durationTime: { value: "4", timescale: "1" }, frameDuration: { value: "1", timescale: "30" },
+      clips: [
+        { id: "a", name: "A", mediaId: "m", start: 0, duration: 1.75, track: 0, startTime: { value: "0", timescale: "1" }, durationTime: { value: "53", timescale: "30" }, sourceStartTime: { value: "1", timescale: "1" } },
+        { id: "b", name: "B", mediaId: "m", start: 1.75, duration: 2.25, track: 0, startTime: { value: "53", timescale: "30" }, durationTime: { value: "67", timescale: "30" }, sourceStartTime: { value: "113", timescale: "30" } },
+      ],
+      storyElements: [{ id: "t", kind: "transition", transitionKind: "cross-dissolve" as const, beforeClipId: "a", afterClipId: "b", start: 1.5, duration: 0.5, startTime: { value: "3", timescale: "2" }, durationTime: { value: "1", timescale: "2" } }], markers: [], captions: [],
+    },
+    media: [{ mediaId: "m", source: "/media/source.mov", mediaKind: "video" as const }],
+  };
+  const result = createTimelineIrFromProjectSnapshot(source);
+  assert.deepEqual(result.sequence.occurrences[1]!.sourceStartTime, { value: "4", timescale: "1" });
+  assert.equal(result.sequence.transitions?.[0]?.afterOccurrenceId, "b");
+  const fractional = structuredClone(source);
+  fractional.timeline.frameDuration = { value: "1001", timescale: "30000" };
+  fractional.timeline.clips[0]!.durationTime = { value: "53053", timescale: "30000" };
+  fractional.timeline.clips[1]!.startTime = { value: "53053", timescale: "30000" };
+  fractional.timeline.clips[1]!.durationTime = { value: "67067", timescale: "30000" };
+  fractional.timeline.clips[1]!.sourceStartTime = { value: "83083", timescale: "30000" };
+  fractional.timeline.storyElements[0]!.startTime = { value: "3003", timescale: "2000" };
+  fractional.timeline.storyElements[0]!.durationTime = { value: "1001", timescale: "2000" };
+  const recovered = createTimelineIrFromProjectSnapshot(fractional);
+  assert.deepEqual(recovered.sequence.occurrences[1]!.startTime, { value: "1001", timescale: "500" });
+  assert.deepEqual(recovered.sequence.occurrences[1]!.sourceStartTime, { value: "3003", timescale: "1000" });
+  assert.deepEqual(recovered.sequence.occurrences[1]!.durationTime, { value: "1001", timescale: "500" });
+  for (const mutation of ["negative-source", "audio-endpoint", "overlap-before", "missing-source"] as const) {
+    const invalid = structuredClone(source);
+    if (mutation === "negative-source") invalid.timeline.clips[1]!.sourceStartTime = { value: "-1", timescale: "1" };
+    if (mutation === "audio-endpoint") Object.assign(invalid.timeline.clips[0]!, { role: "music" });
+    if (mutation === "overlap-before") invalid.timeline.clips[0]!.startTime = { value: "7", timescale: "4" };
+    if (mutation === "missing-source") delete (invalid.timeline.clips[1]! as { sourceStartTime?: unknown }).sourceStartTime;
+    assert.throws(() => createTimelineIrFromProjectSnapshot(invalid), /TIMELINE_IR_.*transition/i, mutation);
+  }
+});

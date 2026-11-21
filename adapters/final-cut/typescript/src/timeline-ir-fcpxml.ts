@@ -1,3 +1,4 @@
+import { planFcpxmlDissolve } from "./fcpxml-transition-plan.js";
 import { createHash } from "node:crypto";
 import { isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -9,6 +10,9 @@ import type {
 import { timelineIrDigest, validateTimelineIr } from "@framekit/runtime";
 
 export const FRAMEKIT_FCPXML_VERSION = "1.11" as const;
+const AUDIO_CROSSFADE_EFFECT_ID = "effect-audio-crossfade";
+const CROSS_DISSOLVE_EFFECT_ID = "effect-cross-dissolve";
+const CROSS_DISSOLVE_EFFECT_UID = "FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265";
 const BASIC_TITLE_EFFECT_ID = "effect-basic-title";
 const AUDIO_FORMAT_ID = "format-audio";
 const BASIC_TITLE_EFFECT_UID = ".../Titles.localized/Bumper:Opener.localized/Basic Title.localized/Basic Title.moti";
@@ -74,7 +78,7 @@ export interface TimelineIrToFcpxmlResult {
 
 interface RenderableElement {
   id: string;
-  kind: "asset-clip" | "gap" | "title" | "marker" | "caption";
+  kind: "asset-clip" | "gap" | "title" | "marker" | "caption" | "transition";
   startTime: { value: string; timescale: string };
   durationTime: { value: string; timescale: string };
   lane?: number;
@@ -89,6 +93,8 @@ interface RenderableElement {
   text?: string;
   frameAlignmentAdjusted?: boolean;
   sourceRangeAdjusted?: boolean;
+  beforeId?: string;
+  afterId?: string;
 }
 
 /**
@@ -117,6 +123,7 @@ export function compileTimelineIrToFcpxml(
     throw new Error(`FCPXML_UNSUPPORTED_TIMELINE_FEATURE: ${unsupported.join(", ")}`);
   }
   const destination = resolveDestination(timeline, options.target);
+  const dissolve = timeline.sequence.transitions?.length ? planFcpxmlDissolve(timeline) : undefined;
 
   const resourceIds = createResourceIds(timeline);
   const resourceNames = uniqueResourceNames(timeline);
@@ -126,6 +133,25 @@ export function compileTimelineIrToFcpxml(
     timeline.sequence.frameDuration,
     new Set(resources.filter(({ mediaKind }) => mediaKind === "audio").map(({ id }) => resourceIds.get(id)!)),
   );
+  if (dissolve) {
+    const before = elements.find((element) => element.id === dissolve.beforeId);
+    const after = elements.find((element) => element.id === dissolve.afterId);
+    if (!before || before.kind !== "asset-clip" || before.parentId !== undefined) throw new Error("FCPXML_DISSOLVE_ADJACENCY: outgoing clip is not a primary asset");
+    before.durationTime = dissolve.beforeDurationTime;
+    if (!after || after.kind !== "asset-clip" || after.parentId !== undefined) throw new Error("FCPXML_DISSOLVE_ADJACENCY: incoming clip is not a primary asset");
+    after.startTime = dissolve.afterStartTime;
+    after.sourceStartTime = dissolve.afterSourceStartTime;
+    after.durationTime = dissolve.afterDurationTime;
+    const afterEnd = addExactTimes(after.startTime, after.durationTime);
+    for (const element of elements) {
+      if (element.kind !== "title" || element.parentId !== dissolve.beforeId) continue;
+      const end = addExactTimes(element.startTime, element.durationTime);
+      if (compareExactTimes(element.startTime, dissolve.startTime) >= 0 && compareExactTimes(end, afterEnd) <= 0) {
+        element.parentId = after.id;
+      }
+    }
+    elements.push({ id: dissolve.id, kind: "transition", startTime: dissolve.startTime, durationTime: dissolve.durationTime, name: "Cross Dissolve", resourceId: CROSS_DISSOLVE_EFFECT_ID, beforeId: dissolve.beforeId, afterId: dissolve.afterId });
+  }
   const sourceBounds = new Map(resources.filter((resource) => resource.sourceRange).map((resource) => [resourceIds.get(resource.id)!, resource.sourceRange!]));
   for (const element of elements) {
     if (element.kind !== "asset-clip" || !element.resourceId) continue;
@@ -164,6 +190,10 @@ export function compileTimelineIrToFcpxml(
     ...(timeline.sequence.titles?.length
       ? [`    <effect id="${BASIC_TITLE_EFFECT_ID}" name="Basic Title" uid="${BASIC_TITLE_EFFECT_UID}" />`]
       : []),
+    ...(dissolve ? [
+      `    <effect id="${CROSS_DISSOLVE_EFFECT_ID}" name="Cross Dissolve" uid="${CROSS_DISSOLVE_EFFECT_UID}" />`,
+      `    <effect id="${AUDIO_CROSSFADE_EFFECT_ID}" name="Audio Crossfade" uid="FFAudioTransition" />`,
+    ] : []),
     ...resources.map((resource) => renderResource(resource, resourceIds.get(resource.id)!, resourceNames.get(resource.id)!)),
     "  </resources>",
     "  <library>",
@@ -217,7 +247,6 @@ function unsupportedFeatures(timeline: TimelineIr): string[] {
   if (timeline.sequence.titles?.some(({ style, position }) => style !== undefined || position !== undefined)) {
     unsupported.add("styled-or-positioned-titles");
   }
-  if (timeline.sequence.transitions?.length) unsupported.add("transitions");
   for (const occurrence of timeline.sequence.occurrences) {
     if (occurrence.transform !== undefined) unsupported.add("transforms");
     if (occurrence.fadeIn !== undefined || occurrence.fadeOut !== undefined) unsupported.add("audio-fades");
@@ -248,6 +277,10 @@ function materializationCoverage(
     degraded.add("video-edit-frame-rounding");
   }
   if (elements.some(({ sourceRangeAdjusted }) => sourceRangeAdjusted)) exact.delete("source-ranges");
+  if (timeline.sequence.transitions?.length) {
+    exact.delete("source-ranges");
+    degraded.add("transition-audio-and-roundtrip-unverified");
+  }
   if (elements.some(({ parentId }) => parentId !== undefined)) exact.add("connected-elements");
   if (timeline.sequence.occurrences.some(({ role }) => role !== undefined)) exact.add("roles");
   if (timeline.sequence.occurrences.some(({ gainDb }) => gainDb !== undefined)) exact.add("gain");
@@ -613,6 +646,10 @@ function renderElements(elements: RenderableElement[]): string[] {
   }
   for (const siblings of byParent.values()) {
     siblings.sort((left, right) => {
+      if (compareExactTimes(left.startTime, right.startTime) === 0 && left.kind !== right.kind) {
+        if (left.kind === "transition") return -1;
+        if (right.kind === "transition") return 1;
+      }
       if (left.kind === "marker" && right.kind !== "marker") return 1;
       if (right.kind === "marker" && left.kind !== "marker") return -1;
       return compareTimedItems(left, right);
@@ -629,12 +666,14 @@ function renderElements(elements: RenderableElement[]): string[] {
         ? { value: "0", timescale: "1" }
         : parentElement?.startTime;
       if (!parentStartTime) throw new Error(`FCPXML_ATTACHMENT_TARGET_NOT_FOUND: ${element.id} -> ${element.parentId}`);
-      const localStartTime = subtractRational(element.startTime, parentStartTime, `${element.id}.startTime`);
-      const offsetTime = parentElement?.kind === "asset-clip"
+      const sourceRelative = parentElement?.kind === "asset-clip"
         && (element.kind === "title" || element.kind === "caption" || element.kind === "marker" || element.role === "music")
-        && parentElement.sourceStartTime !== undefined
-        ? addExactTimes(localStartTime, parentElement.sourceStartTime)
-        : localStartTime;
+        && parentElement.sourceStartTime !== undefined;
+      const offsetTime = subtractRational(
+        sourceRelative ? addExactTimes(element.startTime, parentElement.sourceStartTime!) : element.startTime,
+        parentStartTime,
+        `${element.id}.startTime`,
+      );
       const attributes = element.kind === "asset-clip"
         ? [
             `ref="${xmlEscape(element.resourceId!)}"`,
@@ -671,6 +710,19 @@ function renderElements(elements: RenderableElement[]): string[] {
               `offset="${formatRational(offsetTime, `${element.id}.startTime`)}"`,
               `duration="${formatRational(element.durationTime, `${element.id}.durationTime`)}"`,
             ];
+      if (element.kind === "transition") {
+        lines.push(`${indent}<transition name="Cross Dissolve" offset="${formatRational(offsetTime, `${element.id}.startTime`)}" duration="${formatRational(element.durationTime, `${element.id}.durationTime`)}">`);
+        lines.push(`${indent}  <filter-video ref="${CROSS_DISSOLVE_EFFECT_ID}" name="Cross Dissolve">`);
+        lines.push(`${indent}    <param name="Look" key="1" value="11 (Video)" />`);
+        lines.push(`${indent}    <param name="Amount" key="2" value="50" />`);
+        lines.push(`${indent}    <param name="Ease" key="50" value="2 (In &amp; Out)" />`);
+        lines.push(`${indent}    <param name="Ease Amount" key="51" value="0" />`);
+        lines.push(`${indent}  </filter-video>`);
+        lines.push(`${indent}  <filter-audio ref="${AUDIO_CROSSFADE_EFFECT_ID}" name="Audio Crossfade" />`);
+        lines.push(`${indent}  <metadata><md key="com.framekit.id" value="${xmlEscape(element.id)}" /><md key="com.framekit.transition-kind" value="cross-dissolve" /><md key="com.framekit.before" value="${xmlEscape(element.beforeId!)}" /><md key="com.framekit.after" value="${xmlEscape(element.afterId!)}" /></metadata>`);
+        lines.push(`${indent}</transition>`);
+        continue;
+      }
       if (element.kind === "marker") {
         lines.push(`${indent}<marker ${attributes.join(" ")} />`);
         continue;
