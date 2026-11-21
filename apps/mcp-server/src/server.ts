@@ -1442,11 +1442,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     title: z.object({
       id: z.string().min(1), text: z.string().min(1),
       startTime: rationalTimeSchema, durationTime: rationalTimeSchema,
-    }).strict(),
+    }).strict().optional(),
     music: z.object({
       id: z.string().min(1), mediaId: z.string().min(1), sourceStartTime: rationalTimeSchema,
       startTime: rationalTimeSchema, durationTime: rationalTimeSchema, gainDb: z.number().finite(),
-    }).strict(),
+    }).strict().optional(),
   }).strict();
   server.registerTool("headless.edit-json.preview", {
     description: "Preview a versioned external edit against a Framekit project without mutation.",
