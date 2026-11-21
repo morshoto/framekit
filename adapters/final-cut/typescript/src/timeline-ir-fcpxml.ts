@@ -140,6 +140,14 @@ export function compileTimelineIrToFcpxml(
     after.startTime = dissolve.startTime;
     after.sourceStartTime = dissolve.afterSourceStartTime;
     after.durationTime = dissolve.afterDurationTime;
+    const afterEnd = addExactTimes(after.startTime, after.durationTime);
+    for (const element of elements) {
+      if (element.kind !== "title" || element.parentId !== dissolve.beforeId) continue;
+      const end = addExactTimes(element.startTime, element.durationTime);
+      if (compareExactTimes(element.startTime, after.startTime) >= 0 && compareExactTimes(end, afterEnd) <= 0) {
+        element.parentId = after.id;
+      }
+    }
     elements.push({ id: dissolve.id, kind: "transition", startTime: dissolve.startTime, durationTime: dissolve.durationTime, name: "Cross Dissolve", resourceId: CROSS_DISSOLVE_EFFECT_ID, beforeId: dissolve.beforeId, afterId: dissolve.afterId });
   }
   const sourceBounds = new Map(resources.filter((resource) => resource.sourceRange).map((resource) => [resourceIds.get(resource.id)!, resource.sourceRange!]));
