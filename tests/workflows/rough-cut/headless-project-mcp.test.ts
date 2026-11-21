@@ -133,6 +133,18 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
       verifier: new FfmpegRenderVerifier(),
     });
     await assert.rejects(missingFont.previewRoughCut(request), /RENDER_CAPABILITY_UNAVAILABLE.*titles/);
+    const noRenderer = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: new FfmpegMediaMetadataProbe() });
+    await assert.rejects(noRenderer.previewRoughCut(request), /RENDER_UNAVAILABLE.*title/);
+    const fontPath = join(directory, "selected.otf");
+    await writeFile(fontPath, Buffer.from(await readFile("tests/fixtures/fonts/noto-sans-jp-test.otf.base64", "utf8"), "base64"));
+    const fontService = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: new FfmpegMediaMetadataProbe(), renderer: new FfmpegTimelineRenderer({ env: { FRAMEKIT_RENDER_FONT: fontPath } }), verifier: new FfmpegRenderVerifier() });
+    const titleRequest = { ...request, operations: request.operations.map((operation) => operation.type === "add-title" ? { ...operation, title: { ...operation.title, text: "A日" } } : operation) };
+    const unsupportedTitle = { ...titleRequest, operations: titleRequest.operations.map((operation) => operation.type === "add-title" ? { ...operation, title: { ...operation.title, text: "A\u{10ffff}" } } : operation) };
+    await assert.rejects(fontService.previewRoughCut(unsupportedTitle), /RENDER_CAPABILITY_UNAVAILABLE.*titles/);
+    const approvedTitle = await fontService.previewRoughCut(titleRequest);
+    await rm(fontPath);
+    await assert.rejects(fontService.executeRoughCut({ ...titleRequest, approved: true, planDigest: approvedTitle.planDigest }), /HEADLESS_ROUGH_CUT_RENDER_FAILED/);
+    assert.equal(existsSync(request.render.outputPath), false);
     assert.deepEqual((await service.open(created.timeline.project.id)).timeline.revision, revision);
     const directTimeline = structuredClone((await service.open(created.timeline.project.id)).timeline);
     directTimeline.project.id = "direct-dissolve-check";
