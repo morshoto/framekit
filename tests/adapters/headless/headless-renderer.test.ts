@@ -910,6 +910,21 @@ test("FFmpeg renders both occurrences that reuse one music resource", async () =
     const firstTone = frequencyAmplitude(interval(0.4, 0.6), 1_760, 48_000);
     const secondTone = frequencyAmplitude(interval(1.4, 1.6), 2_200, 48_000);
     assert.ok(firstTone > 0.002 && secondTone > 0.002, "both trimmed source ranges must be audible");
+    // The source sine amplitude is 0.125; frequencyAmplitude returns half
+    // the peak amplitude. Include the supported mono channel attenuation.
+    const fixtureTone = 0.125 * 0.5 * Math.SQRT1_2;
+    for (const [observed, gainDb] of [[firstTone, -6], [secondTone, -12]] as const) {
+      const expected = fixtureTone * 10 ** (gainDb / 20);
+      assert.ok(Math.abs(20 * Math.log10(observed / expected)) <= 1, `music at ${gainDb} dB: ${observed} versus ${expected}`);
+    }
+    const red = frequencyAmplitude(interval(0.4, 0.6), 440, 48_000);
+    const blue = frequencyAmplitude(interval(1.4, 1.6), 880, 48_000);
+    // Video fixture audio is an AAC-encoded 0.125-amplitude sine with the
+    // first source at +6 dB and the second at its original gain.
+    for (const [observed, gainDb] of [[red, 6], [blue, 0]] as const) {
+      const expected = fixtureTone * 10 ** (gainDb / 20);
+      assert.ok(Math.abs(20 * Math.log10(observed / expected)) <= 1, `source at ${gainDb} dB: ${observed} versus ${expected}`);
+    }
     assert.ok(Math.abs(secondTone / firstTone - 10 ** (-6 / 20)) < 0.08, `independent -6 dB gain difference: ${secondTone / firstTone}`);
     assert.ok(frequencyAmplitude(interval(0.8, 1.0), 1_760, 48_000) < firstTone * 0.05, "first tone must stop in the gap");
     assert.ok(frequencyAmplitude(interval(0.8, 1.0), 2_200, 48_000) < secondTone * 0.05, "second tone must not start in the gap");
