@@ -639,6 +639,34 @@ test("FFmpeg renders both occurrences that reuse one music resource", async () =
     const secondAmplitude = frequencyAmplitude(window(1), 2_200, 48_000);
     assert.ok(firstAmplitude > 0.002, `first occurrence should be audible, got ${firstAmplitude}`);
     assert.ok(secondAmplitude > 0.002, `reused second occurrence should be audible, got first=${firstAmplitude}, second=${secondAmplitude}`);
+
+    // Two trimmed uses of the same asset, separated by a gap, must keep
+    // their own source offsets and gains rather than sharing playback state.
+    const sourceDigest = await digest(musicPath);
+    const trimmed = structuredClone(source);
+    const first = trimmed.sequence.occurrences.find((item) => item.id === "music-0")!;
+    const second = trimmed.sequence.occurrences.find((item) => item.id === "music-1")!;
+    first.startTime = { value: "1", timescale: "3" };
+    first.sourceStartTime = { value: "1", timescale: "3" };
+    first.durationTime = { value: "1", timescale: "3" };
+    first.gainDb = -6;
+    second.startTime = { value: "4", timescale: "3" };
+    second.sourceStartTime = { value: "4", timescale: "3" };
+    second.durationTime = { value: "1", timescale: "3" };
+    second.gainDb = -12;
+    const trimmedOutput = join(directory, "trimmed-reused-music.mp4");
+    const trimmedRequest = createFramekitRenderRequest({ timeline: trimmed, target: { projectId: trimmed.project.id, sequenceId: trimmed.sequence.id }, parameters: parameters(trimmedOutput) });
+    await renderer.render(createFramekitRenderPlan(trimmedRequest, renderer.capabilities(trimmedRequest)));
+    const trimmedPcm = await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-i", trimmedOutput, "-vn", "-ac", "1", "-ar", "48000", "-f", "f32le", "pipe:1"], { encoding: "buffer", maxBuffer: 2 * 1024 * 1024 });
+    const trimmedSamples = trimmedPcm.stdout as unknown as Buffer;
+    const interval = (start: number, end: number) => trimmedSamples.subarray(Math.round(start * 48_000) * 4, Math.round(end * 48_000) * 4);
+    const firstTone = frequencyAmplitude(interval(0.4, 0.6), 1_760, 48_000);
+    const secondTone = frequencyAmplitude(interval(1.4, 1.6), 2_200, 48_000);
+    assert.ok(firstTone > 0.002 && secondTone > 0.002, "both trimmed source ranges must be audible");
+    assert.ok(Math.abs(secondTone / firstTone - 10 ** (-6 / 20)) < 0.08, `independent -6 dB gain difference: ${secondTone / firstTone}`);
+    assert.ok(frequencyAmplitude(interval(0.8, 1.0), 1_760, 48_000) < firstTone * 0.05, "first tone must stop in the gap");
+    assert.ok(frequencyAmplitude(interval(0.8, 1.0), 2_200, 48_000) < secondTone * 0.05, "second tone must not start in the gap");
+    assert.equal(await digest(musicPath), sourceDigest, "rendering trimmed occurrences must not modify the source");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
