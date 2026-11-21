@@ -207,6 +207,7 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     assert.match(preview.storyboardUnavailable!, /HEADLESS_STORYBOARD_UNSUPPORTED/);
     assert.match(preview.planDigest, /^[a-f0-9]{64}$/);
     assert.equal(preview.after.timeline.sequence.transitions?.[0]?.id, "fade");
+    assert.ok(preview.fcpxml.coverage.degraded.includes("native-title-font-availability-unverified"));
     const changed = { ...request, operations: [{ ...request.operations[0]!, transition: { ...request.operations[0]!.transition!, durationTime: { value: "1", timescale: "10" } } }, ...request.operations.slice(1)] };
     await assert.rejects(service.executeRoughCut({ ...changed, approved: true, planDigest: preview.planDigest }), /PLAN_MISMATCH/);
     const executed = await service.executeRoughCut({ ...request, approved: true, planDigest: preview.planDigest });
@@ -255,7 +256,9 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     assert.match(xml, /<filter-video ref="effect-cross-dissolve"/);
     assert.match(xml, /<filter-audio ref="effect-audio-crossfade"/);
     assert.match(xml, /name="Music"/);
-    assert.match(xml, /<text>FADE<\/text>/);
+    assert.match(xml, /<text><text-style ref="title-style-1">FADE<\/text-style><\/text>/);
+    assert.ok(xml.includes(`font="${preview.titleFont!.face.family}" fontFace="${preview.titleFont!.face.style}"`));
+    assert.ok(xml.includes(`key="com.framekit.title-font-sha256" value="${preview.titleFont!.digest}"`));
     const readback = await new FcpxmlDocumentAdapter(request.fcpxml.path).readProject();
     const recovered = createTimelineIrFromProjectSnapshot(readback);
     assert.deepEqual(recovered.sequence.transitions, preview.after.timeline.sequence.transitions);
