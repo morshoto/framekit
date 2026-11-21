@@ -65,7 +65,7 @@ export class FfmpegRenderVerifier implements FramekitRenderArtifactVerifier {
       if ((error as NodeJS.ErrnoException).code === "ENOENT" || (error instanceof Error && /spawn ffprobe ENOENT/.test(error.message))) {
         return unavailable("DEPENDENCY_MISSING: ffprobe is required; install FFmpeg and ensure ffprobe is on PATH", "DEPENDENCY_MISSING");
       }
-      return failed(checks, error instanceof Error ? error.message : String(error), "RENDER_OUTPUT_UNPLAYABLE");
+      return failed(checks, "could not inspect rendered output; check the media and FFmpeg installation", "RENDER_OUTPUT_UNPLAYABLE");
     }
     if (probe.streams.some((stream) => stream.codec_type === "audio")) {
       try {

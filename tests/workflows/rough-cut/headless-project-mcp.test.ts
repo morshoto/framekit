@@ -371,6 +371,25 @@ test("production MCP exports an edited headless project as FCPXML without a roug
     const created = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: emptyTimeline() } }));
     const projectId = created.timeline.project.id;
     const sequenceId = created.timeline.sequence.id;
+    const corrupt = join(directory, "corrupt.mp4");
+    await writeFile(corrupt, "truncated media");
+    const corruptResult = await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: corrupt, expectedRevision: created.timeline.revision } });
+    const corruptError = JSON.parse(toolErrorText(corruptResult));
+    assert.equal(corruptError.code, "MEDIA_PROBE_FAILED");
+    assert.doesNotMatch(corruptError.message, /Command failed|ffprobe -v/);
+    const missingEnvironment = { ...environment, FRAMEKIT_STATE_DIR: join(directory, "missing-probe-state"), FFPROBE_BIN: join(directory, "missing-ffprobe") };
+    const missingClient = await connectProductionClient(here, missingEnvironment);
+    try {
+      const missingProject = payload(await missingClient.client.callTool({ name: "headless.project.create", arguments: { timeline: emptyTimeline() } }));
+      const missingResult = await missingClient.client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: corrupt, expectedRevision: missingProject.timeline.revision } });
+      const missingError = JSON.parse(toolErrorText(missingResult));
+      assert.equal(missingError.code, "DEPENDENCY_MISSING");
+      assert.match(missingError.message, /ffprobe.*install/i);
+      assert.doesNotMatch(missingError.message, /ENOENT|spawn/);
+    } finally {
+      await missingClient.client.close();
+      await missingClient.transport.close();
+    }
     const media = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath, expectedRevision: created.timeline.revision } }));
     const edit = payload(await client.callTool({ name: "headless.edit.execute", arguments: {
       projectId, sequenceId, expectedRevision: media.project.timeline.revision,

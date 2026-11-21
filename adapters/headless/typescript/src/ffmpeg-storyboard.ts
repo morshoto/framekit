@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, type ExecFileOptions } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { lstat, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -8,7 +8,16 @@ import { promisify } from "node:util";
 import type { TimelineIr } from "@framekit/runtime";
 import { escapeFilterValue, resolveFontFile } from "./ffmpeg-renderer.js";
 
-const run = promisify(execFile);
+const execFileAsync = promisify(execFile);
+async function run(file: string, args: string[], options: ExecFileOptions): Promise<void> {
+  try {
+    await execFileAsync(file, args, options);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new Error("DEPENDENCY_MISSING: ffmpeg is required; install FFmpeg and ensure ffmpeg is on PATH", { cause: error });
+    if ((error as Error).name === "AbortError") throw error;
+    throw new Error("HEADLESS_STORYBOARD_FAILED: FFmpeg could not create the storyboard; check the media and FFmpeg installation", { cause: error });
+  }
+}
 const MAX_SAMPLES = 12;
 const MAX_WIDTH = 640;
 const MAX_HEIGHT = 360;
