@@ -1599,6 +1599,26 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     assert.equal(typeof (resumedAfterPreview as any).verifyPublishableRoughCut, "function");
     const executionId = (executed as any).executionId as string;
     const proof = await resumedAfterPreview.verifyPublishableRoughCut(executionId, request.fcpxml.path);
+    // A legacy execution can refer to a project that predates connected-audio
+    // stream-bound checks. Publication must not issue proof for that state.
+    const legacyProofProject = await resumedAfterPreview.open(created.timeline.project.id);
+    const legacyResource = structuredClone(legacyProofProject.timeline.resources[0]!);
+    legacyResource.id = "legacy-unverified-audio";
+    legacyResource.mediaKind = "audio";
+    legacyResource.metadata = { durationTime: { value: "2", timescale: "1" }, streams: [{ kind: "audio", sampleRate: 48000, channels: 1 }] };
+    legacyProofProject.timeline.resources.push(legacyResource);
+    legacyProofProject.timeline.sequence.occurrences.push({ id: "legacy-music", name: "Legacy", mediaId: legacyResource.id,
+      startTime: { value: "0", timescale: "1" }, sourceStartTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" }, track: 1, role: "music" });
+    const originalOpen = resumedAfterPreview.open;
+    resumedAfterPreview.open = async () => structuredClone(legacyProofProject);
+    try {
+      await assert.rejects(resumedAfterPreview.verifyPublishableRoughCut(executionId, request.fcpxml.path), /audio stream bounds/);
+      // Plausible but fabricated bounds must not turn an unobserved source into proof.
+      legacyResource.metadata!.streams[0]!.sourceRange = { start: { value: "0", timescale: "1" }, duration: { value: "2", timescale: "1" } };
+      await assert.rejects(resumedAfterPreview.verifyPublishableRoughCut(executionId, request.fcpxml.path), /MEDIA_METADATA_CHANGED/);
+    } finally {
+      resumedAfterPreview.open = originalOpen;
+    }
     assert.equal(proof.sourceRevision.id, plan.revision.id);
     assert.equal(proof.canonicalRevision.id, executed.after.timeline.revision.id);
     assert.equal(proof.planDigest, preview.planDigest);

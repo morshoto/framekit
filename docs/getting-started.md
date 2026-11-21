@@ -177,11 +177,11 @@ because XML would normalize them.
 
 New or changed local connected audio in headless edits requires exactly one audio
 stream with verified bounds covering the requested source range. Rough-cut output,
-FCPXML export and headless rendering require those bounds for all local connected
-audio. Files with ambiguous streams or unavailable bounds are rejected. Framekit
-re-probes referenced connected audio and rejects metadata that differs from the
-registered source. Older registrations without stream bounds need to be
-registered in a new project. Music `gainDb` must be between -60 and +12 dB
+FCPXML export, headless rendering and publication proof require those bounds for
+all local connected audio. Files with ambiguous streams or unavailable bounds are
+rejected. Framekit re-probes referenced connected audio and rejects metadata that
+differs from the registered source. Older registrations without stream bounds
+need to be registered in a new project. Music `gainDb` must be between -60 and +12 dB
 inclusive. This bound does not guarantee that the combined audio mix avoids
 clipping.
 
