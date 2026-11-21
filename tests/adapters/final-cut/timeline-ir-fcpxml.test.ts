@@ -61,7 +61,7 @@ function timeline(): TimelineIr {
       metadata: {
         durationTime: { value: "24", timescale: "1" },
         streams: [
-          { kind: "video", width: 1280, height: 720, frameRate: { value: "24", timescale: "1" } },
+          { kind: "video", width: 1280, height: 720, frameRate: { value: "24", timescale: "1" }, color: { primaries: "bt709", transfer: "bt709", matrix: "bt709", range: "tv" } },
           { kind: "audio", channels: 2, sampleRate: 48000 },
         ],
       },
@@ -98,6 +98,12 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
 
   const plan = planFcpxmlDissolve(value);
   assert.deepEqual(plan, { id: "dissolve", beforeId: "before", afterId: "after", startTime: { value: "3", timescale: "2" }, durationTime: { value: "1", timescale: "2" }, beforeDurationTime: { value: "53", timescale: "30" }, afterStartTime: { value: "53", timescale: "30" }, afterSourceStartTime: { value: "113", timescale: "30" }, afterDurationTime: { value: "67", timescale: "30" } });
+  const unknownColor = structuredClone(value);
+  delete unknownColor.resources[0]!.metadata!.streams[0]!.color;
+  assert.throws(() => planFcpxmlDissolve(unknownColor), /FCPXML_DISSOLVE_COLOR_UNSUPPORTED/);
+  const wideColor = structuredClone(value);
+  wideColor.resources[0]!.metadata!.streams[0]!.color!.primaries = "bt2020";
+  assert.throws(() => planFcpxmlDissolve(wideColor), /FCPXML_DISSOLVE_COLOR_UNSUPPORTED/);
   const tooShort = structuredClone(value);
   tooShort.sequence.occurrences[1]!.durationTime = { value: "3", timescale: "10" };
   assert.throws(() => planFcpxmlDissolve(tooShort), /FCPXML_DISSOLVE_DURATION/);
