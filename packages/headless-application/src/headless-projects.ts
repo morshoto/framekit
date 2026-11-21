@@ -1023,6 +1023,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     transaction = new ProjectTransactionService(this.snapshotStore(request.projectId, prepared.project), { clock: () => timestamp }),
   ): Promise<{ preview: ProjectEditPreview; fcpxml: TimelineIrToFcpxmlResult }> {
     const rawPreview = await transaction.preview(prepared.command);
+    verifyChangedMusicBounds(rawPreview);
     const canonicalRevision: ContextRevision = {
       id: `ir:${timelineIrDigest(rawPreview.after.timeline)}`,
       sequence: rawPreview.before.timeline.revision.sequence + 1,
