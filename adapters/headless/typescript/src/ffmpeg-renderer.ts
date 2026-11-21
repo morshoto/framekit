@@ -469,13 +469,28 @@ function addVideoComposition(
     const offset = rationalSeconds(model.occurrences[0]!.durationTime, "transition offset") - duration;
     if (offset < 0) throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", "transition duration exceeds the first occurrence duration");
     const output = "video-xfade";
-    filters.push(`${labels[0]}${labels[1]}xfade=transition=fade:duration=${formatNumber(duration)}:offset=${formatNumber(offset)}[${output}]`);
+    if (hasBt709Video(model)) {
+      const phase = rationalSeconds(model.timeline.sequence.frameDuration, "frame duration") / (2 * duration);
+      for (const [index, label] of labels.entries()) {
+        filters.push(`${label}zscale=transfer=linear:npl=100,format=gbrp16le[linear-${index}]`);
+      }
+      filters.push(`[linear-0][linear-1]xfade=transition=custom:duration=${formatNumber(duration)}:offset=${formatNumber(offset)}:expr='A*max(0,P-${formatNumber(phase)})+B*min(1,1-P+${formatNumber(phase)})',zscale=transfer=bt709:matrix=bt709:primaries=bt709,format=yuv420p[${output}]`);
+    } else {
+      filters.push(`${labels[0]}${labels[1]}xfade=transition=fade:duration=${formatNumber(duration)}:offset=${formatNumber(offset)}[${output}]`);
+    }
     filters.push(`[${output}]null[${output}-padded]`);
     return `${output}-padded`;
   }
   const output = "video-concat";
   filters.push(`${labels.join("")}concat=n=${labels.length}:v=1:a=0[${output}]`);
   return output;
+}
+
+function hasBt709Video(model: RenderModel): boolean {
+  return model.occurrences.every((occurrence) => {
+    const color = model.resources.get(occurrence.mediaId!)?.metadata?.streams.find((stream) => stream.kind === "video")?.color;
+    return color?.primaries === "bt709" && color.transfer === "bt709" && color.matrix === "bt709" && color.range === "tv";
+  });
 }
 
 function addAudioComposition(
