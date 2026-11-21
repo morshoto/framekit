@@ -57,8 +57,21 @@ export function evaluateExportMeasurements(observed: ExportMeasurements) {
 }
 
 
+/** Check the independently specified v2 color order and 15-frame black tail. */
+export function evaluateRevisedExportMeasurements(observed: ExportMeasurements) {
+  const color = (rgb: number[], channel: number) => rgb.length === 3 && rgb.every((v) => Number.isFinite(v) && v >= 0 && v <= 255)
+    && (channel === -1 ? rgb.every((v) => v < 40) : rgb[channel]! > 140 && rgb.every((v, i) => i === channel || rgb[channel]! - v > 100));
+  const samples = [[0.5, 2], [1.5, 0], [2.25, 1], [2.75, -1]];
+  const boundaries = [[29, 2], [30, 0], [59, 0], [60, 1], [74, 1], [75, -1]];
+  const duration = Number.isFinite(observed.durationSeconds) && Math.abs(observed.durationSeconds - 3) <= 0.05 && observed.frameCount === 90 && observed.frameRate === "30/1";
+  const video = observed.samples.length === samples.length && observed.samples.every((s, i) => Math.abs(s.timeSeconds - samples[i]![0]!) < 0.001 && color(s.rgb, samples[i]![1]!))
+    && observed.boundarySamples.length === boundaries.length && observed.boundarySamples.every((s, i) => s.frameNumber === boundaries[i]![0] && color(s.rgb, boundaries[i]![1]!));
+  const audio = observed.toneAmplitudes.length === 4 && observed.toneAmplitudes.every((v) => Number.isFinite(v) && v >= 0.002 && v <= 0.2);
+  return { status: duration && video && audio ? "PASS" as const : "FAIL" as const, checks: { duration, video, audio }, nativeImport: "UNVERIFIED" as const, titleEditability: "UNVERIFIED" as const, finalCutProvenance: "UNVERIFIED" as const };
+}
+
 /** Decode independent output measurements; this never establishes native provenance. */
-export async function measureExport(path: string): Promise<ExportMeasurements> {
+export async function measureExport(path: string, version: "original" | "revised" = "original"): Promise<ExportMeasurements> {
   const ffprobe = process.env.FFPROBE_BIN || "ffprobe";
   const ffmpeg = process.env.FFMPEG_BIN || "ffmpeg";
   const probe = JSON.parse((await run(ffprobe, ["-v", "error", "-count_frames", "-show_entries", "format=duration:stream=codec_type,avg_frame_rate,nb_read_frames", "-of", "json", path])).stdout) as {
@@ -69,7 +82,7 @@ export async function measureExport(path: string): Promise<ExportMeasurements> {
   const hasAudio = probe.streams?.some((stream) => stream.codec_type === "audio") ?? false;
   const samples: ExportMeasurements["samples"] = [];
   const toneAmplitudes: number[] = [];
-  for (const timeSeconds of [0.5, 1.5, 2.5]) {
+  for (const timeSeconds of version === "revised" ? [0.5, 1.5, 2.25, 2.75] : [0.5, 1.5, 2.5]) {
     const pixels = await runBytes(ffmpeg, ["-v", "error", "-ss", String(timeSeconds), "-i", path,
       "-vf", "crop=2:2:2:2,format=rgb24", "-frames:v", "1", "-f", "rawvideo", "pipe:1"]);
     if (pixels.length !== 12) throw new Error(`EXPORT_INVALID: missing frame at ${timeSeconds}s`);
@@ -90,7 +103,7 @@ export async function measureExport(path: string): Promise<ExportMeasurements> {
     toneAmplitudes.push(2 * Math.hypot(sine, cosine) / count);
   }
   const boundarySamples: ExportMeasurements["boundarySamples"] = [];
-  for (const frameNumber of [29, 30, 59, 60]) {
+  for (const frameNumber of version === "revised" ? [29, 30, 59, 60, 74, 75] : [29, 30, 59, 60]) {
     const pixels = await runBytes(ffmpeg, ["-v", "error", "-i", path,
       "-vf", `select=eq(n\\,${frameNumber}),crop=2:2:2:2,format=rgb24`, "-fps_mode", "passthrough", "-frames:v", "1", "-f", "rawvideo", "pipe:1"]);
     if (pixels.length !== 12) throw new Error(`EXPORT_INVALID: missing frame ${frameNumber}`);
