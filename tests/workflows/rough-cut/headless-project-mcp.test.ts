@@ -164,6 +164,43 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     assert.deepEqual(actual.durationTime, expected.durationTime);
     assert.deepEqual(actual.sourceStartTime, expected.sourceStartTime);
     assert.equal(readback.media.find((item) => item.mediaId === actual.mediaId)?.source, resources[1]!.source);
+    // Revise the approved finishing edit without changing its dissolve or source bindings.
+    const v1Revision = executed.after.timeline.revision;
+    const v1XmlDigest = createHash("sha256").update(xml).digest("hex");
+    const v1VideoDigest = createHash("sha256").update(await readFile(request.render.outputPath)).digest("hex");
+    const command = { schemaVersion: 1 as const, expectedRevision: v1Revision, operations: [
+      { type: "remove-title" as const, titleId: "title" },
+      { type: "add-title" as const, title: { id: "title-v2", text: "FADE 2", startTime: { value: "4", timescale: "5" }, durationTime: { value: "1", timescale: "6" }, lane: 1 } },
+      { type: "set-gain" as const, occurrenceId: "music", gainDb: -9 },
+    ] };
+    const v2Preview = await service.previewEdit(request.projectId, command, request.sequenceId);
+    assert.deepEqual((await service.open(request.projectId)).timeline.revision, v1Revision);
+    assert.equal(v2Preview.after.timeline.sequence.titles?.[0]?.text, "FADE 2");
+    assert.equal(v2Preview.after.timeline.sequence.occurrences.find((item) => item.id === "music")?.gainDb, -9);
+    const revised = await service.executeEdit(request.projectId, command, request.sequenceId);
+    const v2Revision = revised.after.timeline.revision;
+    assert.notEqual(v2Revision.id, v1Revision.id);
+    assert.deepEqual(revised.after.timeline.sequence.transitions, preview.after.timeline.sequence.transitions);
+    const v2XmlPath = join(directory, "edit-v2.fcpxml");
+    await assert.rejects(service.exportFcpxml(request.projectId, request.sequenceId, v1Revision, v2XmlPath, request.fcpxml.target), /STALE/);
+    const v2Xml = await service.exportFcpxml(request.projectId, request.sequenceId, v2Revision, v2XmlPath, request.fcpxml.target);
+    const v2VideoPath = join(directory, "render-v2.mp4");
+    await assert.rejects(service.render(request.projectId, request.sequenceId, { ...request.render, outputPath: v2VideoPath }, v1Revision), /STALE/);
+    const v2Render = await service.render(request.projectId, request.sequenceId, { ...request.render, outputPath: v2VideoPath }, v2Revision);
+    assert.equal(v2Render.status, "passed");
+    assert.deepEqual(v2Render.requestedRevision, v2Revision);
+    assert.deepEqual(v2Xml.provenance.revision, v2Revision);
+    assert.notEqual(v2Xml.provenance.destination.projectUid, executed.fcpxml.provenance.destination.projectUid);
+    const revisedXml = await readFile(v2XmlPath, "utf8");
+    assert.match(revisedXml, /<text>FADE 2<\/text>/);
+    assert.match(revisedXml, /<adjust-volume amount="-9dB"/);
+    assert.match(revisedXml, /<transition name="Cross Dissolve" offset="4\/5s" duration="1\/5s"/);
+    const oldMusic = toneAmplitude(await readAudioWindow(request.render.outputPath, 0.2), 1760);
+    const newMusic = toneAmplitude(await readAudioWindow(v2VideoPath, 0.2), 1760);
+    assert.ok(oldMusic > 0.002 && Math.abs(20 * Math.log10(newMusic / oldMusic) - 3) < 0.5, "the revised render must contain the approved 3 dB music increase");
+    assert.ok(countBrightPixels(await readVideoFrame(v2VideoPath, 0.85)) > 20, "the revised title window must contain visible title pixels");
+    assert.equal(createHash("sha256").update(await readFile(request.fcpxml.path)).digest("hex"), v1XmlDigest);
+    assert.equal(createHash("sha256").update(await readFile(request.render.outputPath)).digest("hex"), v1VideoDigest);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
