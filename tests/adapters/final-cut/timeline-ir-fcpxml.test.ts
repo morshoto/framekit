@@ -111,6 +111,8 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
   assert.match(result.xml, /<transition[^>]*offset="3\/2s"[^>]*duration="1\/2s"/);
   assert.match(result.xml, /<asset-clip[^>]*name="After"[^>]*offset="3\/2s"[^>]*start="7\/2s"[^>]*duration="5\/2s"/);
   assert.match(result.xml, /<filter-video[^>]*ref="effect-cross-dissolve"/);
+  assert.match(result.xml, /<effect[^>]*name="Audio Crossfade"[^>]*uid="FFAudioTransition"/);
+  assert.match(result.xml, /<filter-audio[^>]*ref="effect-audio-crossfade"/);
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-dissolve-dtd-"));
   try {
     const path = join(directory, "timeline.fcpxml");
