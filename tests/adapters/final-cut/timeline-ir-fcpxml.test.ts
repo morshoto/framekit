@@ -148,6 +148,12 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
     const invalidPath = join(directory, "invalid.fcpxml");
     await writeFile(invalidPath, result.xml.replace('key="com.framekit.after" value="after"', 'key="com.framekit.other" value="after"'));
     await assert.rejects(new FcpxmlDocumentAdapter(invalidPath).readProject(), /FCPXML_TRANSITION_METADATA_INVALID/);
+    const contradictory = result.xml.replace('<transition name="Cross Dissolve"', '<transition framekit-before-clip="other" name="Cross Dissolve"');
+    await writeFile(invalidPath, contradictory);
+    await assert.rejects(new FcpxmlDocumentAdapter(invalidPath).readProject(), /FCPXML_TRANSITION_METADATA_INVALID/);
+    const duplicate = result.xml.replace('<md key="com.framekit.before" value="before" />', '<md key="com.framekit.before" value="before" /><md key="com.framekit.before" value="other" />');
+    await writeFile(invalidPath, duplicate);
+    await assert.rejects(new FcpxmlDocumentAdapter(invalidPath).readProject(), /FCPXML_TRANSITION_METADATA_INVALID/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
