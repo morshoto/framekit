@@ -129,7 +129,7 @@ export function evaluateDissolveExportMeasurements(observed: DissolveExportMeasu
 }
 
 /** Decode the fixed synthetic dissolve case; the source of the file remains unverified. */
-export async function measureDissolveExport(path: string): Promise<DissolveExportMeasurements> {
+export async function measureDissolveExport(path: string, stereoDownmix = false): Promise<DissolveExportMeasurements> {
   const ffprobe = process.env.FFPROBE_BIN || "ffprobe";
   const ffmpeg = process.env.FFMPEG_BIN || "ffmpeg";
   const probe = JSON.parse((await run(ffprobe, ["-v", "error", "-count_frames", "-show_entries", "format=duration:stream=codec_type,avg_frame_rate,nb_read_frames", "-of", "json", path])).stdout) as {
@@ -150,7 +150,7 @@ export async function measureDissolveExport(path: string): Promise<DissolveExpor
   const audio: DissolveExportMeasurements["audio"] = [];
   const hasAudio = probe.streams?.some((stream) => stream.codec_type === "audio") ?? false;
   for (const timeSeconds of [0.5, 0.825, 0.9, 0.975, 1.5]) {
-    const pcm = hasAudio ? await runBytes(ffmpeg, ["-v", "error", "-ss", String(timeSeconds - 0.0125), "-i", path, "-t", "0.025", "-vn", "-ac", "1", "-ar", "48000", "-f", "f32le", "pipe:1"]) : Buffer.alloc(0);
+    const pcm = hasAudio ? await runBytes(ffmpeg, ["-v", "error", "-ss", String(timeSeconds - 0.0125), "-i", path, "-t", "0.025", "-vn", ...(stereoDownmix ? ["-af", "pan=mono|c0=0.7071067811865476*c0+0.7071067811865476*c1"] : []), "-ac", "1", "-ar", "48000", "-f", "f32le", "pipe:1"]) : Buffer.alloc(0);
     const count = Math.floor(pcm.length / 4);
     const amplitude = (frequency: number) => {
       if (count < 1200) return 0;
@@ -164,6 +164,35 @@ export async function measureDissolveExport(path: string): Promise<DissolveExpor
     audio.push({ timeSeconds, outgoing: amplitude(440), incoming: amplitude(880), music: amplitude(1760) });
   }
   return { durationSeconds: Number(probe.format?.duration), frameCount: Number(video.nb_read_frames), frameRate: video.avg_frame_rate ?? "", frames, audio };
+}
+
+/** Compare two fixed-fixture videos; this does not authenticate their provenance. */
+export async function compareDissolveVideos(referencePath: string, candidatePath: string, outputDirectory: string) {
+  const reference = resolve(referencePath), candidate = resolve(candidatePath), destination = resolve(outputDirectory);
+  const sha = async (path: string) => createHash("sha256").update(await readFile(path)).digest("hex");
+  const [referenceSha256, candidateSha256] = await Promise.all([sha(reference), sha(candidate)]);
+  const probeAudio = async (path: string) => {
+    const value = JSON.parse((await run(process.env.FFPROBE_BIN || "ffprobe", ["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels,sample_rate", "-of", "json", path])).stdout) as { streams?: Array<{ channels?: number; sample_rate?: string }> };
+    return value.streams?.[0];
+  };
+  const [referenceAudio, candidateAudio] = await Promise.all([probeAudio(reference), probeAudio(candidate)]);
+  if (referenceAudio?.channels !== 2 || referenceAudio.sample_rate !== "48000" || candidateAudio?.channels !== 1 || candidateAudio.sample_rate !== "48000") {
+    throw new Error("AUDIO_FORMAT_UNSUPPORTED: reference must be 48 kHz stereo and candidate 48 kHz mono");
+  }
+  const [referenceMeasurements, candidateMeasurements, referenceTitle, candidateTitle] = await Promise.all([
+    measureDissolveExport(reference, true), measureDissolveExport(candidate),
+    measureFixtureTitleBounds(reference, 27), measureFixtureTitleBounds(candidate, 27),
+  ]);
+  if (await sha(reference) !== referenceSha256 || await sha(candidate) !== candidateSha256) throw new Error("EXPORT_CHANGED: video changed during comparison");
+  const report = { schemaVersion: 1, scenario: "synthetic-six-frame-dissolve-720p", referenceSha256, candidateSha256,
+    downmix: "mono = 0.7071067811865476 * left + 0.7071067811865476 * right; 48000 Hz",
+    referenceMeasurements, candidateMeasurements, referenceTitle, candidateTitle,
+    comparison: compareDissolveParity(referenceMeasurements, candidateMeasurements, referenceTitle, candidateTitle),
+    limitation: "Sampled parity does not establish approved source identity, exact boundaries, title text or editability, Final Cut import, or export provenance.",
+  };
+  await mkdir(destination);
+  await writeFile(join(destination, "parity.json"), `${JSON.stringify(report, null, 2)}\n`, { flag: "wx" });
+  return report;
 }
 
 /** Inspect the fixed synthetic case without claiming an import or production provenance. */
@@ -455,6 +484,7 @@ async function main(args: string[]): Promise<void> {
     "Usage: node --import tsx scripts/manual-import-qa.ts prepare NEW_DIRECTORY",
     "       node --import tsx scripts/manual-import-qa.ts inspect FIXTURE_DIRECTORY VIDEO NEW_REPORT_DIRECTORY",
     "       node --import tsx scripts/manual-import-qa.ts inspect-dissolve VIDEO NEW_REPORT_DIRECTORY",
+    "       node --import tsx scripts/manual-import-qa.ts compare-dissolve REFERENCE_STEREO VIDEO_MONO NEW_REPORT_DIRECTORY",
     "These commands never operate Final Cut; native import, title editability and export provenance remain UNVERIFIED.",
   ].join("\n");
   if (args.length === 1 && args[0] === "--help") { process.stdout.write(`${usage}\n`); return; }
@@ -472,6 +502,12 @@ async function main(args: string[]): Promise<void> {
     const report = await inspectDissolveExport(args[1]!, args[2]!);
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
     if (report.measurements.status !== "PASS") process.exitCode = 1;
+    return;
+  }
+  if (args[0] === "compare-dissolve" && args.length === 4) {
+    const report = await compareDissolveVideos(args[1]!, args[2]!, args[3]!);
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    if (report.comparison.status !== "PASS") process.exitCode = 1;
     return;
   }
   process.stderr.write(`${usage}\n`);

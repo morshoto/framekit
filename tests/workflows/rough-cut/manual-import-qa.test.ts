@@ -73,6 +73,30 @@ test("title measurement uses the specified frame and rejects missing titles", as
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
+test("video parity comparison binds bytes and reports unverified native evidence", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-parity-videos-"));
+  try {
+    const reference = join(directory, "reference.mp4"), candidate = join(directory, "candidate.mp4");
+    await promisify(execFile)(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-filter_complex_threads", "1",
+      "-f", "lavfi", "-i", "color=red:s=1280x720:r=30:d=1",
+      "-f", "lavfi", "-i", "color=blue:s=1280x720:r=30:d=0.2",
+      "-f", "lavfi", "-i", "color=cyan:s=1280x720:r=30:d=1",
+      "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=1",
+      "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000:duration=1.2",
+      "-f", "lavfi", "-i", "sine=frequency=1760:sample_rate=48000:duration=2",
+      "-filter_complex", "[1:v][2:v]concat=n=2:v=1:a=0,settb=1/30[vc];[0:v][vc]xfade=transition=fade:duration=0.2:offset=0.8,drawbox=x=600:y=330:w=80:h=30:color=white:t=fill:enable='between(n,24,29)'[v];[3:a][4:a]acrossfade=d=0.2:c1=hsin:c2=hsin[a];[5:a]volume=-12dB[m];[a][m]amix=inputs=2:normalize=0[aout]",
+      "-map", "[v]", "-map", "[aout]", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-pix_fmt", "yuv420p", "-c:a", "aac", "-ac", "2", "-ar", "48000", "-t", "2", reference]);
+    await promisify(execFile)(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-i", reference, "-c:v", "copy", "-af", "pan=mono|c0=0.7071067811865476*c0+0.7071067811865476*c1", "-c:a", "aac", "-ar", "48000", candidate]);
+    const report = await compareDissolveVideos(reference, candidate, join(directory, "report"));
+    assert.equal(report.comparison.status, "PASS");
+    assert.equal(report.comparison.exactBoundaries, "UNVERIFIED");
+    assert.equal(report.comparison.finalCutProvenance, "UNVERIFIED");
+    assert.equal(report.referenceSha256, createHash("sha256").update(await readFile(reference)).digest("hex"));
+    assert.equal(report.candidateSha256, createHash("sha256").update(await readFile(candidate)).digest("hex"));
+    await assert.rejects(compareDissolveVideos(reference, reference, join(directory, "wrong-format")), /AUDIO_FORMAT_UNSUPPORTED/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("revised export checks verify clip boundaries and music through the black tail", () => {
   const revised = { ...valid(), samples: [
     { timeSeconds: 0.5, rgb: [20, 20, 235] as [number, number, number] },
