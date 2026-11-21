@@ -99,7 +99,9 @@ order; metadata identifies each sample's timeline and source time, media
 digest, proposed revision, and plan digest. Inspect the image, revise the plan
 or operations if needed, and preview again before executing with the new
 digest and explicit approval. Preview does not change the project or source
-media. The sheet is limited to 12 samples and a maximum of 640 × 360 pixels per
+media. A later rough cut appends its shots to the existing primary storyline;
+it does not replace earlier edits. Use the current revision and review the new
+preview before executing. The sheet is limited to 12 samples and a maximum of 640 × 360 pixels per
 sample. It does not show motion or audio, and frame-rate conversion can select
 a nearby source frame. Unsupported visual compositions or sample limits return
 JSON and a plan digest without an image; `storyboardUnavailable` explains why.
@@ -117,7 +119,18 @@ run a new approved preview and execution to create current evidence.
 Headless title rendering checks glyph coverage in the selected font and fails
 when a glyph is missing or a variation or joined sequence cannot be verified.
 Set `FRAMEKIT_RENDER_FONT` to a suitable font file when the default lacks the
-needed characters. Glyph coverage alone does not establish visual correctness
+needed characters. An unavailable configured font fails rendering instead of
+falling back to another font. Rough-cut previews with titles require a renderer
+that can inspect the selected font and cover the requested characters. The preview
+binds the font digest, family, face and renderer identity; execution rejects a changed font and
+renders from a checked copy. The video and FCPXML output paths must not replace that font, including
+through an alias. Publish verification checks the saved render's font binding
+against the approval and reports the verified headless font digest and renderer.
+The rough-cut FCPXML requests the same family and face and records the font digest;
+it reports native font availability as unverified until checked on the Final Cut target.
+Title-bearing approvals created before font and face binding
+must be previewed again. A storyboard using a different or unverified font is
+reported unavailable. Glyph coverage alone does not establish visual correctness
 or shaping. Unstyled, unpositioned titles use a canvas-scaled size (44 pixels
 at 720p) with their baseline at the frame center; explicitly styled or
 positioned titles retain their requested settings.
@@ -221,7 +234,14 @@ ordered primary video sequence, one basic unstyled title contained in a single
 clip, and one audio-only music source with static gain. The edit requires an
 empty timeline; styling, unsupported effects, stale revisions, changed media,
 and invalid or ambiguous sources are rejected. Preview and execute check
-FCPXML support before committing an edit. The resulting file is a candidate
+FCPXML support before committing an edit. For a title, preview selects a font
+covering its text and binds its face and file digest to the edit. If the font
+changes, preview the edit again; later rendering and FCPXML export also reject
+a changed bound font. Standalone rendering and FCPXML export reject titles
+without a bound font; create a new previewed edit to bind one. Rough-cut
+execution already produces its approved video and FCPXML, but its canonical
+titles may need a bound-font edit before a separate render or export. The exported FCPXML requests that face, but its availability
+on the Final Cut target remains unverified. The resulting file is a candidate
 for manual import: artifact verification does not prove Final Cut import,
 playback, editability, or video export.
 

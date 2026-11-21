@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { createReadStream } from "node:fs";
-import { access, link, lstat, mkdtemp, rename, rm, unlink, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { access, link, lstat, mkdtemp, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, extname, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { titleGlyphProblem } from "./title-glyphs.js";
+import { inspectTitleFont as inspectTitleFontBytes, titleGlyphProblem } from "./title-glyphs.js";
 import { HEADLESS_AUDIO_CHANNELS, HEADLESS_AUDIO_CODEC, HEADLESS_AUDIO_SAMPLE_RATE } from "./audio-output.js";
 import {
   createFramekitRenderResult,
@@ -20,6 +20,7 @@ import {
   type TimelineIrOccurrence,
   type TimelineIrResource,
   type TimelineIrTransition,
+  type TimelineIrTitleFont,
 } from "@framekit/runtime";
 
 const execFileAsync = promisify(execFile);
@@ -70,18 +71,44 @@ export class FfmpegTimelineRenderer implements FramekitRenderProvider {
 
   public capabilities(request: FramekitRenderRequest): FramekitRenderCapabilityReport {
     const timeline = request.timeline;
+    const texts = (timeline.sequence.titles ?? []).map((title) => title.text);
+    const selectedFont = this.inspectTitleFont(texts);
+    const titleFontDigest = selectedFont?.digest;
+    const titleFontFace = selectedFont && { family: selectedFont.family, style: selectedFont.style, postscriptName: selectedFont.postscriptName };
     return {
       renderer: { id: this.id, version: this.version },
+      ...(titleFontDigest ? { titleFontDigest } : {}),
+      ...(titleFontFace ? { titleFontFace } : {}),
       features: {
         "local-media": supportsLocalMedia(timeline) ? "supported" : "unsupported",
         "structural-edits": supportsStructuralEdits(timeline) ? "supported" : "unsupported",
         "audio-gain": supportsAudioGain(timeline) ? "supported" : "unsupported",
         "audio-mixing": supportsAudioMixing(timeline) ? "supported" : "unsupported",
         transform: supportsTransforms(timeline) ? "supported" : "unsupported",
-        titles: supportsTitles(timeline) ? "supported" : "unsupported",
+        titles: supportsTitles(timeline) && (!texts.length || titleFontDigest !== undefined)
+          && matchesBoundTitleFonts(timeline, titleFontDigest, titleFontFace) ? "supported" : "unsupported",
         "cross-dissolve": supportsCrossDissolve(timeline) ? "supported" : "unsupported",
       },
     };
+  }
+
+  public inspectTitleFont(texts: readonly string[]): TimelineIrTitleFont | undefined {
+    if (!texts.length || !this.fontFile) return undefined;
+    try {
+      const bytes = readFileSync(this.fontFile);
+      const face = inspectTitleFontBytes(bytes, texts).face;
+      return face ? { ...face, digest: createHash("sha256").update(bytes).digest("hex") } : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  public async validateTitleOutput(request: FramekitRenderRequest, additionalOutputPaths: readonly string[] = []): Promise<void> {
+    if (request.timeline.sequence.titles?.length && this.fontFile) {
+      for (const path of [request.parameters.outputPath, ...additionalOutputPaths]) {
+        await assertFontOutputSeparation(resolve(path), this.fontFile);
+      }
+    }
   }
 
   public async render(plan: FramekitRenderPlan): Promise<FramekitRenderProviderResult> {
@@ -94,9 +121,13 @@ export class FfmpegTimelineRenderer implements FramekitRenderProvider {
     }
 
     const model = await prepareRenderModel(plan);
+    if (!matchesBoundTitleFonts(model.timeline, plan.capabilities.titleFontDigest, plan.capabilities.titleFontFace)) {
+      throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", "title font does not match the canonical font identity");
+    }
     const glyphProblem = titleGlyphProblem(this.fontFile, (model.timeline.sequence.titles ?? []).map((title) => title.text));
     if (glyphProblem) throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `title font: ${glyphProblem}`);
     const outputPath = resolve(plan.parameters.outputPath);
+    if (model.timeline.sequence.titles?.length && this.fontFile) await assertFontOutputSeparation(outputPath, this.fontFile);
     await assertOutputPath(outputPath, plan.parameters.overwrite ?? false, model.sourcePaths);
     const outputDirectory = dirname(outputPath);
     await access(outputDirectory).catch(() => {
@@ -106,7 +137,19 @@ export class FfmpegTimelineRenderer implements FramekitRenderProvider {
     const stagingPath = join(stagingDirectory, `render.${plan.parameters.format}`);
     try {
       const titleTextFiles = await writeTitleTextFiles(model.timeline.sequence.titles ?? [], stagingDirectory);
-      const args = buildFfmpegArguments(model, stagingPath, this.fontFile, titleTextFiles);
+      let stagedFont: string | undefined;
+      if (titleTextFiles.length) {
+        if (!this.fontFile || !plan.capabilities.titleFontDigest) throw new FfmpegRenderError("HEADLESS_RENDER_PLAN_MISMATCH", "title font identity is missing");
+        const bytes = await readFile(this.fontFile).catch(() => { throw new FfmpegRenderError("HEADLESS_RENDER_PLAN_MISMATCH", "title font is unavailable"); });
+        if (createHash("sha256").update(bytes).digest("hex") !== plan.capabilities.titleFontDigest) throw new FfmpegRenderError("HEADLESS_RENDER_PLAN_MISMATCH", "title font changed after planning");
+        const inspectedFace = inspectTitleFontBytes(bytes, (model.timeline.sequence.titles ?? []).map((title) => title.text)).face;
+        if (!sameTitleFace(inspectedFace, plan.capabilities.titleFontFace)) throw new FfmpegRenderError("HEADLESS_RENDER_PLAN_MISMATCH", "title font face differs from the render plan");
+        stagedFont = join(stagingDirectory, `font${extname(this.fontFile)}`);
+        await writeFile(stagedFont, bytes);
+        const stagedProblem = titleGlyphProblem(stagedFont, (model.timeline.sequence.titles ?? []).map((title) => title.text));
+        if (stagedProblem) throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `title font: ${stagedProblem}`);
+      }
+      const args = buildFfmpegArguments(model, stagingPath, stagedFont, titleTextFiles);
       try {
         await execFileAsync(this.ffmpegPath, args, {
           cwd: stagingDirectory,
@@ -121,6 +164,7 @@ export class FfmpegTimelineRenderer implements FramekitRenderProvider {
         throw new FfmpegRenderError("HEADLESS_RENDER_FAILED", "FFmpeg completed without producing an output file");
       }
       await assertSourcesUnchanged(model);
+      if (titleTextFiles.length && this.fontFile) await assertFontOutputSeparation(outputPath, this.fontFile);
       if (plan.parameters.overwrite ?? false) {
         await rename(stagingPath, outputPath);
       } else {
@@ -142,6 +186,14 @@ export class FfmpegTimelineRenderer implements FramekitRenderProvider {
       await rm(stagingDirectory, { recursive: true, force: true });
     }
   }
+}
+
+function sameTitleFace(left: FramekitRenderCapabilityReport["titleFontFace"], right: FramekitRenderCapabilityReport["titleFontFace"]): boolean {
+  return Boolean(left && right && left.family === right.family && left.style === right.style && left.postscriptName === right.postscriptName);
+}
+
+function matchesBoundTitleFonts(timeline: TimelineIr, digest: string | undefined, face: FramekitRenderCapabilityReport["titleFontFace"]): boolean {
+  return (timeline.sequence.titles ?? []).every(({ font }) => !font || (font.digest === digest && sameTitleFace(font, face)));
 }
 
 interface RenderModel {
@@ -662,6 +714,20 @@ function supportsCrossDissolve(timeline: TimelineIr): boolean {
     && (transitions.length === 0 || primaryCount === 2);
 }
 
+async function assertFontOutputSeparation(outputPath: string, fontPath: string): Promise<void> {
+  let output;
+  try {
+    output = await stat(outputPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  const font = await stat(fontPath);
+  if (output.dev === font.dev && output.ino === font.ino) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_OUTPUT_INVALID", "output must not replace the selected title font");
+  }
+}
+
 async function assertOutputPath(outputPath: string, overwrite: boolean, sourcePaths: string[]): Promise<void> {
   if (sourcePaths.includes(outputPath)) {
     throw new FfmpegRenderError("HEADLESS_RENDER_OUTPUT_INVALID", "render output must not overwrite a source media file");
@@ -724,12 +790,14 @@ export function escapeFilterValue(value: string): string {
 }
 
 export function resolveFontFile(preferred?: string): string | undefined {
+  // An explicit selection must be inspected as supplied, even when missing;
+  // silently falling back would render a different font than requested.
+  if (preferred) return resolve(preferred);
   const candidates = [
-    preferred,
     "/System/Library/Fonts/HelveticaNeue.ttc",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
-  ].filter((candidate): candidate is string => Boolean(candidate));
+  ];
   const found = candidates.find((candidate) => existsSync(candidate));
   return found === undefined ? undefined : resolve(found);
 }

@@ -1971,6 +1971,7 @@
       "\"production stdio MCP persists and reopens the headless project and render record\"",
       "\"headless project open fails closed when local media has no metadata probe\"",
       "\"headless rough-cut preview and execution preserve provenance and produce verified artifacts\"",
+      "\"rough cut binds appended titles to an existing selected font\"",
       "\"inferred rough-cut ranges align duration to the sequence frame grid\""
     ],
     "tests/integration/headless-release-gate.test.ts": [
@@ -3067,6 +3068,9 @@
   },
   "recordedAtCommit": "37a92fa1",
   "addedTestNames": {
+    "tests/integration/editing-session.test.ts": [
+      "\"title font identity persists and rejects incomplete assets\""
+    ],
     "tests/integration/release-notes-format.test.ts": [
       "'matches exactly one nonempty milestone description by release version'",
       "'omits categories and description when no milestone matches'",
@@ -3111,6 +3115,7 @@
     "tests/integration/headless-project-mcp.test.ts": [
       "\"headless media search returns both registered same-name sources through production MCP\"",
       "\"external edit JSON previews registered clips, a title and music without mutation\"",
+      "\"external JSON binds one font through preview, render and FCPXML\"",
       "\"headless project list includes valid project IDs that resemble render records\"",
       "\"headless project list rejects a project whose stored ID differs from its filename\"",
       "\"rough-cut history failure reports the committed revision without execution proof\"",
@@ -3256,6 +3261,7 @@
       "\"dissolve metadata verification rejects mismatched probe data and changed files\""
     ],
     "tests/integration/headless-renderer.test.ts": [
+      "\"FFmpeg renderer rejects a missing explicitly configured title font\"",
       "\"FFmpeg renderer refuses an unimplemented nonzero source origin\"",
       "\"FFmpeg renderer rejects an explicit nonzero sequence timecode origin\"",
       "\"media probe retains declared video color metadata\"",
@@ -3263,6 +3269,7 @@
       "\"BT.709 dissolve samples meet the 720p Final Cut reference bounds\""
     ],
     "tests/integration/timeline-ir-fcpxml.test.ts": [
+      "\"encodes an explicitly selected basic title font\"",
       "\"dissolve plans preserve source frames across rates and odd durations\"",
       "\"native dissolve readback preserves visible semantics without inventing stripped IDs\"",
       "\"dissolve planning rejects unknown or non-BT.709 colors\"",
