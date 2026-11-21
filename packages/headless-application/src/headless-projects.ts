@@ -80,7 +80,7 @@ export interface HeadlessProjectWorkflow {
   ): Promise<ProjectEditResult & { undoId: string }>;
   undoEdit(projectId: string, sequenceId: string, undoId: string, expectedRevision: ContextRevision): Promise<HeadlessUndoResult>;
   exportFcpxml(projectId: string, sequenceId: string, expectedRevision: ContextRevision, outputPath: string, target: TimelineIrToFcpxmlTarget): Promise<{ artifact: { path: string; digest: string; bytes: number; verified: true }; provenance: TimelineIrToFcpxmlResult["provenance"]; coverage: TimelineIrToFcpxmlResult["coverage"] }>;
-  previewRoughCut(request: HeadlessRoughCutRequest, signal?: AbortSignal): Promise<HeadlessRoughCutPreview>;
+  previewRoughCut(request: HeadlessRoughCutRequest, signal?: AbortSignal, requireStoryboard?: boolean): Promise<HeadlessRoughCutPreview>;
   executeRoughCut(request: HeadlessRoughCutExecutionRequest): Promise<HeadlessRoughCutExecution>;
   verifyPublishableRoughCut(
     executionId: string,
@@ -460,8 +460,9 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     return { artifact, provenance: compiled.provenance, coverage: compiled.coverage };
   }
 
-  public async previewRoughCut(request: HeadlessRoughCutRequest, signal?: AbortSignal): Promise<HeadlessRoughCutPreview> {
+  public async previewRoughCut(request: HeadlessRoughCutRequest, signal?: AbortSignal, requireStoryboard = false): Promise<HeadlessRoughCutPreview> {
     signal?.throwIfAborted();
+    if (requireStoryboard && !this.storyboard) throw new Error("HEADLESS_STORYBOARD_UNAVAILABLE: storyboard renderer is not configured");
     const prepared = await this.prepareRoughCut(request);
     const timestamp = this.clock();
     const { preview, fcpxml } = await this.previewPreparedRoughCut(request, prepared, timestamp);

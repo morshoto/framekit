@@ -1611,6 +1611,7 @@ test("inferred rough-cut ranges align duration to the sequence frame grid", asyn
       },
     });
 
+    await assert.rejects(service.previewRoughCut(makeRequest({ start: 0, end: 0.75 }), undefined, true), /HEADLESS_STORYBOARD_UNAVAILABLE/);
     const preview = await service.previewRoughCut(makeRequest({ start: 0, end: 0.75 }));
     assert.deepEqual(preview.after.timeline.sequence.occurrences[0]?.durationTime, { value: "23", timescale: "30" });
     assert.deepEqual(preview.provenance[0]?.sourceRange.durationTime, { value: "23", timescale: "30" });
