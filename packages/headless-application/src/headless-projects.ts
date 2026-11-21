@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { readdir, readFile, rename, writeFile, mkdir, link, unlink, realpath, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { readdir, readFile, rename, writeFile, mkdir, link, unlink, realpath, stat, lstat, open } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   FramekitProjectStore,
@@ -257,6 +258,7 @@ interface HeadlessRoughCutExecutionRecord {
   planDigest: string;
   inputDigest: string;
   renderId: string;
+  renderArtifact: { path: string; digest: string; bytes: number };
   artifactPath: string;
   artifactDigest: string;
   artifactBytes: number;
@@ -569,6 +571,11 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     if (outcome.status !== "passed") {
       throw new Error(`HEADLESS_ROUGH_CUT_RENDER_FAILED: render verification status was ${outcome.status}; inspect ${renderId}`);
     }
+    const renderedArtifact = outcome.verification?.artifact;
+    if (!renderedArtifact || resolve(renderedArtifact.path) !== resolve(request.render.outputPath)
+      || !/^[a-f0-9]{64}$/.test(renderedArtifact.fileDigest) || !Number.isSafeInteger(renderedArtifact.sizeBytes) || renderedArtifact.sizeBytes <= 0) {
+      throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: verified render artifact identity is unavailable or inconsistent");
+    }
     await this.assertOutputSeparation(prepared.project, [request.render.outputPath, request.fcpxml.path]);
     const fcpxmlArtifact = await writeVerifiedFcpxml(
       request.fcpxml.path,
@@ -593,6 +600,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
         planDigest: approval.planDigest,
         inputDigest: prepared.inputDigest,
         renderId,
+        renderArtifact: { path: resolve(renderedArtifact.path), digest: renderedArtifact.fileDigest, bytes: renderedArtifact.sizeBytes },
         artifactPath: resolve(fcpxmlArtifact.path),
         artifactDigest: fcpxmlArtifact.digest,
         artifactBytes: fcpxmlArtifact.bytes,
@@ -699,6 +707,30 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     if (render.status !== "passed" || render.projectId !== record.projectId || render.sequenceId !== record.sequenceId
       || !sameRevision(render.requestedRevision, record.canonicalRevision)) {
       throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render evidence does not match the approved revision");
+    }
+    const boundRender = record.renderArtifact;
+    if (!boundRender || typeof boundRender.path !== "string" || resolve(boundRender.path) !== resolve(record.outputIntent.render.outputPath)
+      || !/^[a-f0-9]{64}$/.test(boundRender.digest) || !Number.isSafeInteger(boundRender.bytes) || boundRender.bytes <= 0) {
+      throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render artifact identity is missing or invalid");
+    }
+    try {
+      const file = await open(boundRender.path, constants.O_RDONLY | constants.O_NOFOLLOW);
+      try {
+        const before = await file.stat();
+        const digest = createHash("sha256");
+        for await (const chunk of file.createReadStream({ autoClose: false })) digest.update(chunk as Buffer);
+        const after = await file.stat();
+        const current = await lstat(boundRender.path);
+        if (!before.isFile() || before.size !== boundRender.bytes || before.dev !== after.dev || before.ino !== after.ino
+          || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs
+          || !current.isFile() || current.dev !== after.dev || current.ino !== after.ino || digest.digest("hex") !== boundRender.digest) {
+          throw new Error("render bytes differ from the verified artifact");
+        }
+      } finally {
+        await file.close();
+      }
+    } catch (cause) {
+      throw new Error("HEADLESS_ROUGH_CUT_RENDER_CHANGED: verified render is missing or has changed", { cause });
     }
     const artifact = await readFile(record.artifactPath, "utf8");
     if (hash(artifact) !== record.artifactDigest || Buffer.byteLength(artifact) !== record.artifactBytes) {

@@ -1460,12 +1460,29 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     });
     assert.deepEqual(await (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path), proof);
     const originalRender = await readFile(request.render.outputPath);
-    await writeFile(request.render.outputPath, "tampered video");
+    const alteredRender = Buffer.from(originalRender);
+    alteredRender[Math.floor(alteredRender.length / 2)]! ^= 1;
+    await writeFile(request.render.outputPath, alteredRender);
+    await assert.rejects(
+      (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path),
+      /HEADLESS_ROUGH_CUT_RENDER_CHANGED:/,
+    );
+    await rm(request.render.outputPath);
     await assert.rejects(
       (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path),
       /HEADLESS_ROUGH_CUT_RENDER_CHANGED:/,
     );
     await writeFile(request.render.outputPath, originalRender);
+    assert.deepEqual(await (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path), proof);
+    const relocatedRender = `${request.render.outputPath}.saved`;
+    await rename(request.render.outputPath, relocatedRender);
+    await symlink(relocatedRender, request.render.outputPath);
+    await assert.rejects(
+      (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path),
+      /HEADLESS_ROUGH_CUT_RENDER_CHANGED:/,
+    );
+    await unlink(request.render.outputPath);
+    await rename(relocatedRender, request.render.outputPath);
     assert.deepEqual(await (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path), proof);
     await writeFile(request.fcpxml.path, "tampered FCPXML");
     await assert.rejects(
