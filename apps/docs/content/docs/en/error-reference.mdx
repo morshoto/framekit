@@ -59,3 +59,33 @@ The requested timeline contains a feature the FCPXML compiler cannot safely repr
 `FCPXML_INVALID_TIME`
 
 A time value cannot be represented or violates the compiler's time constraints. Compilation is rejected. Inspect the field named in the message and correct the rational time or frame alignment before exporting again.
+
+## capability-unavailable
+
+`CAPABILITY_UNAVAILABLE`
+
+The selected provider does not advertise or configure the requested capability. The requested capability is not performed; this code alone does not establish the state of earlier actions in a multi-step workflow. Inspect the operation details and current target, then use `editing.route` or capability inspection to select a supported workflow.
+
+## stale-context
+
+`STALE_CONTEXT`
+
+The inspected context or plan no longer matches the current state. The stale request is rejected; check the operation's details for any earlier work in a multi-step workflow. Reinspect the target and revision, then prepare and approve a new plan.
+
+## headless-rough-cut-render-failed
+
+`HEADLESS_ROUGH_CUT_RENDER_FAILED`
+
+Render verification did not pass. A render record is saved and the error identifies it; the rough-cut project edit has not reached its commit step, but a render output may exist. Inspect the render record and output before correcting the reported problem and preparing a new attempt.
+
+## headless-storyboard-unsupported
+
+`HEADLESS_STORYBOARD_UNSUPPORTED`
+
+The storyboard renderer cannot sample the requested timeline. In rough-cut preview this is reported as storyboard unavailability alongside the JSON preview and approval when the remaining preview succeeds; preview does not commit the edit. Inspect the JSON preview and use it only if it provides enough evidence for the intended operation.
+
+## headless-storyboard-limit
+
+`HEADLESS_STORYBOARD_LIMIT`
+
+The requested storyboard exceeds a sampling limit. In rough-cut preview this is reported as storyboard unavailability alongside the JSON preview and approval when the remaining preview succeeds; preview does not commit the edit. Inspect the JSON preview or reduce the requested scope before deciding how to proceed.
