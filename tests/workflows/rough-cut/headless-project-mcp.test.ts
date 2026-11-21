@@ -2272,6 +2272,27 @@ test("external edit JSON previews registered clips, a title and music without mu
     assert.throws(() => externalEditOperations(shiftedEdit, shiftedTimeline, shiftedTimeline.revision), /source frame grid/);
     shiftedStream.sourceRange.start = { value: "1", timescale: "30" };
     assert.doesNotThrow(() => externalEditOperations(shiftedEdit, shiftedTimeline, shiftedTimeline.revision));
+    // WAV audio has no ffprobe start fields, but its single stream has exact sample bounds.
+    const wavStream = b.resource.metadata.streams.find((stream: any) => stream.kind === "audio");
+    assert.deepEqual(wavStream.sourceRange, { start: seconds(0), duration: seconds(3) });
+    // A subtitle can extend the container beyond the selected audio stream.
+    const subtitle = join(directory, "later.srt");
+    const shortMusic = join(directory, "short-music.mka");
+    await writeFile(subtitle, "1\n00:00:02,000 --> 00:00:03,000\ntext\n");
+    await execFileAsync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=1:sample_rate=48000", "-i", subtitle, "-map", "0:a", "-map", "1:s", "-c:a", "pcm_s16le", "-c:s", "srt", shortMusic]);
+    const shortTimeline = emptyTimeline();
+    shortTimeline.project.id = "short-music";
+    shortTimeline.sequence.id = "short-music-sequence";
+    const shortCreated = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: shortTimeline } }));
+    const shortVideo = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId: shortTimeline.project.id, sourcePath: video, expectedRevision: shortCreated.timeline.revision } }));
+    const shortAudio = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId: shortTimeline.project.id, sourcePath: shortMusic, expectedRevision: shortVideo.project.timeline.revision } }));
+    const shortEdit = { ...edit, clips: [{ ...edit.clips[0], mediaId: shortVideo.resource.id }, { ...edit.clips[1], mediaId: shortVideo.resource.id }], title: undefined,
+      music: { ...edit.music, mediaId: shortAudio.resource.id } };
+    const shortArgs = { projectId: shortTimeline.project.id, sequenceId: shortTimeline.sequence.id, expectedRevision: shortAudio.project.timeline.revision, edit: shortEdit };
+    const rejectedShort = await client.callTool({ name: "headless.edit-json.preview", arguments: shortArgs });
+    assert.equal(rejectedShort.isError, true);
+    assert.match(toolErrorText(rejectedShort), /audio stream bounds/);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId: shortTimeline.project.id } })).timeline, shortAudio.project.timeline);
     // A multi-stream music file must not silently select its first audio stream.
     const ambiguousMusic = structuredClone(b.project.timeline);
     const multistreamMusic = join(directory, "multistream.m4a");
