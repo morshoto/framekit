@@ -2305,6 +2305,9 @@ test("external edit JSON previews registered clips, a title and music without mu
     await execFileAsync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=1:sample_rate=48000", "-f", "lavfi", "-i", "sine=frequency=880:duration=3:sample_rate=48000", "-map", "0:a", "-map", "1:a", "-c:a", "aac", multistreamMusic]);
     const musicMetadata = await new FfmpegMediaMetadataProbe().probe(multistreamMusic);
     assert.equal(musicMetadata.streams.filter((stream) => stream.kind === "audio").length, 2);
+    assert.deepEqual(musicMetadata.streams.filter((stream) => stream.kind === "audio").map((stream) => stream.sourceRange), [
+      { start: seconds(0), duration: seconds(1) }, { start: seconds(0), duration: seconds(3) },
+    ]);
     ambiguousMusic.resources.find((item: any) => item.id === b.resource.id).metadata = musicMetadata;
     assert.throws(() => externalEditOperations(edit, ambiguousMusic, ambiguousMusic.revision), /EXTERNAL_EDIT_INVALID:.*exactly one audio stream/);
     const multiTimeline = emptyTimeline();
