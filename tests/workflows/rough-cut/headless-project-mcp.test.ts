@@ -2347,6 +2347,11 @@ test("external edit JSON previews registered clips, a title and music without mu
     assert.equal(legacyRender.isError, true, "render must reject unverified existing music");
     assert.match(toolErrorText(legacyRender), /audio stream bounds/);
     await assert.rejects(stat(legacyRenderPath), { code: "ENOENT" });
+    const legacyExportPath = join(directory, "legacy-export.fcpxml");
+    const legacyExport = await client.callTool({ name: "headless.fcpxml.export", arguments: { projectId: legacyTimeline.project.id, sequenceId: legacyTimeline.sequence.id, expectedRevision: legacy.timeline.revision, outputPath: legacyExportPath, target: legacyRough.fcpxml.target } });
+    assert.equal(legacyExport.isError, true, "FCPXML export must reject unverified existing music");
+    assert.match(toolErrorText(legacyExport), /audio stream bounds/);
+    await assert.rejects(stat(legacyExportPath), { code: "ENOENT" });
     const rejectedShort = await client.callTool({ name: "headless.edit-json.preview", arguments: shortArgs });
     assert.equal(rejectedShort.isError, true);
     assert.match(toolErrorText(rejectedShort), /audio stream bounds/);
