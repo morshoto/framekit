@@ -3055,6 +3055,11 @@
   },
   "recordedAtCommit": "37a92fa1",
   "addedTestNames": {
+    "tests/integration/release-notes-format.test.ts": [
+      "'matches exactly one nonempty milestone description by release version'",
+      "'omits categories and description when no milestone matches'",
+      "'CLI fetches paginated milestone descriptions and preserves manual notes'"
+    ],
     "tests/integration/phase1.test.ts": [
       "\"post-write speech reanalysis preserves mixed VAD coverage without advertising complete VAD\"",
       "\"post-write speech reanalysis rejects inconsistent provenance across disjoint ranges\"",

@@ -1,8 +1,10 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
 export const MAINTENANCE_RELEASE_SUMMARY = "Maintenance and internal";
 export const FORMATTED_RELEASE_NOTES_MARKER = "<!-- Framekit formatted release notes -->";
 
 const MAINTENANCE_HEADING = `### ${MAINTENANCE_RELEASE_SUMMARY}`;
-const RELEASE_CATEGORIES = ["New Features", "Bug Fixes", "Documentation", "Chores"];
 
 export function collapseMaintenanceReleaseNotes(markdown) {
   if (typeof markdown !== "string") {
@@ -75,22 +77,6 @@ function parsePullRequestEntry(line) {
   };
 }
 
-function categoryForEntry(entry, sourceHeading) {
-  const type = entry.title.match(/^\s*([a-z][a-z0-9_-]*)(?:\([^)]*\))?:/i)?.[1]?.toLowerCase();
-  if (["feat", "feature"].includes(type)) return "New Features";
-  if (["fix", "bug"].includes(type)) return "Bug Fixes";
-  if (["doc", "docs", "documentation"].includes(type)) return "Documentation";
-  if (["chore", "perf", "test", "refactor", "build", "ci", "style", "infra"].includes(type)) {
-    return "Chores";
-  }
-
-  const normalizedHeading = sourceHeading.trim().toLowerCase();
-  if (["new features", "feature changes"].includes(normalizedHeading)) return "New Features";
-  if (["bug fixes", "patch changes"].includes(normalizedHeading)) return "Bug Fixes";
-  if (normalizedHeading === "documentation") return "Documentation";
-  return "Chores";
-}
-
 function escapeMarkdownText(text) {
   return text.replace(/([\\`*_{}\[\]()<>|])/g, "\\$1");
 }
@@ -103,7 +89,13 @@ function findFullChangelog(lines) {
   return undefined;
 }
 
-export function formatReleaseNotes(markdown) {
+export function selectMilestoneDescription(milestones, version) {
+  const matches = milestones.filter((milestone) => milestone.title === `Release for ${version}`);
+  return matches.length === 1 && typeof matches[0].description === "string" && matches[0].description.trim()
+    ? matches[0].description : undefined;
+}
+
+export function formatReleaseNotes(markdown, description) {
   if (typeof markdown !== "string") {
     throw new TypeError("release notes must be a string");
   }
@@ -147,24 +139,13 @@ export function formatReleaseNotes(markdown) {
   }
 
   const uniqueEntries = [...new Map(entries.map((entry) => [entry.number, entry])).values()];
-  const grouped = new Map(RELEASE_CATEGORIES.map((category) => [category, []]));
-  for (const entry of uniqueEntries) {
-    grouped.get(categoryForEntry(entry, entry.sourceHeading)).push(entry);
-  }
-
   const preamble = lines.slice(0, whatChangedIndex).join("\n").trimEnd();
   const output = [];
   if (preamble) output.push(preamble, "");
   output.push(FORMATTED_RELEASE_NOTES_MARKER, "");
 
-  for (const category of RELEASE_CATEGORIES) {
-    const categoryEntries = grouped.get(category);
-    if (categoryEntries.length === 0) continue;
-    output.push(`## ${category}`, "");
-    for (const entry of categoryEntries) {
-      output.push(`* ${escapeMarkdownText(entry.title)} ([#${entry.number}](${entry.url}))`);
-    }
-    output.push("");
+  if (typeof description === "string" && description.trim()) {
+    output.push("## Summary", "", description, "");
   }
 
   output.push("## Changelog", "");
@@ -192,7 +173,26 @@ async function readStdin() {
 }
 
 async function main() {
-  process.stdout.write(formatReleaseNotes(await readStdin()));
+  const markdown = await readStdin();
+  if (!markdown.includes("<!-- Release notes generated")) {
+    process.stdout.write(markdown);
+    return;
+  }
+  const version = process.env.RELEASE_VERSION || "";
+  let description;
+  if (!markdown.includes(FORMATTED_RELEASE_NOTES_MARKER) && version && process.env.GITHUB_REPOSITORY) {
+    try {
+      const { stdout } = await promisify(execFile)("gh", ["api", "--paginate", "--slurp",
+        `repos/${process.env.GITHUB_REPOSITORY}/milestones?state=all&per_page=100`], { maxBuffer: 10 * 1024 * 1024 });
+      description = selectMilestoneDescription(JSON.parse(stdout).flat(), version);
+    } catch (error) {
+      process.stderr.write(`::warning::Could not retrieve release milestones: ${error.message}\n`);
+    }
+    if (!description) process.stderr.write(`::warning::No unique nonempty milestone description for ${version}\n`);
+  } else if (!markdown.includes(FORMATTED_RELEASE_NOTES_MARKER) && !version) {
+    process.stderr.write("::warning::Release version unavailable; skipping milestone description\n");
+  }
+  process.stdout.write(formatReleaseNotes(markdown, description));
 }
 
 if (process.argv[1] && new URL(import.meta.url).pathname === process.argv[1]) {
