@@ -2449,7 +2449,7 @@ test("external edit JSON previews registered clips, a title and music without mu
     const sourceDigests = await Promise.all(sourcePaths.map(async (path) => createHash("sha256").update(await readFile(path)).digest("hex")));
     const seconds = (n: number) => ({ value: String(n), timescale: "1" });
     const edit = { schemaVersion: 1 as const, clips: [
-      { id: "clip-a", mediaId: a.resource.id, sourceStartTime: seconds(0), durationTime: seconds(1) },
+      { id: "clip-a", mediaId: a.resource.id, sourceStartTime: seconds(0), durationTime: seconds(1), nativeAudioRole: "dialogue" },
       { id: "clip-b", mediaId: a2.resource.id, sourceStartTime: seconds(0), durationTime: seconds(1) },
     ], title: { id: "title", text: "Hello 世界 🎬", startTime: seconds(0), durationTime: seconds(1) },
     music: { id: "music", mediaId: b.resource.id, sourceStartTime: seconds(0), startTime: seconds(0), durationTime: seconds(2), gainDb: -12 } };
@@ -2628,6 +2628,16 @@ test("external edit JSON previews registered clips, a title and music without mu
     assert.match(toolErrorText(rejectedMulti), /exactly one audio stream/);
     const multiAfter = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId: multiTimeline.project.id } }));
     assert.deepEqual(multiAfter.timeline, multiAudio.project.timeline);
+    for (const count of [0, 2]) {
+      const ambiguous = structuredClone(b.project.timeline);
+      const resource = ambiguous.resources.find((item: any) => item.id === a.resource.id);
+      const audio = resource.metadata.streams.find((item: any) => item.kind === "audio");
+      resource.metadata.streams = resource.metadata.streams.filter((item: any) => item.kind !== "audio");
+      for (let index = 0; index < count; index++) resource.metadata.streams.push(structuredClone(audio));
+      assert.throws(() => externalEditOperations(edit, ambiguous, ambiguous.revision), /requires one audio stream/);
+    }
+    assert.throws(() => externalEditOperations({ ...edit, clips: [{ ...edit.clips[0]!, nativeAudioRole: "music" }] }, b.project.timeline, b.project.timeline.revision), /supported dialogue role/);
+    assert.doesNotThrow(() => externalEditOperations({ ...edit, clips: [{ ...edit.clips[0]!, nativeAudioRole: "dialogue.alternate" }] }, b.project.timeline, b.project.timeline.revision));
     for (const gainDb of [-60, 12]) {
       assert.doesNotThrow(() => externalEditOperations({ ...edit, music: { ...edit.music, gainDb } }, b.project.timeline, b.project.timeline.revision));
     }
@@ -2641,6 +2651,7 @@ test("external edit JSON previews registered clips, a title and music without mu
       ["audio used as video", { ...edit, clips: [{ ...edit.clips[0], mediaId: b.resource.id }] }],
       ["video used as music", { ...edit, music: { ...edit.music, mediaId: a.resource.id } }],
       ["excessive music gain", { ...edit, music: { ...edit.music, gainDb: 40 } }],
+      ["unsupported clip audio role", { ...edit, clips: [{ ...edit.clips[0], nativeAudioRole: "music" }] }],
       ["off-grid source start", { ...edit, clips: [{ ...edit.clips[0], sourceStartTime: { value: "1", timescale: "60" } }] }],
       ["source start between source frames", { ...edit, clips: [{ ...edit.clips[1], sourceStartTime: { value: "1", timescale: "30" }, durationTime: { value: "1", timescale: "2" } }] }],
       ["unsupported title styling", { ...edit, title: { ...edit.title, style: { color: "red" } } }],
@@ -2673,6 +2684,8 @@ test("external edit JSON previews registered clips, a title and music without mu
       projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit,
     } }));
     assert.deepEqual(preview.after.timeline.sequence.occurrences.filter((item: any) => item.track === 0).map((item: any) => item.id), ["clip-a", "clip-b"]);
+    assert.equal(preview.after.timeline.sequence.occurrences.find((item: any) => item.id === "clip-a").nativeAudioRole, "dialogue");
+    assert.equal(preview.after.timeline.sequence.occurrences.find((item: any) => item.id === "clip-b").nativeAudioRole, undefined);
     assert.equal(preview.after.timeline.sequence.titles[0].text, "Hello 世界 🎬");
     assert.equal(preview.after.timeline.sequence.occurrences.find((item: any) => item.id === "music").gainDb, -12);
     const inspected = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
@@ -2703,6 +2716,12 @@ test("external edit JSON previews registered clips, a title and music without mu
       edit: { ...edit, title: { ...edit.title, text: "Changed" } }, approved: true, planDigest: preview.planDigest,
     } });
     assert.equal(changed.isError, true, "execute must reject a different edit than the preview");
+    const changedRole = await client.callTool({ name: "headless.edit-json.execute", arguments: {
+      projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision,
+      edit: { ...edit, clips: [{ ...edit.clips[0], nativeAudioRole: "dialogue.alternate" }, edit.clips[1]] }, approved: true, planDigest: preview.planDigest,
+    } });
+    assert.equal(changedRole.isError, true, "execute must reject a role different from the approved preview");
+    assert.match(toolErrorText(changedRole), /EXTERNAL_EDIT_STALE_PREVIEW/);
     assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, b.project.timeline);
     const executed = payload(await client.callTool({ name: "headless.edit-json.execute", arguments: {
       projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit, approved: true, planDigest: preview.planDigest,
@@ -2727,6 +2746,8 @@ test("external edit JSON previews registered clips, a title and music without mu
     assert.equal(exported.artifact.verified, true);
     assert.equal(exported.provenance.revision.id, executed.after.timeline.revision.id);
     const parsed = await new FcpxmlDocumentAdapter(xmlPath).readProject();
+    assert.equal(parsed.timeline.clips.find((clip) => clip.id === "clip-a")?.nativeAudioRole, "dialogue");
+    assert.match(await readFile(xmlPath, "utf8"), /<asset-clip[^>]*audioRole="dialogue"/);
     const sourceFor = (id: string | undefined) => parsed.media.find((item) => item.mediaId === id)?.source;
     assert.deepEqual(parsed.timeline.clips.filter((clip) => [video, video2].includes(sourceFor(clip.mediaId) ?? "")).map((clip) => [sourceFor(clip.mediaId), clip.sourceStart, clip.duration]), [[video, 0, 1], [video2, 0, 1]]);
     assert.deepEqual(parsed.timeline.clips.filter((clip) => sourceFor(clip.mediaId) === music).map((clip) => [clip.sourceStart, clip.duration]), [[0, 2]]);
