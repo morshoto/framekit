@@ -50,6 +50,9 @@ test("dissolve parity applies declared bounds without claiming native proof", ()
   assert.equal(result.status, "PASS");
   assert.equal(result.nativeImport, "UNVERIFIED");
   assert.equal(result.exactBoundaries, "UNVERIFIED");
+  const edgeColor = structuredClone(reference); edgeColor.frames[2]!.rgb[0] -= 20;
+  assert.equal(compareDissolveParity(reference, edgeColor, bounds, bounds).checks.colors, true);
+  assert.equal(compareDissolveParity(reference, reference, { ...bounds, width: 100 }, { ...bounds, width: 110 }).checks.titleSize, true);
   const dark = structuredClone(reference); dark.frames[2]!.rgb[0] -= 21;
   assert.equal(compareDissolveParity(reference, dark, bounds, bounds).checks.colors, false);
   const quiet = structuredClone(reference); quiet.audio[2]!.music *= 0.8;
