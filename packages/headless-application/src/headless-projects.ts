@@ -723,7 +723,8 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
         const current = await lstat(boundRender.path);
         if (!before.isFile() || before.size !== boundRender.bytes || before.dev !== after.dev || before.ino !== after.ino
           || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs
-          || !current.isFile() || current.dev !== after.dev || current.ino !== after.ino || digest.digest("hex") !== boundRender.digest) {
+          || !current.isFile() || current.dev !== after.dev || current.ino !== after.ino || current.size !== after.size
+          || current.mtimeMs !== after.mtimeMs || current.ctimeMs !== after.ctimeMs || digest.digest("hex") !== boundRender.digest) {
           throw new Error("render bytes differ from the verified artifact");
         }
       } finally {
