@@ -2275,6 +2275,12 @@ test("external edit JSON previews registered clips, a title and music without mu
     // WAV audio has no ffprobe start fields, but its single stream has exact sample bounds.
     const wavStream = b.resource.metadata.streams.find((stream: any) => stream.kind === "audio");
     assert.deepEqual(wavStream.sourceRange, { start: seconds(0), duration: seconds(3) });
+    const boundedMusic = structuredClone(b.project.timeline);
+    const boundedStream = boundedMusic.resources.find((item: any) => item.id === b.resource.id).metadata.streams.find((stream: any) => stream.kind === "audio");
+    boundedStream.sourceRange = { start: seconds(1), duration: seconds(1) };
+    assert.throws(() => externalEditOperations(edit, boundedMusic, boundedMusic.revision), /range exceeds audio stream bounds/);
+    assert.throws(() => externalEditOperations({ ...edit, music: { ...edit.music, sourceStartTime: seconds(1) } }, boundedMusic, boundedMusic.revision), /range exceeds audio stream bounds/);
+    assert.doesNotThrow(() => externalEditOperations({ ...edit, music: { ...edit.music, sourceStartTime: seconds(1), durationTime: seconds(1) } }, boundedMusic, boundedMusic.revision));
     // A subtitle can extend the container beyond the selected audio stream.
     const subtitle = join(directory, "later.srt");
     const shortMusic = join(directory, "short-music.mka");

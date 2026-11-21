@@ -60,8 +60,16 @@ export function externalEditOperations(edit: ExternalEdit, timeline: TimelineIr,
       throw new Error("EXTERNAL_EDIT_INVALID: music.gainDb must be between -60 and 12 dB inclusive");
     }
     const music = assertSource(edit.music.mediaId, "audio");
-    if (music.metadata?.streams.filter((stream) => stream.kind === "audio").length !== 1) {
+    const audioStreams = music.metadata?.streams.filter((stream) => stream.kind === "audio");
+    if (audioStreams?.length !== 1) {
       throw new Error(`EXTERNAL_EDIT_INVALID: ${edit.music.mediaId} must have exactly one audio stream`);
+    }
+    const bounds = audioStreams[0]!.sourceRange;
+    if (!bounds) throw new Error(`EXTERNAL_EDIT_INVALID: ${edit.music.mediaId} has no verified audio stream bounds; register a supported source in a new project`);
+    const compare = (a: RationalTime, b: RationalTime) => BigInt(a.value) * BigInt(b.timescale) - BigInt(b.value) * BigInt(a.timescale);
+    const add = (a: RationalTime, b: RationalTime): RationalTime => ({ value: String(BigInt(a.value) * BigInt(b.timescale) + BigInt(b.value) * BigInt(a.timescale)), timescale: String(BigInt(a.timescale) * BigInt(b.timescale)) });
+    if (compare(edit.music.sourceStartTime, bounds.start) < 0n || compare(add(edit.music.sourceStartTime, edit.music.durationTime), add(bounds.start, bounds.duration)) > 0n) {
+      throw new Error(`EXTERNAL_EDIT_INVALID: ${edit.music.mediaId} range exceeds audio stream bounds`);
     }
     for (const time of [edit.music.sourceStartTime, edit.music.startTime, edit.music.durationTime]) aligned(time);
   }
