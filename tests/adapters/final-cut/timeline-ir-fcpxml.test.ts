@@ -659,6 +659,8 @@ test("encodes an explicitly selected basic title font", async () => {
   const mixed = structuredClone(canonical);
   mixed.sequence.titles!.push({ ...mixed.sequence.titles![0]!, id: "unbound", font: undefined, startTime: { value: "2", timescale: "1" } });
   assert.throws(() => compileTimelineIrToFcpxml(mixed, { target }), /FCPXML_TITLE_FONT_UNBOUND/);
+  mixed.sequence.titles![1]!.font = { ...titleFont, digest: "b".repeat(64) };
+  assert.throws(() => compileTimelineIrToFcpxml(mixed, { target }), /FCPXML_TITLE_FONT_MISMATCH/);
   const escapedFont = compileTimelineIrToFcpxml(value, { target, basicTitleFont: { ...titleFont, family: 'Noto & "Friends"', style: "Maker's" } });
   assert.match(escapedFont.xml, /font="Noto &amp; &quot;Friends&quot;" fontFace="Maker&apos;s"/);
   for (const invalid of [null as unknown as typeof titleFont, { ...titleFont, family: " " }, { ...titleFont, style: "\u0000" }, { ...titleFont, digest: "bad" }]) {
