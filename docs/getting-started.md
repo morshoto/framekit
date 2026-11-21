@@ -106,7 +106,8 @@ JSON and a plan digest without an image; `storyboardUnavailable` explains why.
 FFmpeg and its drawtext support are required for storyboard rendering.
 
 Publishing an approved rough cut requires its verified video and FCPXML to
-remain at their approved paths with unchanged contents. The publish preview's
+remain as regular files at their approved paths with unchanged contents;
+symbolic links are not accepted. The publish preview's
 `sourceProof.renderArtifact` reports the checked video path, SHA-256 digest,
 and byte count. Older rough-cut execution records without a verified video
 identity cannot be published. Restore the project to its pre-execution state,
