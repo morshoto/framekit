@@ -464,7 +464,13 @@ export function createTimelineIrFromProjectSnapshot(
     after.durationTime = subtractRationalTimes(after.durationTime, duration, "TIMELINE_IR_INVALID");
     canonicalTransitions.push({ id: element.id, kind: "cross-dissolve", beforeOccurrenceId: before.id, afterOccurrenceId: after.id, durationTime: duration });
   }
-  const storyElements = snapshot.timeline.storyElements.filter((element) => !element.transitionKind).map((element) => storyElementToIr(element, binding));
+  const storyElements = snapshot.timeline.storyElements.filter((element) => !element.transitionKind).map((element) => {
+    const story = storyElementToIr(element, binding);
+    const occurrence = usedIncoming.has(element.id) && element.kind === "asset-clip"
+      ? occurrences.find((item) => item.id === element.id)
+      : undefined;
+    return occurrence ? { ...story, startTime: occurrence.startTime, durationTime: occurrence.durationTime } : story;
+  });
   const markers = snapshot.timeline.markers.map((marker) => ({
     id: marker.id,
     name: marker.name,
