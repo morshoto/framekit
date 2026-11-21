@@ -599,10 +599,16 @@ test("FFmpeg mixes independent music with source audio at the requested gain", a
     // overall gain and channel-layout differences do not mask the curve.
     const incomingBase = frequencyAmplitude(window(1.5, 1.9), 880, 48_000);
     const outgoingBase = frequencyAmplitude(window(0.1, 0.5), 440, 48_000);
-    const incomingEdge = frequencyAmplitude(window(0.78, 0.80), 880, 48_000) / incomingBase;
-    const outgoingEdge = frequencyAmplitude(window(0.95, 0.97), 440, 48_000) / outgoingBase;
-    assert.ok(incomingEdge > 0.02 && incomingEdge < 0.11, `incoming dissolve edge should follow half-sine, got ${incomingEdge}`);
-    assert.ok(outgoingEdge > 0.02 && outgoingEdge < 0.11, `outgoing dissolve edge should follow half-sine, got ${outgoingEdge}`);
+    // 25 ms contains a whole number of cycles for all three fixture tones.
+    for (const start of [0.775, 0.8, 0.8625, 0.925, 0.95]) {
+      const measured = window(start, start + 0.025);
+      const progress = (start + 0.0125 - 0.75) / 0.25;
+      const incomingExpected = (1 - Math.cos(Math.PI * progress)) / 2;
+      const incoming = frequencyAmplitude(measured, 880, 48_000) / incomingBase;
+      const outgoing = frequencyAmplitude(measured, 440, 48_000) / outgoingBase;
+      assert.ok(Math.abs(incoming - incomingExpected) < 0.035, `incoming at ${start}: ${incoming} vs ${incomingExpected}`);
+      assert.ok(Math.abs(outgoing - (1 - incomingExpected)) < 0.035, `outgoing at ${start}: ${outgoing} vs ${1 - incomingExpected}`);
+    }
     const noTitle = structuredClone(source);
     noTitle.sequence.titles = [];
     const plain = join(directory, "music-no-title.mp4");
