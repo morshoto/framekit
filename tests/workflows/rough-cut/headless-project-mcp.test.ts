@@ -150,6 +150,18 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     const approvedTitle = await fontService.previewRoughCut(titleRequest);
     const originalFont = await readFile(fontPath);
     assert.equal(approvedTitle.titleFont?.digest, createHash("sha256").update(originalFont).digest("hex"));
+    // A pre-upgrade approval has a valid checksum but no approved font identity.
+    const legacy = JSON.parse(await readFile(join(directory, "projects", `${approvedTitle.planDigest}.approval.json`), "utf8"));
+    delete legacy.titleFont;
+    delete legacy.planDigest;
+    delete legacy.evidenceDigest;
+    const stable = (value: any): string => value === null || typeof value !== "object" ? JSON.stringify(value)
+      : Array.isArray(value) ? `[${value.map(stable).join(",")}]`
+      : `{${Object.entries(value).filter(([, child]) => child !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => `${JSON.stringify(key)}:${stable(child)}`).join(",")}}`;
+    legacy.planDigest = createHash("sha256").update(stable(legacy)).digest("hex");
+    legacy.evidenceDigest = createHash("sha256").update(stable(legacy)).digest("hex");
+    await writeFile(join(directory, "projects", `${legacy.planDigest}.approval.json`), JSON.stringify(legacy));
+    await assert.rejects(fontService.executeRoughCut({ ...titleRequest, approved: true, planDigest: legacy.planDigest }), /PLAN_MISMATCH.*font/i);
     await writeFile(fontPath, Buffer.concat([originalFont, Buffer.from([0])]));
     await assert.rejects(fontService.executeRoughCut({ ...titleRequest, approved: true, planDigest: approvedTitle.planDigest }), /PLAN_MISMATCH.*font/i);
     assert.equal(existsSync(request.render.outputPath), false);
