@@ -3255,6 +3255,7 @@
       "\"dissolve metadata verification rejects mismatched probe data and changed files\""
     ],
     "tests/integration/headless-renderer.test.ts": [
+      "\"FFmpeg renderer rejects a missing explicitly configured title font\"",
       "\"FFmpeg renderer refuses an unimplemented nonzero source origin\"",
       "\"FFmpeg renderer rejects an explicit nonzero sequence timecode origin\"",
       "\"media probe retains declared video color metadata\"",

@@ -45,6 +45,8 @@ export interface FramekitRenderRequestInput {
 export interface FramekitRenderCapabilityReport {
   renderer: { id: string; version: string };
   features: Partial<Record<FramekitRenderFeature, FramekitRenderCapabilityStatus>>;
+  /** SHA-256 of the exact font bytes inspected for the requested titles. */
+  titleFontDigest?: string;
 }
 
 export interface FramekitRenderPlan {

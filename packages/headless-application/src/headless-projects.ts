@@ -52,6 +52,7 @@ export interface StoryboardImage {
   mimeType: "image/png";
   samples: Array<{ kind: "shot" | "title"; id: string; occurrenceId: string; mediaId: string; sourceDigest: string; timelineSeconds: number; sourceSeconds: number }>;
   limitations: string[];
+  titleFontDigest?: string;
 }
 
 export type HeadlessProjectEditCommand = Omit<ProjectEditCommand, "target"> & {
@@ -193,6 +194,7 @@ export interface HeadlessRoughCutPreview extends ProjectEditPreview {
   provenance: HeadlessRoughCutShotProvenance[];
   storyboard?: StoryboardImage & { planDigest: string; revision: ContextRevision };
   storyboardUnavailable?: string;
+  titleFont?: { renderer: { id: string; version: string }; digest: string };
   outputIntent: {
     sourceAudioPolicy: "preserve-and-mix";
     render: FramekitRenderParameters;
@@ -278,6 +280,7 @@ interface HeadlessRoughCutApprovalRecord {
   canonicalRevision: ContextRevision;
   artifactPath: string;
   artifactDigest: string;
+  titleFont?: HeadlessRoughCutPreview["titleFont"];
   outputIntent: HeadlessRoughCutPreview["outputIntent"];
   evidenceDigest: string;
 }
@@ -471,6 +474,21 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     const prepared = await this.prepareRoughCut(request);
     const timestamp = this.clock();
     const { preview, fcpxml } = await this.previewPreparedRoughCut(request, prepared, timestamp);
+    let titleFont: HeadlessRoughCutPreview["titleFont"];
+    if (preview.after.timeline.sequence.titles?.length) {
+      if (!this.renderer) throw new Error("HEADLESS_ROUGH_CUT_RENDER_UNAVAILABLE: renderer is required to check title support");
+      const renderRequest = createFramekitRenderRequest({
+        timeline: preview.after.timeline,
+        target: { projectId: request.projectId, sequenceId: request.sequenceId },
+        revision: preview.after.timeline.revision,
+        parameters: request.render,
+      });
+      const capabilities = this.renderer.capabilities(renderRequest);
+      if (capabilities.features.titles !== "supported" || !/^[a-f0-9]{64}$/.test(capabilities.titleFontDigest ?? "")) {
+        throw new Error("RENDER_CAPABILITY_UNAVAILABLE: required title font or semantics are unavailable (titles)");
+      }
+      titleFont = { renderer: capabilities.renderer, digest: capabilities.titleFontDigest! };
+    }
     const approval = createRoughCutApproval({
       inputDigest: prepared.inputDigest,
       projectId: request.projectId,
@@ -479,12 +497,17 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       canonicalRevision: preview.after.timeline.revision,
       artifactPath: resolve(request.fcpxml.path),
       artifactDigest: fcpxml.digest,
+      ...(titleFont ? { titleFont } : {}),
       outputIntent: prepared.outputIntent,
     });
     let storyboard: StoryboardImage | undefined;
     let storyboardUnavailable: string | undefined;
     try {
-      storyboard = await this.storyboard?.render(preview.after.timeline, request.render, signal);
+      const sampled = await this.storyboard?.render(preview.after.timeline, request.render, signal);
+      if (sampled && titleFont && sampled.titleFontDigest !== titleFont.digest) {
+        throw new Error("HEADLESS_STORYBOARD_UNSUPPORTED: storyboard font does not match the approved title font");
+      }
+      storyboard = sampled;
     } catch (error) {
       signal?.throwIfAborted();
       if (!(error instanceof Error) || !/^HEADLESS_STORYBOARD_(UNSUPPORTED|LIMIT):/.test(error.message)) throw error;
@@ -502,6 +525,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       plan: structuredClone(request.plan),
       planDigest: approval.planDigest,
       provenance: prepared.provenance,
+      ...(titleFont ? { titleFont } : {}),
       ...(storyboard ? { storyboard: { ...storyboard, planDigest: approval.planDigest, revision: preview.after.timeline.revision } } : {}),
       ...(storyboardUnavailable ? { storyboardUnavailable } : {}),
       outputIntent: prepared.outputIntent,
@@ -558,7 +582,14 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     if (!this.renderer || !this.verifier) {
       throw new Error("HEADLESS_ROUGH_CUT_RENDER_UNAVAILABLE: renderer and verifier are not configured");
     }
-    const outcome = await renderAndVerifyFramekitProject(renderRequest, this.renderer, this.verifier);
+    const capabilities = this.renderer.capabilities(renderRequest);
+    if (preview.after.timeline.sequence.titles?.length) {
+      const currentFont = { renderer: capabilities.renderer, digest: capabilities.titleFontDigest };
+      if (capabilities.features.titles !== "supported" || !approval.titleFont || stableJson(currentFont) !== stableJson(approval.titleFont)) {
+        throw new Error("HEADLESS_ROUGH_CUT_PLAN_MISMATCH: title font or renderer changed after preview");
+      }
+    }
+    const outcome = await renderAndVerifyFramekitProject(renderRequest, this.renderer, this.verifier, { capabilities });
     const renderId = `render-${randomUUID()}`;
     const renderRecord: HeadlessRenderRecord = {
       renderId,
@@ -619,6 +650,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       plan: structuredClone(request.plan),
       planDigest: approval.planDigest,
       provenance: prepared.provenance,
+      ...(approval.titleFont ? { titleFont: approval.titleFont } : {}),
       outputIntent: prepared.outputIntent,
       fcpxml: selectFcpxmlMetadata(fcpxml),
       executionId,

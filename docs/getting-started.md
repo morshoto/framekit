@@ -117,7 +117,13 @@ run a new approved preview and execution to create current evidence.
 Headless title rendering checks glyph coverage in the selected font and fails
 when a glyph is missing or a variation or joined sequence cannot be verified.
 Set `FRAMEKIT_RENDER_FONT` to a suitable font file when the default lacks the
-needed characters. Glyph coverage alone does not establish visual correctness
+needed characters. An unavailable configured font fails rendering instead of
+falling back to another font. Rough-cut previews with titles require a renderer
+that can inspect the selected font and cover the requested characters. The preview
+binds the font digest and renderer identity; execution rejects a changed font and
+renders from a checked copy. Title-bearing approvals created before font binding
+must be previewed again. A storyboard using a different or unverified font is
+reported unavailable. Glyph coverage alone does not establish visual correctness
 or shaping. Unstyled, unpositioned titles use a canvas-scaled size (44 pixels
 at 720p) with their baseline at the frame center; explicitly styled or
 positioned titles retain their requested settings.

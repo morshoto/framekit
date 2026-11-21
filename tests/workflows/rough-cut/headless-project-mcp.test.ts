@@ -126,6 +126,50 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     } };
     const mismatched = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: mismatchedProbe });
     await assert.rejects(mismatched.previewRoughCut(request), /MEDIA_METADATA_CHANGED/);
+    const missingFont = new HeadlessProjectService({
+      directory: join(directory, "projects"),
+      mediaProbe: new FfmpegMediaMetadataProbe(),
+      renderer: new FfmpegTimelineRenderer({ env: { FRAMEKIT_RENDER_FONT: join(directory, "missing.otf") } }),
+      verifier: new FfmpegRenderVerifier(),
+    });
+    await assert.rejects(missingFont.previewRoughCut(request), /RENDER_CAPABILITY_UNAVAILABLE.*titles/);
+    const noRenderer = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: new FfmpegMediaMetadataProbe() });
+    await assert.rejects(noRenderer.previewRoughCut(request), /RENDER_UNAVAILABLE.*title/);
+    const fontPath = join(directory, "selected.otf");
+    await writeFile(fontPath, Buffer.from(await readFile("tests/fixtures/fonts/noto-sans-jp-test.otf.base64", "utf8"), "base64"));
+    const fontService = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: new FfmpegMediaMetadataProbe(), renderer: new FfmpegTimelineRenderer({ env: { FRAMEKIT_RENDER_FONT: fontPath } }), verifier: new FfmpegRenderVerifier() });
+    const titleRequest = { ...request, operations: request.operations.map((operation) => operation.type === "add-title" ? { ...operation, title: { ...operation.title, text: "A日" } } : operation) };
+    const unsupportedTitle = { ...titleRequest, operations: titleRequest.operations.map((operation) => operation.type === "add-title" ? { ...operation, title: { ...operation.title, text: "A\u{10ffff}" } } : operation) };
+    await assert.rejects(fontService.previewRoughCut(unsupportedTitle), /RENDER_CAPABILITY_UNAVAILABLE.*titles/);
+    for (const titleFontDigest of [undefined, "f".repeat(64)]) {
+      const mismatchedStoryboard = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: new FfmpegMediaMetadataProbe(), renderer: new FfmpegTimelineRenderer({ env: { FRAMEKIT_RENDER_FONT: fontPath } }), storyboard: { render: async () => ({ data: "fake", mimeType: "image/png", samples: [], limitations: [], titleFontDigest }) } });
+      const result = await mismatchedStoryboard.previewRoughCut(titleRequest, undefined, true);
+      assert.equal(result.storyboard, undefined);
+      assert.match(result.storyboardUnavailable!, /STORYBOARD_UNSUPPORTED.*font/i);
+    }
+    const approvedTitle = await fontService.previewRoughCut(titleRequest);
+    const originalFont = await readFile(fontPath);
+    assert.equal(approvedTitle.titleFont?.digest, createHash("sha256").update(originalFont).digest("hex"));
+    // A pre-upgrade approval has a valid checksum but no approved font identity.
+    const legacy = JSON.parse(await readFile(join(directory, "projects", `${approvedTitle.planDigest}.approval.json`), "utf8"));
+    delete legacy.titleFont;
+    delete legacy.planDigest;
+    delete legacy.evidenceDigest;
+    const stable = (value: any): string => value === null || typeof value !== "object" ? JSON.stringify(value)
+      : Array.isArray(value) ? `[${value.map(stable).join(",")}]`
+      : `{${Object.entries(value).filter(([, child]) => child !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => `${JSON.stringify(key)}:${stable(child)}`).join(",")}}`;
+    legacy.planDigest = createHash("sha256").update(stable(legacy)).digest("hex");
+    legacy.evidenceDigest = createHash("sha256").update(stable(legacy)).digest("hex");
+    await writeFile(join(directory, "projects", `${legacy.planDigest}.approval.json`), JSON.stringify(legacy));
+    await assert.rejects(fontService.executeRoughCut({ ...titleRequest, approved: true, planDigest: legacy.planDigest }), /PLAN_MISMATCH.*font/i);
+    await writeFile(fontPath, Buffer.concat([originalFont, Buffer.from([0])]));
+    await assert.rejects(fontService.executeRoughCut({ ...titleRequest, approved: true, planDigest: approvedTitle.planDigest }), /PLAN_MISMATCH.*font/i);
+    assert.equal(existsSync(request.render.outputPath), false);
+    assert.equal(existsSync(request.fcpxml.path), false);
+    await rm(fontPath);
+    await assert.rejects(fontService.executeRoughCut({ ...titleRequest, approved: true, planDigest: approvedTitle.planDigest }), /PLAN_MISMATCH.*font/i);
+    assert.equal(existsSync(request.render.outputPath), false);
+    assert.deepEqual((await service.open(created.timeline.project.id)).timeline.revision, revision);
     const directTimeline = structuredClone((await service.open(created.timeline.project.id)).timeline);
     directTimeline.project.id = "direct-dissolve-check";
     directTimeline.sequence.durationTime = { value: "2", timescale: "1" };
@@ -1097,6 +1141,7 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
     assert.equal(preview.storyboard.samples.filter((sample: any) => sample.kind === "shot").length, 3);
     assert.equal(preview.storyboard.samples.filter((sample: any) => sample.kind === "title").length, 1);
     assert.equal(preview.storyboard.planDigest, preview.planDigest);
+    assert.equal(preview.storyboard.titleFontDigest, preview.titleFont.digest);
     assert.deepEqual(preview.storyboard.revision, preview.after.timeline.revision);
     assert.deepEqual(preview.storyboard.samples.map((sample: any) => [sample.kind, sample.mediaId]), [
       ["shot", registrations.b.id], ["title", registrations.b.id], ["shot", registrations.a.id], ["shot", registrations.c.id],
