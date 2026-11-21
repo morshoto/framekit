@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { createReadStream } from "node:fs";
-import { access, link, lstat, mkdtemp, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
+import { access, link, lstat, mkdtemp, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -109,6 +109,7 @@ export class FfmpegTimelineRenderer implements FramekitRenderProvider {
     const glyphProblem = titleGlyphProblem(this.fontFile, (model.timeline.sequence.titles ?? []).map((title) => title.text));
     if (glyphProblem) throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `title font: ${glyphProblem}`);
     const outputPath = resolve(plan.parameters.outputPath);
+    if (model.timeline.sequence.titles?.length && this.fontFile) await assertFontOutputSeparation(outputPath, this.fontFile);
     await assertOutputPath(outputPath, plan.parameters.overwrite ?? false, model.sourcePaths);
     const outputDirectory = dirname(outputPath);
     await access(outputDirectory).catch(() => {
@@ -143,6 +144,7 @@ export class FfmpegTimelineRenderer implements FramekitRenderProvider {
         throw new FfmpegRenderError("HEADLESS_RENDER_FAILED", "FFmpeg completed without producing an output file");
       }
       await assertSourcesUnchanged(model);
+      if (titleTextFiles.length && this.fontFile) await assertFontOutputSeparation(outputPath, this.fontFile);
       if (plan.parameters.overwrite ?? false) {
         await rename(stagingPath, outputPath);
       } else {
@@ -682,6 +684,20 @@ function supportsCrossDissolve(timeline: TimelineIr): boolean {
   return transitions.length <= 1
     && transitions.every((transition) => transition.kind === "cross-dissolve")
     && (transitions.length === 0 || primaryCount === 2);
+}
+
+async function assertFontOutputSeparation(outputPath: string, fontPath: string): Promise<void> {
+  let output;
+  try {
+    output = await stat(outputPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  const font = await stat(fontPath);
+  if (output.dev === font.dev && output.ino === font.ino) {
+    throw new FfmpegRenderError("HEADLESS_RENDER_OUTPUT_INVALID", "render output must not replace the selected title font");
+  }
 }
 
 async function assertOutputPath(outputPath: string, overwrite: boolean, sourcePaths: string[]): Promise<void> {
