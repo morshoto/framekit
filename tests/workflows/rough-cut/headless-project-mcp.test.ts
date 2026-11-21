@@ -2354,6 +2354,37 @@ test("external edit JSON previews registered clips, a title and music without mu
       { ...shortEdit.clips[0], name: "legacy-video", startTime: seconds(0), durationTime: seconds(2), track: 0, role: "video" },
       { ...shortEdit.music, name: "legacy-music", track: 1, role: "music" },
     ];
+    const forgedTimeline = structuredClone(legacyTimeline);
+    forgedTimeline.project.id = "forged-audio-bounds";
+    forgedTimeline.sequence.id = "forged-audio-sequence";
+    forgedTimeline.resources.find((resource: any) => resource.id === shortAudio.resource.id).metadata.streams.find((stream: any) => stream.kind === "audio").sourceRange = { start: seconds(0), duration: seconds(3) };
+    const forged = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: forgedTimeline } }));
+    const forgedOutput = join(directory, "forged-audio.mp4");
+    const forgedRender = await client.callTool({ name: "headless.render", arguments: { projectId: forgedTimeline.project.id, sequenceId: forgedTimeline.sequence.id, expectedRevision: forged.timeline.revision,
+      parameters: { outputPath: forgedOutput, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } } });
+    assert.equal(forgedRender.isError, true, "caller-provided bounds must be checked against the source");
+    assert.match(toolErrorText(forgedRender), /MEDIA_METADATA_CHANGED/);
+    await assert.rejects(stat(forgedOutput), { code: "ENOENT" });
+    const forgedEditArgs = { projectId: forgedTimeline.project.id, sequenceId: forgedTimeline.sequence.id, expectedRevision: forged.timeline.revision,
+      operations: [{ type: "set-gain", occurrenceId: shortEdit.music.id, gainDb: -6 }] };
+    for (const tool of ["headless.edit.preview", "headless.edit.execute"]) {
+      const rejected = await client.callTool({ name: tool, arguments: forgedEditArgs });
+      assert.equal(rejected.isError, true, `${tool} must re-probe the changed source`);
+      assert.match(toolErrorText(rejected), /MEDIA_METADATA_CHANGED/);
+    }
+    const forgedRough = { ...shortRoughCut, projectId: forgedTimeline.project.id, sequenceId: forgedTimeline.sequence.id,
+      plan: { ...shortRoughCut.plan, revision: forged.timeline.revision }, operations: [],
+      render: { ...shortRoughCut.render, outputPath: join(directory, "forged-rough.mp4") },
+      fcpxml: { ...shortRoughCut.fcpxml, path: join(directory, "forged-rough.fcpxml") } };
+    const forgedRoughPreview = await client.callTool({ name: "headless.rough-cut.preview", arguments: forgedRough });
+    assert.equal(forgedRoughPreview.isError, true);
+    assert.match(toolErrorText(forgedRoughPreview), /MEDIA_METADATA_CHANGED/);
+    const forgedXmlPath = join(directory, "forged-audio.fcpxml");
+    const forgedXml = await client.callTool({ name: "headless.fcpxml.export", arguments: { projectId: forgedTimeline.project.id, sequenceId: forgedTimeline.sequence.id, expectedRevision: forged.timeline.revision, outputPath: forgedXmlPath, target: shortRoughCut.fcpxml.target } });
+    assert.equal(forgedXml.isError, true);
+    assert.match(toolErrorText(forgedXml), /MEDIA_METADATA_CHANGED/);
+    await assert.rejects(stat(forgedXmlPath), { code: "ENOENT" });
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId: forgedTimeline.project.id } })).timeline, forged.timeline);
     const legacy = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: legacyTimeline } }));
     const legacyRough = { ...shortRoughCut, projectId: legacyTimeline.project.id, sequenceId: legacyTimeline.sequence.id,
       plan: { ...shortRoughCut.plan, revision: legacy.timeline.revision }, operations: [],
