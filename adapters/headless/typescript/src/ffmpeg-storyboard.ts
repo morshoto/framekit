@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { TimelineIr } from "@framekit/runtime";
+import { titleGlyphProblem } from "./title-glyphs.js";
 import { escapeFilterValue, resolveFontFile } from "./ffmpeg-renderer.js";
 
 const run = promisify(execFile);
@@ -27,6 +28,9 @@ export class FfmpegStoryboardRenderer {
     }
     const clips = sequence.occurrences.filter((item) => item.track === 0 && (!item.role || item.role === "video")).sort((a, b) => seconds(a.startTime) - seconds(b.startTime));
     const titles = sequence.titles ?? [];
+    const font = resolveFontFile(process.env.FRAMEKIT_RENDER_FONT);
+    const glyphProblem = titleGlyphProblem(font, titles.map((title) => title.text));
+    if (glyphProblem) throw new Error(`HEADLESS_STORYBOARD_UNSUPPORTED: title font: ${glyphProblem}`);
     if (!clips.length || clips.length + titles.length > MAX_SAMPLES) throw new Error(`HEADLESS_STORYBOARD_LIMIT: expected 1 to ${MAX_SAMPLES} total shots and titles`);
     if (sequence.occurrences.some((item) => item.track === 0 && item.role && item.role !== "video") || clips.some((item, index) => Math.abs(seconds(item.startTime) - (index ? seconds(clips[index - 1]!.startTime) + seconds(clips[index - 1]!.durationTime) : 0)) > 1e-7)) throw new Error("HEADLESS_STORYBOARD_UNSUPPORTED: primary clips must form a contiguous storyline");
     if (sequence.occurrences.some((item) => item.track !== 0 && item.role !== "audio" && item.role !== "music")) throw new Error("HEADLESS_STORYBOARD_UNSUPPORTED: visual overlays cannot be sampled faithfully");
@@ -78,7 +82,6 @@ export class FfmpegStoryboardRenderer {
           const filename = `title-${index}-${titleIndex}.txt`;
           await writeFile(join(dir, filename), title.text, "utf8");
           const fontSize = Math.max(1, Math.round(32 * scale));
-          const font = resolveFontFile(process.env.FRAMEKIT_RENDER_FONT);
           filters.push(`drawtext=${font ? `fontfile='${escapeFilterValue(font)}':` : ""}textfile='${filename}':expansion=none:fontcolor=white:fontsize=${fontSize}:x=(w-text_w)/2:y=(h-text_h)/2`);
         }
         const frame = join(dir, `${index}.png`);

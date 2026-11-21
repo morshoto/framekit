@@ -4,9 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "pnpm run check:content && next build && pagefind --site out && node scripts/report-search-size.mjs",
+    "build": "pnpm run check:content && next build && node --import tsx scripts/check-sitemap.ts && node --import tsx scripts/build-llms.mts && pagefind --site out && node scripts/report-search-size.mjs",
     "typecheck": "tsc --noEmit",
-    "test:export": "node scripts/check-export-links.mjs && node --test test/*.test.mjs",
+    "test:export": "node scripts/check-export-links.mjs && node --import tsx --test test/*.test.mjs",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "test": "vitest run",
@@ -16,7 +16,8 @@
     "test:locales": "node scripts/test-locales.mjs",
     "test:search": "node scripts/test-search.mjs",
     "test:e2e": "playwright test",
-    "test:pages": "node scripts/smoke-pages.mjs"
+    "test:pages": "node scripts/smoke-pages.mjs",
+    "report:error-reference": "node scripts/check-error-reference.mjs"
   },
   "dependencies": {
     "@mdx-js/loader": "3.1.1",

@@ -5,6 +5,7 @@ import { access, link, lstat, mkdtemp, rename, rm, unlink, writeFile } from "nod
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { titleGlyphProblem } from "./title-glyphs.js";
 import { HEADLESS_AUDIO_CHANNELS, HEADLESS_AUDIO_CODEC, HEADLESS_AUDIO_SAMPLE_RATE } from "./audio-output.js";
 import {
   createFramekitRenderResult,
@@ -93,6 +94,8 @@ export class FfmpegTimelineRenderer implements FramekitRenderProvider {
     }
 
     const model = await prepareRenderModel(plan);
+    const glyphProblem = titleGlyphProblem(this.fontFile, (model.timeline.sequence.titles ?? []).map((title) => title.text));
+    if (glyphProblem) throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `title font: ${glyphProblem}`);
     const outputPath = resolve(plan.parameters.outputPath);
     await assertOutputPath(outputPath, plan.parameters.overwrite ?? false, model.sourcePaths);
     const outputDirectory = dirname(outputPath);
@@ -248,6 +251,17 @@ async function prepareRenderModel(plan: FramekitRenderPlan): Promise<RenderModel
   if (transitions.length > 1) {
     throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", "the first FFmpeg provider supports one canonical cross-dissolve");
   }
+  const transition = transitions[0];
+  if (transition) {
+    const before = occurrences[0]!;
+    const after = occurrences[1]!;
+    const length = rationalSeconds(transition.durationTime, `${transition.id}.durationTime`);
+    const incomingStart = after.sourceStartTime ? rationalSeconds(after.sourceStartTime, `${after.id}.sourceStartTime`) : 0;
+    const beforeDuration = rationalSeconds(before.durationTime, `${before.id}.durationTime`);
+    if (transition.beforeOccurrenceId !== before.id || transition.afterOccurrenceId !== after.id || length <= 0 || length > beforeDuration || incomingStart + 1e-7 < length) {
+      throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", "cross-dissolve requires adjacent clips and sufficient incoming source handles");
+    }
+  }
   return {
     timeline,
     occurrences,
@@ -367,8 +381,14 @@ function buildFfmpegArguments(
   for (const occurrence of model.occurrences) {
     const index = inputIndices.get(occurrence.id)!;
     const resource = model.resources.get(occurrence.mediaId!);
-    const sourceStart = occurrence.sourceStartTime ? rationalSeconds(occurrence.sourceStartTime, `${occurrence.id}.sourceStartTime`) : 0;
-    const duration = rationalSeconds(occurrence.durationTime, `${occurrence.id}.durationTime`);
+    let sourceStart = occurrence.sourceStartTime ? rationalSeconds(occurrence.sourceStartTime, `${occurrence.id}.sourceStartTime`) : 0;
+    let duration = rationalSeconds(occurrence.durationTime, `${occurrence.id}.durationTime`);
+    const transition = model.timeline.sequence.transitions?.[0];
+    if (transition && occurrence.id === transition.afterOccurrenceId) {
+      const handle = rationalSeconds(transition.durationTime, `${transition.id}.durationTime`);
+      sourceStart -= handle;
+      duration += handle;
+    }
     const videoInput = `[${index}:v]`;
     const videoLabel = `clipv${index}`;
     filters.push(`${videoInput}trim=start=${formatNumber(sourceStart)}:duration=${formatNumber(duration)},setpts=PTS-STARTPTS,settb=AVTB,fps=${fps},${transformFilter(occurrence, resource!, model.width, model.height)}[${videoLabel}]`);
@@ -403,6 +423,12 @@ function buildFfmpegArguments(
   if (musicLabels.length > 0) {
     const inputs = [...(audioOutput ? [`[${audioOutput}]`] : []), ...musicLabels];
     audioOutput = addAudioMix(filters, inputs, model.duration);
+  }
+  const audioStreams = [...model.occurrences, ...model.audioOccurrences].flatMap((occurrence) =>
+    model.resources.get(occurrence.mediaId!)?.metadata?.streams.filter((stream) => stream.kind === "audio") ?? []);
+  if (audioOutput && audioStreams.length > 0 && audioStreams.every((stream) => stream.channels === 1)) {
+    filters.push(`[${audioOutput}]volume=0.7071067811865476[audio-mono-final-cut]`);
+    audioOutput = "audio-mono-final-cut";
   }
   const args = ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", ...inputArguments, "-filter_complex", filters.join(";")];
   args.push("-map", `[${videoOutput}]`, "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-pix_fmt", "yuv420p", "-r", fps);
@@ -443,14 +469,28 @@ function addVideoComposition(
     const offset = rationalSeconds(model.occurrences[0]!.durationTime, "transition offset") - duration;
     if (offset < 0) throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", "transition duration exceeds the first occurrence duration");
     const output = "video-xfade";
-    filters.push(`${labels[0]}${labels[1]}xfade=transition=fade:duration=${formatNumber(duration)}:offset=${formatNumber(offset)}[${output}]`);
-    const padding = Math.max(0, model.duration - (model.duration - duration));
-    filters.push(`[${output}]tpad=stop_mode=clone:stop_duration=${formatNumber(padding)}[${output}-padded]`);
+    if (hasBt709Video(model)) {
+      const phase = rationalSeconds(model.timeline.sequence.frameDuration, "frame duration") / (2 * duration);
+      for (const [index, label] of labels.entries()) {
+        filters.push(`${label}zscale=transfer=linear:npl=100,format=gbrp16le[linear-${index}]`);
+      }
+      filters.push(`[linear-0][linear-1]xfade=transition=custom:duration=${formatNumber(duration)}:offset=${formatNumber(offset)}:expr='A*max(0,P-${formatNumber(phase)})+B*min(1,1-P+${formatNumber(phase)})',zscale=transfer=bt709:matrix=bt709:primaries=bt709,format=yuv420p[${output}]`);
+    } else {
+      filters.push(`${labels[0]}${labels[1]}xfade=transition=fade:duration=${formatNumber(duration)}:offset=${formatNumber(offset)}[${output}]`);
+    }
+    filters.push(`[${output}]null[${output}-padded]`);
     return `${output}-padded`;
   }
   const output = "video-concat";
   filters.push(`${labels.join("")}concat=n=${labels.length}:v=1:a=0[${output}]`);
   return output;
+}
+
+function hasBt709Video(model: RenderModel): boolean {
+  return model.occurrences.every((occurrence) => {
+    const color = model.resources.get(occurrence.mediaId!)?.metadata?.streams.find((stream) => stream.kind === "video")?.color;
+    return color?.primaries === "bt709" && color.transfer === "bt709" && color.matrix === "bt709" && color.range === "tv";
+  });
 }
 
 function addAudioComposition(
@@ -467,8 +507,8 @@ function addAudioComposition(
   if (transition) {
     const duration = rationalSeconds(transition.durationTime, `${transition.id}.durationTime`);
     const output = "audio-crossfade";
-    filters.push(`${labels[0]}${labels[1]}acrossfade=d=${formatNumber(duration)}:c1=tri:c2=tri[${output}]`);
-    filters.push(`[${output}]apad,atrim=duration=${formatNumber(model.duration)},asetpts=PTS-STARTPTS[${output}-padded]`);
+    filters.push(`${labels[0]}${labels[1]}acrossfade=d=${formatNumber(duration)}:c1=hsin:c2=hsin[${output}]`);
+    filters.push(`[${output}]atrim=duration=${formatNumber(model.duration)},asetpts=PTS-STARTPTS[${output}-padded]`);
     return `${output}-padded`;
   }
   const output = "audio-concat";
@@ -514,13 +554,14 @@ function addTitleOverlays(
     );
     const style = title.style;
     const color = escapeFilterValue(style?.color ?? "white");
-    const size = formatNumber(style?.fontSize ?? 32);
+    const basicDefault = style === undefined && title.position === undefined;
+    const size = formatNumber(style?.fontSize ?? (basicDefault ? model.height * 44 / 720 : 32));
     const x = title.position
       ? `${formatNumber(model.width / 2 + title.position.x * model.width / 2)}-(text_w/2)`
       : style?.alignment === "left" ? "20" : style?.alignment === "right" ? "w-text_w-20" : "(w-text_w)/2";
     const y = title.position
       ? `${formatNumber(model.height / 2 - title.position.y * model.height / 2)}-(text_h/2)`
-      : "(h-text_h)/2";
+      : basicDefault ? "h/2-text_h" : "(h-text_h)/2";
     const output = `title-${index}`;
     const font = fontFile ? `fontfile='${escapeFilterValue(fontFile)}':` : "";
     const textFile = titleTextFiles[index];
@@ -689,5 +730,6 @@ export function resolveFontFile(preferred?: string): string | undefined {
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
   ].filter((candidate): candidate is string => Boolean(candidate));
-  return candidates.find((candidate) => existsSync(candidate));
+  const found = candidates.find((candidate) => existsSync(candidate));
+  return found === undefined ? undefined : resolve(found);
 }

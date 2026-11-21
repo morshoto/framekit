@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { readdir, readFile, rename, writeFile, mkdir, link, unlink, realpath, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { readdir, readFile, rename, writeFile, mkdir, link, unlink, realpath, stat, lstat, open } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   FramekitProjectStore,
@@ -31,6 +32,23 @@ import {
   type TimelineIrToFcpxmlResult,
   type TimelineIrToFcpxmlTarget,
 } from "@framekit/final-cut/fcpxml";
+
+import { verifyConnectedAudioBounds } from "./external-edit.js";
+
+function verifyConnectedAudioOccurrences(timeline: TimelineIr, previousTimeline?: TimelineIr): TimelineIrResource[] {
+  const resources = new Map<string, TimelineIrResource>();
+  for (const occurrence of timeline.sequence.occurrences) {
+    if (occurrence.role !== "music" && occurrence.role !== "audio") continue;
+    const previous = previousTimeline?.sequence.occurrences.find((item) => item.id === occurrence.id);
+    if (previous && stableJson(previous) === stableJson(occurrence)) continue;
+    const resource = timeline.resources.find((item) => item.id === occurrence.mediaId);
+    if (resource?.sourceKind === "local-file") {
+      verifyConnectedAudioBounds(resource, occurrence.sourceStartTime ?? { value: "0", timescale: "1" }, occurrence.durationTime);
+      resources.set(resource.id, resource);
+    }
+  }
+  return [...resources.values()];
+}
 
 export interface HeadlessProjectServiceOptions {
   directory: string;
@@ -226,6 +244,7 @@ export interface HeadlessRoughCutPublishProof {
   canonicalRevision: ContextRevision;
   planDigest: string;
   renderId: string;
+  renderArtifact: { path: string; digest: string; bytes: number };
   artifactPath: string;
   artifactDigest: string;
   sourceAudioPolicy: "preserve-and-mix";
@@ -257,6 +276,7 @@ interface HeadlessRoughCutExecutionRecord {
   planDigest: string;
   inputDigest: string;
   renderId: string;
+  renderArtifact: { path: string; digest: string; bytes: number };
   artifactPath: string;
   artifactDigest: string;
   artifactBytes: number;
@@ -377,10 +397,12 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
   public async previewEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string) {
     const project = await this.open(projectId);
     const transaction = new ProjectTransactionService(this.snapshotStore(projectId, project), { clock: this.clock });
-    return transaction.preview({
+    const preview = await transaction.preview({
       ...command,
       target: command.target ?? { projectId, sequenceId },
     });
+    await this.verifyConnectedAudioMetadata(projectId, preview.after.timeline, preview.before.timeline);
+    return preview;
   }
 
   public async executeEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string) {
@@ -392,6 +414,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       target: command.target ?? { projectId, sequenceId },
     };
     const preview = await transaction.preview(editCommand);
+    await this.verifyConnectedAudioMetadata(projectId, preview.after.timeline, preview.before.timeline);
     const recordId = `undo-${randomUUID()}`;
     const afterDigest = timelineIrDigest(preview.after.timeline);
     const record = {
@@ -456,6 +479,8 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       throw new Error("HEADLESS_FCPXML_STALE: project target or revision does not match the requested export");
     }
     await this.assertOutputSeparation(project, [outputPath]);
+    await this.verifyConnectedAudioMetadata(projectId, project.timeline);
+    await this.verifyDissolveMetadata(project.timeline);
     const compiled = compileTimelineIrToFcpxml(project.timeline, { target });
     const artifact = await writeVerifiedFcpxml(resolve(outputPath), compiled.xml, compiled.digest, false);
     return { artifact, provenance: compiled.provenance, coverage: compiled.coverage };
@@ -569,6 +594,11 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     if (outcome.status !== "passed") {
       throw new Error(`HEADLESS_ROUGH_CUT_RENDER_FAILED: render verification status was ${outcome.status}; inspect ${renderId}`);
     }
+    const renderedArtifact = outcome.verification?.artifact;
+    if (!renderedArtifact || resolve(renderedArtifact.path) !== resolve(request.render.outputPath)
+      || !/^[a-f0-9]{64}$/.test(renderedArtifact.fileDigest) || !Number.isSafeInteger(renderedArtifact.sizeBytes) || renderedArtifact.sizeBytes <= 0) {
+      throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: verified render artifact identity is unavailable or inconsistent");
+    }
     await this.assertOutputSeparation(prepared.project, [request.render.outputPath, request.fcpxml.path]);
     const fcpxmlArtifact = await writeVerifiedFcpxml(
       request.fcpxml.path,
@@ -593,6 +623,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
         planDigest: approval.planDigest,
         inputDigest: prepared.inputDigest,
         renderId,
+        renderArtifact: { path: resolve(renderedArtifact.path), digest: renderedArtifact.fileDigest, bytes: renderedArtifact.sizeBytes },
         artifactPath: resolve(fcpxmlArtifact.path),
         artifactDigest: fcpxmlArtifact.digest,
         artifactBytes: fcpxmlArtifact.bytes,
@@ -675,9 +706,35 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       || !sameRevision(project.timeline.revision, record.canonicalRevision)) {
       throw new Error("HEADLESS_ROUGH_CUT_STALE_REVISION: canonical project changed after the approved rough cut");
     }
-    const approvedSnapshot = await new FcpxmlDocumentAdapter(record.artifactPath, undefined, {
+    await this.verifyConnectedAudioMetadata(record.projectId, project.timeline);
+    const readApprovedArtifact = async (): Promise<string> => {
+      try {
+        const file = await open(record.artifactPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+        try {
+          const before = await file.stat();
+          if (!before.isFile() || before.size !== record.artifactBytes) throw new Error("invalid FCPXML file");
+          const bytes = await file.readFile();
+          const after = await file.stat();
+          const current = await lstat(record.artifactPath);
+          if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size
+            || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs
+            || !current.isFile() || current.dev !== after.dev || current.ino !== after.ino
+            || current.size !== after.size || current.mtimeMs !== after.mtimeMs || current.ctimeMs !== after.ctimeMs
+            || bytes.length !== record.artifactBytes || createHash("sha256").update(bytes).digest("hex") !== record.artifactDigest) {
+            throw new Error("FCPXML differs from the approved artifact");
+          }
+          return bytes.toString("utf8");
+        } finally {
+          await file.close();
+        }
+      } catch (cause) {
+        throw new Error("HEADLESS_ROUGH_CUT_ARTIFACT_CHANGED: approved FCPXML is missing or has changed", { cause });
+      }
+    };
+    const artifact = await readApprovedArtifact();
+    const approvedSnapshot = FcpxmlDocumentAdapter.readProjectFromContent(record.artifactPath, artifact, {
       allowMissingImmutableIdsForReadback: true,
-    }).readProject();
+    });
     const referencedMediaIds = new Set([
       ...approvedSnapshot.timeline.clips.map(({ mediaId }) => mediaId),
       ...approvedSnapshot.timeline.storyElements.map(({ mediaId }) => mediaId),
@@ -700,10 +757,33 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       || !sameRevision(render.requestedRevision, record.canonicalRevision)) {
       throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render evidence does not match the approved revision");
     }
-    const artifact = await readFile(record.artifactPath, "utf8");
-    if (hash(artifact) !== record.artifactDigest || Buffer.byteLength(artifact) !== record.artifactBytes) {
-      throw new Error("HEADLESS_ROUGH_CUT_ARTIFACT_CHANGED: approved FCPXML no longer matches its recorded digest");
+    const boundRender = record.renderArtifact;
+    if (!boundRender || typeof boundRender.path !== "string" || resolve(boundRender.path) !== resolve(record.outputIntent.render.outputPath)
+      || !/^[a-f0-9]{64}$/.test(boundRender.digest) || !Number.isSafeInteger(boundRender.bytes) || boundRender.bytes <= 0) {
+      throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render artifact identity is missing or invalid");
     }
+    try {
+      const file = await open(boundRender.path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      try {
+        const before = await file.stat();
+        if (!before.isFile()) throw new Error("render artifact is not a regular file");
+        const digest = createHash("sha256");
+        for await (const chunk of file.createReadStream({ autoClose: false })) digest.update(chunk as Buffer);
+        const after = await file.stat();
+        const current = await lstat(boundRender.path);
+        if (!before.isFile() || before.size !== boundRender.bytes || before.dev !== after.dev || before.ino !== after.ino
+          || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs
+          || !current.isFile() || current.dev !== after.dev || current.ino !== after.ino || current.size !== after.size
+          || current.mtimeMs !== after.mtimeMs || current.ctimeMs !== after.ctimeMs || digest.digest("hex") !== boundRender.digest) {
+          throw new Error("render bytes differ from the verified artifact");
+        }
+      } finally {
+        await file.close();
+      }
+    } catch (cause) {
+      throw new Error("HEADLESS_ROUGH_CUT_RENDER_CHANGED: verified render is missing or has changed", { cause });
+    }
+    await readApprovedArtifact();
     if (!record.fcpxml.target.libraryUid?.trim()
       || !record.fcpxml.destination.projectUid?.trim()
       || !record.fcpxml.destination.sequenceUid?.trim()) {
@@ -719,6 +799,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       canonicalRevision: structuredClone(record.canonicalRevision),
       planDigest: record.planDigest,
       renderId: record.renderId,
+      renderArtifact: structuredClone(boundRender),
       artifactPath: record.artifactPath,
       artifactDigest: record.artifactDigest,
       sourceAudioPolicy: record.outputIntent.sourceAudioPolicy,
@@ -760,6 +841,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       ...(expectedRevision ? { revision: expectedRevision } : {}),
       parameters,
     });
+    await this.verifyConnectedAudioMetadata(projectId, project.timeline);
     const outcome = await renderAndVerifyFramekitProject(request, this.renderer, this.verifier);
     const renderId = `render-${randomUUID()}`;
     const record: HeadlessRenderRecord = {
@@ -949,6 +1031,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     transaction = new ProjectTransactionService(this.snapshotStore(request.projectId, prepared.project), { clock: () => timestamp }),
   ): Promise<{ preview: ProjectEditPreview; fcpxml: TimelineIrToFcpxmlResult }> {
     const rawPreview = await transaction.preview(prepared.command);
+    await this.verifyConnectedAudioMetadata(request.projectId, rawPreview.after.timeline);
     const canonicalRevision: ContextRevision = {
       id: `ir:${timelineIrDigest(rawPreview.after.timeline)}`,
       sequence: rawPreview.before.timeline.revision.sequence + 1,
@@ -960,8 +1043,25 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       ...rawPreview,
       after: { ...rawPreview.after, timeline: canonicalTimeline },
     };
+    await this.verifyDissolveMetadata(canonicalTimeline);
     const fcpxml = compileTimelineIrToFcpxml(canonicalTimeline, { target: request.fcpxml.target });
     return { preview, fcpxml };
+  }
+
+  private async verifyConnectedAudioMetadata(projectId: string, timeline: TimelineIr, previousTimeline?: TimelineIr): Promise<void> {
+    const resources = verifyConnectedAudioOccurrences(timeline, previousTimeline);
+    if (!resources.length) return;
+    if (!this.mediaProbe) throw new Error("HEADLESS_MEDIA_PROBE_UNAVAILABLE: connected audio requires a source metadata probe");
+    await new LocalMediaRegistrar(this.store(projectId), this.mediaProbe).verifyMetadata(resources);
+  }
+
+  private async verifyDissolveMetadata(timeline: TimelineIr): Promise<void> {
+    if (!timeline.sequence.transitions?.length) return;
+    if (!this.mediaProbe) throw new Error("HEADLESS_MEDIA_PROBE_UNAVAILABLE: dissolve handoff requires a source metadata probe");
+    const ids = new Set(timeline.sequence.occurrences.map((occurrence) => occurrence.mediaId).filter((id): id is string => id !== undefined));
+    const resources = timeline.resources.filter((resource) => ids.has(resource.id));
+    if (resources.length !== ids.size) throw new Error("MEDIA_METADATA_CHANGED: dissolve source metadata is unavailable");
+    await new LocalMediaRegistrar(this.store(timeline.project.id), this.mediaProbe).verifyMetadata(resources);
   }
 }
 
