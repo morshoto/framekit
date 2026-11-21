@@ -764,15 +764,25 @@ test("approved headless edits execute only a matching issued preview", async () 
       operations: [{ type: "add-marker", marker: { id: "approved", name: "Approved", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } } }] };
     const preview = payload(await client.callTool({ name: "headless.edit.approved-preview", arguments: request }));
     assert.equal(typeof preview.previewToken, "string");
+    const stalePreview = payload(await client.callTool({ name: "headless.edit.approved-preview", arguments: request }));
     const execute = { projectId, sequenceId, previewToken: preview.previewToken, approved: true };
     for (const invalid of [{ ...execute, sequenceId: "wrong-sequence" }, { ...execute, previewToken: "missing-token" }, { ...execute, approved: false }]) {
       const result = await client.callTool({ name: "headless.edit.approved-execute", arguments: invalid });
       assert.equal(result.isError, true);
     }
     assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, initial.timeline);
-    const committed = payload(await client.callTool({ name: "headless.edit.approved-execute", arguments: execute }));
+    const attempts = await Promise.all([
+      client.callTool({ name: "headless.edit.approved-execute", arguments: execute }),
+      client.callTool({ name: "headless.edit.approved-execute", arguments: execute }),
+    ]);
+    assert.equal(attempts.filter((result) => !result.isError).length, 1);
+    assert.equal(attempts.filter((result) => result.isError).length, 1);
+    const committed = payload(attempts.find((result) => !result.isError)!);
     assert.equal(committed.after.timeline.sequence.markers[0].id, "approved");
     assert.equal((await client.callTool({ name: "headless.edit.approved-execute", arguments: execute })).isError, true);
+    const stale = await client.callTool({ name: "headless.edit.approved-execute", arguments: { ...execute, previewToken: stalePreview.previewToken } });
+    assert.equal(stale.isError, true);
+    assert.match(toolErrorText(stale), /STALE/);
     const next = payload(await client.callTool({ name: "headless.edit.approved-preview", arguments: { ...request, expectedRevision: committed.after.timeline.revision, operations: [{ ...request.operations[0], marker: { ...request.operations[0].marker, id: "after-restart" } }] } }));
     await client.close(); await transport.close();
     ({ client, transport } = await connectProductionClient(here, environment));

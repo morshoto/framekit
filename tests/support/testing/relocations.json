@@ -3112,6 +3112,7 @@
       "\"a legacy writer removing an initializing lock can bypass upgraded writer exclusion\""
     ],
     "tests/integration/headless-project-mcp.test.ts": [
+      "\"approved headless edits execute only a matching issued preview\"",
       "\"headless media search returns both registered same-name sources through production MCP\"",
       "\"external edit JSON previews registered clips, a title and music without mutation\"",
       "\"external JSON binds one font through preview, render and FCPXML\"",
