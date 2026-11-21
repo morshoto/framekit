@@ -127,6 +127,9 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
   assert.match(result.xml, /<transition[^>]*offset="3\/2s"[^>]*duration="1\/2s"/);
   assert.match(result.xml, /<asset-clip[^>]*name="After"[^>]*offset="53\/30s"[^>]*start="113\/30s"[^>]*duration="67\/30s"/);
   assert.match(result.xml, /<filter-video[^>]*ref="effect-cross-dissolve"/);
+  for (const [name, key, value] of [["Look", "1", "11 (Video)"], ["Amount", "2", "50"], ["Ease", "50", "2 (In &amp; Out)"], ["Ease Amount", "51", "0"]]) {
+    assert.ok(result.xml.includes(`<param name="${name}" key="${key}" value="${value}" />`), `missing explicit ${name} parameter`);
+  }
   assert.match(result.xml, /<effect[^>]*name="Audio Crossfade"[^>]*uid="FFAudioTransition"/);
   assert.match(result.xml, /<filter-audio[^>]*ref="effect-audio-crossfade"/);
   assert.match(result.xml, /<asset[^>]*hasAudio="1"/);
