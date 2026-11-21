@@ -274,7 +274,7 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     const v1VideoDigest = createHash("sha256").update(await readFile(request.render.outputPath)).digest("hex");
     const command = { schemaVersion: 1 as const, expectedRevision: v1Revision, operations: [
       { type: "remove-title" as const, titleId: "title" },
-      { type: "add-title" as const, title: { id: "title-v2", text: "FADE 2", startTime: { value: "4", timescale: "5" }, durationTime: { value: "1", timescale: "6" }, lane: 1 } },
+      { type: "add-title" as const, title: { id: "title-v2", text: "FADE 2", startTime: { value: "4", timescale: "5" }, durationTime: { value: "1", timescale: "6" }, lane: 1, font: { ...preview.titleFont!.face, digest: preview.titleFont!.digest } } },
       { type: "set-gain" as const, occurrenceId: "music", gainDb: -9 },
     ] };
     const v2Preview = await service.previewEdit(request.projectId, command, request.sequenceId);
@@ -297,7 +297,7 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     assert.deepEqual(v2Xml.provenance.revision, v2Revision);
     assert.notEqual(v2Xml.provenance.destination.projectUid, executed.fcpxml.provenance.destination.projectUid);
     const revisedXml = await readFile(v2XmlPath, "utf8");
-    assert.match(revisedXml, /<text>FADE 2<\/text>/);
+    assert.match(revisedXml, /<text><text-style ref="title-style-1">FADE 2<\/text-style><\/text>/);
     assert.match(revisedXml, /<adjust-volume amount="-9dB"/);
     assert.match(revisedXml, /<transition name="Cross Dissolve" offset="4\/5s" duration="1\/5s"/);
     const v2Readback = await new FcpxmlDocumentAdapter(v2XmlPath).readProject();
@@ -2453,6 +2453,15 @@ test("external JSON binds one font through preview, render and FCPXML", async ()
     assert.ok(xml.includes(`key="com.framekit.title-font-sha256" value="${font.digest}"`));
     const parsed = await new FcpxmlDocumentAdapter(xmlPath).readProject();
     assert.equal(parsed.timeline.storyElements.find(({ kind }) => kind === "title")?.text, "A日");
+    const legacyTimeline = structuredClone(executed.after.timeline);
+    legacyTimeline.project.id = "legacy-unbound-title";
+    delete legacyTimeline.sequence.titles[0].font;
+    const legacy = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: legacyTimeline } }));
+    const legacyPath = join(directory, "legacy.fcpxml");
+    const legacyExport = await client.callTool({ name: "headless.fcpxml.export", arguments: { projectId: legacy.timeline.project.id, sequenceId, expectedRevision: legacy.timeline.revision, outputPath: legacyPath, target } });
+    assert.equal(legacyExport.isError, true);
+    assert.match(toolErrorText(legacyExport), /TITLE_FONT_UNBOUND/);
+    assert.equal(existsSync(legacyPath), false);
     const output = join(directory, "render.mp4");
     const renderArgs = { projectId, sequenceId, expectedRevision: executed.after.timeline.revision, parameters: { outputPath: output, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } };
     await writeFile(fontPath, Buffer.concat([fontBytes, Buffer.from([0])]));

@@ -500,6 +500,9 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     await this.verifyConnectedAudioMetadata(projectId, project.timeline);
     const titles = project.timeline.sequence.titles ?? [];
     const boundTitles = titles.filter((title) => title.font);
+    if (boundTitles.length !== titles.length) {
+      throw new Error("HEADLESS_TITLE_FONT_UNBOUND: every title must bind an approved font before export");
+    }
     if (boundTitles.length) {
       const selected = this.selectTitleFont(titles.map((title) => title.text));
       if (boundTitles.some((title) => title.font!.family !== selected.family || title.font!.style !== selected.style
@@ -507,6 +510,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
         throw new Error("HEADLESS_TITLE_FONT_UNAVAILABLE: selected font does not match the approved title font");
       }
     }
+    await this.verifyConnectedAudioMetadata(projectId, project.timeline);
     await this.verifyDissolveMetadata(project.timeline);
     const compiled = compileTimelineIrToFcpxml(project.timeline, { target });
     const artifact = await writeVerifiedFcpxml(resolve(outputPath), compiled.xml, compiled.digest, false);
