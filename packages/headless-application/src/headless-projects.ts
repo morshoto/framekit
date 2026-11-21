@@ -783,7 +783,14 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
         || stableJson(plan.capabilities?.renderer) !== stableJson(approval.titleFont.renderer)
         || stableJson(outcome.render?.renderer) !== stableJson(approval.titleFont.renderer)
         || outcome.render?.planDigest !== plan.planDigest
+        || stableJson(plan.target) !== stableJson({ projectId: record.projectId, sequenceId: record.sequenceId })
+        || stableJson(outcome.render?.target) !== stableJson(plan.target)
+        || stableJson(plan.projectRevision) !== stableJson(record.canonicalRevision)
+        || stableJson(outcome.render?.projectRevision) !== stableJson(record.canonicalRevision)
+        || stableJson(plan.parameters) !== stableJson(record.outputIntent.render)
+        || stableJson(outcome.render?.output) !== stableJson({ path: record.outputIntent.render.outputPath, format: record.outputIntent.render.format })
         || !plan.timeline || typeof plan.timeline !== "object" || Array.isArray(plan.timeline)
+        || stableJson(plan.timeline.revision) !== stableJson(record.canonicalRevision)
         || timelineIrDigest(plan.timeline) !== timelineIrDigest(project.timeline)) {
         throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render font or timeline differs from the approved preview");
       }
