@@ -2338,6 +2338,15 @@ test("external JSON binds one font through preview, render and FCPXML", async ()
     assert.ok(xml.includes(`key="com.framekit.title-font-sha256" value="${font.digest}"`));
     const parsed = await new FcpxmlDocumentAdapter(xmlPath).readProject();
     assert.equal(parsed.timeline.storyElements.find(({ kind }) => kind === "title")?.text, "A日");
+    const legacyTimeline = structuredClone(executed.after.timeline);
+    legacyTimeline.project.id = "legacy-unbound-title";
+    delete legacyTimeline.sequence.titles[0].font;
+    const legacy = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: legacyTimeline } }));
+    const legacyPath = join(directory, "legacy.fcpxml");
+    const legacyExport = await client.callTool({ name: "headless.fcpxml.export", arguments: { projectId: legacy.timeline.project.id, sequenceId, expectedRevision: legacy.timeline.revision, outputPath: legacyPath, target } });
+    assert.equal(legacyExport.isError, true);
+    assert.match(toolErrorText(legacyExport), /TITLE_FONT_UNBOUND/);
+    assert.equal(existsSync(legacyPath), false);
     const output = join(directory, "render.mp4");
     const renderArgs = { projectId, sequenceId, expectedRevision: executed.after.timeline.revision, parameters: { outputPath: output, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } };
     await writeFile(fontPath, Buffer.concat([fontBytes, Buffer.from([0])]));
