@@ -147,6 +147,8 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     const originalFontBeforePreview = await readFile(fontPath);
     const fontCollision = { ...titleRequest, render: { ...titleRequest.render, outputPath: fontPath, overwrite: true } };
     await assert.rejects(fontService.previewRoughCut(fontCollision), /OUTPUT_INVALID.*font/i);
+    const xmlFontCollision = { ...titleRequest, fcpxml: { ...titleRequest.fcpxml, path: fontPath, overwrite: true } };
+    await assert.rejects(fontService.previewRoughCut(xmlFontCollision), /OUTPUT_INVALID.*font/i);
     assert.deepEqual(await readFile(fontPath), originalFontBeforePreview);
     for (const titleFontDigest of [undefined, "f".repeat(64)]) {
       const mismatchedStoryboard = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: new FfmpegMediaMetadataProbe(), renderer: new FfmpegTimelineRenderer({ env: { FRAMEKIT_RENDER_FONT: fontPath } }), storyboard: { render: async () => ({ data: "fake", mimeType: "image/png", samples: [], limitations: [], titleFontDigest }) } });
