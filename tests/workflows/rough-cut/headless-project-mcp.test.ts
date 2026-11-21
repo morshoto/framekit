@@ -207,6 +207,19 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     assert.equal(executed.render.status, "passed");
     assert.equal(executed.fcpxmlArtifact.verified, true);
     assert.deepEqual(executed.after.timeline.revision, preview.after.timeline.revision);
+    const proof = await service.verifyPublishableRoughCut(executed.executionId, request.fcpxml.path);
+    const renderRecordPath = join(directory, "projects", `${executed.render.renderId}.json`);
+    const originalRenderRecord = await readFile(renderRecordPath, "utf8");
+    for (const mutation of ["font", "renderer", "missing"] as const) {
+      const record = JSON.parse(originalRenderRecord);
+      if (mutation === "font") record.outcome.plan.capabilities.titleFontDigest = "f".repeat(64);
+      if (mutation === "renderer") record.outcome.plan.renderer.version = "different";
+      if (mutation === "missing") delete record.outcome.plan.capabilities.titleFontDigest;
+      await writeFile(renderRecordPath, JSON.stringify(record));
+      await assert.rejects(service.verifyPublishableRoughCut(executed.executionId, request.fcpxml.path), /RENDER_EVIDENCE_MISMATCH.*font/i);
+    }
+    await writeFile(renderRecordPath, originalRenderRecord);
+    assert.deepEqual(await service.verifyPublishableRoughCut(executed.executionId, request.fcpxml.path), proof);
     const xml = await readFile(request.fcpxml.path, "utf8");
     assert.match(xml, /name="Rough cut 1: approved source range" offset="0s" start="1\/5s" duration="9\/10s"/);
     assert.match(xml, /<transition name="Cross Dissolve" offset="4\/5s" duration="1\/5s"/);
