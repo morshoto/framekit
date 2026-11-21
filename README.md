@@ -11,6 +11,8 @@
 
 # Framekit
 
+English | [日本語](./README.ja.md)
+
 Agentic video editing runtime and MCP server for Final Cut Pro.
 
 ## Get started
@@ -75,8 +77,7 @@ capabilities, it connects only to an existing Workflow Extension bridge and
 does not launch, activate, focus, or edit Final Cut through macOS UI automation.
 Framekit-owned video projects can register local media, analyze it, create an
 approved rough-cut plan, and render a verified MP4 plus editable FCPXML without
-a connected Final Cut session. Optional native publishing is experimental and
-is not guaranteed in v0.1.18: a document-open dispatch does not prove that
+a connected Final Cut session. Optional native publishing is experimental: a document-open dispatch does not prove that
 Final Cut completed an import or created a native project. See the
 [Codex video production runbook](./plugins/framekit/references/tests/codex-video-production-e2e.md)
 and [first-run setup and capability boundaries](./docs/getting-started.md).
@@ -90,8 +91,14 @@ bash adapters/final-cut/swift-bridge/FinalCutWorkflowExtension/build.sh
 pnpm run framekit -- connect finalcut --development
 ```
 
+The runtime configuration uses `FRAMEKIT_EDITOR` to select a backend,
+`FRAMEKIT_FCPXML_PATH` for an explicit artifact, and
+`FRAMEKIT_FINAL_CUT_SOCKET` for the Workflow Extension socket. See
+[Getting started](./docs/getting-started.md) before using a live backend.
+
 ## Further Docs
 
+- [English Docs source](./apps/docs/content/docs/en/introduction.mdx) and [Japanese Docs source](./apps/docs/content/docs/ja/introduction.mdx) (site deployment status is tracked separately)
 - [Documentation index](./docs/README.md)
 - [Getting started](./docs/getting-started.md)
 - [Architecture](./docs/architecture.md)
@@ -102,3 +109,6 @@ pnpm run framekit -- connect finalcut --development
 
 Contributor setup, repository layout, native checks, and the local pre-commit
 hook are documented in [CONTRIBUTING.md](CONTRIBUTING.md).
+
+When changing public setup, commands, or capability descriptions, update both
+README language entry points together.
