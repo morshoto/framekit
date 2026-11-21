@@ -233,6 +233,9 @@ test("dissolve planning rejects unknown or non-BT.709 colors", () => {
   value.resources[0]!.metadata!.streams[0]!.frameRate = { value: "30", timescale: "1" };
   value.resources[0]!.metadata!.streams[1]!.channels = 1;
   assert.doesNotThrow(() => planFcpxmlDissolve(value));
+  const thirdClip = structuredClone(value);
+  thirdClip.sequence.occurrences.push({ ...thirdClip.sequence.occurrences[1]!, id: "third", startTime: { value: "4", timescale: "1" } });
+  assert.throws(() => planFcpxmlDissolve(thirdClip), /FCPXML_DISSOLVE_UNSUPPORTED/);
   const unknown = structuredClone(value);
   delete unknown.resources[0]!.metadata!.streams[0]!.color;
   assert.throws(() => planFcpxmlDissolve(unknown), /FCPXML_DISSOLVE_COLOR_UNSUPPORTED/);
