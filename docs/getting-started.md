@@ -109,8 +109,9 @@ Publishing an approved rough cut requires its verified video and FCPXML to
 remain as regular files at their approved paths with unchanged contents;
 symbolic links are not accepted. The publish preview's
 `sourceProof.renderArtifact` reports the checked video path, SHA-256 digest,
-and byte count. Older rough-cut execution records without a verified video
-identity cannot be published. Restore the project to its pre-execution state,
+and byte count; `sourceProof.renderer` reports the renderer identity recorded at
+execution. Older rough-cut execution records without a verified video or
+renderer identity cannot be published. Restore the project to its pre-execution state,
 or recreate the intended edit in a fresh project, then use new output paths and
 run a new approved preview and execution to create current evidence.
 Publication also rejects a saved render plan or verification record that does

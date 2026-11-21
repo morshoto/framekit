@@ -230,6 +230,7 @@ export interface HeadlessRoughCutPublishProof {
   canonicalRevision: ContextRevision;
   planDigest: string;
   renderId: string;
+  renderer: { id: string; version: string };
   renderArtifact: { path: string; digest: string; bytes: number };
   titleFont?: HeadlessRoughCutPreview["titleFont"];
   artifactPath: string;
@@ -263,6 +264,7 @@ interface HeadlessRoughCutExecutionRecord {
   planDigest: string;
   inputDigest: string;
   renderId: string;
+  renderer: { id: string; version: string };
   renderArtifact: { path: string; digest: string; bytes: number };
   artifactPath: string;
   artifactDigest: string;
@@ -623,6 +625,9 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       throw new Error(`HEADLESS_ROUGH_CUT_RENDER_FAILED: render verification status was ${outcome.status}; inspect ${renderId}`);
     }
     const renderedArtifact = outcome.verification?.artifact;
+    if (!outcome.plan?.renderer?.id?.trim() || !outcome.plan.renderer.version?.trim()) {
+      throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: renderer identity is unavailable");
+    }
     if (!renderedArtifact || resolve(renderedArtifact.path) !== resolve(request.render.outputPath)
       || !/^[a-f0-9]{64}$/.test(renderedArtifact.fileDigest) || !Number.isSafeInteger(renderedArtifact.sizeBytes) || renderedArtifact.sizeBytes <= 0) {
       throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: verified render artifact identity is unavailable or inconsistent");
@@ -652,6 +657,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
         planDigest: approval.planDigest,
         inputDigest: prepared.inputDigest,
         renderId,
+        renderer: structuredClone(outcome.plan.renderer),
         renderArtifact: { path: resolve(renderedArtifact.path), digest: renderedArtifact.fileDigest, bytes: renderedArtifact.sizeBytes },
         artifactPath: resolve(fcpxmlArtifact.path),
         artifactDigest: fcpxmlArtifact.digest,
@@ -795,6 +801,9 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       || typeof verifiedArtifact.path !== "string" || resolve(verifiedArtifact.path) !== resolve(record.outputIntent.render.outputPath)
       || !plan || typeof plan !== "object" || outcome.render?.status !== "rendered"
       || outcome.render.contractVersion !== plan.contractVersion || outcome.render.verificationRequired !== true
+      || typeof record.renderer?.id !== "string" || !record.renderer.id.trim()
+      || typeof record.renderer?.version !== "string" || !record.renderer.version.trim()
+      || stableJson(record.renderer) !== stableJson(plan.renderer)
       || stableJson(plan.capabilities?.renderer) !== stableJson(plan.renderer)
       || stableJson(outcome.render?.renderer) !== stableJson(plan.renderer)
       || outcome.render?.planDigest !== plan.planDigest
@@ -861,6 +870,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       canonicalRevision: structuredClone(record.canonicalRevision),
       planDigest: record.planDigest,
       renderId: record.renderId,
+      renderer: structuredClone(record.renderer),
       renderArtifact: structuredClone(boundRender),
       ...(project.timeline.sequence.titles?.length && approval.titleFont ? { titleFont: structuredClone(approval.titleFont) } : {}),
       artifactPath: record.artifactPath,

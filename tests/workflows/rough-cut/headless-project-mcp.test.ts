@@ -1764,6 +1764,7 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     assert.equal(proof.sourceRevision.id, plan.revision.id);
     assert.equal(proof.canonicalRevision.id, executed.after.timeline.revision.id);
     assert.equal(proof.planDigest, preview.planDigest);
+    assert.deepEqual(proof.renderer, (executed.render.outcome as any).plan.renderer);
     assert.equal(proof.destination.projectUid, executed.fcpxml.destination.projectUid);
     assert.equal(proof.destination.sequenceUid, executed.fcpxml.destination.sequenceUid);
     assert.deepEqual(proof.sourceMediaDigests, [{ source: source.source, sha256: source.sourceDigest }]);
@@ -1874,22 +1875,24 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     );
     await writeFile(source.source!, originalSource);
     assert.deepEqual(await (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path), proof);
-    // A genuine pre-upgrade execution record has a valid checksum but no
-    // verified video identity, so it cannot authorize a new publication.
+    // Records predating either binding have valid checksums but cannot authorize publication.
     const executionPath = join(directory, "projects", `${executionId}.json`);
     const currentExecution = await readFile(executionPath, "utf8");
-    const legacy = JSON.parse(currentExecution);
-    delete legacy.renderArtifact;
-    delete legacy.evidenceDigest;
     const stable = (value: any): string => value === null || typeof value !== "object" ? JSON.stringify(value)
       : Array.isArray(value) ? `[${value.map(stable).join(",")}]`
       : `{${Object.entries(value).filter(([, child]) => child !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => `${JSON.stringify(key)}:${stable(child)}`).join(",")}}`;
-    legacy.evidenceDigest = createHash("sha256").update(stable(legacy)).digest("hex");
-    await writeFile(executionPath, JSON.stringify(legacy));
-    await assert.rejects(
-      (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path),
-      /HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH:/,
-    );
+    for (const missing of ["renderArtifact", "renderer"]) {
+      const legacy = JSON.parse(currentExecution);
+      delete legacy[missing];
+      delete legacy.evidenceDigest;
+      legacy.evidenceDigest = createHash("sha256").update(stable(legacy)).digest("hex");
+      await writeFile(executionPath, JSON.stringify(legacy));
+      await assert.rejects(
+        (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path),
+        /HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH:/,
+        missing,
+      );
+    }
     await writeFile(executionPath, currentExecution);
     assert.deepEqual(await (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path), proof);
     const savedXml = `${request.fcpxml.path}.saved`;
