@@ -516,7 +516,7 @@ function addTitleOverlays(
     const font = fontFile ? `fontfile='${escapeFilterValue(fontFile)}':` : "";
     const textFile = titleTextFiles[index];
     if (!textFile) throw new FfmpegRenderError("HEADLESS_RENDER_FAILED", `title text file is missing: ${index}`);
-    filters.push(`[${current}]drawtext=${font}textfile='${textFile}':expansion=none:fontcolor=${color}:fontsize=${size}:x=${x}:y=${y}:enable='between(t,${formatNumber(start)},${formatNumber(end)})'[${output}]`);
+    filters.push(`[${current}]drawtext=${font}textfile='${textFile}':expansion=none:fontcolor=${color}:fontsize=${size}:x=${x}:y=${y}:enable='gte(t,${formatNumber(start)})*lt(t,${formatNumber(end)})'[${output}]`);
     current = output;
   }
   return current;
