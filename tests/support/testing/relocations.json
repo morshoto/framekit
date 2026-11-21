@@ -3068,9 +3068,6 @@
     "tests/speech/filler-components.test.ts": [
       "\"resolver does not authorize a cut from partial VAD coverage\""
     ],
-    "tests/speech/mapping.test.ts": [
-      "\"speech mapping retains partial VAD coverage and only advertises fully covered occurrences\""
-    ],
     "tests/integration/test-suites.test.ts": [
       "\"relocations preserve every reviewed suite member exactly once\"",
       "\"duplicate inventory entries are rejected rather than executing a test twice\"",
@@ -3152,6 +3149,13 @@
       "\"production MCP rejects malformed audio while transcription stays available\"",
       "\"media understanding does not publish provider-rejected audio as analyzed evidence\"",
       "\"audio occurrence measurement retains declared source clock and signal format\"",
+      "\"semantic cache requires content identity before reusing source analysis\"",
+      "\"semantic cache cannot relabel partial source analysis as whole-source evidence\"",
+      "\"semantic cache does not preserve analysis from a removed provider\"",
+      "\"semantic cache reuses unchanged source evidence after a timeline-only revision\"",
+      "`semantic cache invalidates when provider ${changedField} changes`",
+      "\"semantic cache cannot rebind occurrence loudness as reusable source analysis\"",
+      "\"cached audio payloads cannot bypass analysis validation\"",
       "\"audio requests reject contradictory rational ranges before provider dispatch\""
     ],
     "tests/speech/command-analyzer.test.ts": [
@@ -3159,10 +3163,16 @@
       "`${kind} rejects a source replaced while its provider is running`",
       "`${kind} analyzes matching source content without changing media or timeline`",
       "`command audio rejects invalid ${label}`",
+      "\"command speech identity changes with effective model configuration\"",
+      "\"command audio identity distinguishes executable and provider version\"",
+      "\"command provider executes the environment bound to its analysis identity\"",
+      "`persisted ${kind} cache rechecks source bytes after restart`",
       "\"command audio rejects invalid or mismatched occurrence signal provenance\"",
       "\"command audio bounds source verification before and after the provider\""
     ],
     "tests/speech/revision-bound-analysis.test.ts": [
+      "\"speech binding preserves configured model and configuration provenance\"",
+      "`speech binding rejects mismatched configured provider ${Object.keys(change)[0]}`",
       "\"speech binding retains an unavailable VAD reason without inventing activity\"",
       "\"speech binding rejects conflicting VAD availability evidence\"",
       "\"speech binding rejects malformed or misleading VAD coverage\""
@@ -3238,7 +3248,8 @@
     ],
     "tests/integration/fcpxml-media-representation.test.ts": [
       "\"FCPXML retains an explicit exact source range without inventing a missing origin\"",
-      "\"FCPXML snapshots preserve explicit sequence timecode origin without inventing one\""
+      "\"FCPXML snapshots preserve explicit sequence timecode origin without inventing one\"",
+      "\"FCPXML original representations honor the default kind and reject ambiguous sources\""
     ],
     "tests/integration/headless-renderer.test.ts": [
       "\"FFmpeg renderer refuses an unimplemented nonzero source origin\"",
@@ -3254,6 +3265,26 @@
       "\"stable targets bind an explicit fractional frame-grid origin\"",
       "\"stable targets reject a caller-supplied origin that shifts the grid\"",
       "\"stable targets reject loss or introduction of explicit zero-grid evidence\""
+    ],
+    "tests/integration/timeline-semantic-context.test.ts": [
+      "\"timeline semantic context uses authoritative rational source coordinates\"",
+      "\"timeline semantic context rejects cached evidence from a different configured provider\"",
+      "\"MCP speech mapping rejects incomplete and contradictory cached evidence\"",
+      "\"timeline semantic context rejects incompatible attached provider evidence\"",
+      "\"timeline inspection compares attached audio revision by ID and persisted audio by full revision\"",
+      "\"default timeline inspection rejects source evidence outside observed coverage\"",
+      "\"default timeline inspection rejects speech with missing observed coverage\"",
+      "\"default timeline inspection rejects contradictory speech provenance\""
+    ],
+    "tests/speech/mapping.test.ts": [
+      "\"speech occurrence mapping refuses unobserved source coverage\"",
+      "`speech mapping rejects contradictory ${label} timing`",
+      "\"source range translation rejects conflicting exact evidence coordinates\"",
+      "\"speech mapping retains the declared source clock at fractional frame offsets\"",
+      "\"speech mapping rejects evidence outside its declared source clock\"",
+      "\"speech mapping uses the analysis clock independently of the editor source clock\"",
+      "\"cached speech remaps rational trim reorder and split snapshots after restart\"",
+      "\"speech mapping retains partial VAD coverage and only advertises fully covered occurrences\""
     ]
   },
   "identityDiscoveryCorrections": {
@@ -3357,6 +3388,24 @@
   ],
   "featureIntegrations": [
     {
+      "pullRequests": [740],
+      "reason": "Keep the provider analysis clock distinct from the editor source clock during rational mapping.",
+      "addedTestNames": {
+        "tests/speech/mapping.test.ts": [
+          "\"speech mapping uses the analysis clock independently of the editor source clock\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [740],
+      "reason": "Compare attached audio against its recorded revision ID without weakening persisted revision checks.",
+      "addedTestNames": {
+        "tests/integration/timeline-semantic-context.test.ts": [
+          "\"timeline inspection compares attached audio revision by ID and persisted audio by full revision\""
+        ]
+      }
+    },
+    {
       "pullRequests": [738],
       "reason": "Do not represent unobserved gaps as continuous post-write speech coverage.",
       "addedTestNames": {
@@ -3450,12 +3499,72 @@
     },
     {
       "pullRequests": [
+        740
+      ],
+      "reason": "Add reviewed cache, provenance, physical-source validation and rational mapping regressions; no baseline identities removed.",
+      "addedTestNames": {
+        "tests/integration/semantic-media.test.ts": [
+          "\"semantic cache requires content identity before reusing source analysis\"",
+          "\"semantic cache cannot relabel partial source analysis as whole-source evidence\"",
+          "\"semantic cache does not preserve analysis from a removed provider\"",
+          "\"semantic cache reuses unchanged source evidence after a timeline-only revision\"",
+          "`semantic cache invalidates when provider ${changedField} changes`",
+          "\"semantic cache cannot rebind occurrence loudness as reusable source analysis\""
+        ],
+        "tests/integration/timeline-semantic-context.test.ts": [
+          "\"timeline semantic context uses authoritative rational source coordinates\"",
+          "\"timeline semantic context rejects cached evidence from a different configured provider\""
+        ],
+        "tests/speech/command-analyzer.test.ts": [
+          "\"command speech identity changes with effective model configuration\"",
+          "\"command audio identity distinguishes executable and provider version\"",
+          "\"command provider executes the environment bound to its analysis identity\"",
+          "`persisted ${kind} cache rechecks source bytes after restart`"
+        ],
+        "tests/speech/mapping.test.ts": [
+          "\"speech occurrence mapping refuses unobserved source coverage\"",
+          "`speech mapping rejects contradictory ${label} timing`",
+          "\"source range translation rejects conflicting exact evidence coordinates\"",
+          "\"speech mapping retains the declared source clock at fractional frame offsets\"",
+          "\"speech mapping rejects evidence outside its declared source clock\"",
+          "\"cached speech remaps rational trim reorder and split snapshots after restart\""
+        ],
+        "tests/speech/revision-bound-analysis.test.ts": [
+          "\"speech binding preserves configured model and configuration provenance\"",
+          "`speech binding rejects mismatched configured provider ${Object.keys(change)[0]}`"
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        740
+      ],
+      "reason": "Add persisted audio payload/provenance validation across understanding, indexing and timeline context; no baseline test identities removed.",
+      "addedTestNames": {
+        "tests/integration/semantic-media.test.ts": [
+          "\"cached audio payloads cannot bypass analysis validation\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [
         738
       ],
       "reason": "Validate direct runtime rational audio requests before provider dispatch; no baseline identities removed.",
       "addedTestNames": {
         "tests/integration/semantic-media.test.ts": [
           "\"audio requests reject contradictory rational ranges before provider dispatch\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        740
+      ],
+      "reason": "Exercise optional production MCP speech mapping and unavailable evidence controls; no baseline identities removed.",
+      "addedTestNames": {
+        "tests/integration/timeline-semantic-context.test.ts": [
+          "\"MCP speech mapping rejects incomplete and contradictory cached evidence\""
         ]
       }
     },
@@ -3648,6 +3757,39 @@
           "\"stable targets bind an explicit fractional frame-grid origin\"",
           "\"stable targets reject a caller-supplied origin that shifts the grid\"",
           "\"stable targets reject loss or introduction of explicit zero-grid evidence\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        738
+      ],
+      "reason": "Reject invalid command analyzer signal scope and mismatched occurrence identity.",
+      "addedTestNames": {
+        "tests/speech/command-analyzer.test.ts": [
+          "\"command audio rejects invalid or mismatched occurrence signal provenance\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        740
+      ],
+      "reason": "Reject ambiguous original representations and recognize the FCPXML default media kind.",
+      "addedTestNames": {
+        "tests/integration/fcpxml-media-representation.test.ts": [
+          "\"FCPXML original representations honor the default kind and reject ambiguous sources\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [
+        738
+      ],
+      "reason": "Bound source verification before and after command analysis.",
+      "addedTestNames": {
+        "tests/speech/command-analyzer.test.ts": [
+          "\"command audio bounds source verification before and after the provider\""
         ]
       }
     }

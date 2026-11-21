@@ -174,6 +174,14 @@ standard output. `FRAMEKIT_ANALYZER_TIMEOUT_MS` changes the bounded provider
 timeout. Missing providers report unavailable analysis; they do not invent
 media descriptions.
 
+Pin speech and audio provider/model revisions with
+`FRAMEKIT_SPEECH_ANALYZER_VERSION` and `FRAMEKIT_AUDIO_ANALYZER_VERSION`.
+Command providers capture their execution environment and report a
+`configurationDigest` derived from that environment, executable path and
+declared provider version. Configuration changes invalidate incompatible cached
+analysis. Raw environment values are not included in provenance. Update the
+declared version when executable or model data changes at an unchanged path.
+
 Audio results identify their measured signal with `signalScope`. Existing
 source-file providers default to `source`; those results are useful for source
 analysis but cannot verify timeline gain changes. Occurrence-aware providers
@@ -192,7 +200,9 @@ retained; absent technical metadata is not inferred.
 For source-file loudness in a checkout, the optional
 `apps/mcp-server/runtime/ffmpeg-audio-backend.py` command requires Python 3,
 `ffmpeg` and `ffprobe` on `PATH`. Select it with `FRAMEKIT_AUDIO_ANALYZER` and
-pin the installed FFmpeg and backend versions as part of your environment. The
+pin the installed FFmpeg and backend versions as part of your environment. Set
+`FRAMEKIT_AUDIO_ANALYZER_VERSION` to record that provider version in analysis
+provenance. The
 executable also ships in the package's MCP runtime assets. It measures one
 mono/stereo source audio stream with zero stream offset, returning integrated
 LUFS, oversampled true peak and silence below -60 dB for at least 100 ms.

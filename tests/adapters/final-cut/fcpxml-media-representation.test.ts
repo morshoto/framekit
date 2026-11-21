@@ -29,6 +29,28 @@ test("original media representations preserve canonical content across export di
   }
 });
 
+test("FCPXML original representations honor the default kind and reject ambiguous sources", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-original-representations-"));
+  try {
+    const path = join(directory, "Info.fcpxml");
+    await writeFile(path, `<fcpxml version="1.10"><resources>
+      <asset id="default" duration="1s"><media-rep src="file:///fixtures/original.mov"/></asset>
+      <asset id="ambiguous" duration="1s"><media-rep kind="original-media" src="file:///fixtures/a.mov"/><media-rep kind="original-media" src="file:///fixtures/b.mov"/></asset>
+      <asset id="mixed" src="file:///fixtures/a.mov" duration="1s"><media-rep kind="original-media" src="file:///fixtures/b.mov"/></asset>
+      </resources><library><event><project uid="p" name="QA"><sequence uid="s" duration="1s"><spine>
+      <asset-clip ref="default" offset="0s" duration="1s"/>
+      </spine></sequence></project></event></library></fcpxml>`);
+    const snapshot = await new FcpxmlDocumentAdapter(path).readProject();
+    assert.deepEqual(snapshot.media.map(({ mediaId, source }) => ({ mediaId, source })), [
+      { mediaId: "default", source: "/fixtures/original.mov" },
+      { mediaId: "ambiguous", source: "" },
+      { mediaId: "mixed", source: "" },
+    ]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("FCPXML retains an explicit exact source range without inventing a missing origin", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-source-range-"));
   try {
