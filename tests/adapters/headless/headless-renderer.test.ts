@@ -110,6 +110,8 @@ test("FFmpeg renders a supported mixed-script title without tofu", async () => {
     const renderer = new FfmpegTimelineRenderer({ env: { FRAMEKIT_RENDER_FONT: relativeFont } });
     const originalFontBytes = await readFile(fontPath);
     source.sequence.titles![0]!.font = { family: "Noto Sans CJK JP", style: "Regular", postscriptName: "NotoSansCJKjp-Regular", digest: createHash("sha256").update(originalFontBytes).digest("hex") };
+    assert.deepEqual(renderer.inspectTitleFont(["A日"]), source.sequence.titles![0]!.font);
+    assert.equal(renderer.inspectTitleFont(["A\u{10ffff}"]), undefined);
     for (const changedFont of [{ ...source.sequence.titles![0]!.font, digest: "f".repeat(64) }, { ...source.sequence.titles![0]!.font, family: "Different family" }]) {
       const changed = structuredClone(source);
       changed.sequence.titles![0]!.font = changedFont;
