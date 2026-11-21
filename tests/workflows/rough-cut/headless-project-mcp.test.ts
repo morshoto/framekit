@@ -2367,6 +2367,13 @@ test("external JSON binds one font through preview, render and FCPXML", async ()
     assert.equal(legacyExport.isError, true);
     assert.match(toolErrorText(legacyExport), /TITLE_FONT_UNBOUND/);
     assert.equal(existsSync(legacyPath), false);
+    const legacyRenderPath = join(directory, "legacy.mp4");
+    await writeFile(fontPath, Buffer.concat([fontBytes, Buffer.from([0])]));
+    const legacyRender = await client.callTool({ name: "headless.render", arguments: { projectId: legacy.timeline.project.id, sequenceId, expectedRevision: legacy.timeline.revision, parameters: { outputPath: legacyRenderPath, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } } });
+    assert.equal(legacyRender.isError, true, "unbound legacy titles must not render with an implicit font");
+    assert.match(toolErrorText(legacyRender), /TITLE_FONT_UNBOUND/);
+    assert.equal(existsSync(legacyRenderPath), false);
+    await writeFile(fontPath, fontBytes);
     const output = join(directory, "render.mp4");
     const renderArgs = { projectId, sequenceId, expectedRevision: executed.after.timeline.revision, parameters: { outputPath: output, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } };
     await writeFile(fontPath, Buffer.concat([fontBytes, Buffer.from([0])]));
