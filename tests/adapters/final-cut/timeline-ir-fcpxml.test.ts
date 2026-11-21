@@ -97,7 +97,7 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
   value.resources.push({ id: "music-source", name: "music.wav", mediaKind: "audio", source: "/media/music.wav", metadata: { durationTime: { value: "10", timescale: "1" }, streams: [{ kind: "audio", channels: 1, sampleRate: 48000 }] } });
 
   const plan = planFcpxmlDissolve(value);
-  assert.deepEqual(plan, { id: "dissolve", beforeId: "before", afterId: "after", startTime: { value: "3", timescale: "2" }, durationTime: { value: "1", timescale: "2" }, beforeDurationTime: { value: "7", timescale: "4" }, afterStartTime: { value: "7", timescale: "4" }, afterSourceStartTime: { value: "15", timescale: "4" }, afterDurationTime: { value: "9", timescale: "4" } });
+  assert.deepEqual(plan, { id: "dissolve", beforeId: "before", afterId: "after", startTime: { value: "3", timescale: "2" }, durationTime: { value: "1", timescale: "2" }, beforeDurationTime: { value: "53", timescale: "30" }, afterStartTime: { value: "53", timescale: "30" }, afterSourceStartTime: { value: "113", timescale: "30" }, afterDurationTime: { value: "67", timescale: "30" } });
   const tooShort = structuredClone(value);
   tooShort.sequence.occurrences[1]!.durationTime = { value: "3", timescale: "10" };
   assert.throws(() => planFcpxmlDissolve(tooShort), /FCPXML_DISSOLVE_DURATION/);
@@ -125,7 +125,7 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
   assert.ok(result.xml.indexOf("<transition") < result.xml.indexOf('name="After"'));
   assert.match(result.xml, /<effect[^>]*name="Cross Dissolve"[^>]*uid="FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265"/);
   assert.match(result.xml, /<transition[^>]*offset="3\/2s"[^>]*duration="1\/2s"/);
-  assert.match(result.xml, /<asset-clip[^>]*name="After"[^>]*offset="7\/4s"[^>]*start="15\/4s"[^>]*duration="9\/4s"/);
+  assert.match(result.xml, /<asset-clip[^>]*name="After"[^>]*offset="53\/30s"[^>]*start="113\/30s"[^>]*duration="67\/30s"/);
   assert.match(result.xml, /<filter-video[^>]*ref="effect-cross-dissolve"/);
   assert.match(result.xml, /<effect[^>]*name="Audio Crossfade"[^>]*uid="FFAudioTransition"/);
   assert.match(result.xml, /<filter-audio[^>]*ref="effect-audio-crossfade"/);
@@ -151,11 +151,11 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
     assert.equal(transition.assetId, "fcpxml:effect:FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265");
     assert.equal(transition.start, 1.5);
     assert.equal(transition.duration, 0.5);
-    assert.equal(before.start + before.duration, transition.start + transition.duration / 2);
-    assert.equal(after.start, transition.start + transition.duration / 2);
-    assert.equal(after.start + transition.duration / 2, 2);
-    assert.equal(after.sourceStart! + transition.duration / 2, 4);
-    assert.equal(after.duration - transition.duration / 2, 2);
+    assert.ok(Math.abs(before.start + before.duration - 53 / 30) < 1e-9);
+    assert.ok(Math.abs(after.start - 53 / 30) < 1e-9);
+    assert.ok(Math.abs(after.start + 7 / 30 - 2) < 1e-9);
+    assert.ok(Math.abs(after.sourceStart! + 7 / 30 - 4) < 1e-9);
+    assert.ok(Math.abs(after.duration - 7 / 30 - 2) < 1e-9);
     assert.equal(before.mediaId, after.mediaId);
     const reconstructed = createTimelineIrFromProjectSnapshot(snapshot);
     assert.deepEqual(reconstructed.sequence.transitions, [{ id: "dissolve", kind: "cross-dissolve", beforeOccurrenceId: "before", afterOccurrenceId: "after", durationTime: { value: "1", timescale: "2" } }]);

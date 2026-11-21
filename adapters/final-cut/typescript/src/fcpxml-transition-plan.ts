@@ -52,7 +52,8 @@ export function planFcpxmlDissolve(timeline: TimelineIr) {
     const rate = video?.frameRate && fraction(video.frameRate);
     if (!rate || rate.n <= 0n || rate.n * frame.n !== rate.d * frame.d) throw new Error("FCPXML_DISSOLVE_FRAME_RATE: source and sequence frame rates must match");
   }
-  const halfDuration = { n: duration.n, d: duration.d * 2n };
+  const durationFrames = duration.n * frame.d / (duration.d * frame.n);
+  const halfDuration = { n: (durationFrames / 2n) * frame.n, d: frame.d };
   const afterSourceStart = combine(source, halfDuration, -1);
   const resource = timeline.resources.find((item) => item.id === after.mediaId);
   const sourceFloor = fraction(resource?.sourceRange?.start ?? { value: "0", timescale: "1" });

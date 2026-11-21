@@ -456,8 +456,14 @@ export function createTimelineIrFromProjectSnapshot(
     const after = occurrences.find((item) => item.id === element.afterClipId);
     const start = requiredRational(element.startTime, `transition ${element.id} startTime`);
     const duration = requiredRational(element.durationTime, `transition ${element.id} durationTime`);
-    const halfDuration = { value: duration.value, timescale: (BigInt(duration.timescale) * 2n).toString() };
-    const midpoint = addRationalTimes(start, halfDuration);
+    const frame = requiredRational(snapshot.timeline.frameDuration, "timeline frameDuration");
+    const frameNumerator = BigInt(duration.value) * BigInt(frame.timescale);
+    const frameDenominator = BigInt(duration.timescale) * BigInt(frame.value);
+    if (frameDenominator <= 0n || frameNumerator <= 0n || frameNumerator % frameDenominator !== 0n) {
+      throw new Error(`TIMELINE_IR_INVALID: transition ${element.id} duration is not frame aligned`);
+    }
+    const halfDuration = { value: ((frameNumerator / frameDenominator / 2n) * BigInt(frame.value)).toString(), timescale: frame.timescale };
+    const midpoint = addRationalTimes(start, subtractRationalTimes(duration, halfDuration, "TIMELINE_IR_INVALID"));
     if (element.kind !== "transition" || element.transitionKind !== "cross-dissolve" || !before || !after || before.id === after.id || usedIncoming.has(after.id) || before.track !== 0 || after.track !== 0 || before.role !== undefined && before.role !== "video" || after.role !== undefined && after.role !== "video" || !after.sourceStartTime || compareRational(after.sourceStartTime, { value: "0", timescale: "1" }) < 0 || compareRational(duration, { value: "0", timescale: "1" }) <= 0 || compareRational(after.startTime, midpoint) !== 0 || compareRational(before.startTime, start) > 0 || compareRational(addRationalTimes(before.startTime, before.durationTime), midpoint) !== 0 || compareRational(after.durationTime, halfDuration) <= 0 || occurrences.some((item) => item.id !== before.id && item.id !== after.id && item.track === 0 && compareRational(item.startTime, before.startTime) > 0 && compareRational(item.startTime, start) <= 0)) {
       throw new Error(`TIMELINE_IR_INVALID: transition ${element.id} metadata does not match the clip timing`);
     }

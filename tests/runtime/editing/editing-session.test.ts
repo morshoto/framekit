@@ -223,8 +223,8 @@ test("canonical dissolve recovery rejects invalid provider readback", () => {
     projectId: "p", projectName: "P", revision: { id: "r", sequence: 0, timestamp: "2026-01-01T00:00:00.000Z" },
     timeline: { id: "s", name: "S", duration: 4, durationTime: { value: "4", timescale: "1" }, frameDuration: { value: "1", timescale: "30" },
       clips: [
-        { id: "a", name: "A", mediaId: "m", start: 0, duration: 1.75, track: 0, startTime: { value: "0", timescale: "1" }, durationTime: { value: "7", timescale: "4" }, sourceStartTime: { value: "1", timescale: "1" } },
-        { id: "b", name: "B", mediaId: "m", start: 1.75, duration: 2.25, track: 0, startTime: { value: "7", timescale: "4" }, durationTime: { value: "9", timescale: "4" }, sourceStartTime: { value: "15", timescale: "4" } },
+        { id: "a", name: "A", mediaId: "m", start: 0, duration: 1.75, track: 0, startTime: { value: "0", timescale: "1" }, durationTime: { value: "53", timescale: "30" }, sourceStartTime: { value: "1", timescale: "1" } },
+        { id: "b", name: "B", mediaId: "m", start: 1.75, duration: 2.25, track: 0, startTime: { value: "53", timescale: "30" }, durationTime: { value: "67", timescale: "30" }, sourceStartTime: { value: "113", timescale: "30" } },
       ],
       storyElements: [{ id: "t", kind: "transition", transitionKind: "cross-dissolve" as const, beforeClipId: "a", afterClipId: "b", start: 1.5, duration: 0.5, startTime: { value: "3", timescale: "2" }, durationTime: { value: "1", timescale: "2" } }], markers: [], captions: [],
     },
@@ -235,10 +235,10 @@ test("canonical dissolve recovery rejects invalid provider readback", () => {
   assert.equal(result.sequence.transitions?.[0]?.afterOccurrenceId, "b");
   const fractional = structuredClone(source);
   fractional.timeline.frameDuration = { value: "1001", timescale: "30000" };
-  fractional.timeline.clips[0]!.durationTime = { value: "7007", timescale: "4000" };
-  fractional.timeline.clips[1]!.startTime = { value: "7007", timescale: "4000" };
-  fractional.timeline.clips[1]!.durationTime = { value: "9009", timescale: "4000" };
-  fractional.timeline.clips[1]!.sourceStartTime = { value: "11011", timescale: "4000" };
+  fractional.timeline.clips[0]!.durationTime = { value: "53053", timescale: "30000" };
+  fractional.timeline.clips[1]!.startTime = { value: "53053", timescale: "30000" };
+  fractional.timeline.clips[1]!.durationTime = { value: "67067", timescale: "30000" };
+  fractional.timeline.clips[1]!.sourceStartTime = { value: "83083", timescale: "30000" };
   fractional.timeline.storyElements[0]!.startTime = { value: "3003", timescale: "2000" };
   fractional.timeline.storyElements[0]!.durationTime = { value: "1001", timescale: "2000" };
   const recovered = createTimelineIrFromProjectSnapshot(fractional);
