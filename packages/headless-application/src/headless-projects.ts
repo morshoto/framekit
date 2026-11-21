@@ -475,6 +475,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     if (project.timeline.sequence.id !== sequenceId || !sameRevision(project.timeline.revision, expectedRevision)) {
       throw new Error("HEADLESS_FCPXML_STALE: project target or revision does not match the requested export");
     }
+    verifyConnectedAudioOccurrences(project.timeline);
     await this.assertOutputSeparation(project, [outputPath]);
     await this.verifyDissolveMetadata(project.timeline);
     const compiled = compileTimelineIrToFcpxml(project.timeline, { target });
@@ -702,6 +703,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       || !sameRevision(project.timeline.revision, record.canonicalRevision)) {
       throw new Error("HEADLESS_ROUGH_CUT_STALE_REVISION: canonical project changed after the approved rough cut");
     }
+    verifyConnectedAudioOccurrences(project.timeline);
     const readApprovedArtifact = async (): Promise<string> => {
       try {
         const file = await open(record.artifactPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
