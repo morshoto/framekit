@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -11,7 +12,7 @@ import {
   compileTimelineIrToFcpxml,
   type TimelineIrToFcpxmlTarget,
 } from "@framekit/final-cut/fcpxml";
-import { createTimelineIrFromProjectSnapshot, validateTimelineIr, type TimelineIr } from "@framekit/runtime";
+import { createTimelineIrFromProjectSnapshot, timelineIrDigest, validateTimelineIr, type TimelineIr } from "@framekit/runtime";
 import { planFcpxmlDissolve } from "../../../adapters/final-cut/typescript/src/fcpxml-transition-plan.js";
 import { verifyFinalCutPublishReadback } from "@framekit/final-cut";
 
@@ -693,6 +694,68 @@ test("compiles an opening Timeline IR title as editable Final Cut text", async (
       readback.timeline.storyElements.filter(({ kind }) => kind === "title").map(({ text, start, duration, lane }) => ({ text, start, duration, lane })),
       [{ text: "FrameKit MVP Test", start: 0, duration: 6.006, lane: 1 }],
     );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("encodes an explicitly selected basic title font", async () => {
+  const value = timeline();
+  value.sequence.occurrences = [{ ...value.sequence.occurrences[0]!, startTime: { value: "0", timescale: "1" }, durationTime: { value: "10", timescale: "1" }, sourceStartTime: { value: "0", timescale: "1" } }];
+  value.sequence.storyElements = [];
+  value.sequence.titles = [{ id: "opening-title", text: "A日 & 'quote'", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" }, lane: 1 }];
+  const titleFont = { family: "Noto Sans CJK JP", style: "Regular", postscriptName: "NotoSansCJKjp-Regular", digest: "a".repeat(64) };
+  const artifact = compileTimelineIrToFcpxml(value, { target, basicTitleFont: titleFont });
+  // Final Cut's Basic Title preset uses 63 points and centered alignment at
+  // the independently measured 720p reference. Omitting these attributes
+  // when binding a font resets the imported title to 12 points.
+  assert.match(artifact.xml, /<text-style font="Noto Sans CJK JP" fontFace="Regular" fontSize="63" alignment="center" \/>/);
+  const previousFontBinding = `:title-font:${JSON.stringify([titleFont.family, titleFont.style, titleFont.postscriptName, titleFont.digest])}`;
+  const previousKey = createHash("sha256").update(`${value.project.id}:${value.sequence.id}:${value.revision.id}:${value.revision.sequence}:${value.revision.timestamp}:${timelineIrDigest(value)}${previousFontBinding}`).digest("hex").slice(0, 10);
+  assert.ok(!artifact.destination.projectUid.endsWith(previousKey), "a corrected title must not reuse the old materialization identity");
+  assert.match(artifact.xml, /<text><text-style ref="title-style-1">A日 &amp; &apos;quote&apos;<\/text-style><\/text>/);
+  assert.match(artifact.xml, /<text-style-def id="title-style-1"><text-style font="Noto Sans CJK JP" fontFace="Regular" fontSize="63" alignment="center" \/><\/text-style-def>/);
+  assert.match(artifact.xml, /key="com\.framekit\.title-font-sha256" value="a{64}"/);
+  assert.match(artifact.xml, /key="com\.framekit\.title-font-postscript" value="NotoSansCJKjp-Regular"/);
+  assert.ok(artifact.coverage.degraded.includes("native-title-font-availability-unverified"));
+  assert.equal(artifact.digest, compileTimelineIrToFcpxml(value, { target, basicTitleFont: titleFont }).digest);
+  const changedFont = compileTimelineIrToFcpxml(value, { target, basicTitleFont: { ...titleFont, digest: "b".repeat(64) } });
+  assert.notEqual(artifact.destination.projectUid, changedFont.destination.projectUid);
+  assert.notEqual(artifact.destination.sequenceUid, changedFont.destination.sequenceUid);
+  assert.notEqual(artifact.destination.projectUid, compileTimelineIrToFcpxml(value, { target }).destination.projectUid);
+  assert.notEqual(artifact.destination.projectUid, compileTimelineIrToFcpxml(value, { target, basicTitleFont: { ...titleFont, style: "Bold" } }).destination.projectUid);
+  const canonical = structuredClone(value);
+  canonical.sequence.titles![0]!.font = titleFont;
+  const canonicalArtifact = compileTimelineIrToFcpxml(canonical, { target });
+  assert.match(canonicalArtifact.xml, /<text-style-def id="title-style-1"><text-style font="Noto Sans CJK JP" fontFace="Regular" fontSize="63" alignment="center" \/><\/text-style-def>/);
+  assert.equal(canonicalArtifact.digest, compileTimelineIrToFcpxml(canonical, { target, basicTitleFont: titleFont }).digest);
+  assert.throws(() => compileTimelineIrToFcpxml(canonical, { target, basicTitleFont: { ...titleFont, digest: "b".repeat(64) } }), /FCPXML_TITLE_FONT_MISMATCH/);
+  const mixed = structuredClone(canonical);
+  mixed.sequence.titles!.push({ ...mixed.sequence.titles![0]!, id: "unbound", font: undefined, startTime: { value: "2", timescale: "1" } });
+  assert.throws(() => compileTimelineIrToFcpxml(mixed, { target }), /FCPXML_TITLE_FONT_UNBOUND/);
+  mixed.sequence.titles![1]!.font = { ...titleFont, digest: "b".repeat(64) };
+  assert.throws(() => compileTimelineIrToFcpxml(mixed, { target }), /FCPXML_TITLE_FONT_MISMATCH/);
+  const escapedFont = compileTimelineIrToFcpxml(value, { target, basicTitleFont: { ...titleFont, family: 'Noto & "Friends"', style: "Maker's" } });
+  assert.match(escapedFont.xml, /font="Noto &amp; &quot;Friends&quot;" fontFace="Maker&apos;s"/);
+  for (const invalid of [null as unknown as typeof titleFont, { ...titleFont, family: " " }, { ...titleFont, style: "\u0000" }, { ...titleFont, digest: "bad" }]) {
+    assert.throws(() => compileTimelineIrToFcpxml(value, { target, basicTitleFont: invalid }), /FCPXML_(TITLE_FONT_INVALID|INVALID)/);
+  }
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-explicit-title-"));
+  try {
+    const path = join(directory, "title.fcpxml");
+    await writeFile(path, artifact.xml);
+    validateWithInstalledFinalCut(path);
+    const readback = await new FcpxmlDocumentAdapter(path).readProject();
+    assert.equal(readback.timeline.storyElements.find(({ kind }) => kind === "title")?.text, "A日 & 'quote'");
+    const multiple = structuredClone(value);
+    multiple.sequence.titles!.push({ ...multiple.sequence.titles![0]!, id: "second-title", text: "Second", startTime: { value: "2", timescale: "1" } });
+    const multipleArtifact = compileTimelineIrToFcpxml(multiple, { target, basicTitleFont: titleFont });
+    assert.match(multipleArtifact.xml, /<text-style-def id="title-style-1">/);
+    assert.match(multipleArtifact.xml, /<text-style-def id="title-style-2">/);
+    await writeFile(path, multipleArtifact.xml);
+    validateWithInstalledFinalCut(path);
+    const multipleReadback = await new FcpxmlDocumentAdapter(path).readProject();
+    assert.deepEqual(multipleReadback.timeline.storyElements.filter(({ kind }) => kind === "title").map(({ text }) => text), ["A日 & 'quote'", "Second"]);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

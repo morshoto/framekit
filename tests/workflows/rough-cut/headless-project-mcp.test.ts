@@ -126,6 +126,73 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     } };
     const mismatched = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: mismatchedProbe });
     await assert.rejects(mismatched.previewRoughCut(request), /MEDIA_METADATA_CHANGED/);
+    const missingFont = new HeadlessProjectService({
+      directory: join(directory, "projects"),
+      mediaProbe: new FfmpegMediaMetadataProbe(),
+      renderer: new FfmpegTimelineRenderer({ env: { FRAMEKIT_RENDER_FONT: join(directory, "missing.otf") } }),
+      verifier: new FfmpegRenderVerifier(),
+    });
+    await assert.rejects(missingFont.previewRoughCut(request), /RENDER_CAPABILITY_UNAVAILABLE.*titles/);
+    const noRenderer = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: new FfmpegMediaMetadataProbe() });
+    await assert.rejects(noRenderer.previewRoughCut(request), /RENDER_UNAVAILABLE.*title/);
+    const fontPath = join(directory, "selected.otf");
+    await writeFile(fontPath, Buffer.from(await readFile("tests/fixtures/fonts/noto-sans-jp-test.otf.base64", "utf8"), "base64"));
+    const fontService = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: new FfmpegMediaMetadataProbe(), renderer: new FfmpegTimelineRenderer({ env: { FRAMEKIT_RENDER_FONT: fontPath } }), verifier: new FfmpegRenderVerifier() });
+    const titleRequest = { ...request, operations: request.operations.map((operation) => operation.type === "add-title" ? { ...operation, title: { ...operation.title, text: "A日" } } : operation) };
+    const unsupportedTitle = { ...titleRequest, operations: titleRequest.operations.map((operation) => operation.type === "add-title" ? { ...operation, title: { ...operation.title, text: "A\u{10ffff}" } } : operation) };
+    await assert.rejects(fontService.previewRoughCut(unsupportedTitle), /RENDER_CAPABILITY_UNAVAILABLE.*titles/);
+    const concreteRenderer = new FfmpegTimelineRenderer({ env: { FRAMEKIT_RENDER_FONT: fontPath } });
+    const noDestinationCheck = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: new FfmpegMediaMetadataProbe(), renderer: { id: concreteRenderer.id, version: concreteRenderer.version, capabilities: (input) => concreteRenderer.capabilities(input), render: (plan) => concreteRenderer.render(plan) } });
+    await assert.rejects(noDestinationCheck.previewRoughCut(titleRequest), /RENDER_UNAVAILABLE.*output safety/);
+    const noFace = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: new FfmpegMediaMetadataProbe(), renderer: { id: concreteRenderer.id, version: concreteRenderer.version, capabilities: (input) => ({ ...concreteRenderer.capabilities(input), titleFontFace: undefined }), validateTitleOutput: (input, paths) => concreteRenderer.validateTitleOutput(input, paths), render: (plan) => concreteRenderer.render(plan) } });
+    await assert.rejects(noFace.previewRoughCut(titleRequest), /RENDER_CAPABILITY_UNAVAILABLE.*titles/);
+    const originalFontBeforePreview = await readFile(fontPath);
+    const fontCollision = { ...titleRequest, render: { ...titleRequest.render, outputPath: fontPath, overwrite: true } };
+    await assert.rejects(fontService.previewRoughCut(fontCollision), /OUTPUT_INVALID.*font/i);
+    const xmlFontCollision = { ...titleRequest, fcpxml: { ...titleRequest.fcpxml, path: fontPath, overwrite: true } };
+    await assert.rejects(fontService.previewRoughCut(xmlFontCollision), /OUTPUT_INVALID.*font/i);
+    assert.deepEqual(await readFile(fontPath), originalFontBeforePreview);
+    for (const titleFontDigest of [undefined, "f".repeat(64)]) {
+      const mismatchedStoryboard = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: new FfmpegMediaMetadataProbe(), renderer: new FfmpegTimelineRenderer({ env: { FRAMEKIT_RENDER_FONT: fontPath } }), storyboard: { render: async () => ({ data: "fake", mimeType: "image/png", samples: [], limitations: [], titleFontDigest }) } });
+      const result = await mismatchedStoryboard.previewRoughCut(titleRequest, undefined, true);
+      assert.equal(result.storyboard, undefined);
+      assert.match(result.storyboardUnavailable!, /STORYBOARD_UNSUPPORTED.*font/i);
+    }
+    const swappableXml = { ...titleRequest, fcpxml: { ...titleRequest.fcpxml, overwrite: true } };
+    const beforeSwap = await fontService.previewRoughCut(swappableXml);
+    await link(fontPath, swappableXml.fcpxml.path);
+    await assert.rejects(fontService.executeRoughCut({ ...swappableXml, approved: true, planDigest: beforeSwap.planDigest }), /OUTPUT_INVALID.*font/i);
+    assert.deepEqual(await readFile(fontPath), originalFontBeforePreview);
+    assert.equal(existsSync(request.render.outputPath), false);
+    await unlink(swappableXml.fcpxml.path);
+    const approvedTitle = await fontService.previewRoughCut(titleRequest);
+    const originalFont = await readFile(fontPath);
+    assert.equal(approvedTitle.titleFont?.digest, createHash("sha256").update(originalFont).digest("hex"));
+    assert.deepEqual(approvedTitle.titleFont?.face, { family: "Noto Sans CJK JP", style: "Regular", postscriptName: "NotoSansCJKjp-Regular" });
+    // Pre-upgrade approvals may have no font identity or only the old digest.
+    const approvalRecord = await readFile(join(directory, "projects", `${approvedTitle.planDigest}.approval.json`), "utf8");
+    const stable = (value: any): string => value === null || typeof value !== "object" ? JSON.stringify(value)
+      : Array.isArray(value) ? `[${value.map(stable).join(",")}]`
+      : `{${Object.entries(value).filter(([, child]) => child !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => `${JSON.stringify(key)}:${stable(child)}`).join(",")}}`;
+    for (const legacyKind of ["font", "face"] as const) {
+      const legacy = JSON.parse(approvalRecord);
+      if (legacyKind === "font") delete legacy.titleFont;
+      else delete legacy.titleFont.face;
+      delete legacy.planDigest;
+      delete legacy.evidenceDigest;
+      legacy.planDigest = createHash("sha256").update(stable(legacy)).digest("hex");
+      legacy.evidenceDigest = createHash("sha256").update(stable(legacy)).digest("hex");
+      await writeFile(join(directory, "projects", `${legacy.planDigest}.approval.json`), JSON.stringify(legacy));
+      await assert.rejects(fontService.executeRoughCut({ ...titleRequest, approved: true, planDigest: legacy.planDigest }), /PLAN_MISMATCH.*font/i);
+    }
+    await writeFile(fontPath, Buffer.concat([originalFont, Buffer.from([0])]));
+    await assert.rejects(fontService.executeRoughCut({ ...titleRequest, approved: true, planDigest: approvedTitle.planDigest }), /PLAN_MISMATCH.*font/i);
+    assert.equal(existsSync(request.render.outputPath), false);
+    assert.equal(existsSync(request.fcpxml.path), false);
+    await rm(fontPath);
+    await assert.rejects(fontService.executeRoughCut({ ...titleRequest, approved: true, planDigest: approvedTitle.planDigest }), /PLAN_MISMATCH.*font/i);
+    assert.equal(existsSync(request.render.outputPath), false);
+    assert.deepEqual((await service.open(created.timeline.project.id)).timeline.revision, revision);
     const directTimeline = structuredClone((await service.open(created.timeline.project.id)).timeline);
     directTimeline.project.id = "direct-dissolve-check";
     directTimeline.sequence.durationTime = { value: "2", timescale: "1" };
@@ -140,6 +207,7 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     assert.match(preview.storyboardUnavailable!, /HEADLESS_STORYBOARD_UNSUPPORTED/);
     assert.match(preview.planDigest, /^[a-f0-9]{64}$/);
     assert.equal(preview.after.timeline.sequence.transitions?.[0]?.id, "fade");
+    assert.ok(preview.fcpxml.coverage.degraded.includes("native-title-font-availability-unverified"));
     const changed = { ...request, operations: [{ ...request.operations[0]!, transition: { ...request.operations[0]!.transition!, durationTime: { value: "1", timescale: "10" } } }, ...request.operations.slice(1)] };
     await assert.rejects(service.executeRoughCut({ ...changed, approved: true, planDigest: preview.planDigest }), /PLAN_MISMATCH/);
     const executed = await service.executeRoughCut({ ...request, approved: true, planDigest: preview.planDigest });
@@ -147,6 +215,40 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     assert.equal(executed.render.status, "passed");
     assert.equal(executed.fcpxmlArtifact.verified, true);
     assert.deepEqual(executed.after.timeline.revision, preview.after.timeline.revision);
+    const proof = await service.verifyPublishableRoughCut(executed.executionId, request.fcpxml.path);
+    assert.deepEqual(proof.titleFont, preview.titleFont);
+    const renderRecordPath = join(directory, "projects", `${executed.render.renderId}.json`);
+    const originalRenderRecord = await readFile(renderRecordPath, "utf8");
+    for (const mutation of ["font", "face", "renderer", "missing", "title", "revision", "render-revision", "target", "output", "verification", "verified-artifact", "failed-check", "empty-checks"] as const) {
+      const record = JSON.parse(originalRenderRecord);
+      if (mutation === "font") record.outcome.plan.capabilities.titleFontDigest = "f".repeat(64);
+      if (mutation === "face") record.outcome.plan.capabilities.titleFontFace.family = "Different family";
+      if (mutation === "renderer") {
+        record.outcome.plan.renderer.version = "different";
+        record.outcome.plan.capabilities.renderer.version = "different";
+        record.outcome.render.renderer.version = "different";
+      }
+      if (mutation === "missing") delete record.outcome.plan.capabilities.titleFontDigest;
+      if (mutation === "title") record.outcome.plan.timeline.sequence.titles[0].text = "Different title";
+      if (mutation === "revision") record.outcome.plan.projectRevision.id = "different-revision";
+      if (mutation === "render-revision") record.outcome.render.projectRevision.id = "different-revision";
+      if (mutation === "target") record.outcome.plan.target.sequenceId = "different-sequence";
+      if (mutation === "output") {
+        record.outcome.plan.parameters.outputPath = join(directory, "other.mp4");
+        record.outcome.render.output.path = record.outcome.plan.parameters.outputPath;
+      }
+      if (mutation === "verification") delete record.outcome.verification;
+      if (mutation === "verified-artifact") record.outcome.verification.artifact.fileDigest = "f".repeat(64);
+      if (mutation === "failed-check") record.outcome.verification.checks[0].passed = false;
+      if (mutation === "empty-checks") record.outcome.verification.checks = [];
+      const { planDigest: _oldPlanDigest, ...changedPlan } = record.outcome.plan;
+      record.outcome.plan.planDigest = createHash("sha256").update(stable(changedPlan)).digest("hex");
+      record.outcome.render.planDigest = record.outcome.plan.planDigest;
+      await writeFile(renderRecordPath, JSON.stringify(record));
+      await assert.rejects(service.verifyPublishableRoughCut(executed.executionId, request.fcpxml.path), /RENDER_EVIDENCE_MISMATCH.*font/i);
+    }
+    await writeFile(renderRecordPath, originalRenderRecord);
+    assert.deepEqual(await service.verifyPublishableRoughCut(executed.executionId, request.fcpxml.path), proof);
     const xml = await readFile(request.fcpxml.path, "utf8");
     assert.match(xml, /name="Rough cut 1: approved source range" offset="0s" start="1\/5s" duration="9\/10s"/);
     assert.match(xml, /<transition name="Cross Dissolve" offset="4\/5s" duration="1\/5s"/);
@@ -154,7 +256,9 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     assert.match(xml, /<filter-video ref="effect-cross-dissolve"/);
     assert.match(xml, /<filter-audio ref="effect-audio-crossfade"/);
     assert.match(xml, /name="Music"/);
-    assert.match(xml, /<text>FADE<\/text>/);
+    assert.match(xml, /<text><text-style ref="title-style-1">FADE<\/text-style><\/text>/);
+    assert.ok(xml.includes(`font="${preview.titleFont!.face.family}" fontFace="${preview.titleFont!.face.style}"`));
+    assert.ok(xml.includes(`key="com.framekit.title-font-sha256" value="${preview.titleFont!.digest}"`));
     const readback = await new FcpxmlDocumentAdapter(request.fcpxml.path).readProject();
     const recovered = createTimelineIrFromProjectSnapshot(readback);
     assert.deepEqual(recovered.sequence.transitions, preview.after.timeline.sequence.transitions);
@@ -1097,6 +1201,7 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
     assert.equal(preview.storyboard.samples.filter((sample: any) => sample.kind === "shot").length, 3);
     assert.equal(preview.storyboard.samples.filter((sample: any) => sample.kind === "title").length, 1);
     assert.equal(preview.storyboard.planDigest, preview.planDigest);
+    assert.equal(preview.storyboard.titleFontDigest, preview.titleFont.digest);
     assert.deepEqual(preview.storyboard.revision, preview.after.timeline.revision);
     assert.deepEqual(preview.storyboard.samples.map((sample: any) => [sample.kind, sample.mediaId]), [
       ["shot", registrations.b.id], ["title", registrations.b.id], ["shot", registrations.a.id], ["shot", registrations.c.id],
@@ -1238,7 +1343,7 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
     if (existsSync(finalCutDtd)) {
       await execFileAsync("xmllint", ["--noout", "--dtdvalid", pathToFileURL(finalCutDtd).href, fcpxmlPath]);
     }
-    assert.match(xml, /<text>Revised title<\/text>/);
+    assert.match(xml, /<text><text-style ref="title-style-1">Revised title<\/text-style><\/text>/);
     assert.match(xml, /<asset-clip [^>]*duration="30s"[^>]*lane="1"[^>]*audioRole="music"/);
     assert.match(xml, /<md key="com\.framekit\.id" value="issue-517-music" \/>/);
     assert.match(xml, /<adjust-volume amount="-12dB" \/>/);
@@ -1343,6 +1448,8 @@ test("production stdio MCP persists and reopens the headless project and render 
       expectedRevision: first.after.timeline.revision,
       operations: [{ type: "insert-occurrence", placement: "append", occurrence: { ...occurrence("occurrence-blue", blueResource.id), sourceStartTime: { value: "1", timescale: "4" } } }],
     } }));
+    const selectedFont = new FfmpegTimelineRenderer({ env: environment }).inspectTitleFont(["OPEN"]);
+    assert.ok(selectedFont);
     const finished = payload(await client.callTool({ name: "headless.edit.execute", arguments: {
       projectId: "mcp-headless-project",
       sequenceId: "mcp-headless-sequence",
@@ -1350,7 +1457,7 @@ test("production stdio MCP persists and reopens the headless project and render 
       operations: [
         { type: "set-gain", occurrenceId: "occurrence-red", gainDb: 6 },
         { type: "set-transform", occurrenceId: "occurrence-red", transform: { scaleX: 1.25, scaleY: 1.25 } },
-        { type: "add-title", title: { id: "title-opening", text: "OPEN", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "2" }, lane: 1 } },
+        { type: "add-title", title: { id: "title-opening", text: "OPEN", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "2" }, lane: 1, font: selectedFont } },
         { type: "add-transition", transition: { id: "transition-red-blue", kind: "cross-dissolve", beforeOccurrenceId: "occurrence-red", afterOccurrenceId: "occurrence-blue", durationTime: { value: "1", timescale: "4" } } },
       ],
     } }));
@@ -2214,6 +2321,90 @@ function rationalSeconds(time: { value: string; timescale: string }): number {
   return Number(time.value) / Number(time.timescale);
 }
 
+test("external JSON binds one font through preview, render and FCPXML", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-json-title-font-"));
+  const here = dirname(fileURLToPath(import.meta.url));
+  const fontPath = join(directory, "font.otf");
+  const fontBytes = Buffer.from(await readFile(join(process.cwd(), "tests/fixtures/fonts/noto-sans-jp-test.otf.base64"), "utf8"), "base64");
+  await writeFile(fontPath, fontBytes);
+  const environment: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1",
+    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0", FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"),
+    FRAMEKIT_STATE_DIR: join(directory, "state"), FRAMEKIT_RENDER_FONT: fontPath,
+  };
+  let client: Client | undefined;
+  let transport: StdioClientTransport | undefined;
+  try {
+    const video = join(directory, "source.mp4");
+    await generateVideoAtFrameRate(video, 30, 2);
+    ({ client, transport } = await connectProductionClient(here, environment));
+    const initial = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: emptyTimeline() } }));
+    const projectId = initial.timeline.project.id;
+    const sequenceId = initial.timeline.sequence.id;
+    const source = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: video, expectedRevision: initial.timeline.revision } }));
+    const revision = source.project.timeline.revision;
+    const edit = { schemaVersion: 1, clips: [{ id: "clip", mediaId: source.resource.id, sourceStartTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" } }], title: { id: "title", text: "A日", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" } } };
+    const args = { projectId, sequenceId, expectedRevision: revision, edit };
+    const preview = payload(await client.callTool({ name: "headless.edit-json.preview", arguments: args }));
+    const font = { family: "Noto Sans CJK JP", style: "Regular", postscriptName: "NotoSansCJKjp-Regular", digest: createHash("sha256").update(fontBytes).digest("hex") };
+    assert.deepEqual(preview.after.timeline.sequence.titles[0].font, font);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, source.project.timeline);
+    await writeFile(fontPath, Buffer.concat([fontBytes, Buffer.from([0])]));
+    const changed = await client.callTool({ name: "headless.edit-json.execute", arguments: { ...args, approved: true, planDigest: preview.planDigest } });
+    assert.equal(changed.isError, true);
+    assert.match(toolErrorText(changed), /STALE_PREVIEW|FONT/i);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, source.project.timeline);
+    await writeFile(fontPath, fontBytes);
+    const executed = payload(await client.callTool({ name: "headless.edit-json.execute", arguments: { ...args, approved: true, planDigest: preview.planDigest } }));
+    assert.deepEqual(executed.after.timeline.sequence.titles[0].font, font);
+    const target = { provider: "final-cut", libraryUid: "library", eventUid: "event", projectUid: "project", sequenceUid: "sequence", materialization: "versioned" };
+    const xmlPath = join(directory, "edit.fcpxml");
+    const exportArgs = { projectId, sequenceId, expectedRevision: executed.after.timeline.revision, outputPath: xmlPath, target };
+    await writeFile(fontPath, Buffer.concat([fontBytes, Buffer.from([0])]));
+    const wrongExport = await client.callTool({ name: "headless.fcpxml.export", arguments: exportArgs });
+    assert.equal(wrongExport.isError, true);
+    assert.equal(existsSync(xmlPath), false);
+    await writeFile(fontPath, fontBytes);
+    const exported = payload(await client.callTool({ name: "headless.fcpxml.export", arguments: exportArgs }));
+    assert.ok(exported.coverage.degraded.includes("native-title-font-availability-unverified"));
+    const xml = await readFile(xmlPath, "utf8");
+    assert.match(xml, /font="Noto Sans CJK JP" fontFace="Regular"/);
+    assert.ok(xml.includes(`key="com.framekit.title-font-sha256" value="${font.digest}"`));
+    const parsed = await new FcpxmlDocumentAdapter(xmlPath).readProject();
+    assert.equal(parsed.timeline.storyElements.find(({ kind }) => kind === "title")?.text, "A日");
+    const legacyTimeline = structuredClone(executed.after.timeline);
+    legacyTimeline.project.id = "legacy-unbound-title";
+    delete legacyTimeline.sequence.titles[0].font;
+    const legacy = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: legacyTimeline } }));
+    const legacyPath = join(directory, "legacy.fcpxml");
+    const legacyExport = await client.callTool({ name: "headless.fcpxml.export", arguments: { projectId: legacy.timeline.project.id, sequenceId, expectedRevision: legacy.timeline.revision, outputPath: legacyPath, target } });
+    assert.equal(legacyExport.isError, true);
+    assert.match(toolErrorText(legacyExport), /TITLE_FONT_UNBOUND/);
+    assert.equal(existsSync(legacyPath), false);
+    const legacyRenderPath = join(directory, "legacy.mp4");
+    await writeFile(fontPath, Buffer.concat([fontBytes, Buffer.from([0])]));
+    const legacyRender = await client.callTool({ name: "headless.render", arguments: { projectId: legacy.timeline.project.id, sequenceId, expectedRevision: legacy.timeline.revision, parameters: { outputPath: legacyRenderPath, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } } });
+    assert.equal(legacyRender.isError, true, "unbound legacy titles must not render with an implicit font");
+    assert.match(toolErrorText(legacyRender), /TITLE_FONT_UNBOUND/);
+    assert.equal(existsSync(legacyRenderPath), false);
+    await writeFile(fontPath, fontBytes);
+    const output = join(directory, "render.mp4");
+    const renderArgs = { projectId, sequenceId, expectedRevision: executed.after.timeline.revision, parameters: { outputPath: output, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } };
+    await writeFile(fontPath, Buffer.concat([fontBytes, Buffer.from([0])]));
+    const wrongFont = await client.callTool({ name: "headless.render", arguments: renderArgs });
+    assert.equal(payload(wrongFont).status, "unavailable");
+    assert.equal(existsSync(output), false);
+    await writeFile(fontPath, fontBytes);
+    const rendered = payload(await client.callTool({ name: "headless.render", arguments: renderArgs }));
+    assert.equal(rendered.status, "passed");
+  } finally {
+    await client?.close();
+    await transport?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("external edit JSON previews registered clips, a title and music without mutation", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-json-edit-"));
   const here = dirname(fileURLToPath(import.meta.url));
@@ -2221,11 +2412,12 @@ test("external edit JSON previews registered clips, a title and music without mu
     ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
     FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1",
     FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0", FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"),
-    FRAMEKIT_STATE_DIR: join(directory, "state"),
+    FRAMEKIT_STATE_DIR: join(directory, "state"), FRAMEKIT_RENDER_FONT: join(directory, "font.otf"),
   };
   let client: Client | undefined;
   let transport: StdioClientTransport | undefined;
   try {
+    await writeFile(environment.FRAMEKIT_RENDER_FONT!, Buffer.from(await readFile(join(process.cwd(), "tests/fixtures/fonts/noto-sans-jp-test.otf.base64"), "utf8"), "base64"));
     const calls = join(directory, "native-calls.log");
     const sentinelBin = join(directory, "sentinel-bin");
     await mkdir(sentinelBin);
@@ -2272,7 +2464,7 @@ test("external edit JSON previews registered clips, a title and music without mu
     const edit = { schemaVersion: 1 as const, clips: [
       { id: "clip-a", mediaId: a.resource.id, sourceStartTime: seconds(0), durationTime: seconds(1) },
       { id: "clip-b", mediaId: a2.resource.id, sourceStartTime: seconds(0), durationTime: seconds(1) },
-    ], title: { id: "title", text: "Hello 世界 🎬", startTime: seconds(0), durationTime: seconds(1) },
+    ], title: { id: "title", text: "A日", startTime: seconds(0), durationTime: seconds(1) },
     music: { id: "music", mediaId: b.resource.id, sourceStartTime: seconds(0), startTime: seconds(0), durationTime: seconds(2), gainDb: -12 } };
     for (const [variant, withTitle, withMusic] of [["clips", false, false], ["title", true, false], ["music", false, true]] as const) {
       const newTimeline = emptyTimeline();
@@ -2457,6 +2649,7 @@ test("external edit JSON previews registered clips, a title and music without mu
     }
     for (const [name, invalidEdit] of [
       ["video stream exhausted", { ...edit, clips: [{ ...edit.clips[1], sourceStartTime: seconds(1) }] }],
+      ["unsupported title glyphs", { ...edit, title: { ...edit.title, text: "Hello 世界 🎬" } }],
       ["illegal XML title", { ...edit, title: { ...edit.title, text: "bad\u0000title" } }],
       ["unknown source", { ...edit, clips: [{ ...edit.clips[0], mediaId: "missing" }] }],
       ["audio used as video", { ...edit, clips: [{ ...edit.clips[0], mediaId: b.resource.id }] }],
@@ -2494,7 +2687,7 @@ test("external edit JSON previews registered clips, a title and music without mu
       projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit,
     } }));
     assert.deepEqual(preview.after.timeline.sequence.occurrences.filter((item: any) => item.track === 0).map((item: any) => item.id), ["clip-a", "clip-b"]);
-    assert.equal(preview.after.timeline.sequence.titles[0].text, "Hello 世界 🎬");
+    assert.equal(preview.after.timeline.sequence.titles[0].text, "A日");
     assert.equal(preview.after.timeline.sequence.occurrences.find((item: any) => item.id === "music").gainDb, -12);
     const inspected = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
     assert.deepEqual(inspected.timeline, b.project.timeline);
@@ -2521,7 +2714,7 @@ test("external edit JSON previews registered clips, a title and music without mu
     assert.equal(notApproved.isError, true, "execution requires explicit approval");
     const changed = await client.callTool({ name: "headless.edit-json.execute", arguments: {
       projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision,
-      edit: { ...edit, title: { ...edit.title, text: "Changed" } }, approved: true, planDigest: preview.planDigest,
+      edit: { ...edit, title: { ...edit.title, text: "日A" } }, approved: true, planDigest: preview.planDigest,
     } });
     assert.equal(changed.isError, true, "execute must reject a different edit than the preview");
     assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, b.project.timeline);
@@ -2551,7 +2744,7 @@ test("external edit JSON previews registered clips, a title and music without mu
     const sourceFor = (id: string | undefined) => parsed.media.find((item) => item.mediaId === id)?.source;
     assert.deepEqual(parsed.timeline.clips.filter((clip) => [video, video2].includes(sourceFor(clip.mediaId) ?? "")).map((clip) => [sourceFor(clip.mediaId), clip.sourceStart, clip.duration]), [[video, 0, 1], [video2, 0, 1]]);
     assert.deepEqual(parsed.timeline.clips.filter((clip) => sourceFor(clip.mediaId) === music).map((clip) => [clip.sourceStart, clip.duration]), [[0, 2]]);
-    assert.equal(parsed.timeline.storyElements.find((item) => item.kind === "title")?.text, "Hello 世界 🎬");
+    assert.equal(parsed.timeline.storyElements.find((item) => item.kind === "title")?.text, "A日");
     assert.match(await readFile(xmlPath, "utf8"), /<adjust-volume amount="-12dB" \/>/);
     assert.deepEqual(await Promise.all(sourcePaths.map(async (path) => createHash("sha256").update(await readFile(path)).digest("hex"))), sourceDigests);
     assert.equal(await readFile(reservationPath, "utf8"), reservation);
@@ -2561,4 +2754,31 @@ test("external edit JSON previews registered clips, a title and music without mu
     await transport?.close();
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("rough cut binds appended titles to an existing selected font", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-review-title-"));
+  try {
+    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], { cwd: process.cwd(), env: process.env });
+    const service = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: new FfmpegMediaMetadataProbe(), renderer: new FfmpegTimelineRenderer(), verifier: new FfmpegRenderVerifier() });
+    const created = await service.create(emptyTimeline());
+    const registered = await service.registerMedia(created.timeline.project.id, join(directory, "fixture-red-440hz.mp4"), created.timeline.revision);
+    const font = service.selectTitleFont(["FIRST", "SECOND"]);
+    const edit = await service.executeEdit(created.timeline.project.id, { schemaVersion: 1, expectedRevision: registered.project.timeline.revision, operations: [
+      { type: "insert-occurrence", placement: "append", occurrence: occurrence("first", registered.resource.id) },
+      { type: "add-title", title: { id: "first-title", text: "FIRST", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "2" }, lane: 1, font } },
+    ] }, created.timeline.sequence.id);
+    const source = registered.resource;
+    const request = { projectId: created.timeline.project.id, sequenceId: created.timeline.sequence.id,
+      plan: { planner: { id: "framekit.rough-cut", version: 1 }, revision: edit.after.timeline.revision, query: { query: "speech" }, shots: [{ order: 1, sourceIdentity: { mediaId: source.id, source: source.source!, sourceDigest: source.sourceDigest!, mediaKind: "video" as const, duration: 2 }, range: { start: 0.25, end: 1.25 }, confidence: 0.91, matchedProperties: ["query:speech"], rationale: "test" }], warnings: [] },
+      operations: [{ type: "add-title" as const, title: { id: "second-title", text: "SECOND", startTime: { value: "1", timescale: "1" }, durationTime: { value: "1", timescale: "2" }, lane: 1 } }],
+      render: { outputPath: join(directory, "render.mp4"), format: "mp4" as const, width: 320, height: 180, frameRate: { value: "30", timescale: "1" } },
+      fcpxml: { path: join(directory, "render.fcpxml"), target: { provider: "final-cut" as const, libraryUid: "lib", eventUid: "event", projectUid: "project", sequenceUid: "sequence" } },
+    };
+    await assert.rejects(service.previewRoughCut({ ...request, operations: [{ ...request.operations[0]!, title: { ...request.operations[0]!.title, font: { ...font, digest: "0".repeat(64) } } }] }), /FCPXML_TITLE_FONT_MISMATCH/);
+    const preview = await service.previewRoughCut(request);
+    assert.deepEqual(preview.after.timeline.sequence.titles?.find((title) => title.id === "second-title")?.font, font);
+    const result = await service.executeRoughCut({ ...request, approved: true, planDigest: preview.planDigest });
+    assert.deepEqual(result.after.timeline.sequence.titles?.find((title) => title.id === "second-title")?.font, font);
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
