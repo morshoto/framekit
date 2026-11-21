@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { constants, existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chmod, link, mkdir, open, readFile, readdir, mkdtemp, rename, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
@@ -1113,6 +1113,10 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
     assert.equal(publishPreview.sourceTransactionId, `headless-rough-cut:${executed.executionId}`);
     assert.equal(publishPreview.sourceProof.planDigest, preview.planDigest);
     assert.equal(publishPreview.sourceProof.renderId, executed.render.renderId);
+    const renderBytes = await readFile(outputPath);
+    assert.deepEqual(publishPreview.sourceProof.renderArtifact, {
+      path: outputPath, digest: createHash("sha256").update(renderBytes).digest("hex"), bytes: renderBytes.length,
+    });
     assert.equal(publishPreview.sourceProof.destination.projectUid, executed.fcpxml.destination.projectUid);
     assert.equal(publishPreview.sourceProof.destination.sequenceUid, executed.fcpxml.destination.sequenceUid);
     const approvedMediaDigests = Object.values(registrations)
@@ -1511,6 +1515,12 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     assert.equal(proof.destination.projectUid, executed.fcpxml.destination.projectUid);
     assert.equal(proof.destination.sequenceUid, executed.fcpxml.destination.sequenceUid);
     assert.deepEqual(proof.sourceMediaDigests, [{ source: source.source, sha256: source.sourceDigest }]);
+    const renderedBytes = await readFile(request.render.outputPath);
+    assert.deepEqual(proof.renderArtifact, {
+      path: request.render.outputPath,
+      digest: createHash("sha256").update(renderedBytes).digest("hex"),
+      bytes: renderedBytes.length,
+    });
     assert.equal("targetBinding" in proof, false);
     const restarted = new HeadlessProjectService({
       directory: join(directory, "projects"),
@@ -1519,6 +1529,130 @@ test("headless rough-cut preview and execution preserve provenance and produce v
       verifier: new FfmpegRenderVerifier(),
     });
     assert.deepEqual(await (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path), proof);
+    const originalRender = await readFile(request.render.outputPath);
+    const alteredRender = Buffer.from(originalRender);
+    alteredRender[Math.floor(alteredRender.length / 2)]! ^= 1;
+    await writeFile(request.render.outputPath, alteredRender);
+    await assert.rejects(
+      (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path),
+      /HEADLESS_ROUGH_CUT_RENDER_CHANGED:/,
+    );
+    await rm(request.render.outputPath);
+    await assert.rejects(
+      (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path),
+      /HEADLESS_ROUGH_CUT_RENDER_CHANGED:/,
+    );
+    await writeFile(request.render.outputPath, originalRender);
+    assert.deepEqual(await (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path), proof);
+    const relocatedRender = `${request.render.outputPath}.saved`;
+    await rename(request.render.outputPath, relocatedRender);
+    await symlink(relocatedRender, request.render.outputPath);
+    await assert.rejects(
+      (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path),
+      /HEADLESS_ROUGH_CUT_RENDER_CHANGED:/,
+    );
+    await unlink(request.render.outputPath);
+    await rename(relocatedRender, request.render.outputPath);
+    assert.deepEqual(await (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path), proof);
+    if (process.platform !== "win32") {
+      await rename(request.render.outputPath, relocatedRender);
+      await execFileAsync("mkfifo", [request.render.outputPath]);
+      const result = (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path)
+        .then(() => "unexpected success", (error: Error) => error.message);
+      let timer: NodeJS.Timeout | undefined;
+      const observed = await Promise.race([result, new Promise<string>((resolve) => { timer = setTimeout(() => resolve("timed out"), 2000); })]);
+      if (timer) clearTimeout(timer);
+      if (observed === "timed out") {
+        // Unblock a defective reader so the test can fail and clean up.
+        const fifo = await open(request.render.outputPath, constants.O_RDWR | constants.O_NONBLOCK);
+        await fifo.close();
+        await result;
+      }
+      await unlink(request.render.outputPath);
+      await rename(relocatedRender, request.render.outputPath);
+      assert.match(observed, /HEADLESS_ROUGH_CUT_RENDER_CHANGED:/);
+    }
+    const originalSource = await readFile(source.source!);
+    const alteredSource = Buffer.from(originalSource);
+    alteredSource[Math.floor(alteredSource.length / 2)]! ^= 1;
+    await writeFile(source.source!, alteredSource);
+    await assert.rejects(
+      (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path),
+      /MEDIA_CHANGED:/,
+    );
+    await rm(source.source!);
+    await assert.rejects(
+      (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path),
+      /MEDIA_MISSING:/,
+    );
+    await writeFile(source.source!, originalSource);
+    assert.deepEqual(await (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path), proof);
+    // A genuine pre-upgrade execution record has a valid checksum but no
+    // verified video identity, so it cannot authorize a new publication.
+    const executionPath = join(directory, "projects", `${executionId}.json`);
+    const currentExecution = await readFile(executionPath, "utf8");
+    const legacy = JSON.parse(currentExecution);
+    delete legacy.renderArtifact;
+    delete legacy.evidenceDigest;
+    const stable = (value: any): string => value === null || typeof value !== "object" ? JSON.stringify(value)
+      : Array.isArray(value) ? `[${value.map(stable).join(",")}]`
+      : `{${Object.entries(value).filter(([, child]) => child !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => `${JSON.stringify(key)}:${stable(child)}`).join(",")}}`;
+    legacy.evidenceDigest = createHash("sha256").update(stable(legacy)).digest("hex");
+    await writeFile(executionPath, JSON.stringify(legacy));
+    await assert.rejects(
+      (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path),
+      /HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH:/,
+    );
+    await writeFile(executionPath, currentExecution);
+    assert.deepEqual(await (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path), proof);
+    const savedXml = `${request.fcpxml.path}.saved`;
+    await rename(request.fcpxml.path, savedXml);
+    await symlink(savedXml, request.fcpxml.path);
+    await assert.rejects(
+      (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path),
+      /HEADLESS_ROUGH_CUT_ARTIFACT_CHANGED:/,
+    );
+    await unlink(request.fcpxml.path);
+    await rename(savedXml, request.fcpxml.path);
+    assert.deepEqual(await (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path), proof);
+    if (process.platform !== "win32") {
+      await rename(request.fcpxml.path, savedXml);
+      await execFileAsync("mkfifo", [request.fcpxml.path]);
+      const result = (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path)
+        .then(() => "unexpected success", (error: Error) => error.message);
+      let timer: NodeJS.Timeout | undefined;
+      const observed = await Promise.race([result, new Promise<string>((resolve) => { timer = setTimeout(() => resolve("timed out"), 2000); })]);
+      if (timer) clearTimeout(timer);
+      if (observed === "timed out") {
+        const fifo = await open(request.fcpxml.path, constants.O_RDWR | constants.O_NONBLOCK);
+        await fifo.close();
+        await result;
+      }
+      await unlink(request.fcpxml.path);
+      await rename(savedXml, request.fcpxml.path);
+      assert.match(observed, /HEADLESS_ROUGH_CUT_ARTIFACT_CHANGED:/);
+    }
+    const originalXml = await readFile(request.fcpxml.path);
+    const alteredXml = Buffer.from(originalXml);
+    alteredXml[Math.floor(alteredXml.length / 2)]! ^= 1;
+    await writeFile(request.fcpxml.path, alteredXml);
+    await assert.rejects(
+      (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path),
+      /HEADLESS_ROUGH_CUT_ARTIFACT_CHANGED:/,
+    );
+    await writeFile(request.fcpxml.path, originalXml);
+    const inspectRender = restarted.inspectRender.bind(restarted);
+    (restarted as any).inspectRender = async (id: string) => {
+      const inspected = await inspectRender(id);
+      await writeFile(request.fcpxml.path, alteredXml);
+      return inspected;
+    };
+    await assert.rejects(
+      (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path),
+      /HEADLESS_ROUGH_CUT_ARTIFACT_CHANGED:/,
+    );
+    (restarted as any).inspectRender = inspectRender;
+    await writeFile(request.fcpxml.path, originalXml);
     await writeFile(request.fcpxml.path, "tampered FCPXML");
     await assert.rejects(
       (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path),

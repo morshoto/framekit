@@ -554,6 +554,22 @@ test("anchors titles after a primary clip source in-point", async () => {
       readback.timeline.storyElements.filter(({ kind }) => kind === "title").map(({ start, duration }) => ({ start, duration })),
       [{ start: 0, duration: 6.006 }],
     );
+    const exact = structuredClone(value);
+    exact.sequence.frameDuration = { value: "1", timescale: "30" };
+    exact.sequence.titles![0]!.text = `A日 & <title> "quoted" 'apostrophe' 100%`;
+    exact.sequence.titles![0]!.startTime = { value: "1", timescale: "3" };
+    exact.sequence.titles![0]!.durationTime = { value: "1", timescale: "3" };
+    const exactPath = join(directory, "escaping.fcpxml");
+    const exactXml = compileTimelineIrToFcpxml(exact, { target }).xml;
+    assert.match(exactXml, /<text>A日 &amp; &lt;title&gt;/);
+    await writeFile(exactPath, exactXml, "utf8");
+    validateWithInstalledFinalCut(exactPath);
+    const exactReadback = await new FcpxmlDocumentAdapter(exactPath).readProject();
+    const exactTitle = exactReadback.timeline.storyElements.find(({ id }) => id === "trimmed-opening-title");
+    assert.ok(exactTitle);
+    assert.equal(exactTitle.text, exact.sequence.titles![0]!.text);
+    assert.deepEqual(exactTitle.startTime, { value: "1", timescale: "3" });
+    assert.deepEqual(exactTitle.durationTime, { value: "1", timescale: "3" });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -622,6 +638,24 @@ test("preserves embedded video audio and a separate music asset in FCPXML", asyn
       },
       { start: 0, duration: 30 },
     );
+    const reused = structuredClone(value);
+    reused.sequence.frameDuration = { value: "1", timescale: "30" };
+    const first = reused.sequence.occurrences.find(({ id }) => id === "music-bed")!;
+    first.startTime = { value: "1", timescale: "3" };
+    first.sourceStartTime = { value: "1", timescale: "3" };
+    first.durationTime = { value: "1", timescale: "3" };
+    first.gainDb = -6;
+    reused.sequence.occurrences.push({ ...structuredClone(first), id: "music-repeat", name: "Music repeat", startTime: { value: "4", timescale: "3" }, sourceStartTime: { value: "4", timescale: "3" }, gainDb: -12 });
+    const reusedPath = join(directory, "music-reused.fcpxml");
+    await writeFile(reusedPath, compileTimelineIrToFcpxml(reused, { target }).xml, "utf8");
+    validateWithInstalledFinalCut(reusedPath);
+    const reusedReadback = await new FcpxmlDocumentAdapter(reusedPath).readProject();
+    const firstClip = reusedReadback.timeline.clips.find(({ id }) => id === "music-bed")!;
+    const secondClip = reusedReadback.timeline.clips.find(({ id }) => id === "music-repeat")!;
+    assert.ok(firstClip && secondClip);
+    assert.equal(firstClip.mediaId, secondClip.mediaId);
+    assert.deepEqual([firstClip.startTime, firstClip.durationTime, firstClip.sourceStartTime, firstClip.gainDb], [{ value: "1", timescale: "3" }, { value: "1", timescale: "3" }, { value: "1", timescale: "3" }, -6]);
+    assert.deepEqual([secondClip.startTime, secondClip.durationTime, secondClip.sourceStartTime, secondClip.gainDb], [{ value: "4", timescale: "3" }, { value: "1", timescale: "3" }, { value: "4", timescale: "3" }, -12]);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
