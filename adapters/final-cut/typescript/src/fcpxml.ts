@@ -966,6 +966,16 @@ export class FcpxmlDocumentAdapter implements EditorPort {
       : kind === "transition" ? attribute(firstChild(node, "filter-video") ?? {}, "ref") : undefined;
     const assetId = referencedEffect === undefined ? undefined : this.effectAssetId(String(referencedEffect));
     const text = kind === "title" ? textChildValue(node, "text") : undefined;
+    const metadata = firstChild(node, "metadata");
+    const metadataValue = (key: string) => metadata === undefined ? undefined : storyEntries(metadata)
+      .find(({ kind: childKind, node: child }) => childKind === "md" && attribute(child, "key") === key)?.node;
+    const transitionMarker = metadataValue("com.framekit.transition-kind");
+    const transitionKind = transitionMarker && attribute(transitionMarker, "value");
+    const beforeMetadata = metadataValue("com.framekit.before");
+    const afterMetadata = metadataValue("com.framekit.after");
+    if (transitionKind !== undefined && (kind !== "transition" || transitionKind !== "cross-dissolve" || assetId !== "fcpxml:effect:FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265" || !beforeMetadata || !afterMetadata)) {
+      throw new Error("FCPXML_TRANSITION_METADATA_INVALID: unverified canonical transition metadata");
+    }
     return {
       id: this.instanceId(node, kind, path, timelineId),
       kind,
@@ -980,6 +990,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
       ...(attribute(node, "framekit-attached-to") !== undefined ? { attachedTo: String(attribute(node, "framekit-attached-to")) } : {}),
       ...(assetId ? { assetId } : {}),
       ...(text !== undefined ? { text } : {}),
+      ...(transitionKind === "cross-dissolve" ? { transitionKind, beforeClipId: String(attribute(beforeMetadata!, "value") ?? ""), afterClipId: String(attribute(afterMetadata!, "value") ?? "") } : {}),
       ...(attribute(node, "framekit-before-clip") !== undefined
         ? { beforeClipId: String(attribute(node, "framekit-before-clip")) }
         : {}),

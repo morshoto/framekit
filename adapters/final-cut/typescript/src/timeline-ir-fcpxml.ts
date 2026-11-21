@@ -93,6 +93,8 @@ interface RenderableElement {
   text?: string;
   frameAlignmentAdjusted?: boolean;
   sourceRangeAdjusted?: boolean;
+  beforeId?: string;
+  afterId?: string;
 }
 
 /**
@@ -138,7 +140,7 @@ export function compileTimelineIrToFcpxml(
     after.startTime = dissolve.startTime;
     after.sourceStartTime = dissolve.afterSourceStartTime;
     after.durationTime = dissolve.afterDurationTime;
-    elements.push({ id: dissolve.id, kind: "transition", startTime: dissolve.startTime, durationTime: dissolve.durationTime, name: "Cross Dissolve", resourceId: CROSS_DISSOLVE_EFFECT_ID });
+    elements.push({ id: dissolve.id, kind: "transition", startTime: dissolve.startTime, durationTime: dissolve.durationTime, name: "Cross Dissolve", resourceId: CROSS_DISSOLVE_EFFECT_ID, beforeId: dissolve.beforeId, afterId: dissolve.afterId });
   }
   const sourceBounds = new Map(resources.filter((resource) => resource.sourceRange).map((resource) => [resourceIds.get(resource.id)!, resource.sourceRange!]));
   for (const element of elements) {
@@ -704,7 +706,7 @@ function renderElements(elements: RenderableElement[]): string[] {
         lines.push(`${indent}<transition name="Cross Dissolve" offset="${formatRational(offsetTime, `${element.id}.startTime`)}" duration="${formatRational(element.durationTime, `${element.id}.durationTime`)}">`);
         lines.push(`${indent}  <filter-video ref="${CROSS_DISSOLVE_EFFECT_ID}" name="Cross Dissolve" />`);
         lines.push(`${indent}  <filter-audio ref="${AUDIO_CROSSFADE_EFFECT_ID}" name="Audio Crossfade" />`);
-        lines.push(`${indent}  <metadata><md key="com.framekit.id" value="${xmlEscape(element.id)}" /></metadata>`);
+        lines.push(`${indent}  <metadata><md key="com.framekit.id" value="${xmlEscape(element.id)}" /><md key="com.framekit.transition-kind" value="cross-dissolve" /><md key="com.framekit.before" value="${xmlEscape(element.beforeId!)}" /><md key="com.framekit.after" value="${xmlEscape(element.afterId!)}" /></metadata>`);
         lines.push(`${indent}</transition>`);
         continue;
       }

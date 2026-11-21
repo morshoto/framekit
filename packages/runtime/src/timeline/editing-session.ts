@@ -447,7 +447,24 @@ export function createTimelineIrFromProjectSnapshot(
     ...(clip.attachedTo ? { attachedTo: clip.attachedTo } : {}),
     ...(binding ? { binding: binding("occurrence", clip.id) } : {}),
   } satisfies TimelineIrOccurrence));
-  const storyElements = snapshot.timeline.storyElements.map((element) => storyElementToIr(element, binding));
+  const canonicalTransitions: TimelineIrTransition[] = [];
+  const usedIncoming = new Set<string>();
+  for (const element of snapshot.timeline.storyElements) {
+    if (!element.transitionKind) continue;
+    const before = occurrences.find((item) => item.id === element.beforeClipId);
+    const after = occurrences.find((item) => item.id === element.afterClipId);
+    const start = requiredRational(element.startTime, `transition ${element.id} startTime`);
+    const duration = requiredRational(element.durationTime, `transition ${element.id} durationTime`);
+    if (element.kind !== "transition" || element.transitionKind !== "cross-dissolve" || !before || !after || before.id === after.id || usedIncoming.has(after.id) || before.track !== 0 || after.track !== 0 || !after.sourceStartTime || compareRational(duration, { value: "0", timescale: "1" }) <= 0 || compareRational(after.startTime, start) !== 0 || compareRational(before.startTime, start) > 0 || compareRational(addRationalTimes(before.startTime, before.durationTime), addRationalTimes(start, duration)) !== 0 || compareRational(after.durationTime, duration) <= 0 || occurrences.some((item) => item.id !== before.id && item.id !== after.id && item.track === 0 && compareRational(item.startTime, before.startTime) > 0 && compareRational(item.startTime, start) <= 0)) {
+      throw new Error(`TIMELINE_IR_INVALID: transition ${element.id} metadata does not match the clip timing`);
+    }
+    usedIncoming.add(after.id);
+    after.startTime = addRationalTimes(after.startTime, duration);
+    after.sourceStartTime = addRationalTimes(after.sourceStartTime, duration);
+    after.durationTime = subtractRationalTimes(after.durationTime, duration, "TIMELINE_IR_INVALID");
+    canonicalTransitions.push({ id: element.id, kind: "cross-dissolve", beforeOccurrenceId: before.id, afterOccurrenceId: after.id, durationTime: duration });
+  }
+  const storyElements = snapshot.timeline.storyElements.filter((element) => !element.transitionKind).map((element) => storyElementToIr(element, binding));
   const markers = snapshot.timeline.markers.map((marker) => ({
     id: marker.id,
     name: marker.name,
@@ -476,6 +493,7 @@ export function createTimelineIrFromProjectSnapshot(
       frameDuration: requiredRational(snapshot.timeline.frameDuration, "timeline frameDuration"),
       occurrences,
       storyElements,
+      ...(canonicalTransitions.length ? { transitions: canonicalTransitions } : {}),
       markers,
       captions,
       ...(binding ? { binding: binding("sequence", snapshot.timeline.id) } : {}),

@@ -142,6 +142,12 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
     const tampered = structuredClone(snapshot);
     tampered.timeline.storyElements.find((item) => item.id === "dissolve")!.beforeClipId = "missing";
     assert.throws(() => createTimelineIrFromProjectSnapshot(tampered), /TIMELINE_IR_.*transition/i);
+    const timingMismatch = structuredClone(snapshot);
+    timingMismatch.timeline.clips.find((clip) => clip.id === "after")!.startTime = { value: "4", timescale: "3" };
+    assert.throws(() => createTimelineIrFromProjectSnapshot(timingMismatch), /TIMELINE_IR_.*transition/i);
+    const invalidPath = join(directory, "invalid.fcpxml");
+    await writeFile(invalidPath, result.xml.replace('key="com.framekit.after" value="after"', 'key="com.framekit.other" value="after"'));
+    await assert.rejects(new FcpxmlDocumentAdapter(invalidPath).readProject(), /FCPXML_TRANSITION_METADATA_INVALID/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
