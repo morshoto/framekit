@@ -21,7 +21,15 @@ jobs:
           FRAMEKIT_TEST_REPORT_DIR: artifacts/test-results-focused
           FRAMEKIT_HEADLESS_RELEASE_GATE_EVIDENCE_DIR: artifacts/headless-release-gate/${{ github.run_id }}
           FRAMEKIT_HEADLESS_RELEASE_GATE_CANDIDATE_SHA: ${{ github.sha }}
-        run: pnpm test --file tests/adapters/headless/headless-renderer.test.ts --test-name-pattern 'FFmpeg renderer fills a trailing video gap with black while music continues'
+        run: |
+          ( while sleep 30; do
+              echo 'Diagnostic process snapshot:'
+              ps -eo pid,ppid,etime,stat,rss,vsz,comm | grep -E '(^ *PID|node|pnpm|ffmpeg|ffprobe)' || true
+              find /tmp -type f -path '*/.framekit-render-*/render.mp4' -printf '%s %p\n' | head -20
+            done ) &
+          watcher=$!
+          trap 'kill "$watcher" 2>/dev/null || true' EXIT
+          pnpm test --file tests/adapters/headless/headless-renderer.test.ts --test-name-pattern 'FFmpeg renderer fills a trailing video gap with black while music continues'
       - name: Run complete suite with process snapshots
         env:
           NODE_V8_COVERAGE: ${{ github.workspace }}/artifacts/test-results/v8
