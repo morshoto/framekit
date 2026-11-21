@@ -13,12 +13,27 @@ import {
   type FramekitRenderParameters,
   type TimelineIr,
 } from "@framekit/runtime";
-import { FfmpegRenderVerifier, FfmpegTimelineRenderer } from "../../../adapters/headless/typescript/src/index.js";
+import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer } from "../../../adapters/headless/typescript/src/index.js";
 import { resolveFontFile } from "../../../adapters/headless/typescript/src/ffmpeg-renderer.js";
 import { compileTimelineIrToFcpxml, FcpxmlDocumentAdapter } from "@framekit/final-cut/fcpxml";
 
 const execFileAsync = promisify(execFile);
 const mediaFixtures = createMediaFixturePool();
+
+test("media probe retains declared video color metadata", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-color-probe-"));
+  try {
+    const source = join(directory, "bt709.mp4");
+    await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=red:s=320x180:r=30:d=1", "-vf", "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-movflags", "+write_colr", source]);
+    const video = (await new FfmpegMediaMetadataProbe().probe(source)).streams.find((stream) => stream.kind === "video");
+    assert.deepEqual(video?.color, { primaries: "bt709", transfer: "bt709", matrix: "bt709", range: "tv" });
+    await mediaFixtures.copyTo(directory);
+    const unspecified = (await new FfmpegMediaMetadataProbe().probe(join(directory, "fixture-red-440hz.mp4"))).streams.find((stream) => stream.kind === "video");
+    assert.equal(unspecified?.color, undefined);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 after(() => mediaFixtures.dispose());
 const repositoryRoot = process.cwd();
 
@@ -69,19 +84,19 @@ test("FFmpeg renders a supported mixed-script title without tofu", async () => {
     source.sequence.occurrences[0]!.sourceStartTime = { value: "1", timescale: "5" };
     const output = join(directory, "mixed.mp4");
     const renderer = new FfmpegTimelineRenderer({ env: { FRAMEKIT_RENDER_FONT: relativeFont } });
-    const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(output) });
+    const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: { ...parameters(output), width: 1280, height: 720 } });
     await renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request)));
     const actual = await frameAt(output, 0.25, directory, "actual-mixed");
     const reference = async (name: string, text: string) => {
       await writeFile(join(directory, `${name}.txt`), text, "utf8");
-      await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=red:s=320x180:r=30:d=1", "-vf", `drawtext=fontfile=font.otf:textfile=${name}.txt:expansion=none:fontcolor=white:fontsize=32:x=(w-text_w)/2:y=(h-text_h)/2`, "-frames:v", "1", `${name}.ppm`], { cwd: directory });
+      await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=red:s=1280x720:r=30:d=1", "-vf", `drawtext=fontfile=font.otf:textfile=${name}.txt:expansion=none:fontcolor=white:fontsize=44:x=(w-text_w)/2:y=h/2-text_h`, "-frames:v", "1", `${name}.ppm`], { cwd: directory });
       return readFile(join(directory, `${name}.ppm`));
     };
     const expected = await reference("expected", "A日");
     const tofu = await reference("tofu", "A\u{10ffff}");
     const maskDistance = (left: Buffer, right: Buffer) => {
       let different = 0;
-      for (let y = 65; y < 115; y++) for (let x = 100; x < 220; x++) {
+      for (let y = 280; y < 400; y++) for (let x = 480; x < 800; x++) {
         const a = ppmPixel(left, x, y); const b = ppmPixel(right, x, y);
         if ((a.r > 180 && a.g > 180 && a.b > 180) !== (b.r > 180 && b.g > 180 && b.b > 180)) different++;
       }
@@ -98,6 +113,72 @@ test("FFmpeg renders a supported mixed-script title without tofu", async () => {
     assert.equal(title?.text, "A日");
     assert.deepEqual(title?.startTime, { value: "0", timescale: "1" });
     assert.deepEqual(title?.durationTime, { value: "1", timescale: "2" });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("basic 720p title fits the observed Final Cut bounds", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-title-720-parity-"));
+  try {
+    await mediaFixtures.copyTo(directory);
+    const source = await timeline(join(directory, "fixture-red-440hz.mp4"), join(directory, "fixture-blue-880hz.mp4"));
+    delete source.sequence.occurrences[0]!.transform;
+    source.sequence.transitions = [];
+    source.sequence.titles = [{ id: "title", text: "FADE", startTime: { value: "4", timescale: "5" }, durationTime: { value: "1", timescale: "6" }, lane: 1 }];
+    const outputPath = join(directory, "title.mp4");
+    const renderer = new FfmpegTimelineRenderer();
+    const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: { ...parameters(outputPath), width: 1280, height: 720 } });
+    await renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request)));
+    const frame = await frameAt(outputPath, 0.9, directory, "title");
+    const pixels: Array<[number, number]> = [];
+    for (let y = 250; y < 450; y++) for (let x = 480; x < 800; x++) {
+      const pixel = ppmPixel(frame, x, y);
+      if (pixel.r > 210 && pixel.g > 210 && pixel.b > 210) pixels.push([x, y]);
+    }
+    assert.ok(pixels.length > 0, "the title must be visible");
+    const xs = pixels.map(([x]) => x); const ys = pixels.map(([, y]) => y);
+    const width = Math.max(...xs) - Math.min(...xs) + 1;
+    const height = Math.max(...ys) - Math.min(...ys) + 1;
+    const centerX = (Math.max(...xs) + Math.min(...xs)) / 2;
+    const centerY = (Math.max(...ys) + Math.min(...ys)) / 2;
+    // Independent native reference: 720p Final Cut export, SHA-256
+    // 5ccb88eb9c8021498b7c8abef3390508f6694c6449c373623d41872dcdccd1dd.
+    assert.ok(Math.abs(width - 103) <= 10.3 && Math.abs(height - 30) <= 3, `title bounds ${width}x${height}`);
+    assert.ok(Math.abs(centerX - 640) <= 12.8 && Math.abs(centerY - 344.5) <= 7.2, `title center ${centerX},${centerY}`);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("BT.709 dissolve samples meet the 720p Final Cut reference bounds", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-dissolve-color-"));
+  try {
+    const paths = [join(directory, "red.mp4"), join(directory, "blue.mp4")];
+    for (const [index, color] of ["red", "blue"].entries()) {
+      await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-f", "lavfi", "-i", `color=${color}:s=1280x720:r=30:d=2`, "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2", "-vf", "scale=in_color_matrix=bt601:out_color_matrix=bt709,setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-c:a", "aac", "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-movflags", "+write_colr", "-shortest", paths[index]!]);
+    }
+    const source = await timeline(paths[0]!, paths[1]!);
+    const probe = new FfmpegMediaMetadataProbe();
+    for (const resource of source.resources) resource.metadata = await probe.probe(resource.source!);
+    delete source.sequence.occurrences[0]!.transform;
+    source.sequence.occurrences[0]!.sourceStartTime = { value: "1", timescale: "5" };
+    source.sequence.occurrences[1]!.sourceStartTime = { value: "1", timescale: "2" };
+    source.sequence.transitions![0]!.durationTime = { value: "1", timescale: "5" };
+    source.sequence.titles = [];
+    const outputPath = join(directory, "dissolve.mp4");
+    const renderer = new FfmpegTimelineRenderer();
+    const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: { ...parameters(outputPath), width: 1280, height: 720 } });
+    await renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request)));
+    const raw = await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-i", outputPath, "-map", "0:v:0", "-vf", "crop=2:2:2:2,format=rgb24", "-fps_mode", "passthrough", "-f", "rawvideo", "pipe:1"], { encoding: "buffer" });
+    const bytes = raw.stdout as unknown as Buffer;
+    // Native Final Cut 720p BT.709 export, SHA-256 5ccb88eb9c8021498b7c8abef3390508f6694c6449c373623d41872dcdccd1dd.
+    const native = [[242, 0, 69], [218, 0, 124], [190, 0, 160], [161, 0, 193], [123, 0, 218], [69, 0, 242]];
+    for (const [index, expected] of native.entries()) {
+      const frame = index + 24;
+      const observed = [...bytes.subarray(frame * 12, frame * 12 + 3)];
+      assert.ok(observed.length === 3 && observed.every((value, channel) => Math.abs(value - expected[channel]!) <= 20), `frame ${frame}: ${observed} vs ${expected}`);
+    }
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -134,6 +215,44 @@ test("FFmpeg dissolve preserves incoming video and audio timing", async () => {
     const tailAudio = await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "info", "-ss", "1.75", "-t", "0.2", "-i", output, "-af", "volumedetect", "-f", "null", "-"]);
     const mean = tailAudio.stderr.match(/mean_volume:\s*(-?[0-9.]+) dB/);
     assert.ok(mean && Number(mean[1]) > -35, `incoming tail audio missing: ${mean?.[1]}`);
+
+    // At 30000/1001 fps, a five-frame transition starts at frame 25 and
+    // ends at the frame-30 cut. Inspect decoded frame numbers, not seeks.
+    const fractionalPaths = [join(directory, "fractional-red.mp4"), join(directory, "fractional-blue.mp4")];
+    for (const [index, color] of ["red", "blue"].entries()) {
+      await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-f", "lavfi", "-i", `color=${color}:s=320x180:r=30000/1001:d=3`, "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=3", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", fractionalPaths[index]!]);
+    }
+    const fractional = await timeline(fractionalPaths[0]!, fractionalPaths[1]!);
+    const frame = (count: number) => ({ value: String(count * 1001), timescale: "30000" });
+    fractional.sequence.frameDuration = frame(1);
+    fractional.sequence.durationTime = frame(60);
+    fractional.sequence.titles = [];
+    delete fractional.sequence.occurrences[0]!.transform;
+    fractional.sequence.occurrences[0]!.durationTime = frame(30);
+    fractional.sequence.occurrences[0]!.sourceStartTime = frame(0);
+    fractional.sequence.occurrences[1]!.startTime = frame(30);
+    fractional.sequence.occurrences[1]!.durationTime = frame(30);
+    fractional.sequence.occurrences[1]!.sourceStartTime = frame(15);
+    fractional.sequence.transitions![0]!.durationTime = frame(5);
+    for (const resource of fractional.resources) {
+      resource.metadata!.durationTime = { value: "3", timescale: "1" };
+      resource.metadata!.streams[0]!.frameRate = { value: "30000", timescale: "1001" };
+    }
+    const fractionalOutput = join(directory, "fractional-dissolve.mp4");
+    const fractionalRequest = createFramekitRenderRequest({ timeline: fractional, target: { projectId: fractional.project.id, sequenceId: fractional.sequence.id }, parameters: { ...parameters(fractionalOutput), frameRate: { value: "30000", timescale: "1001" } } });
+    await renderer.render(createFramekitRenderPlan(fractionalRequest, renderer.capabilities(fractionalRequest)));
+    const decoded = await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-i", fractionalOutput, "-map", "0:v:0", "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"], { encoding: "buffer", maxBuffer: 16 * 1024 * 1024 });
+    const frames = decoded.stdout as unknown as Buffer;
+    const frameSize = 320 * 180 * 3;
+    assert.equal(frames.length, 60 * frameSize);
+    const pixel = (index: number) => Array.from(frames.subarray(index * frameSize, index * frameSize + 3));
+    const pre = pixel(24), start = pixel(25), firstBlend = pixel(26), mixed = pixel(27), cut = pixel(30), last = pixel(59);
+    assert.ok(pre[0]! > 220 && pre[2]! < 20, `frame 24 must be red: ${pre}`);
+    assert.ok(start[0]! > 220 && start[2]! < 20, `frame 25 must start on red: ${start}`);
+    assert.ok(firstBlend[0]! > 30 && firstBlend[2]! > 30, `frame 26 must blend: ${firstBlend}`);
+    assert.ok(mixed[0]! > 30 && mixed[2]! > 30, `frame 27 must blend: ${mixed}`);
+    assert.ok(cut[2]! > 220 && cut[0]! < 20, `frame 30 must be blue: ${cut}`);
+    assert.ok(last[2]! > 220 && last[0]! < 20, `frame 59 must be blue: ${last}`);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -385,7 +504,7 @@ test("FFmpeg Timeline IR renderer honors explicit output frame rate without muta
     assert.ok(scaledMarkerPixel.r > 150 && scaledMarkerPixel.g > 150 && scaledMarkerPixel.b > 150, `expected scale 1.25 to move the white marker over the left edge, got ${JSON.stringify(scaledMarkerPixel)}`);
     const sourceMeanVolume = await meanVolume(redPath, directory, "source-volume");
     const outputMeanVolume = await meanVolume(parameters.outputPath, directory, "output-volume");
-    assert.ok(Math.abs((outputMeanVolume - sourceMeanVolume) - 6) < 1.5, `expected +6 dB gain, got ${outputMeanVolume - sourceMeanVolume} dB`);
+    assert.ok(Math.abs((outputMeanVolume - sourceMeanVolume) - (6 - 3.0103)) < 1.5, `expected +6 dB gain with mono downmix, got ${outputMeanVolume - sourceMeanVolume} dB`);
 
     const transformed = structuredClone(source);
     transformed.sequence.occurrences[0]!.transform = { scaleX: 0.5, scaleY: 0.5, positionX: 90, positionY: 0 };
@@ -557,6 +676,7 @@ test("FFmpeg mixes independent music with source audio at the requested gain", a
 
     const source = await timeline(join(directory, "fixture-red-440hz.mp4"), join(directory, "fixture-blue-880hz.mp4"));
     source.resources.push(audioResource("music", musicPath, await digest(musicPath)));
+    source.sequence.titles = [{ id: "transition-title", text: "FADE", startTime: { value: "3", timescale: "4" }, durationTime: { value: "1", timescale: "2" }, lane: 1 }];
     source.sequence.occurrences.push({
       id: "music-bed",
       name: "Music bed",
@@ -593,7 +713,41 @@ test("FFmpeg mixes independent music with source audio at the requested gain", a
     const observedMusicAmplitude = frequencyAmplitude(samples, 1_760, 48_000);
     const expectedMusicAmplitude = frequencyAmplitude(sourceMusicPcm.stdout as unknown as Buffer, 1_760, 48_000) * 10 ** (-6 / 20);
     assert.ok(observedMusicAmplitude > 0.002, "independent music should remain audible in the mix");
-    assert.ok(Math.abs(observedMusicAmplitude - expectedMusicAmplitude) < expectedMusicAmplitude * 0.25, "music gain should match the requested -6 dB");
+    const nativeDownmixExpected = expectedMusicAmplitude * Math.SQRT1_2;
+    assert.ok(Math.abs(20 * Math.log10(observedMusicAmplitude / nativeDownmixExpected)) <= 1,
+      `mono music must match the Final Cut stereo downmix within 1 dB: ${observedMusicAmplitude} vs ${nativeDownmixExpected}`);
+    const window = (from: number, to: number) => samples.subarray(Math.round(from * 48_000) * 4, Math.round(to * 48_000) * 4);
+    for (const [label, audio, expectedTone] of [["early", window(0.1, 0.5), 440], ["tail", window(1.5, 1.9), 880]] as const) {
+      assert.ok(frequencyAmplitude(audio, expectedTone, 48_000) > 0.002, `${label} source audio must remain audible`);
+      assert.ok(frequencyAmplitude(audio, 1_760, 48_000) > 0.002, `${label} music must remain audible`);
+    }
+    const blendAudio = window(0.82, 0.94);
+    assert.ok(frequencyAmplitude(blendAudio, 440, 48_000) > 0.002, "outgoing audio must be present during the dissolve");
+    assert.ok(frequencyAmplitude(blendAudio, 880, 48_000) > 0.002, "incoming audio must be present during the dissolve");
+    assert.ok(frequencyAmplitude(blendAudio, 1_760, 48_000) > 0.002, "music must remain present during the dissolve");
+    // Independent Final Cut export measurements follow a half-sine envelope.
+    // Sample each quiet edge against its own unblended source level so that
+    // overall gain and channel-layout differences do not mask the curve.
+    const incomingBase = frequencyAmplitude(window(1.5, 1.9), 880, 48_000);
+    const outgoingBase = frequencyAmplitude(window(0.1, 0.5), 440, 48_000);
+    // 25 ms contains a whole number of cycles for all three fixture tones.
+    for (const start of [0.775, 0.8, 0.8625, 0.925, 0.95]) {
+      const measured = window(start, start + 0.025);
+      const progress = (start + 0.0125 - 0.75) / 0.25;
+      const incomingExpected = (1 - Math.cos(Math.PI * progress)) / 2;
+      const incoming = frequencyAmplitude(measured, 880, 48_000) / incomingBase;
+      const outgoing = frequencyAmplitude(measured, 440, 48_000) / outgoingBase;
+      assert.ok(Math.abs(incoming - incomingExpected) < 0.035, `incoming at ${start}: ${incoming} vs ${incomingExpected}`);
+      assert.ok(Math.abs(outgoing - (1 - incomingExpected)) < 0.035, `outgoing at ${start}: ${outgoing} vs ${1 - incomingExpected}`);
+    }
+    const noTitle = structuredClone(source);
+    noTitle.sequence.titles = [];
+    const plain = join(directory, "music-no-title.mp4");
+    const plainRequest = createFramekitRenderRequest({ timeline: noTitle, target: { projectId: noTitle.project.id, sequenceId: noTitle.sequence.id }, parameters: parameters(plain) });
+    await renderer.render(createFramekitRenderPlan(plainRequest, renderer.capabilities(plainRequest)));
+    const titledFrame = await frameAt(outputPath, 0.9, directory, "music-title-frame");
+    const plainFrame = await frameAt(plain, 0.9, directory, "music-no-title-frame");
+    assert.ok(countBrightPixels(titledFrame, 80, 240, 40, 140) > countBrightPixels(plainFrame, 80, 240, 40, 140) + 5, "title must remain visible over the mixed dissolve");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

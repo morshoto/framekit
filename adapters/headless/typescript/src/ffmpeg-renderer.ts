@@ -424,6 +424,12 @@ function buildFfmpegArguments(
     const inputs = [...(audioOutput ? [`[${audioOutput}]`] : []), ...musicLabels];
     audioOutput = addAudioMix(filters, inputs, model.duration);
   }
+  const audioStreams = [...model.occurrences, ...model.audioOccurrences].flatMap((occurrence) =>
+    model.resources.get(occurrence.mediaId!)?.metadata?.streams.filter((stream) => stream.kind === "audio") ?? []);
+  if (audioOutput && audioStreams.length > 0 && audioStreams.every((stream) => stream.channels === 1)) {
+    filters.push(`[${audioOutput}]volume=0.7071067811865476[audio-mono-final-cut]`);
+    audioOutput = "audio-mono-final-cut";
+  }
   const args = ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", ...inputArguments, "-filter_complex", filters.join(";")];
   args.push("-map", `[${videoOutput}]`, "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-pix_fmt", "yuv420p", "-r", fps);
   if (audioOutput) {
@@ -463,13 +469,28 @@ function addVideoComposition(
     const offset = rationalSeconds(model.occurrences[0]!.durationTime, "transition offset") - duration;
     if (offset < 0) throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", "transition duration exceeds the first occurrence duration");
     const output = "video-xfade";
-    filters.push(`${labels[0]}${labels[1]}xfade=transition=fade:duration=${formatNumber(duration)}:offset=${formatNumber(offset)}[${output}]`);
+    if (hasBt709Video(model)) {
+      const phase = rationalSeconds(model.timeline.sequence.frameDuration, "frame duration") / (2 * duration);
+      for (const [index, label] of labels.entries()) {
+        filters.push(`${label}zscale=transfer=linear:npl=100,format=gbrp16le[linear-${index}]`);
+      }
+      filters.push(`[linear-0][linear-1]xfade=transition=custom:duration=${formatNumber(duration)}:offset=${formatNumber(offset)}:expr='A*max(0,P-${formatNumber(phase)})+B*min(1,1-P+${formatNumber(phase)})',zscale=transfer=bt709:matrix=bt709:primaries=bt709,format=yuv420p[${output}]`);
+    } else {
+      filters.push(`${labels[0]}${labels[1]}xfade=transition=fade:duration=${formatNumber(duration)}:offset=${formatNumber(offset)}[${output}]`);
+    }
     filters.push(`[${output}]null[${output}-padded]`);
     return `${output}-padded`;
   }
   const output = "video-concat";
   filters.push(`${labels.join("")}concat=n=${labels.length}:v=1:a=0[${output}]`);
   return output;
+}
+
+function hasBt709Video(model: RenderModel): boolean {
+  return model.occurrences.every((occurrence) => {
+    const color = model.resources.get(occurrence.mediaId!)?.metadata?.streams.find((stream) => stream.kind === "video")?.color;
+    return color?.primaries === "bt709" && color.transfer === "bt709" && color.matrix === "bt709" && color.range === "tv";
+  });
 }
 
 function addAudioComposition(
@@ -486,7 +507,7 @@ function addAudioComposition(
   if (transition) {
     const duration = rationalSeconds(transition.durationTime, `${transition.id}.durationTime`);
     const output = "audio-crossfade";
-    filters.push(`${labels[0]}${labels[1]}acrossfade=d=${formatNumber(duration)}:c1=tri:c2=tri[${output}]`);
+    filters.push(`${labels[0]}${labels[1]}acrossfade=d=${formatNumber(duration)}:c1=hsin:c2=hsin[${output}]`);
     filters.push(`[${output}]atrim=duration=${formatNumber(model.duration)},asetpts=PTS-STARTPTS[${output}-padded]`);
     return `${output}-padded`;
   }
@@ -533,13 +554,14 @@ function addTitleOverlays(
     );
     const style = title.style;
     const color = escapeFilterValue(style?.color ?? "white");
-    const size = formatNumber(style?.fontSize ?? 32);
+    const basicDefault = style === undefined && title.position === undefined;
+    const size = formatNumber(style?.fontSize ?? (basicDefault ? model.height * 44 / 720 : 32));
     const x = title.position
       ? `${formatNumber(model.width / 2 + title.position.x * model.width / 2)}-(text_w/2)`
       : style?.alignment === "left" ? "20" : style?.alignment === "right" ? "w-text_w-20" : "(w-text_w)/2";
     const y = title.position
       ? `${formatNumber(model.height / 2 - title.position.y * model.height / 2)}-(text_h/2)`
-      : "(h-text_h)/2";
+      : basicDefault ? "h/2-text_h" : "(h-text_h)/2";
     const output = `title-${index}`;
     const font = fontFile ? `fontfile='${escapeFilterValue(fontFile)}':` : "";
     const textFile = titleTextFiles[index];

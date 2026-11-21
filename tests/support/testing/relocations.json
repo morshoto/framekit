@@ -1613,7 +1613,8 @@
       "\"previews and applies deterministic edits while Final Cut is unavailable\"",
       "\"rejects stale desired revisions before changing the session\"",
       "\"blocks stale session plans without changing BASE or OURS\"",
-      "\"can construct an IR from a canonical snapshot without leaking editor types\""
+      "\"can construct an IR from a canonical snapshot without leaking editor types\"",
+      "\"canonical dissolve recovery rejects invalid provider readback\""
     ],
     "tests/integration/editor-first-routing.test.ts": [
       "\"routing selects the connected editor when required capabilities are available\"",
@@ -1965,6 +1966,7 @@
       "\"production rough-cut tools expose digest-bound edit operations\"",
       "\"headless project media can be understood and planned without a Final Cut connection\"",
       "\"production rough-cut MCP workflow previews and commits B-A-C video, title, and mixed music\"",
+      "\"rough-cut dissolve preview binds render and FCPXML output\"",
       "\"production stdio MCP persists and reopens the headless project and render record\"",
       "\"headless project open fails closed when local media has no metadata probe\"",
       "\"headless rough-cut preview and execution preserve provenance and produce verified artifacts\"",
@@ -2799,6 +2801,9 @@
       "\"discovery includes documentation but deliberately delegates Docs app runners\""
     ],
     "tests/integration/timeline-ir-fcpxml.test.ts": [
+      "\"exports an adjacent cross-dissolve with its media references\"",
+      "\"unverified dissolve export fails closed\"",
+      "\"dissolve planning preserves fractional frame timing and bounds\"",
       "\"materialization round trips plain dialogue on a video occurrence\"",
       "\"materialization retains native dialogue subroles\"",
       "\"compiled FCPXML validates against Final Cut's 1.11 DTD\"",
@@ -3245,11 +3250,20 @@
       "\"FCPXML retains an explicit exact source range without inventing a missing origin\"",
       "\"FCPXML snapshots preserve explicit sequence timecode origin without inventing one\""
     ],
+    "tests/integration/local-media-registration.test.ts": [
+      "\"dissolve metadata verification rejects mismatched probe data and changed files\""
+    ],
     "tests/integration/headless-renderer.test.ts": [
       "\"FFmpeg renderer refuses an unimplemented nonzero source origin\"",
-      "\"FFmpeg renderer rejects an explicit nonzero sequence timecode origin\""
+      "\"FFmpeg renderer rejects an explicit nonzero sequence timecode origin\"",
+      "\"media probe retains declared video color metadata\"",
+      "\"basic 720p title fits the observed Final Cut bounds\"",
+      "\"BT.709 dissolve samples meet the 720p Final Cut reference bounds\""
     ],
     "tests/integration/timeline-ir-fcpxml.test.ts": [
+      "\"dissolve plans preserve source frames across rates and odd durations\"",
+      "\"native dissolve readback preserves visible semantics without inventing stripped IDs\"",
+      "\"dissolve planning rejects unknown or non-BT.709 colors\"",
       "\"FCPXML compilation preserves explicit nonzero source bounds\"",
       "\"FCPXML frame rounding cannot move an occurrence outside source bounds\"",
       "\"FCPXML compilation refuses to discard an explicit nonzero timecode origin\"",

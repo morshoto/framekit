@@ -56,7 +56,7 @@ test("render-and-verify returns verified provenance and independent artifact met
               && transition.r > 20 && transition.b > 20
               && late.b > 150 && late.r < 80
               && countBrightPixels(titleFrame, 80, 240, 40, 140) > countBrightPixels(noTitleFrame, 80, 240, 40, 140) + 5
-              && Math.abs((outputVolume - sourceVolume) - 6) < 1.5;
+              && Math.abs((outputVolume - sourceVolume) - (6 - 3.0103)) < 1.5;
             return {
             name: "fixture-semantics",
             passed: plan.timeline.sequence.occurrences.map(({ id }) => id).join(",") === "occurrence-red,occurrence-blue"

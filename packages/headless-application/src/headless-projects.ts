@@ -459,6 +459,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       throw new Error("HEADLESS_FCPXML_STALE: project target or revision does not match the requested export");
     }
     await this.assertOutputSeparation(project, [outputPath]);
+    await this.verifyDissolveMetadata(project.timeline);
     const compiled = compileTimelineIrToFcpxml(project.timeline, { target });
     const artifact = await writeVerifiedFcpxml(resolve(outputPath), compiled.xml, compiled.digest, false);
     return { artifact, provenance: compiled.provenance, coverage: compiled.coverage };
@@ -1016,8 +1017,18 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       ...rawPreview,
       after: { ...rawPreview.after, timeline: canonicalTimeline },
     };
+    await this.verifyDissolveMetadata(canonicalTimeline);
     const fcpxml = compileTimelineIrToFcpxml(canonicalTimeline, { target: request.fcpxml.target });
     return { preview, fcpxml };
+  }
+
+  private async verifyDissolveMetadata(timeline: TimelineIr): Promise<void> {
+    if (!timeline.sequence.transitions?.length) return;
+    if (!this.mediaProbe) throw new Error("HEADLESS_MEDIA_PROBE_UNAVAILABLE: dissolve handoff requires a source metadata probe");
+    const ids = new Set(timeline.sequence.occurrences.map((occurrence) => occurrence.mediaId).filter((id): id is string => id !== undefined));
+    const resources = timeline.resources.filter((resource) => ids.has(resource.id));
+    if (resources.length !== ids.size) throw new Error("MEDIA_METADATA_CHANGED: dissolve source metadata is unavailable");
+    await new LocalMediaRegistrar(this.store(timeline.project.id), this.mediaProbe).verifyMetadata(resources);
   }
 }
 

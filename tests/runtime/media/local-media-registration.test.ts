@@ -180,3 +180,26 @@ test("registration fails closed when the source changes during metadata probing"
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("dissolve metadata verification rejects mismatched probe data and changed files", async () => {
+  const directory = await root();
+  const sourcePath = join(directory, "source.mov");
+  try {
+    await writeFile(sourcePath, "stable source");
+    const store = new FramekitProjectStore(join(directory, "project.json"));
+    await store.create(project());
+    const registrar = new LocalMediaRegistrar(store, probe);
+    const registered = await registrar.register(sourcePath);
+    await registrar.verifyMetadata([registered.resource]);
+    const altered = structuredClone(registered.resource);
+    altered.metadata!.streams[1]!.channels = 1;
+    await assert.rejects(registrar.verifyMetadata([altered]), /MEDIA_METADATA_CHANGED/);
+    const changingProbe: LocalMediaMetadataProbe = { probe: async () => {
+      await writeFile(sourcePath, "changed source");
+      return probe.probe(sourcePath);
+    } };
+    await assert.rejects(new LocalMediaRegistrar(store, changingProbe).verifyMetadata([registered.resource]), /MEDIA_CHANGED/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

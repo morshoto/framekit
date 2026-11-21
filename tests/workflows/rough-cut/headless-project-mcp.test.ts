@@ -14,10 +14,95 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
 import { compileTimelineIrToFcpxml } from "../../../adapters/final-cut/typescript/src/timeline-ir-fcpxml.js";
 import { HeadlessProjectService, externalEditOperations } from "@framekit/headless-application";
-import { FramekitProjectStore, timelineIrDigest, type FramekitProjectDocument, type TimelineIr } from "@framekit/runtime";
+import { createTimelineIrFromProjectSnapshot, FramekitProjectStore, timelineIrDigest, type FramekitProjectDocument, type TimelineIr } from "@framekit/runtime";
 import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer, FfmpegStoryboardRenderer } from "../../../adapters/headless/typescript/src/index.js";
 
 const execFileAsync = promisify(execFile);
+
+test("rough-cut dissolve preview binds render and FCPXML output", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-dissolve-rough-cut-"));
+  try {
+    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], { cwd: process.cwd(), env: process.env });
+    for (const name of ["fixture-red-440hz.mp4", "fixture-blue-880hz.mp4"]) {
+      const original = join(directory, name);
+      const tagged = join(directory, `tagged-${name}`);
+      await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-i", original, "-vf", "scale=in_color_matrix=bt601:out_color_matrix=bt709,setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-c:a", "copy", "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-movflags", "+write_colr", tagged]);
+      await rename(tagged, original);
+    }
+    const musicPath = join(directory, "music.wav");
+    await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "sine=frequency=1760:sample_rate=48000:duration=2", "-c:a", "pcm_s16le", musicPath]);
+    const service = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: new FfmpegMediaMetadataProbe(), renderer: new FfmpegTimelineRenderer(), verifier: new FfmpegRenderVerifier(), storyboard: new FfmpegStoryboardRenderer() });
+    const created = await service.create(emptyTimeline());
+    let revision = created.timeline.revision;
+    const resources: TimelineIr["resources"] = [];
+    for (const path of [join(directory, "fixture-red-440hz.mp4"), join(directory, "fixture-blue-880hz.mp4"), musicPath]) {
+      const registered = await service.registerMedia(created.timeline.project.id, path, revision);
+      resources.push(registered.resource);
+      revision = registered.project.timeline.revision;
+    }
+    const shot = (order: number, source: typeof resources[number], start: number) => ({ order, sourceIdentity: { mediaId: source.id, source: source.source!, sourceDigest: source.sourceDigest!, mediaKind: "video" as const, duration: 2 }, range: { start, end: start + 1 }, confidence: 1, matchedProperties: ["selected"], rationale: "approved source range" });
+    const request = {
+      projectId: created.timeline.project.id, sequenceId: created.timeline.sequence.id,
+      plan: { planner: { id: "framekit.rough-cut", version: 1 }, revision, query: { query: "dissolve" }, shots: [shot(1, resources[0]!, 0.2), shot(2, resources[1]!, 0.5)], warnings: [] },
+      operations: [
+        { type: "add-transition" as const, transition: { id: "fade", kind: "cross-dissolve" as const, beforeOccurrenceId: "rough-cut-1", afterOccurrenceId: "rough-cut-2", durationTime: { value: "1", timescale: "5" } } },
+        { type: "add-title" as const, title: { id: "title", text: "FADE", startTime: { value: "4", timescale: "5" }, durationTime: { value: "1", timescale: "6" }, lane: 1 } },
+        { type: "insert-occurrence" as const, occurrence: { id: "music", name: "Music", startTime: { value: "0", timescale: "1" }, durationTime: { value: "2", timescale: "1" }, sourceStartTime: { value: "0", timescale: "1" }, track: 1, role: "music" as const, mediaId: resources[2]!.id, gainDb: -12 } },
+      ],
+      render: { outputPath: join(directory, "render.mp4"), format: "mp4" as const, width: 320, height: 180, frameRate: { value: "30", timescale: "1" } },
+      fcpxml: { path: join(directory, "edit.fcpxml"), target: { provider: "final-cut" as const, libraryUid: "test-library", eventUid: "test-event", projectUid: "test-project", sequenceUid: "test-sequence" } },
+    };
+    const freshProbe = new FfmpegMediaMetadataProbe();
+    const mismatchedProbe = { probe: async (path: string) => {
+      const observed = await freshProbe.probe(path);
+      const video = observed.streams.find((stream) => stream.kind === "video");
+      if (video?.color) video.color.transfer = "smpte2084";
+      return observed;
+    } };
+    const mismatched = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: mismatchedProbe });
+    await assert.rejects(mismatched.previewRoughCut(request), /MEDIA_METADATA_CHANGED/);
+    const directTimeline = structuredClone((await service.open(created.timeline.project.id)).timeline);
+    directTimeline.project.id = "direct-dissolve-check";
+    directTimeline.sequence.durationTime = { value: "2", timescale: "1" };
+    directTimeline.sequence.occurrences = [
+      { id: "a", name: "A", mediaId: resources[0]!.id, role: "video", track: 0, startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" }, sourceStartTime: { value: "1", timescale: "5" } },
+      { id: "b", name: "B", mediaId: resources[1]!.id, role: "video", track: 0, startTime: { value: "1", timescale: "1" }, durationTime: { value: "1", timescale: "1" }, sourceStartTime: { value: "1", timescale: "2" } },
+    ];
+    directTimeline.sequence.transitions = [{ id: "fade", kind: "cross-dissolve", beforeOccurrenceId: "a", afterOccurrenceId: "b", durationTime: { value: "1", timescale: "5" } }];
+    const direct = await service.create(directTimeline);
+    await assert.rejects(mismatched.exportFcpxml(direct.timeline.project.id, direct.timeline.sequence.id, direct.timeline.revision, join(directory, "direct.fcpxml"), request.fcpxml.target), /MEDIA_METADATA_CHANGED/);
+    const preview = await service.previewRoughCut(request, undefined, true);
+    assert.match(preview.storyboardUnavailable!, /HEADLESS_STORYBOARD_UNSUPPORTED/);
+    assert.match(preview.planDigest, /^[a-f0-9]{64}$/);
+    assert.equal(preview.after.timeline.sequence.transitions?.[0]?.id, "fade");
+    const changed = { ...request, operations: [{ ...request.operations[0]!, transition: { ...request.operations[0]!.transition!, durationTime: { value: "1", timescale: "10" } } }, ...request.operations.slice(1)] };
+    await assert.rejects(service.executeRoughCut({ ...changed, approved: true, planDigest: preview.planDigest }), /PLAN_MISMATCH/);
+    const executed = await service.executeRoughCut({ ...request, approved: true, planDigest: preview.planDigest });
+    assert.equal(executed.committed, true);
+    assert.equal(executed.render.status, "passed");
+    assert.equal(executed.fcpxmlArtifact.verified, true);
+    assert.deepEqual(executed.after.timeline.revision, preview.after.timeline.revision);
+    const xml = await readFile(request.fcpxml.path, "utf8");
+    assert.match(xml, /name="Rough cut 1: approved source range" offset="0s" start="1\/5s" duration="9\/10s"/);
+    assert.match(xml, /<transition name="Cross Dissolve" offset="4\/5s" duration="1\/5s"/);
+    assert.match(xml, /name="Rough cut 2: approved source range" offset="9\/10s" start="2\/5s" duration="11\/10s"/);
+    assert.match(xml, /<filter-video ref="effect-cross-dissolve"/);
+    assert.match(xml, /<filter-audio ref="effect-audio-crossfade"/);
+    assert.match(xml, /name="Music"/);
+    assert.match(xml, /<text>FADE<\/text>/);
+    const readback = await new FcpxmlDocumentAdapter(request.fcpxml.path).readProject();
+    const recovered = createTimelineIrFromProjectSnapshot(readback);
+    assert.deepEqual(recovered.sequence.transitions, preview.after.timeline.sequence.transitions);
+    const expected = preview.after.timeline.sequence.occurrences.find((item) => item.id === "rough-cut-2")!;
+    const actual = recovered.sequence.occurrences.find((item) => item.id === "rough-cut-2")!;
+    assert.deepEqual(actual.startTime, expected.startTime);
+    assert.deepEqual(actual.durationTime, expected.durationTime);
+    assert.deepEqual(actual.sourceStartTime, expected.sourceStartTime);
+    assert.equal(readback.media.find((item) => item.mediaId === actual.mediaId)?.source, resources[1]!.source);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 test("artifact-first production MCP edits, restores, exports and renders fractional-frame media", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-artifact-first-e2e-"));
