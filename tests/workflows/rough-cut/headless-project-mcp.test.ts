@@ -2252,6 +2252,11 @@ test("external edit JSON previews registered clips, a title and music without mu
       assert.equal(exported.isError, true);
       assert.match(toolErrorText(exported), /MEDIA_METADATA_CHANGED/);
       assert.equal(existsSync(xmlPath), false);
+      const renderPath = join(directory, "forged-dialogue.mp4");
+      const rendered = await client.callTool({ name: "headless.render", arguments: { projectId: existing.project.id, sequenceId: existing.sequence.id, expectedRevision: createdExisting.timeline.revision, parameters: { outputPath: renderPath, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } } });
+      assert.equal(rendered.isError, true);
+      assert.match(toolErrorText(rendered), /MEDIA_METADATA_CHANGED/);
+      assert.equal(existsSync(renderPath), false);
     }
     const probeScript = join(directory, "probe-fixture.mjs");
     const mockProbe = async (startPts: number, formatStart: string) => {
