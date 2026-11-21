@@ -931,7 +931,15 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
         },
       },
     };
-    const preview = payload(await client.callTool({ name: "headless.rough-cut.preview", arguments: request }));
+    const previewResult = await client.callTool({ name: "headless.rough-cut.preview", arguments: request });
+    const preview = payload(previewResult);
+    const storyboardImage = previewResult.content.find((item: any) => item.type === "image") as { type: "image"; data: string; mimeType: string } | undefined;
+    assert.equal(storyboardImage?.mimeType, "image/png");
+    assert.ok(Buffer.from(storyboardImage!.data, "base64").length > 100);
+    assert.equal(preview.storyboard.samples.filter((sample: any) => sample.kind === "shot").length, 3);
+    assert.equal(preview.storyboard.samples.filter((sample: any) => sample.kind === "title").length, 1);
+    assert.equal(preview.storyboard.planDigest, preview.planDigest);
+    assert.deepEqual(preview.storyboard.revision, preview.after.timeline.revision);
     assert.equal(preview.before.timeline.sequence.occurrences.length, 0);
     assert.equal(preview.before.timeline.revision.sequence, revision.sequence);
     assert.deepEqual(preview.after.timeline.sequence.occurrences.filter((occurrence: any) => occurrence.track === 0).map((occurrence: any) => [
