@@ -50,6 +50,7 @@ test("dissolve parity applies declared bounds without claiming native proof", ()
   assert.equal(evaluateDissolveExportMeasurements(revised, -9).status, "PASS");
   assert.equal(evaluateDissolveExportMeasurements(revised).status, "FAIL");
   assert.equal(evaluateDissolveExportMeasurements(reference, -9).status, "FAIL");
+  assert.throws(() => evaluateDissolveExportMeasurements(reference, -6 as -9), /MUSIC_GAIN_UNSUPPORTED/);
   assert.equal(compareDissolveParity(revised, revised, { x: 589, y: 330, width: 103, height: 30 }, { x: 589, y: 330, width: 103, height: 30 }, -9).status, "PASS");
   const alteredRevision = structuredClone(revised);
   alteredRevision.audio[2]!.music *= 0.7;
