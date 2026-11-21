@@ -208,6 +208,7 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     assert.equal(executed.fcpxmlArtifact.verified, true);
     assert.deepEqual(executed.after.timeline.revision, preview.after.timeline.revision);
     const proof = await service.verifyPublishableRoughCut(executed.executionId, request.fcpxml.path);
+    assert.deepEqual(proof.titleFont, preview.titleFont);
     const renderRecordPath = join(directory, "projects", `${executed.render.renderId}.json`);
     const originalRenderRecord = await readFile(renderRecordPath, "utf8");
     for (const mutation of ["font", "renderer", "missing", "title"] as const) {
