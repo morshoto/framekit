@@ -1,0 +1,41 @@
+Error messages contain details specific to the failed operation. Inspect those details and the current project or artifact before deciding what to do next. A failed response does not always mean that an edit was rolled back.
+
+## `HEADLESS_ROUGH_CUT_HISTORY_UNCONFIRMED`
+
+The rough-cut project edit has **already committed**, but execution or publish proof could not be returned. The error includes the project, sequence, execution ID and committed revision. Reinspect the project and its history before deciding whether any further action is needed; blindly retrying may duplicate an edit.
+
+## `ANALYZER_SOURCE_CHANGED`
+
+A local source did not match the supplied digest, or changed or became unreadable while analysis ran. No result from that analysis is accepted. Reinspect the source and its binding, then run a new analysis with the correct content and digest.
+
+## `FINAL_CUT_NATIVE_SEARCH_TIMEOUT`
+
+The standalone Final Cut Browser search exceeded its deadline. The search has no complete result; it does not commit a timeline edit. Check Final Cut and Browser availability before retrying the search.
+
+## `FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE`
+
+Framekit could not establish a complete Browser search, for example because a descendant was inaccessible or traversal reached its depth limit. No complete search result is available and no timeline edit is committed by the search. Inspect the Browser and provider capabilities; do not treat the response as an empty result.
+
+## `FINAL_CUT_SQLITE_INSPECTION_UNAVAILABLE`
+
+The standard server has no SQLite inspection provider configured. This observation did not produce canonical editor evidence or commit an edit. Use supported editor capabilities; research integrations require an explicitly injected experimental provider and disposable fixtures.
+
+## `HEADLESS_FCPXML_STALE`
+
+The export target or revision no longer matches the requested project. The stale request is rejected before FCPXML export. Inspect the current project and sequence revision, then prepare a new export for that revision.
+
+## `HEADLESS_RENDER_UNAVAILABLE`
+
+The headless renderer and verifier are not configured. The render cannot start; this error does not itself commit a project edit. Check the configured backend and available capabilities before requesting a render again.
+
+## `HEADLESS_ROUGH_CUT_RENDER_UNAVAILABLE`
+
+The rough-cut workflow requires a configured renderer and verifier, but they are unavailable. Rendering cannot start. Inspect the current project revision and configure the required capabilities before preparing another operation.
+
+## `FCPXML_UNSUPPORTED_TIMELINE_FEATURE`
+
+The requested timeline contains a feature the FCPXML compiler cannot safely represent. Compilation is rejected. Inspect the reported feature and the current project; use a supported timeline or wait for support before exporting again.
+
+## `FCPXML_INVALID_TIME`
+
+A time value cannot be represented or violates the compiler's time constraints. Compilation is rejected. Inspect the field named in the message and correct the rational time or frame alignment before exporting again.
