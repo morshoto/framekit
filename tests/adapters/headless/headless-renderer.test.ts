@@ -686,6 +686,37 @@ test("FFmpeg renderer fills a trailing video gap with black while music continue
   }
 });
 
+test("FFmpeg preserves a silent tail after short music ends", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-short-music-"));
+  try {
+    await mediaFixtures.copyTo(directory);
+    const musicPath = join(directory, "short-music.wav");
+    await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", [
+      "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
+      "sine=frequency=1760:sample_rate=48000:duration=0.5", "-c:a", "pcm_s16le", "-y", musicPath,
+    ], { cwd: repositoryRoot, env: process.env });
+    const source = await timeline(join(directory, "fixture-red-440hz.mp4"), join(directory, "fixture-blue-880hz.mp4"));
+    source.sequence.durationTime = { value: "5", timescale: "2" };
+    const music = audioResource("short-music", musicPath, await digest(musicPath));
+    music.metadata.durationTime = { value: "1", timescale: "2" };
+    source.resources.push(music);
+    source.sequence.occurrences.push({ id: "short-music", name: "Short music", startTime: { value: "0", timescale: "1" },
+      durationTime: { value: "1", timescale: "2" }, sourceStartTime: { value: "0", timescale: "1" },
+      track: 1, role: "music", mediaId: "short-music", gainDb: -6 });
+    const outputPath = join(directory, "short-music.mp4");
+    const renderer = new FfmpegTimelineRenderer({ ffmpegPath: process.env.FFMPEG_BIN || "ffmpeg" });
+    const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(outputPath) });
+    await renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request)));
+    const duration = await execFileAsync(process.env.FFPROBE_BIN || "ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", outputPath], { cwd: repositoryRoot, env: process.env });
+    assert.ok(Math.abs(Number(duration.stdout) - 2.5) < 0.05, "short music must not shorten the timeline");
+    const samples = async (start: string) => (await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-ss", start, "-t", "0.3", "-i", outputPath, "-vn", "-ac", "1", "-ar", "48000", "-f", "f32le", "pipe:1"], { cwd: repositoryRoot, env: process.env, encoding: "buffer", maxBuffer: 2 * 1024 * 1024 })).stdout as unknown as Buffer;
+    assert.ok(frequencyAmplitude(await samples("0.1"), 1760, 48000) > 0.002, "short music should be audible in its window");
+    assert.ok(frequencyAmplitude(await samples("2.1"), 1760, 48000) < 0.0002, "music should not extend into the silent tail");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("FFmpeg renders a title during a cross-dissolve", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-transition-title-"));
   try {
