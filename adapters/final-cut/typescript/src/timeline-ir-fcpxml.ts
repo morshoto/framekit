@@ -10,6 +10,7 @@ import type {
 import { timelineIrDigest, validateTimelineIr } from "@framekit/runtime";
 
 export const FRAMEKIT_FCPXML_VERSION = "1.11" as const;
+const AUDIO_CROSSFADE_EFFECT_ID = "effect-audio-crossfade";
 const CROSS_DISSOLVE_EFFECT_ID = "effect-cross-dissolve";
 const CROSS_DISSOLVE_EFFECT_UID = "FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265";
 const BASIC_TITLE_EFFECT_ID = "effect-basic-title";
@@ -121,7 +122,7 @@ export function compileTimelineIrToFcpxml(
   }
   const destination = resolveDestination(timeline, options.target);
   const dissolve = timeline.sequence.transitions?.length ? planFcpxmlDissolve(timeline) : undefined;
-  if (dissolve) throw new Error("FCPXML_DISSOLVE_UNVERIFIED: transition audio and canonical readback are not yet verified");
+  if (dissolve) requireVerifiedDissolve();
 
   const resourceIds = createResourceIds(timeline);
   const resourceNames = uniqueResourceNames(timeline);
@@ -177,7 +178,10 @@ export function compileTimelineIrToFcpxml(
     ...(timeline.sequence.titles?.length
       ? [`    <effect id="${BASIC_TITLE_EFFECT_ID}" name="Basic Title" uid="${BASIC_TITLE_EFFECT_UID}" />`]
       : []),
-    ...(dissolve ? [`    <effect id="${CROSS_DISSOLVE_EFFECT_ID}" name="Cross Dissolve" uid="${CROSS_DISSOLVE_EFFECT_UID}" />`] : []),
+    ...(dissolve ? [
+      `    <effect id="${CROSS_DISSOLVE_EFFECT_ID}" name="Cross Dissolve" uid="${CROSS_DISSOLVE_EFFECT_UID}" />`,
+      `    <effect id="${AUDIO_CROSSFADE_EFFECT_ID}" name="Audio Crossfade" uid="FFAudioTransition" />`,
+    ] : []),
     ...resources.map((resource) => renderResource(resource, resourceIds.get(resource.id)!, resourceNames.get(resource.id)!)),
     "  </resources>",
     "  <library>",
@@ -224,6 +228,10 @@ export function compileTimelineIrToFcpxml(
       },
     },
   };
+}
+
+function requireVerifiedDissolve(): void {
+  throw new Error("FCPXML_DISSOLVE_UNVERIFIED: transition audio and canonical readback are not yet verified");
 }
 
 function unsupportedFeatures(timeline: TimelineIr): string[] {
@@ -695,6 +703,7 @@ function renderElements(elements: RenderableElement[]): string[] {
       if (element.kind === "transition") {
         lines.push(`${indent}<transition name="Cross Dissolve" offset="${formatRational(offsetTime, `${element.id}.startTime`)}" duration="${formatRational(element.durationTime, `${element.id}.durationTime`)}">`);
         lines.push(`${indent}  <filter-video ref="${CROSS_DISSOLVE_EFFECT_ID}" name="Cross Dissolve" />`);
+        lines.push(`${indent}  <filter-audio ref="${AUDIO_CROSSFADE_EFFECT_ID}" name="Audio Crossfade" />`);
         lines.push(`${indent}  <metadata><md key="com.framekit.id" value="${xmlEscape(element.id)}" /></metadata>`);
         lines.push(`${indent}</transition>`);
         continue;
