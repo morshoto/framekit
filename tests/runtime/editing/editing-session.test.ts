@@ -216,3 +216,29 @@ test("can construct an IR from a canonical snapshot without leaking editor types
   assert.equal(ir.resources[0]?.source, "/media/opening.mov");
   assert.equal("clips" in ir.sequence, false);
 });
+
+
+test("canonical dissolve recovery rejects invalid provider readback", () => {
+  const source = {
+    projectId: "p", projectName: "P", revision: { id: "r", sequence: 0, timestamp: "2026-01-01T00:00:00.000Z" },
+    timeline: { id: "s", name: "S", duration: 4, durationTime: { value: "4", timescale: "1" }, frameDuration: { value: "1", timescale: "30" },
+      clips: [
+        { id: "a", name: "A", mediaId: "m", start: 0, duration: 2, track: 0, startTime: { value: "0", timescale: "1" }, durationTime: { value: "2", timescale: "1" }, sourceStartTime: { value: "1", timescale: "1" } },
+        { id: "b", name: "B", mediaId: "m", start: 1.5, duration: 2.5, track: 0, startTime: { value: "3", timescale: "2" }, durationTime: { value: "5", timescale: "2" }, sourceStartTime: { value: "7", timescale: "2" } },
+      ],
+      storyElements: [{ id: "t", kind: "transition", transitionKind: "cross-dissolve" as const, beforeClipId: "a", afterClipId: "b", start: 1.5, duration: 0.5, startTime: { value: "3", timescale: "2" }, durationTime: { value: "1", timescale: "2" } }], markers: [], captions: [],
+    },
+    media: [{ mediaId: "m", source: "/media/source.mov", mediaKind: "video" as const }],
+  };
+  const result = createTimelineIrFromProjectSnapshot(source);
+  assert.deepEqual(result.sequence.occurrences[1]!.sourceStartTime, { value: "4", timescale: "1" });
+  assert.equal(result.sequence.transitions?.[0]?.afterOccurrenceId, "b");
+  for (const mutation of ["negative-source", "audio-endpoint", "overlap-before", "missing-source"] as const) {
+    const invalid = structuredClone(source);
+    if (mutation === "negative-source") invalid.timeline.clips[1]!.sourceStartTime = { value: "-1", timescale: "1" };
+    if (mutation === "audio-endpoint") Object.assign(invalid.timeline.clips[0]!, { role: "music" });
+    if (mutation === "overlap-before") invalid.timeline.clips[0]!.startTime = { value: "7", timescale: "4" };
+    if (mutation === "missing-source") delete (invalid.timeline.clips[1]! as { sourceStartTime?: unknown }).sourceStartTime;
+    assert.throws(() => createTimelineIrFromProjectSnapshot(invalid), /TIMELINE_IR_.*transition/i, mutation);
+  }
+});
