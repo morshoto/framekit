@@ -706,6 +706,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       || !sameRevision(project.timeline.revision, record.canonicalRevision)) {
       throw new Error("HEADLESS_ROUGH_CUT_STALE_REVISION: canonical project changed after the approved rough cut");
     }
+    await this.verifyConnectedAudioMetadata(record.projectId, project.timeline);
     const readApprovedArtifact = async (): Promise<string> => {
       try {
         const file = await open(record.artifactPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
