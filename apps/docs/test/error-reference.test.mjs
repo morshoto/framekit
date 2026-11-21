@@ -21,3 +21,8 @@ test('reference covers previously documented codes and post-commit recovery', as
   for (const code of ['HEADLESS_ROUGH_CUT_HISTORY_UNCONFIRMED', 'ANALYZER_SOURCE_CHANGED', 'FINAL_CUT_NATIVE_SEARCH_TIMEOUT', 'FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE', 'FINAL_CUT_SQLITE_INSPECTION_UNAVAILABLE']) assert.ok(codes.has(code), code);
   assert.match(page, /already committed[\s\S]*reinspect/i);
 });
+
+test('code headings use stable hyphenated anchors while retaining exact codes', () => {
+  assert.deepEqual([...extractIndexedCodes('## headless-one\n\n`HEADLESS_ONE`\n')], ['HEADLESS_ONE']);
+  assert.deepEqual([...extractIndexedCodes('## wrong-anchor\n\n`HEADLESS_ONE`\n')], []);
+});
