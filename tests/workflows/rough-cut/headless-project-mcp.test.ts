@@ -166,6 +166,7 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     const approvedTitle = await fontService.previewRoughCut(titleRequest);
     const originalFont = await readFile(fontPath);
     assert.equal(approvedTitle.titleFont?.digest, createHash("sha256").update(originalFont).digest("hex"));
+    assert.deepEqual(approvedTitle.titleFont?.face, { family: "Noto Sans CJK JP", style: "Regular", postscriptName: "NotoSansCJKjp-Regular" });
     // A pre-upgrade approval has a valid checksum but no approved font identity.
     const legacy = JSON.parse(await readFile(join(directory, "projects", `${approvedTitle.planDigest}.approval.json`), "utf8"));
     delete legacy.titleFont;
