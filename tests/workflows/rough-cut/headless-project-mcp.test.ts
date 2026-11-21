@@ -1200,6 +1200,18 @@ test("production stdio MCP persists and reopens the headless project and render 
     } }));
     assert.equal(render.status, "passed");
     assert.equal(render.outcome.verification.status, "passed");
+    for (const [outputPath, code] of [[join(directory, "mcp-final.mp4"), "HEADLESS_RENDER_OUTPUT_EXISTS"], [join(directory, "missing", "output.mp4"), "HEADLESS_RENDER_OUTPUT_INVALID"]]) {
+      const failed = await client.callTool({ name: "headless.render", arguments: {
+        projectId: "mcp-headless-project", sequenceId: "mcp-headless-sequence", expectedRevision: finished.after.timeline.revision,
+        parameters: { outputPath, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } },
+      } });
+      assert.equal(failed.isError, true);
+      const record = JSON.parse(toolErrorText(failed));
+      assert.equal(record.outcome.error.code, code);
+      const inspectedFailure = payload(await client.callTool({ name: "headless.render.inspect", arguments: { renderId: record.renderId } }));
+      assert.equal(inspectedFailure.status, "failed");
+      assert.equal(inspectedFailure.outcome.error.code, code);
+    }
     const inspected = payload(await client.callTool({ name: "headless.render.inspect", arguments: { renderId: render.renderId } }));
     assert.equal(inspected.status, "passed");
     assert.equal(inspected.outcome.render.projectRevision.id, finished.after.timeline.revision.id);

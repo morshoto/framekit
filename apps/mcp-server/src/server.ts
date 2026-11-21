@@ -1590,7 +1590,14 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       expectedRevision: revisionValueSchema.optional(),
       parameters: headlessRenderParametersSchema,
     },
-  }, async ({ projectId, sequenceId, expectedRevision, parameters }) => sessionResult(() => requireHeadlessProjects().render(projectId, sequenceId, parameters, expectedRevision)));
+  }, async ({ projectId, sequenceId, expectedRevision, parameters }) => {
+    try {
+      const record = await requireHeadlessProjects().render(projectId, sequenceId, parameters, expectedRevision);
+      return { ...jsonResult(record), ...(record.status === "failed" ? { isError: true } : {}) };
+    } catch (error) {
+      return sessionResult(async () => { throw error; });
+    }
+  });
 
   server.registerTool("headless.rough-cut.preview", {
     description: "Preview a semantic rough-cut plan and a bounded storyboard; the digest binds the plan and operations without mutating the timeline.",

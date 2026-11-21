@@ -335,6 +335,9 @@ operation. Evidence from one row does not establish the result of another.
 FFmpeg headless renders normalize audio to AAC at 48 kHz mono. Verification
 checks this emitted format while preserving registered source metadata; other
 renderer backends are checked against their source audio metadata.
+When `headless.render` records a failed render or verification, its MCP result
+sets `isError` and includes the failed record. `headless.render.inspect` can
+retrieve that record later using its `renderId`.
 
 For `ripple-delete`, preview rejects ranges outside the active sequence bounds
 before issuing a preview token. The structured error reports the requested
