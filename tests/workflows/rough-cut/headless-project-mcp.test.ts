@@ -1565,6 +1565,7 @@ test("storyboard rejects stale media and cleans up after cancellation", async ()
     const oversized = structuredClone(timeline);
     oversized.sequence.occurrences = Array.from({ length: 13 }, (_, index) => ({ ...occurrence(`shot-${index}`, "media"), startTime: { value: String(index), timescale: "1" } }));
     await assert.rejects(renderer.render(oversized, { width: 320, height: 180 }), /HEADLESS_STORYBOARD_LIMIT/);
+    await assert.rejects(new FfmpegStoryboardRenderer({ temporaryDirectory: directory, ffmpegPath: join(directory, "missing-ffmpeg") }).render(timeline, { width: 320, height: 180 }), (error: unknown) => error instanceof Error && /^DEPENDENCY_MISSING:.*ffmpeg/.test(error.message) && !/ENOENT|spawn/.test(error.message));
     const failing = join(directory, "failing-ffmpeg");
     await writeFile(failing, "#!/usr/bin/env node\nprocess.exit(2);\n");
     await chmod(failing, 0o755);
