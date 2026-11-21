@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
-import { evaluateExportMeasurements, evaluateRevisedExportMeasurements, measureExport, prepareManualImportFixture, verifyManualExport, verifyPreparedArtifact } from "../../../scripts/manual-import-qa.js";
+import { evaluateDissolveExportMeasurements, evaluateExportMeasurements, evaluateRevisedExportMeasurements, measureExport, prepareManualImportFixture, verifyManualExport, verifyPreparedArtifact } from "../../../scripts/manual-import-qa.js";
 
 const valid = () => ({
   durationSeconds: 3,
@@ -81,6 +81,40 @@ test("manual import output checks reject incorrect duration, order and silent au
     { ...valid(), toneAmplitudes: [0.025, 0, 0.023] },
     { ...valid(), toneAmplitudes: [0.025, Number.NaN, 0.023] },
   ]) assert.equal(evaluateExportMeasurements(invalid).status, "FAIL");
+
+  // Independent expected semantics for a two-second red-to-blue edit with a
+  // six-frame dissolve, 440/880 Hz sources and a 1760 Hz music bed.
+  const dissolve = {
+    durationSeconds: 2, frameCount: 60, frameRate: "30/1",
+    frames: [
+      { frameNumber: 23, rgb: [244, 30, 0] as [number, number, number] },
+      { frameNumber: 25, rgb: [212, 31, 124] as [number, number, number] },
+      { frameNumber: 27, rgb: [157, 30, 194] as [number, number, number] },
+      { frameNumber: 29, rgb: [70, 11, 236] as [number, number, number] },
+      { frameNumber: 30, rgb: [60, 251, 255] as [number, number, number] },
+    ],
+    audio: [
+      { timeSeconds: 0.5, outgoing: 0.088, incoming: 0, music: 0.022 },
+      { timeSeconds: 0.825, outgoing: 0.084, incoming: 0.004, music: 0.022 },
+      { timeSeconds: 0.9, outgoing: 0.044, incoming: 0.044, music: 0.022 },
+      { timeSeconds: 0.975, outgoing: 0.004, incoming: 0.084, music: 0.022 },
+      { timeSeconds: 1.5, outgoing: 0, incoming: 0.088, music: 0.022 },
+    ],
+  };
+  const result = evaluateDissolveExportMeasurements(dissolve);
+  assert.equal(result.status, "PASS");
+  assert.equal(result.nativeImport, "UNVERIFIED");
+  assert.equal(result.titleEditability, "UNVERIFIED");
+  assert.equal(result.finalCutProvenance, "UNVERIFIED");
+  const hardCut = structuredClone(dissolve);
+  for (const frame of hardCut.frames.slice(1, 4)) frame.rgb = [244, 30, 0];
+  const silentMusic = structuredClone(dissolve);
+  silentMusic.audio[2]!.music = 0;
+  const badFade = structuredClone(dissolve);
+  badFade.audio[2]!.incoming = 0;
+  for (const invalid of [{ ...dissolve, frameCount: 66 }, hardCut, silentMusic, badFade, { ...dissolve, frames: dissolve.frames.slice(0, 4) }]) {
+    assert.equal(evaluateDissolveExportMeasurements(invalid).status, "FAIL");
+  }
 });
 
 
