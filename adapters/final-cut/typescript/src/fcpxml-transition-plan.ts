@@ -33,6 +33,7 @@ export function planFcpxmlDissolve(timeline: TimelineIr) {
   const transition = transitions[0]!;
   const primary = timeline.sequence.occurrences.filter((item) => item.track === 0 && (item.role === undefined || item.role === "video"))
     .sort((a, b) => compare(fraction(a.startTime), fraction(b.startTime)));
+  if (primary.length !== 2) throw new Error("FCPXML_DISSOLVE_UNSUPPORTED: cross-dissolve handoff requires exactly two primary clips");
   const beforeIndex = primary.findIndex((item) => item.id === transition.beforeOccurrenceId);
   const before = primary[beforeIndex];
   const after = primary[beforeIndex + 1];
