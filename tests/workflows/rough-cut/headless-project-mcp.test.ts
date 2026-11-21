@@ -2461,6 +2461,12 @@ test("external edit JSON previews registered clips, a title and music without mu
     }
     assert.throws(() => externalEditOperations({ ...edit, clips: [{ ...edit.clips[0]!, nativeAudioRole: "music" }] }, b.project.timeline, b.project.timeline.revision), /supported dialogue role/);
     assert.doesNotThrow(() => externalEditOperations({ ...edit, clips: [{ ...edit.clips[0]!, nativeAudioRole: "dialogue.alternate" }] }, b.project.timeline, b.project.timeline.revision));
+    for (const nativeAudioRole of ["dialogue.inter\nview", "dialogue.inter\rview", "dialogue.inter\tview", "dialogue\n"]) {
+      const invalidRole = { ...edit, clips: [{ ...edit.clips[0]!, nativeAudioRole }] };
+      assert.throws(() => externalEditOperations(invalidRole, b.project.timeline, b.project.timeline.revision), /supported dialogue role/);
+      const result = await client.callTool({ name: "headless.edit-json.preview", arguments: { projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit: invalidRole } });
+      assert.equal(result.isError, true, nativeAudioRole);
+    }
     for (const gainDb of [-60, 12]) {
       assert.doesNotThrow(() => externalEditOperations({ ...edit, music: { ...edit.music, gainDb } }, b.project.timeline, b.project.timeline.revision));
     }
