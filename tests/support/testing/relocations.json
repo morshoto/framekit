@@ -1989,6 +1989,7 @@
       "\"FFmpeg renderer keeps title text separate from drawtext options\"",
       "\"FFmpeg Timeline IR renderer honors explicit output frame rate without mutating sources\"",
       "\"FFmpeg renderer fills a trailing video gap with black while music continues\"",
+      "\"FFmpeg preserves a silent tail after short music ends\"",
       "\"FFmpeg renders a title during a cross-dissolve\"",
       "\"FFmpeg mixes independent music with source audio at the requested gain\"",
       "\"FFmpeg renders both occurrences that reuse one music resource\"",
