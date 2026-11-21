@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
-import { evaluateDissolveExportMeasurements, evaluateExportMeasurements, evaluateRevisedExportMeasurements, measureDissolveExport, measureExport, prepareManualImportFixture, verifyManualExport, verifyPreparedArtifact } from "../../../scripts/manual-import-qa.js";
+import { evaluateDissolveExportMeasurements, evaluateExportMeasurements, evaluateRevisedExportMeasurements, inspectDissolveExport, measureDissolveExport, measureExport, prepareManualImportFixture, verifyManualExport, verifyPreparedArtifact } from "../../../scripts/manual-import-qa.js";
 
 const valid = () => ({
   durationSeconds: 3,
@@ -77,6 +77,14 @@ test("revised export measurement decodes real clip and tail boundaries", async (
     const evaluation = evaluateDissolveExportMeasurements(dissolve);
     assert.equal(evaluation.status, "PASS");
     assert.equal(evaluation.finalCutProvenance, "UNVERIFIED");
+    const reportDirectory = join(directory, "dissolve-report");
+    const report = await inspectDissolveExport(dissolvePath, reportDirectory);
+    assert.equal(report.exportSha256, createHash("sha256").update(await readFile(dissolvePath)).digest("hex"));
+    assert.equal(report.measurements.status, "PASS");
+    assert.equal(report.measurements.nativeImport, "UNVERIFIED");
+    assert.equal(report.titleVisibility, "UNVERIFIED");
+    assert.deepEqual(JSON.parse(await readFile(join(reportDirectory, "observation.json"), "utf8")), report);
+    await assert.rejects(inspectDissolveExport(dissolvePath, reportDirectory), /EEXIST/);
     const silent = join(directory, "silent-dissolve.mp4");
     await promisify(execFile)("ffmpeg", ["-v", "error", "-i", dissolvePath, "-an", "-c:v", "copy", silent]);
     assert.equal(evaluateDissolveExportMeasurements(await measureDissolveExport(silent)).status, "FAIL");
