@@ -79,6 +79,38 @@ const target: TimelineIrToFcpxmlTarget = {
   eventName: "Framekit Event",
 };
 
+test("native dissolve readback preserves visible semantics without inventing stripped IDs", () => {
+  // Final Cut's exported XML retains effect references and timing but strips
+  // Framekit's custom metadata; identifiers below are native document IDs.
+  const xml = `<?xml version="1.0"?><fcpxml version="1.11"><resources>
+    <format id="r1" name="FFVideoFormat720p30" frameDuration="1/30s" width="1280" height="720"/>
+    <asset id="r2" name="red.mp4" start="0s" duration="2s" hasVideo="1" format="r1"><media-rep kind="original-media" src="file:///media/red.mp4"/></asset>
+    <asset id="r3" name="blue.mp4" start="0s" duration="2s" hasVideo="1" format="r1"><media-rep kind="original-media" src="file:///media/blue.mp4"/></asset>
+    <effect id="r4" name="Cross Dissolve" uid="FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265"/>
+    <effect id="r5" name="Audio Crossfade" uid="FFAudioTransition"/>
+    <effect id="r6" name="Basic Title" uid=".../Titles.localized/Bumper:Opener.localized/Basic Title.localized/Basic Title.moti"/>
+    </resources><library><event name="Event"><project name="Native" uid="native-project"><sequence format="r1" duration="2s"><spine>
+    <asset-clip ref="r2" name="Red" offset="0s" start="1/5s" duration="9/10s"/>
+    <transition name="Cross Dissolve" offset="4/5s" duration="1/5s"><filter-video ref="r4"/><filter-audio ref="r5"/></transition>
+    <asset-clip ref="r3" name="Blue" offset="9/10s" start="2/5s" duration="11/10s"><title ref="r6" lane="1" offset="3/10s" name="title" duration="1/6s"><text><text-style ref="ts1">FADE</text-style></text><text-style-def id="ts1"><text-style font="Helvetica" fontSize="63"/></text-style-def></title></asset-clip>
+    </spine></sequence></project></event></library></fcpxml>`;
+  const snapshot = FcpxmlDocumentAdapter.readProjectFromContent("/media/native.fcpxml", xml);
+  const transition = snapshot.timeline.storyElements.find((element) => element.kind === "transition")!;
+  const title = snapshot.timeline.storyElements.find((element) => element.kind === "title")!;
+  assert.equal(transition.assetId, "fcpxml:effect:FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265");
+  assert.deepEqual(transition.startTime, { value: "4", timescale: "5" });
+  assert.deepEqual(transition.durationTime, { value: "1", timescale: "5" });
+  assert.equal(transition.transitionKind, undefined);
+  assert.equal(transition.beforeClipId, undefined);
+  assert.equal(transition.afterClipId, undefined);
+  assert.equal(title.text, "FADE");
+  assert.deepEqual(title.startTime, { value: "4", timescale: "5" });
+  assert.deepEqual(title.durationTime, { value: "1", timescale: "6" });
+  const readback = createTimelineIrFromProjectSnapshot(snapshot);
+  assert.equal(readback.sequence.transitions, undefined);
+  assert.ok(readback.sequence.storyElements.some((element) => element.kind === "transition"));
+});
+
 test("exports an adjacent cross-dissolve with its media references", async () => {
   const value = timeline();
   value.sequence.frameDuration = { value: "1", timescale: "30" };
