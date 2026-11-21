@@ -143,11 +143,12 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     await assert.rejects(fontService.previewRoughCut(unsupportedTitle), /RENDER_CAPABILITY_UNAVAILABLE.*titles/);
     const approvedTitle = await fontService.previewRoughCut(titleRequest);
     const originalFont = await readFile(fontPath);
+    assert.equal(approvedTitle.titleFont?.digest, createHash("sha256").update(originalFont).digest("hex"));
     await writeFile(fontPath, Buffer.concat([originalFont, Buffer.from([0])]));
     await assert.rejects(fontService.executeRoughCut({ ...titleRequest, approved: true, planDigest: approvedTitle.planDigest }), /PLAN_MISMATCH.*font/i);
     assert.equal(existsSync(request.render.outputPath), false);
     await rm(fontPath);
-    await assert.rejects(fontService.executeRoughCut({ ...titleRequest, approved: true, planDigest: approvedTitle.planDigest }), /HEADLESS_ROUGH_CUT_RENDER_FAILED/);
+    await assert.rejects(fontService.executeRoughCut({ ...titleRequest, approved: true, planDigest: approvedTitle.planDigest }), /PLAN_MISMATCH.*font/i);
     assert.equal(existsSync(request.render.outputPath), false);
     assert.deepEqual((await service.open(created.timeline.project.id)).timeline.revision, revision);
     const directTimeline = structuredClone((await service.open(created.timeline.project.id)).timeline);

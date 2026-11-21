@@ -109,7 +109,13 @@ test("FFmpeg renders a supported mixed-script title without tofu", async () => {
     const output = join(directory, "mixed.mp4");
     const renderer = new FfmpegTimelineRenderer({ env: { FRAMEKIT_RENDER_FONT: relativeFont } });
     const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: { ...parameters(output), width: 1280, height: 720 } });
-    await renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request)));
+    const plan = createFramekitRenderPlan(request, renderer.capabilities(request));
+    const originalFont = await readFile(fontPath);
+    await writeFile(fontPath, Buffer.concat([originalFont, Buffer.from([0])]));
+    await assert.rejects(renderer.render(plan), /PLAN_MISMATCH.*font changed/i);
+    await assert.rejects(readFile(output), /ENOENT/);
+    await writeFile(fontPath, originalFont);
+    await renderer.render(plan);
     const actual = await frameAt(output, 0.25, directory, "actual-mixed");
     const reference = async (name: string, text: string) => {
       await writeFile(join(directory, `${name}.txt`), text, "utf8");
