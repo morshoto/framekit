@@ -2320,6 +2320,29 @@ test("external edit JSON previews registered clips, a title and music without mu
     const shortRoughPreview = await client.callTool({ name: "headless.rough-cut.preview", arguments: shortRoughCut });
     assert.equal(shortRoughPreview.isError, true, "rough-cut preview must reject unverifiable music bounds");
     assert.match(toolErrorText(shortRoughPreview), /audio stream bounds/);
+    // A legacy project can already contain an unverified music occurrence.
+    const legacyTimeline = structuredClone(shortAudio.project.timeline);
+    legacyTimeline.project.id = "legacy-short-music";
+    legacyTimeline.sequence.id = "legacy-short-sequence";
+    legacyTimeline.sequence.durationTime = seconds(2);
+    legacyTimeline.sequence.occurrences = [
+      { ...shortEdit.clips[0], name: "legacy-video", startTime: seconds(0), durationTime: seconds(2), track: 0, role: "video" },
+      { ...shortEdit.music, name: "legacy-music", track: 1, role: "music" },
+    ];
+    const legacy = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: legacyTimeline } }));
+    const legacyRough = { ...shortRoughCut, projectId: legacyTimeline.project.id, sequenceId: legacyTimeline.sequence.id,
+      plan: { ...shortRoughCut.plan, revision: legacy.timeline.revision }, operations: [],
+      render: { ...shortRoughCut.render, outputPath: join(directory, "legacy-rough.mp4") },
+      fcpxml: { ...shortRoughCut.fcpxml, path: join(directory, "legacy-rough.fcpxml") } };
+    const legacyPreview = await client.callTool({ name: "headless.rough-cut.preview", arguments: legacyRough });
+    assert.equal(legacyPreview.isError, true, "rough-cut must reject unverified existing music");
+    assert.match(toolErrorText(legacyPreview), /audio stream bounds/);
+    const legacyRenderPath = join(directory, "legacy-render.mp4");
+    const legacyRender = await client.callTool({ name: "headless.render", arguments: { projectId: legacyTimeline.project.id, sequenceId: legacyTimeline.sequence.id, expectedRevision: legacy.timeline.revision,
+      parameters: { outputPath: legacyRenderPath, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } } });
+    assert.equal(legacyRender.isError, true, "render must reject unverified existing music");
+    assert.match(toolErrorText(legacyRender), /audio stream bounds/);
+    await assert.rejects(stat(legacyRenderPath), { code: "ENOENT" });
     const rejectedShort = await client.callTool({ name: "headless.edit-json.preview", arguments: shortArgs });
     assert.equal(rejectedShort.isError, true);
     assert.match(toolErrorText(rejectedShort), /audio stream bounds/);
