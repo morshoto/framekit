@@ -132,7 +132,7 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
   assert.match(result.xml, /<asset[^>]*hasAudio="1"/);
   assert.match(result.xml, /<asset-clip[^>]*name="Music"[^>]*offset="3\/2s"[^>]*start="1s"[^>]*duration="3s"/);
   assert.match(result.xml, /<adjust-volume amount="-12dB"/);
-  assert.match(result.xml, /<title[^>]*name="title-over-dissolve"[^>]*offset="5\/2s"[^>]*duration="1\/2s"/);
+  assert.match(result.xml, /name="After"[^>]*>[\s\S]*?<title[^>]*name="title-over-dissolve"[^>]*offset="7\/2s"[^>]*duration="1\/2s"/);
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-dissolve-dtd-"));
   try {
     const path = join(directory, "timeline.fcpxml");
