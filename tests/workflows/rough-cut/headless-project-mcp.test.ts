@@ -1910,6 +1910,30 @@ test("external edit JSON previews registered clips, a title and music without mu
       { id: "clip-b", mediaId: a2.resource.id, sourceStartTime: seconds(0), durationTime: seconds(1) },
     ], title: { id: "title", text: "Hello 世界 🎬", startTime: seconds(0), durationTime: seconds(1) },
     music: { id: "music", mediaId: b.resource.id, sourceStartTime: seconds(0), startTime: seconds(0), durationTime: seconds(2), gainDb: -12 } };
+    for (const [variant, withTitle, withMusic] of [["clips", false, false], ["title", true, false], ["music", false, true]] as const) {
+      const newTimeline = emptyTimeline();
+      newTimeline.project.id = `partial-${variant}`;
+      newTimeline.sequence.id = `sequence-${variant}`;
+      const created = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: newTimeline } }));
+      const registeredVideo = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId: newTimeline.project.id, sourcePath: video, expectedRevision: created.timeline.revision } }));
+      const registeredAudio = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId: newTimeline.project.id, sourcePath: music, expectedRevision: registeredVideo.project.timeline.revision } }));
+      const partialEdit = { schemaVersion: 1, clips: [{ ...edit.clips[0], mediaId: registeredVideo.resource.id }],
+        ...(withTitle ? { title: edit.title } : {}), ...(withMusic ? { music: { ...edit.music, mediaId: registeredAudio.resource.id, durationTime: seconds(1) } } : {}) };
+      const args = { projectId: newTimeline.project.id, sequenceId: newTimeline.sequence.id, expectedRevision: registeredAudio.project.timeline.revision, edit: partialEdit };
+      const before = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId: newTimeline.project.id } }));
+      const partialPreview = payload(await client.callTool({ name: "headless.edit-json.preview", arguments: args }));
+      assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId: newTimeline.project.id } })).timeline, before.timeline);
+      const partialExecuted = payload(await client.callTool({ name: "headless.edit-json.execute", arguments: { ...args, approved: true, planDigest: partialPreview.planDigest } }));
+      assert.equal(partialExecuted.after.timeline.sequence.titles.length, Number(withTitle));
+      assert.equal(partialExecuted.after.timeline.sequence.occurrences.filter((item: any) => item.role === "music").length, Number(withMusic));
+      if (variant === "clips") {
+        const revision = partialExecuted.after.timeline.revision;
+        const rendered = payload(await client.callTool({ name: "headless.render", arguments: { projectId: newTimeline.project.id, sequenceId: newTimeline.sequence.id, expectedRevision: revision, parameters: { outputPath: join(directory, "clips-only.mp4"), format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } } }));
+        assert.equal(rendered.status, "passed");
+        const exported = payload(await client.callTool({ name: "headless.fcpxml.export", arguments: { projectId: newTimeline.project.id, sequenceId: newTimeline.sequence.id, expectedRevision: revision, outputPath: join(directory, "clips-only.fcpxml"), target: { provider: "final-cut", libraryUid: "library", eventUid: "event", projectUid: "partial", sequenceUid: "sequence", materialization: "versioned" } } }));
+        assert.equal(exported.artifact.verified, true);
+      }
+    }
     const shiftedTimeline = structuredClone(b.project.timeline);
     const shiftedStream = shiftedTimeline.resources.find((item: any) => item.id === a.resource.id).metadata.streams.find((item: any) => item.kind === "video");
     shiftedStream.sourceRange.start = { value: "1", timescale: "100" };
