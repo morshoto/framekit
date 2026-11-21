@@ -27,7 +27,12 @@ test('generates ordered English index and full text from current sources', async
     assert.doesNotMatch(index + full, /Japanese|Draft|Excluded/);
     assert.ok(full.indexOf('Original text.') < full.indexOf('Second text.'));
     await writeFile(join(content, 'en', 'first.mdx'), '## First content\n\nUpdated text.\n');
-    await generateLlms(pages, content, out);
-    assert.match(await readFile(join(out, 'llms-full.txt'), 'utf8'), /Updated text\./);
+    const added = { locale: 'en', status: 'ready', slug: 'third', title: 'Third', description: 'New page' };
+    await writeFile(join(content, 'en', 'third.mdx'), 'New content.\n');
+    await generateLlms([...pages, added], content, out);
+    assert.match(await readFile(join(out, 'llms.txt'), 'utf8'), /\[Third\].*New page/);
+    const updated = await readFile(join(out, 'llms-full.txt'), 'utf8');
+    assert.match(updated, /Updated text\./);
+    assert.match(updated, /New content\./);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
