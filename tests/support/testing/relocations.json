@@ -3252,9 +3252,13 @@
     ],
     "tests/integration/headless-renderer.test.ts": [
       "\"FFmpeg renderer refuses an unimplemented nonzero source origin\"",
-      "\"FFmpeg renderer rejects an explicit nonzero sequence timecode origin\""
+      "\"FFmpeg renderer rejects an explicit nonzero sequence timecode origin\"",
+      "\"media probe retains declared video color metadata\"",
+      "\"basic 720p title fits the observed Final Cut bounds\"",
+      "\"BT.709 dissolve samples meet the 720p Final Cut reference bounds\""
     ],
     "tests/integration/timeline-ir-fcpxml.test.ts": [
+      "\"dissolve planning rejects unknown or non-BT.709 colors\"",
       "\"FCPXML compilation preserves explicit nonzero source bounds\"",
       "\"FCPXML frame rounding cannot move an occurrence outside source bounds\"",
       "\"FCPXML compilation refuses to discard an explicit nonzero timecode origin\"",

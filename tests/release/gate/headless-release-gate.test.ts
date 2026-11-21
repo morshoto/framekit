@@ -298,7 +298,8 @@ test("production stdio MCP completes the v0.1.15 headless edit-to-video release 
       assert.ok(countBrightPixels(closingTitleFrame, 40, 120, 20, 60) > countBrightPixels(noClosingTitleFrame, 40, 120, 20, 60) + 5, "closing title must appear in the normalized upper-left position only during its canonical window");
       const sourceMeanVolume = await meanVolume(sourcePaths[0], 0.35);
       const outputMeanVolume = await meanVolume(outputPath, 0.1);
-      assert.ok(Math.abs((outputMeanVolume - sourceMeanVolume) - fixtureManifest.expectedWorkflow.audioGainDb) < 1.5, `expected +${fixtureManifest.expectedWorkflow.audioGainDb} dB gain on the red source, got ${outputMeanVolume - sourceMeanVolume} dB`);
+      const expectedMonoLevel = fixtureManifest.expectedWorkflow.audioGainDb - 3.0103;
+      assert.ok(Math.abs((outputMeanVolume - sourceMeanVolume) - expectedMonoLevel) < 1.5, `expected ${expectedMonoLevel} dB after mono downmix on the red source, got ${outputMeanVolume - sourceMeanVolume} dB`);
       evidenceState.semanticObservations = {
         redSourceAtSeconds: { seconds: 0.25, pixel: earlyPixel },
         crossDissolveAtSeconds: { seconds: 0.9, pixel: transitionPixel },

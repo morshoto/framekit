@@ -23,6 +23,12 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-dissolve-rough-cut-"));
   try {
     await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], { cwd: process.cwd(), env: process.env });
+    for (const name of ["fixture-red-440hz.mp4", "fixture-blue-880hz.mp4"]) {
+      const original = join(directory, name);
+      const tagged = join(directory, `tagged-${name}`);
+      await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-i", original, "-vf", "scale=in_color_matrix=bt601:out_color_matrix=bt709,setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-c:a", "copy", "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-movflags", "+write_colr", tagged]);
+      await rename(tagged, original);
+    }
     const musicPath = join(directory, "music.wav");
     await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "sine=frequency=1760:sample_rate=48000:duration=2", "-c:a", "pcm_s16le", musicPath]);
     const service = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: new FfmpegMediaMetadataProbe(), renderer: new FfmpegTimelineRenderer(), verifier: new FfmpegRenderVerifier(), storyboard: new FfmpegStoryboardRenderer() });
