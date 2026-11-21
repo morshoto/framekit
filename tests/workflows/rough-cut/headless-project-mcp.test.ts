@@ -1448,6 +1448,8 @@ test("production stdio MCP persists and reopens the headless project and render 
       expectedRevision: first.after.timeline.revision,
       operations: [{ type: "insert-occurrence", placement: "append", occurrence: { ...occurrence("occurrence-blue", blueResource.id), sourceStartTime: { value: "1", timescale: "4" } } }],
     } }));
+    const selectedFont = new FfmpegTimelineRenderer({ env: environment }).inspectTitleFont(["OPEN"]);
+    assert.ok(selectedFont);
     const finished = payload(await client.callTool({ name: "headless.edit.execute", arguments: {
       projectId: "mcp-headless-project",
       sequenceId: "mcp-headless-sequence",
@@ -1455,7 +1457,7 @@ test("production stdio MCP persists and reopens the headless project and render 
       operations: [
         { type: "set-gain", occurrenceId: "occurrence-red", gainDb: 6 },
         { type: "set-transform", occurrenceId: "occurrence-red", transform: { scaleX: 1.25, scaleY: 1.25 } },
-        { type: "add-title", title: { id: "title-opening", text: "OPEN", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "2" }, lane: 1 } },
+        { type: "add-title", title: { id: "title-opening", text: "OPEN", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "2" }, lane: 1, font: selectedFont } },
         { type: "add-transition", transition: { id: "transition-red-blue", kind: "cross-dissolve", beforeOccurrenceId: "occurrence-red", afterOccurrenceId: "occurrence-blue", durationTime: { value: "1", timescale: "4" } } },
       ],
     } }));

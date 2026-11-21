@@ -949,6 +949,9 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       ...(expectedRevision ? { revision: expectedRevision } : {}),
       parameters,
     });
+    if ((project.timeline.sequence.titles ?? []).some((title) => !title.font)) {
+      throw new Error("HEADLESS_TITLE_FONT_UNBOUND: every title must bind an approved font before rendering");
+    }
     await this.verifyConnectedAudioMetadata(projectId, project.timeline);
     const outcome = await renderAndVerifyFramekitProject(request, this.renderer, this.verifier);
     const renderId = `render-${randomUUID()}`;
