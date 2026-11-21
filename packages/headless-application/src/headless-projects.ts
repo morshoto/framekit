@@ -35,6 +35,23 @@ import {
   type TimelineIrToFcpxmlTarget,
 } from "@framekit/final-cut/fcpxml";
 
+import { verifyConnectedAudioBounds } from "./external-edit.js";
+
+function verifyConnectedAudioOccurrences(timeline: TimelineIr, previousTimeline?: TimelineIr): TimelineIrResource[] {
+  const resources = new Map<string, TimelineIrResource>();
+  for (const occurrence of timeline.sequence.occurrences) {
+    if (occurrence.role !== "music" && occurrence.role !== "audio") continue;
+    const previous = previousTimeline?.sequence.occurrences.find((item) => item.id === occurrence.id);
+    if (previous && stableJson(previous) === stableJson(occurrence)) continue;
+    const resource = timeline.resources.find((item) => item.id === occurrence.mediaId);
+    if (resource?.sourceKind === "local-file") {
+      verifyConnectedAudioBounds(resource, occurrence.sourceStartTime ?? { value: "0", timescale: "1" }, occurrence.durationTime);
+      resources.set(resource.id, resource);
+    }
+  }
+  return [...resources.values()];
+}
+
 export interface HeadlessProjectServiceOptions {
   directory: string;
   protectedStateDirectory?: string;
@@ -396,10 +413,12 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
   public async previewEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string) {
     const project = await this.open(projectId);
     const transaction = new ProjectTransactionService(this.snapshotStore(projectId, project), { clock: this.clock });
-    return transaction.preview({
+    const preview = await transaction.preview({
       ...command,
       target: command.target ?? { projectId, sequenceId },
     });
+    await this.verifyConnectedAudioMetadata(projectId, preview.after.timeline, preview.before.timeline);
+    return preview;
   }
 
   public async executeEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string) {
@@ -411,6 +430,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       target: command.target ?? { projectId, sequenceId },
     };
     const preview = await transaction.preview(editCommand);
+    await this.verifyConnectedAudioMetadata(projectId, preview.after.timeline, preview.before.timeline);
     const recordId = `undo-${randomUUID()}`;
     const afterDigest = timelineIrDigest(preview.after.timeline);
     const record = {
@@ -487,6 +507,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
         throw new Error("HEADLESS_TITLE_FONT_UNAVAILABLE: selected font does not match the approved title font");
       }
     }
+    await this.verifyConnectedAudioMetadata(projectId, project.timeline);
     await this.verifyDissolveMetadata(project.timeline);
     const compiled = compileTimelineIrToFcpxml(project.timeline, { target });
     const artifact = await writeVerifiedFcpxml(resolve(outputPath), compiled.xml, compiled.digest, false);
@@ -927,6 +948,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       ...(expectedRevision ? { revision: expectedRevision } : {}),
       parameters,
     });
+    await this.verifyConnectedAudioMetadata(projectId, project.timeline);
     const outcome = await renderAndVerifyFramekitProject(request, this.renderer, this.verifier);
     const renderId = `render-${randomUUID()}`;
     const record: HeadlessRenderRecord = {
@@ -1114,6 +1136,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     transaction = new ProjectTransactionService(this.snapshotStore(request.projectId, prepared.project), { clock: () => timestamp }),
   ): Promise<{ preview: ProjectEditPreview; fcpxml: TimelineIrToFcpxmlResult }> {
     const rawPreview = await transaction.preview(prepared.command);
+    await this.verifyConnectedAudioMetadata(request.projectId, rawPreview.after.timeline);
     const canonicalRevision: ContextRevision = {
       id: `ir:${timelineIrDigest(rawPreview.after.timeline)}`,
       sequence: rawPreview.before.timeline.revision.sequence + 1,
@@ -1128,6 +1151,13 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     await this.verifyDissolveMetadata(canonicalTimeline);
     const fcpxml = compileTimelineIrToFcpxml(canonicalTimeline, { target: request.fcpxml.target });
     return { preview, fcpxml };
+  }
+
+  private async verifyConnectedAudioMetadata(projectId: string, timeline: TimelineIr, previousTimeline?: TimelineIr): Promise<void> {
+    const resources = verifyConnectedAudioOccurrences(timeline, previousTimeline);
+    if (!resources.length) return;
+    if (!this.mediaProbe) throw new Error("HEADLESS_MEDIA_PROBE_UNAVAILABLE: connected audio requires a source metadata probe");
+    await new LocalMediaRegistrar(this.store(projectId), this.mediaProbe).verifyMetadata(resources);
   }
 
   private async verifyDissolveMetadata(timeline: TimelineIr): Promise<void> {
