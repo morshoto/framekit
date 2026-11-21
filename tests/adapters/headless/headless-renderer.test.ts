@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import test, { after } from "node:test";
 import { createMediaFixturePool } from "../../support/headless/media-fixtures.js";
@@ -14,6 +14,7 @@ import {
   type TimelineIr,
 } from "@framekit/runtime";
 import { FfmpegRenderVerifier, FfmpegTimelineRenderer } from "../../../adapters/headless/typescript/src/index.js";
+import { resolveFontFile } from "../../../adapters/headless/typescript/src/ffmpeg-renderer.js";
 
 const execFileAsync = promisify(execFile);
 const mediaFixtures = createMediaFixturePool();
@@ -58,12 +59,14 @@ test("FFmpeg renders a supported mixed-script title without tofu", async () => {
     await mediaFixtures.copyTo(directory);
     const fontPath = join(directory, "font.otf");
     await writeFile(fontPath, Buffer.from(await readFile(join(repositoryRoot, "tests/fixtures/fonts/noto-sans-jp-test.otf.base64"), "utf8"), "base64"));
+    const relativeFont = relative(process.cwd(), fontPath);
+    assert.equal(resolveFontFile(relativeFont), fontPath);
     const source = await timeline(join(directory, "fixture-red-440hz.mp4"), join(directory, "fixture-blue-880hz.mp4"));
     source.sequence.titles = [{ id: "mixed-title", text: "A日", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "2" }, lane: 1 }];
     source.sequence.transitions = [];
     delete source.sequence.occurrences[0]!.transform;
     const output = join(directory, "mixed.mp4");
-    const renderer = new FfmpegTimelineRenderer({ env: { FRAMEKIT_RENDER_FONT: fontPath } });
+    const renderer = new FfmpegTimelineRenderer({ env: { FRAMEKIT_RENDER_FONT: relativeFont } });
     const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(output) });
     await renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request)));
     const actual = await frameAt(output, 0.25, directory, "actual-mixed");
