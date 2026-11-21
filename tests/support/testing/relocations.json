@@ -3250,6 +3250,9 @@
       "\"FCPXML retains an explicit exact source range without inventing a missing origin\"",
       "\"FCPXML snapshots preserve explicit sequence timecode origin without inventing one\""
     ],
+    "tests/integration/local-media-registration.test.ts": [
+      "\"dissolve metadata verification rejects mismatched probe data and changed files\""
+    ],
     "tests/integration/headless-renderer.test.ts": [
       "\"FFmpeg renderer refuses an unimplemented nonzero source origin\"",
       "\"FFmpeg renderer rejects an explicit nonzero sequence timecode origin\"",
