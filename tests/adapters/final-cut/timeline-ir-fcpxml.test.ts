@@ -222,7 +222,7 @@ test("unverified dissolve export fails closed", () => {
   assert.throws(() => compileTimelineIrToFcpxml(value, { target }), /FCPXML_DISSOLVE_UNVERIFIED/);
 });
 
-test("dissolve planning preserves fractional frame timing and bounds", () => {
+test("dissolve planning preserves fractional frame timing and bounds", async () => {
   const value = timeline();
   value.sequence.frameDuration = { value: "1001", timescale: "30000" };
   value.resources[0]!.metadata!.streams[0]!.frameRate = { value: "30000", timescale: "1001" };
@@ -236,6 +236,25 @@ test("dissolve planning preserves fractional frame timing and bounds", () => {
   assert.deepEqual(result.afterStartTime, { value: "53053", timescale: "30000" });
   assert.deepEqual(result.afterSourceStartTime, { value: "83083", timescale: "30000" });
   assert.deepEqual(result.afterDurationTime, { value: "67067", timescale: "30000" });
+  value.sequence.durationTime = { value: "1001", timescale: "250" };
+  value.sequence.storyElements = [];
+  value.sequence.markers = [];
+  value.sequence.captions = [];
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-fractional-dissolve-"));
+  try {
+    const path = join(directory, "timeline.fcpxml");
+    await writeFile(path, compileTimelineIrToFcpxml(value, { target }).xml);
+    validateWithInstalledFinalCut(path);
+    const reconstructed = createTimelineIrFromProjectSnapshot(await new FcpxmlDocumentAdapter(path).readProject());
+    assert.deepEqual(reconstructed.sequence.transitions, value.sequence.transitions);
+    const incoming = reconstructed.sequence.occurrences.find((item) => item.id === "second");
+    assert.deepEqual(incoming?.startTime, { value: "1001", timescale: "500" });
+    assert.deepEqual(incoming?.sourceStartTime, { value: "3003", timescale: "1000" });
+    assert.deepEqual(incoming?.durationTime, { value: "1001", timescale: "500" });
+    validateTimelineIr(reconstructed);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
   value.resources[0]!.sourceRange = { start: { value: "3", timescale: "1" }, duration: { value: "10", timescale: "1" } };
   assert.throws(() => planFcpxmlDissolve(value), /FCPXML_DISSOLVE_HANDLE/);
 });
