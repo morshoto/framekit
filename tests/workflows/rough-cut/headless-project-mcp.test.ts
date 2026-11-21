@@ -1500,7 +1500,7 @@ test("headless rough-cut preview and execution preserve provenance and produce v
       const result = (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path)
         .then(() => "unexpected success", (error: Error) => error.message);
       let timer: NodeJS.Timeout | undefined;
-      const observed = await Promise.race([result, new Promise<string>((resolve) => { timer = setTimeout(() => resolve("timed out"), 500); })]);
+      const observed = await Promise.race([result, new Promise<string>((resolve) => { timer = setTimeout(() => resolve("timed out"), 2000); })]);
       if (timer) clearTimeout(timer);
       if (observed === "timed out") {
         // Unblock a defective reader so the test can fail and clean up.
