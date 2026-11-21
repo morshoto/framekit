@@ -2223,6 +2223,22 @@ test("external edit JSON previews registered clips, a title and music without mu
     const a2 = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: video2, expectedRevision: a.project.timeline.revision } }));
     const b = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: music, expectedRevision: a2.project.timeline.revision } }));
     assert.notEqual(a.resource.id, a2.resource.id);
+    {
+      // A caller-created project must not forge audio stream metadata for a silent video.
+      const silentVideo = join(directory, "silent.mp4");
+      await execFileAsync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=red:s=320x180:r=30:d=2", "-c:v", "libx264", "-threads", "1", silentVideo]);
+      const silentTimeline = emptyTimeline();
+      silentTimeline.project.id = "silent-role-source";
+      const silentCreated = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: silentTimeline } }));
+      const silentRegistered = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId: silentTimeline.project.id, sourcePath: silentVideo, expectedRevision: silentCreated.timeline.revision } }));
+      const forgedTimeline = structuredClone(silentRegistered.project.timeline);
+      forgedTimeline.project.id = "forged-dialogue-source";
+      forgedTimeline.resources[0].metadata.streams.push(structuredClone(a.resource.metadata.streams.find((item: any) => item.kind === "audio")));
+      const forged = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: forgedTimeline } }));
+      const forgedPreview = await client.callTool({ name: "headless.edit-json.preview", arguments: { projectId: forgedTimeline.project.id, sequenceId: forgedTimeline.sequence.id, expectedRevision: forged.timeline.revision, edit: { schemaVersion: 1, clips: [{ id: "clip", mediaId: silentRegistered.resource.id, sourceStartTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" }, nativeAudioRole: "dialogue" }] } } });
+      assert.equal(forgedPreview.isError, true, "role binding must re-probe source audio streams");
+      assert.match(toolErrorText(forgedPreview), /MEDIA_METADATA_CHANGED/);
+    }
     const probeScript = join(directory, "probe-fixture.mjs");
     const mockProbe = async (startPts: number, formatStart: string) => {
       const response = { streams: [{ codec_type: "video", width: 320, height: 180, r_frame_rate: "30/1", time_base: "1/90000", start_pts: startPts, duration_ts: 90000 }], format: { duration: "3.000000", start_time: formatStart } };
