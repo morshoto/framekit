@@ -103,6 +103,39 @@ test("FFmpeg renders a supported mixed-script title without tofu", async () => {
   }
 });
 
+test("basic 720p title fits the observed Final Cut bounds", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-title-720-parity-"));
+  try {
+    await mediaFixtures.copyTo(directory);
+    const source = await timeline(join(directory, "fixture-red-440hz.mp4"), join(directory, "fixture-blue-880hz.mp4"));
+    delete source.sequence.occurrences[0]!.transform;
+    source.sequence.transitions = [];
+    source.sequence.titles = [{ id: "title", text: "FADE", startTime: { value: "4", timescale: "5" }, durationTime: { value: "1", timescale: "6" }, lane: 1 }];
+    const outputPath = join(directory, "title.mp4");
+    const renderer = new FfmpegTimelineRenderer();
+    const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: { ...parameters(outputPath), width: 1280, height: 720 } });
+    await renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request)));
+    const frame = await frameAt(outputPath, 0.9, directory, "title");
+    const pixels: Array<[number, number]> = [];
+    for (let y = 250; y < 450; y++) for (let x = 480; x < 800; x++) {
+      const pixel = ppmPixel(frame, x, y);
+      if (pixel.r > 210 && pixel.g > 210 && pixel.b > 210) pixels.push([x, y]);
+    }
+    assert.ok(pixels.length > 0, "the title must be visible");
+    const xs = pixels.map(([x]) => x); const ys = pixels.map(([, y]) => y);
+    const width = Math.max(...xs) - Math.min(...xs) + 1;
+    const height = Math.max(...ys) - Math.min(...ys) + 1;
+    const centerX = (Math.max(...xs) + Math.min(...xs)) / 2;
+    const centerY = (Math.max(...ys) + Math.min(...ys)) / 2;
+    // Independent native reference: 720p Final Cut export, SHA-256
+    // 5ccb88eb9c8021498b7c8abef3390508f6694c6449c373623d41872dcdccd1dd.
+    assert.ok(Math.abs(width - 103) <= 10.3 && Math.abs(height - 30) <= 3, `title bounds ${width}x${height}`);
+    assert.ok(Math.abs(centerX - 640) <= 12.8 && Math.abs(centerY - 344.5) <= 7.2, `title center ${centerX},${centerY}`);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("FFmpeg dissolve preserves incoming video and audio timing", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-dissolve-timing-"));
   try {
