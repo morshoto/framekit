@@ -50,6 +50,44 @@ test("FFmpeg renderer rejects titles with unavailable glyphs", async () => {
   }
 });
 
+test("FFmpeg renders a supported mixed-script title without tofu", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-title-mixed-script-"));
+  try {
+    await mediaFixtures.copyTo(directory);
+    const fontPath = join(directory, "font.otf");
+    await writeFile(fontPath, Buffer.from(await readFile(join(repositoryRoot, "tests/fixtures/fonts/noto-sans-jp-test.otf.base64"), "utf8"), "base64"));
+    const source = await timeline(join(directory, "fixture-red-440hz.mp4"), join(directory, "fixture-blue-880hz.mp4"));
+    source.sequence.titles = [{ id: "mixed-title", text: "A日", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "2" }, lane: 1 }];
+    source.sequence.transitions = [];
+    delete source.sequence.occurrences[0]!.transform;
+    const output = join(directory, "mixed.mp4");
+    const renderer = new FfmpegTimelineRenderer({ env: { FRAMEKIT_RENDER_FONT: fontPath } });
+    const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(output) });
+    await renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request)));
+    const actual = await frameAt(output, 0.25, directory, "actual-mixed");
+    const reference = async (name: string, text: string) => {
+      await writeFile(join(directory, `${name}.txt`), text, "utf8");
+      await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=red:s=320x180:r=30:d=1", "-vf", `drawtext=fontfile=font.otf:textfile=${name}.txt:expansion=none:fontcolor=white:fontsize=32:x=(w-text_w)/2:y=(h-text_h)/2`, "-frames:v", "1", `${name}.ppm`], { cwd: directory });
+      return readFile(join(directory, `${name}.ppm`));
+    };
+    const expected = await reference("expected", "A日");
+    const tofu = await reference("tofu", "A\u{10ffff}");
+    const maskDistance = (left: Buffer, right: Buffer) => {
+      let different = 0;
+      for (let y = 65; y < 115; y++) for (let x = 100; x < 220; x++) {
+        const a = ppmPixel(left, x, y); const b = ppmPixel(right, x, y);
+        if ((a.r > 180 && a.g > 180 && a.b > 180) !== (b.r > 180 && b.g > 180 && b.b > 180)) different++;
+      }
+      return different;
+    };
+    const expectedDistance = maskDistance(actual, expected);
+    const tofuDistance = maskDistance(actual, tofu);
+    assert.ok(tofuDistance > expectedDistance + 30, `expected reference distance ${expectedDistance}, tofu distance ${tofuDistance}`);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("FFmpeg renderer preserves apostrophes in title text", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-renderer-apostrophe-"));
   try {

@@ -1978,6 +1978,7 @@
     ],
     "tests/integration/headless-renderer.test.ts": [
       "\"FFmpeg renderer rejects titles with unavailable glyphs\"",
+      "\"FFmpeg renders a supported mixed-script title without tofu\"",
       "\"FFmpeg renderer preserves apostrophes in title text\"",
       "\"FFmpeg renderer ends titles before the cut frame\"",
       "\"FFmpeg renderer keeps title text separate from drawtext options\"",
