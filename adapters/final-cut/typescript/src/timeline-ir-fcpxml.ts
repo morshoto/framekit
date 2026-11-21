@@ -131,7 +131,7 @@ export function compileTimelineIrToFcpxml(
   if (unsupported.length > 0) {
     throw new Error(`FCPXML_UNSUPPORTED_TIMELINE_FEATURE: ${unsupported.join(", ")}`);
   }
-  const destination = resolveDestination(timeline, options.target);
+  const destination = resolveDestination(timeline, options.target, options.basicTitleFont);
   const dissolve = timeline.sequence.transitions?.length ? planFcpxmlDissolve(timeline) : undefined;
 
   const resourceIds = createResourceIds(timeline);
@@ -404,6 +404,7 @@ function validateTarget(target: TimelineIrToFcpxmlTarget): void {
 function resolveDestination(
   timeline: TimelineIr,
   target: TimelineIrToFcpxmlTarget,
+  titleFont?: TimelineIrToFcpxmlOptions["basicTitleFont"],
 ): TimelineIrToFcpxmlResult["destination"] {
   if (target.materialization === "reuse-existing") {
     return {
@@ -415,7 +416,10 @@ function resolveDestination(
     };
   }
 
-  const revisionKey = shortHash(`${timeline.project.id}:${timeline.sequence.id}:${timeline.revision.id}:${timeline.revision.sequence}:${timeline.revision.timestamp}:${timelineIrDigest(timeline)}`);
+  const fontBinding = timeline.sequence.titles?.length && titleFont
+    ? `:title-font:${JSON.stringify([titleFont.family, titleFont.style, titleFont.postscriptName, titleFont.digest])}`
+    : "";
+  const revisionKey = shortHash(`${timeline.project.id}:${timeline.sequence.id}:${timeline.revision.id}:${timeline.revision.sequence}:${timeline.revision.timestamp}:${timelineIrDigest(timeline)}${fontBinding}`);
   const revisionName = `${safeId(timeline.revision.id)}-${timeline.revision.sequence}`;
   const projectName = `${timeline.project.name} (Framekit ${revisionName}-${revisionKey})`;
   return {
