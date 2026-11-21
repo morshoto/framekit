@@ -11,7 +11,7 @@ import {
   compileTimelineIrToFcpxml,
   type TimelineIrToFcpxmlTarget,
 } from "@framekit/final-cut/fcpxml";
-import type { TimelineIr } from "@framekit/runtime";
+import { createTimelineIrFromProjectSnapshot, type TimelineIr } from "@framekit/runtime";
 import { planFcpxmlDissolve } from "../../../adapters/final-cut/typescript/src/fcpxml-transition-plan.js";
 
 function timeline(): TimelineIr {
@@ -133,6 +133,12 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
     assert.equal(after.sourceStart! + transition.duration, 4);
     assert.equal(after.duration - transition.duration, 2);
     assert.equal(before.mediaId, after.mediaId);
+    const reconstructed = createTimelineIrFromProjectSnapshot(snapshot);
+    assert.deepEqual(reconstructed.sequence.transitions, [{ id: "dissolve", kind: "cross-dissolve", beforeOccurrenceId: "before", afterOccurrenceId: "after", durationTime: { value: "1", timescale: "2" } }]);
+    const incoming = reconstructed.sequence.occurrences.find((item) => item.id === "after");
+    assert.deepEqual(incoming?.startTime, { value: "2", timescale: "1" });
+    assert.deepEqual(incoming?.sourceStartTime, { value: "4", timescale: "1" });
+    assert.deepEqual(incoming?.durationTime, { value: "2", timescale: "1" });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
