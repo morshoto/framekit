@@ -2272,6 +2272,16 @@ test("external edit JSON previews registered clips, a title and music without mu
     assert.throws(() => externalEditOperations(shiftedEdit, shiftedTimeline, shiftedTimeline.revision), /source frame grid/);
     shiftedStream.sourceRange.start = { value: "1", timescale: "30" };
     assert.doesNotThrow(() => externalEditOperations(shiftedEdit, shiftedTimeline, shiftedTimeline.revision));
+    for (const count of [0, 2]) {
+      const ambiguous = structuredClone(b.project.timeline);
+      const resource = ambiguous.resources.find((item: any) => item.id === a.resource.id);
+      const audio = resource.metadata.streams.find((item: any) => item.kind === "audio");
+      resource.metadata.streams = resource.metadata.streams.filter((item: any) => item.kind !== "audio");
+      for (let index = 0; index < count; index++) resource.metadata.streams.push(structuredClone(audio));
+      assert.throws(() => externalEditOperations(edit, ambiguous, ambiguous.revision), /requires one audio stream/);
+    }
+    assert.throws(() => externalEditOperations({ ...edit, clips: [{ ...edit.clips[0]!, nativeAudioRole: "music" }] }, b.project.timeline, b.project.timeline.revision), /supported dialogue role/);
+    assert.doesNotThrow(() => externalEditOperations({ ...edit, clips: [{ ...edit.clips[0]!, nativeAudioRole: "dialogue.alternate" }] }, b.project.timeline, b.project.timeline.revision));
     for (const gainDb of [-60, 12]) {
       assert.doesNotThrow(() => externalEditOperations({ ...edit, music: { ...edit.music, gainDb } }, b.project.timeline, b.project.timeline.revision));
     }
@@ -2285,6 +2295,7 @@ test("external edit JSON previews registered clips, a title and music without mu
       ["audio used as video", { ...edit, clips: [{ ...edit.clips[0], mediaId: b.resource.id }] }],
       ["video used as music", { ...edit, music: { ...edit.music, mediaId: a.resource.id } }],
       ["excessive music gain", { ...edit, music: { ...edit.music, gainDb: 40 } }],
+      ["unsupported clip audio role", { ...edit, clips: [{ ...edit.clips[0], nativeAudioRole: "music" }] }],
       ["off-grid source start", { ...edit, clips: [{ ...edit.clips[0], sourceStartTime: { value: "1", timescale: "60" } }] }],
       ["source start between source frames", { ...edit, clips: [{ ...edit.clips[1], sourceStartTime: { value: "1", timescale: "30" }, durationTime: { value: "1", timescale: "2" } }] }],
       ["unsupported title styling", { ...edit, title: { ...edit.title, style: { color: "red" } } }],
