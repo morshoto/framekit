@@ -245,6 +245,10 @@ test("dissolve planning rejects unknown or non-BT.709 colors", () => {
   const unknownAudio = structuredClone(value);
   delete unknownAudio.resources[0]!.metadata!.streams[1]!.channels;
   assert.throws(() => planFcpxmlDissolve(unknownAudio), /FCPXML_DISSOLVE_AUDIO_UNSUPPORTED/);
+  const stereoMusic = structuredClone(value);
+  stereoMusic.resources.push({ id: "music", name: "Music", mediaKind: "audio", source: "/media/music.wav", metadata: { durationTime: { value: "4", timescale: "1" }, streams: [{ kind: "audio", channels: 2, sampleRate: 48_000 }] } });
+  stereoMusic.sequence.occurrences.push({ id: "music", name: "Music", startTime: { value: "0", timescale: "1" }, durationTime: { value: "4", timescale: "1" }, track: 1, role: "music", mediaId: "music" });
+  assert.throws(() => planFcpxmlDissolve(stereoMusic), /FCPXML_DISSOLVE_AUDIO_UNSUPPORTED/);
 });
 
 test("unverified dissolve export fails closed", () => {

@@ -56,6 +56,16 @@ export function planFcpxmlDissolve(timeline: TimelineIr) {
       throw new Error("FCPXML_DISSOLVE_COLOR_UNSUPPORTED: cross-dissolve handoff requires explicitly tagged limited-range BT.709 video");
     }
   }
+  const clipAudio = [before, after].map((clip) => timeline.resources.find((item) => item.id === clip.mediaId)?.metadata?.streams.filter((stream) => stream.kind === "audio") ?? []);
+  const connectedAudio = timeline.sequence.occurrences
+    .filter((item) => item.track > 0 && (item.role === "audio" || item.role === "music"))
+    .map((item) => timeline.resources.find((resource) => resource.id === item.mediaId)?.metadata?.streams.filter((stream) => stream.kind === "audio") ?? []);
+  const audioSupported = (streams: typeof clipAudio[number]) => streams.length === 1 && streams[0]!.channels === 1 && streams[0]!.sampleRate === 48_000;
+  if (clipAudio.some((streams) => streams.length > 0 && !audioSupported(streams))
+    || (clipAudio[0]!.length === 0) !== (clipAudio[1]!.length === 0)
+    || connectedAudio.some((streams) => !audioSupported(streams))) {
+    throw new Error("FCPXML_DISSOLVE_AUDIO_UNSUPPORTED: cross-dissolve handoff requires matched mono 48 kHz audio");
+  }
   const durationFrames = duration.n * frame.d / (duration.d * frame.n);
   const halfDuration = { n: (durationFrames / 2n) * frame.n, d: frame.d };
   const afterSourceStart = combine(source, halfDuration, -1);
