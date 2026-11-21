@@ -2257,6 +2257,10 @@ test("external edit JSON previews registered clips, a title and music without mu
       const partialExecuted = payload(await client.callTool({ name: "headless.edit-json.execute", arguments: { ...args, approved: true, planDigest: partialPreview.planDigest } }));
       assert.equal(partialExecuted.after.timeline.sequence.titles.length, Number(withTitle));
       assert.equal(partialExecuted.after.timeline.sequence.occurrences.filter((item: any) => item.role === "music").length, Number(withMusic));
+      if (variant === "music") {
+        const musicExport = payload(await client.callTool({ name: "headless.fcpxml.export", arguments: { projectId: newTimeline.project.id, sequenceId: newTimeline.sequence.id, expectedRevision: partialExecuted.after.timeline.revision, outputPath: join(directory, "bounded-music.fcpxml"), target: { provider: "final-cut", libraryUid: "library", eventUid: "event", projectUid: "music", sequenceUid: "sequence", materialization: "versioned" } } }));
+        assert.equal(musicExport.artifact.verified, true, "bounded WAV must remain exportable");
+      }
       if (variant === "clips") {
         const revision = partialExecuted.after.timeline.revision;
         const rendered = payload(await client.callTool({ name: "headless.render", arguments: { projectId: newTimeline.project.id, sequenceId: newTimeline.sequence.id, expectedRevision: revision, parameters: { outputPath: join(directory, "clips-only.mp4"), format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } } }));
