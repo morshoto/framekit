@@ -31,6 +31,35 @@ test("FFmpeg renderer refuses an unimplemented nonzero source origin", async () 
   await assert.rejects(renderer.render(plan), /HEADLESS_RENDER_UNSUPPORTED.*source.*origin/i);
 });
 
+test("FFmpeg dissolve preserves incoming video and audio timing", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-dissolve-timing-"));
+  try {
+    await mediaFixtures.copyTo(directory);
+    const moving = join(directory, "moving.mp4");
+    await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=black:s=320x180:r=30:d=2", "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000:duration=2", "-vf", "geq=lum='16+N*3':cb=128:cr=128", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", moving]);
+    const source = await timeline(join(directory, "fixture-red-440hz.mp4"), moving);
+    source.sequence.titles = [];
+    delete source.sequence.occurrences[0]!.transform;
+    const output = join(directory, "dissolve.mp4");
+    const renderer = new FfmpegTimelineRenderer();
+    const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(output) });
+    await renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request)));
+    const levels: number[] = [];
+    for (const [label, outputTime, sourceTime] of [["middle", 1.5, 1.0], ["tail", 1.9, 1.4]] as const) {
+      const actual = ppmPixel(await frameAt(output, outputTime, directory, `${label}-actual`), 160, 150).r;
+      const expected = ppmPixel(await frameAt(moving, sourceTime, directory, `${label}-source`), 160, 150).r;
+      assert.ok(Math.abs(actual - expected) <= 8, `${label}: output ${actual}, expected source ${expected}`);
+      levels.push(actual);
+    }
+    assert.ok(levels[1]! - levels[0]! > 15, "incoming video must still move at the tail");
+    const tailAudio = await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "info", "-ss", "1.75", "-t", "0.2", "-i", output, "-af", "volumedetect", "-f", "null", "-"]);
+    const mean = tailAudio.stderr.match(/mean_volume:\s*(-?[0-9.]+) dB/);
+    assert.ok(mean && Number(mean[1]) > -35, `incoming tail audio missing: ${mean?.[1]}`);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("FFmpeg renderer preserves apostrophes in title text", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-renderer-apostrophe-"));
   try {
