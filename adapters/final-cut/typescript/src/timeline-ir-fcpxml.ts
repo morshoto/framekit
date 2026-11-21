@@ -717,7 +717,12 @@ function renderElements(elements: RenderableElement[]): string[] {
             ];
       if (element.kind === "transition") {
         lines.push(`${indent}<transition name="Cross Dissolve" offset="${formatRational(offsetTime, `${element.id}.startTime`)}" duration="${formatRational(element.durationTime, `${element.id}.durationTime`)}">`);
-        lines.push(`${indent}  <filter-video ref="${CROSS_DISSOLVE_EFFECT_ID}" name="Cross Dissolve" />`);
+        lines.push(`${indent}  <filter-video ref="${CROSS_DISSOLVE_EFFECT_ID}" name="Cross Dissolve">`);
+        lines.push(`${indent}    <param name="Look" key="1" value="11 (Video)" />`);
+        lines.push(`${indent}    <param name="Amount" key="2" value="50" />`);
+        lines.push(`${indent}    <param name="Ease" key="50" value="2 (In &amp; Out)" />`);
+        lines.push(`${indent}    <param name="Ease Amount" key="51" value="0" />`);
+        lines.push(`${indent}  </filter-video>`);
         lines.push(`${indent}  <filter-audio ref="${AUDIO_CROSSFADE_EFFECT_ID}" name="Audio Crossfade" />`);
         lines.push(`${indent}  <metadata><md key="com.framekit.id" value="${xmlEscape(element.id)}" /><md key="com.framekit.transition-kind" value="cross-dissolve" /><md key="com.framekit.before" value="${xmlEscape(element.beforeId!)}" /><md key="com.framekit.after" value="${xmlEscape(element.afterId!)}" /></metadata>`);
         lines.push(`${indent}</transition>`);
