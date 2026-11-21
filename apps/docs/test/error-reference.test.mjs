@@ -26,3 +26,7 @@ test('code headings use stable hyphenated anchors while retaining exact codes', 
   assert.deepEqual([...extractIndexedCodes('## headless-one\n\n`HEADLESS_ONE`\n')], ['HEADLESS_ONE']);
   assert.deepEqual([...extractIndexedCodes('## wrong-anchor\n\n`HEADLESS_ONE`\n')], []);
 });
+
+test('reports structured error code literals as well as thrown messages', () => {
+  assert.deepEqual([...extractDefinedCodes('return { code: "CAPABILITY_UNAVAILABLE", message: "no" };')], ['CAPABILITY_UNAVAILABLE']);
+});
