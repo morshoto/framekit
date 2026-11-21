@@ -479,6 +479,9 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     await this.assertOutputSeparation(project, [outputPath]);
     const titles = project.timeline.sequence.titles ?? [];
     const boundTitles = titles.filter((title) => title.font);
+    if (boundTitles.length !== titles.length) {
+      throw new Error("HEADLESS_TITLE_FONT_UNBOUND: every title must bind an approved font before export");
+    }
     if (boundTitles.length) {
       const selected = this.selectTitleFont(titles.map((title) => title.text));
       if (boundTitles.some((title) => title.font!.family !== selected.family || title.font!.style !== selected.style
