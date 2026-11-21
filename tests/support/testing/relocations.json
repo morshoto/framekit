@@ -1966,6 +1966,7 @@
       "\"production rough-cut tools expose digest-bound edit operations\"",
       "\"headless project media can be understood and planned without a Final Cut connection\"",
       "\"production rough-cut MCP workflow previews and commits B-A-C video, title, and mixed music\"",
+      "\"rough-cut dissolve preview binds render and FCPXML output\"",
       "\"production stdio MCP persists and reopens the headless project and render record\"",
       "\"headless project open fails closed when local media has no metadata probe\"",
       "\"headless rough-cut preview and execution preserve provenance and produce verified artifacts\"",

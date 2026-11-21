@@ -19,6 +19,54 @@ import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer,
 
 const execFileAsync = promisify(execFile);
 
+test("rough-cut dissolve preview binds render and FCPXML output", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-dissolve-rough-cut-"));
+  try {
+    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], { cwd: process.cwd(), env: process.env });
+    const musicPath = join(directory, "music.wav");
+    await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "sine=frequency=1760:sample_rate=48000:duration=2", "-c:a", "pcm_s16le", musicPath]);
+    const service = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: new FfmpegMediaMetadataProbe(), renderer: new FfmpegTimelineRenderer(), verifier: new FfmpegRenderVerifier(), storyboard: new FfmpegStoryboardRenderer() });
+    const created = await service.create(emptyTimeline());
+    let revision = created.timeline.revision;
+    const resources: TimelineIr["resources"] = [];
+    for (const path of [join(directory, "fixture-red-440hz.mp4"), join(directory, "fixture-blue-880hz.mp4"), musicPath]) {
+      const registered = await service.registerMedia(created.timeline.project.id, path, revision);
+      resources.push(registered.resource);
+      revision = registered.project.timeline.revision;
+    }
+    const shot = (order: number, source: typeof resources[number], start: number) => ({ order, sourceIdentity: { mediaId: source.id, source: source.source!, sourceDigest: source.sourceDigest!, mediaKind: "video" as const, duration: 2 }, range: { start, end: start + 1 }, confidence: 1, matchedProperties: ["selected"], rationale: "approved source range" });
+    const request = {
+      projectId: created.timeline.project.id, sequenceId: created.timeline.sequence.id,
+      plan: { planner: { id: "framekit.rough-cut", version: 1 }, revision, query: { query: "dissolve" }, shots: [shot(1, resources[0]!, 0.2), shot(2, resources[1]!, 0.5)], warnings: [] },
+      operations: [
+        { type: "add-transition" as const, transition: { id: "fade", kind: "cross-dissolve" as const, beforeOccurrenceId: "rough-cut-1", afterOccurrenceId: "rough-cut-2", durationTime: { value: "1", timescale: "5" } } },
+        { type: "add-title" as const, title: { id: "title", text: "FADE", startTime: { value: "4", timescale: "5" }, durationTime: { value: "1", timescale: "6" }, lane: 1 } },
+        { type: "insert-occurrence" as const, occurrence: { id: "music", name: "Music", startTime: { value: "0", timescale: "1" }, durationTime: { value: "2", timescale: "1" }, sourceStartTime: { value: "0", timescale: "1" }, track: 1, role: "music" as const, mediaId: resources[2]!.id, gainDb: -12 } },
+      ],
+      render: { outputPath: join(directory, "render.mp4"), format: "mp4" as const, width: 320, height: 180, frameRate: { value: "30", timescale: "1" } },
+      fcpxml: { path: join(directory, "edit.fcpxml"), target: { provider: "final-cut" as const, libraryUid: "test-library", eventUid: "test-event", projectUid: "test-project", sequenceUid: "test-sequence" } },
+    };
+    const preview = await service.previewRoughCut(request, undefined, true);
+    assert.match(preview.storyboardUnavailable!, /HEADLESS_STORYBOARD_UNSUPPORTED/);
+    assert.match(preview.planDigest, /^[a-f0-9]{64}$/);
+    assert.equal(preview.after.timeline.sequence.transitions?.[0]?.id, "fade");
+    const changed = { ...request, operations: [{ ...request.operations[0]!, transition: { ...request.operations[0]!.transition!, durationTime: { value: "1", timescale: "10" } } }, ...request.operations.slice(1)] };
+    await assert.rejects(service.executeRoughCut({ ...changed, approved: true, planDigest: preview.planDigest }), /PLAN_MISMATCH/);
+    const executed = await service.executeRoughCut({ ...request, approved: true, planDigest: preview.planDigest });
+    assert.equal(executed.committed, true);
+    assert.equal(executed.render.status, "passed");
+    assert.equal(executed.fcpxmlArtifact.verified, true);
+    assert.deepEqual(executed.after.timeline.revision, preview.after.timeline.revision);
+    const xml = await readFile(request.fcpxml.path, "utf8");
+    assert.match(xml, /<filter-video ref="effect-cross-dissolve"/);
+    assert.match(xml, /<filter-audio ref="effect-audio-crossfade"/);
+    assert.match(xml, /name="Music"/);
+    assert.match(xml, /<text>FADE<\/text>/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("artifact-first production MCP edits, restores, exports and renders fractional-frame media", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-artifact-first-e2e-"));
   const here = dirname(fileURLToPath(import.meta.url));
