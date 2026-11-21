@@ -20,7 +20,7 @@ import {
   FixtureSpeechAnalyzer,
   InMemoryEditorAdapter,
 } from "@framekit/testkit";
-import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer } from "../../../adapters/headless/typescript/src/index.js";
+import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer, FfmpegStoryboardRenderer } from "../../../adapters/headless/typescript/src/index.js";
 import { createMcpServer } from "../../../apps/mcp-server/src/server.js";
 import { HeadlessProjectService } from "@framekit/headless-application";
 
@@ -54,6 +54,7 @@ test("v0.1.17 semantic media workflow runs from local MP4 to verified MP4 and ed
       directory: projectDirectory,
       mediaProbe: new FfmpegMediaMetadataProbe(),
       renderer: new FfmpegTimelineRenderer(),
+      storyboard: new FfmpegStoryboardRenderer(),
       verifier: new FfmpegRenderVerifier(),
     });
     await service.create(timeline);

@@ -663,11 +663,11 @@ function formatNumber(value: number): string {
   return Number(value.toFixed(6)).toString();
 }
 
-function escapeFilterValue(value: string): string {
+export function escapeFilterValue(value: string): string {
   return value.replaceAll("\\", "\\\\").replaceAll("'", "'\\''").replaceAll(":", "\\:").replaceAll(",", "\\,").replaceAll("[", "\\[").replaceAll("]", "\\]").replaceAll("\n", "\\n");
 }
 
-function resolveFontFile(preferred?: string): string | undefined {
+export function resolveFontFile(preferred?: string): string | undefined {
   const candidates = [
     preferred,
     "/System/Library/Fonts/HelveticaNeue.ttc",

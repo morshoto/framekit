@@ -92,6 +92,18 @@ ffprobe to register local sources. Start the MCP server in headless mode, then:
    `headless.fcpxml.export`; provide a new output path and an explicit Final Cut
    target with `materialization: "versioned"`.
 
+For a semantic rough-cut plan, `headless.rough-cut.preview` also returns an MCP
+PNG image and storyboard metadata alongside the existing JSON preview. The
+sheet samples each primary shot start and each title midpoint in chronological
+order; metadata identifies each sample's timeline and source time, media
+digest, proposed revision, and plan digest. Inspect the image, revise the plan
+or operations if needed, and preview again before executing with the new
+digest and explicit approval. Preview does not change the project or source
+media. The sheet is limited to 12 samples and a maximum of 640 × 360 pixels per
+sample. It does not show motion or audio, and frame-rate conversion can select
+a nearby source frame. Unsupported visual compositions fail rather than
+returning a misleading image. FFmpeg and its drawtext support are required.
+
 Empty `timeline` for step 1:
 
 ```json
