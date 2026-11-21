@@ -31,6 +31,22 @@ test("FFmpeg renderer refuses an unimplemented nonzero source origin", async () 
   await assert.rejects(renderer.render(plan), /HEADLESS_RENDER_UNSUPPORTED.*source.*origin/i);
 });
 
+test("FFmpeg renderer rejects titles with unavailable glyphs", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-title-glyphs-"));
+  try {
+    await mediaFixtures.copyTo(directory);
+    const source = await timeline(join(directory, "fixture-red-440hz.mp4"), join(directory, "fixture-blue-880hz.mp4"));
+    source.sequence.titles![0]!.text = "Hello \u{10ffff}";
+    const renderer = new FfmpegTimelineRenderer();
+    const output = join(directory, "missing-glyph.mp4");
+    const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(output) });
+    await assert.rejects(renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request))), /HEADLESS_RENDER_.*(?:glyph|font)/i);
+    await assert.rejects(readFile(output), /ENOENT/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("FFmpeg renderer preserves apostrophes in title text", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-renderer-apostrophe-"));
   try {
