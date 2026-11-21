@@ -126,6 +126,14 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     } };
     const mismatched = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: mismatchedProbe });
     await assert.rejects(mismatched.previewRoughCut(request), /MEDIA_METADATA_CHANGED/);
+    const missingFont = new HeadlessProjectService({
+      directory: join(directory, "projects"),
+      mediaProbe: new FfmpegMediaMetadataProbe(),
+      renderer: new FfmpegTimelineRenderer({ env: { FRAMEKIT_RENDER_FONT: join(directory, "missing.otf") } }),
+      verifier: new FfmpegRenderVerifier(),
+    });
+    await assert.rejects(missingFont.previewRoughCut(request), /RENDER_CAPABILITY_UNAVAILABLE.*titles/);
+    assert.deepEqual((await service.open(created.timeline.project.id)).timeline.revision, revision);
     const directTimeline = structuredClone((await service.open(created.timeline.project.id)).timeline);
     directTimeline.project.id = "direct-dissolve-check";
     directTimeline.sequence.durationTime = { value: "2", timescale: "1" };
