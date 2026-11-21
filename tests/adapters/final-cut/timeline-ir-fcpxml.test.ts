@@ -118,6 +118,21 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
     const path = join(directory, "timeline.fcpxml");
     await writeFile(path, result.xml);
     validateWithInstalledFinalCut(path);
+    const snapshot = await new FcpxmlDocumentAdapter(path).readProject();
+    const before = snapshot.timeline.clips.find((clip) => clip.id === "before");
+    const after = snapshot.timeline.clips.find((clip) => clip.id === "after");
+    const transition = snapshot.timeline.storyElements.find((item) => item.id === "dissolve");
+    assert.ok(before && after && transition);
+    assert.equal(transition.kind, "transition");
+    assert.equal(transition.assetId, "fcpxml:effect:FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265");
+    assert.equal(transition.start, 1.5);
+    assert.equal(transition.duration, 0.5);
+    assert.equal(before.start + before.duration, transition.start + transition.duration);
+    assert.equal(after.start, transition.start);
+    assert.equal(after.start + transition.duration, 2);
+    assert.equal(after.sourceStart! + transition.duration, 4);
+    assert.equal(after.duration - transition.duration, 2);
+    assert.equal(before.mediaId, after.mediaId);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
