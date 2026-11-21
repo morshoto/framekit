@@ -105,6 +105,11 @@ a nearby source frame. Unsupported visual compositions or sample limits return
 JSON and a plan digest without an image; `storyboardUnavailable` explains why.
 FFmpeg and its drawtext support are required for storyboard rendering.
 
+For a headless cross-dissolve, the incoming source must have a pre-roll handle
+at least as long as the transition. The blend uses that handle before the cut,
+while frames and audio after the cut retain the approved source timing. The
+renderer rejects insufficient handles before writing the output.
+
 Headless render verification measures the first output audio stream's decoded
 true peak using FFmpeg. The reported peak must be below 0 dBFS; a value rounded
 to 0.0 dBFS fails conservatively. If verification reports an excessive peak,

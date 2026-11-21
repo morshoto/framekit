@@ -1187,7 +1187,7 @@ test("production stdio MCP persists and reopens the headless project and render 
       projectId: "mcp-headless-project",
       sequenceId: "mcp-headless-sequence",
       expectedRevision: first.after.timeline.revision,
-      operations: [{ type: "insert-occurrence", placement: "append", occurrence: occurrence("occurrence-blue", blueResource.id) }],
+      operations: [{ type: "insert-occurrence", placement: "append", occurrence: { ...occurrence("occurrence-blue", blueResource.id), sourceStartTime: { value: "1", timescale: "4" } } }],
     } }));
     const finished = payload(await client.callTool({ name: "headless.edit.execute", arguments: {
       projectId: "mcp-headless-project",

@@ -1977,6 +1977,7 @@
       "\"headless render fixtures are reproducible and encode the canonical QA assertions\""
     ],
     "tests/integration/headless-renderer.test.ts": [
+      "\"FFmpeg dissolve preserves incoming video and audio timing\"",
       "\"FFmpeg renderer preserves apostrophes in title text\"",
       "\"FFmpeg renderer ends titles before the cut frame\"",
       "\"FFmpeg renderer keeps title text separate from drawtext options\"",

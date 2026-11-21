@@ -77,9 +77,9 @@ test("render-and-verify returns verified provenance and independent artifact met
     assert.match(outcome.verification?.artifact?.fileDigest ?? "", /^[a-f0-9]{64}$/);
     assert.equal(outcome.verification?.checks.every(({ passed }) => passed), true);
 
-    const rangedFrame = await frameAt(outcome.verification!.artifact!.path, 1.4, directory, "range-selected");
+    const rangedFrame = await frameAt(outcome.verification!.artifact!.path, 1.1, directory, "range-selected");
     const unrangedTimeline = structuredClone(timeline);
-    unrangedTimeline.sequence.occurrences[1]!.sourceStartTime = { value: "0", timescale: "1" };
+    unrangedTimeline.sequence.occurrences[1]!.sourceStartTime = { value: "1", timescale: "4" };
     const unrangedParameters = renderParameters(join(directory, "unranged.mp4"));
     const unrangedRequest = createFramekitRenderRequest({
       timeline: unrangedTimeline,
@@ -89,7 +89,7 @@ test("render-and-verify returns verified provenance and independent artifact met
     const unrangedRenderer = new FfmpegTimelineRenderer({ ffmpegPath: process.env.FFMPEG_BIN || "ffmpeg" });
     const unrangedPlan = createFramekitRenderPlan(unrangedRequest, unrangedRenderer.capabilities(unrangedRequest));
     await unrangedRenderer.render(unrangedPlan);
-    const unrangedFrame = await frameAt(unrangedParameters.outputPath, 1.4, directory, "range-ignored");
+    const unrangedFrame = await frameAt(unrangedParameters.outputPath, 1.1, directory, "range-ignored");
     assert.notEqual(frameDigest(rangedFrame), frameDigest(unrangedFrame), "sourceStartTime must change the verified artifact segment");
   } finally {
     await rm(directory, { recursive: true, force: true });

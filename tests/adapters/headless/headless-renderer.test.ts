@@ -31,6 +31,42 @@ test("FFmpeg renderer refuses an unimplemented nonzero source origin", async () 
   await assert.rejects(renderer.render(plan), /HEADLESS_RENDER_UNSUPPORTED.*source.*origin/i);
 });
 
+test("FFmpeg dissolve preserves incoming video and audio timing", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-dissolve-timing-"));
+  try {
+    await mediaFixtures.copyTo(directory);
+    const moving = join(directory, "moving.mp4");
+    await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=black:s=320x180:r=30:d=2", "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000:duration=2", "-vf", "geq=lum='16+N*3':cb=128:cr=128", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", moving]);
+    const source = await timeline(join(directory, "fixture-red-440hz.mp4"), moving);
+    source.sequence.titles = [];
+    delete source.sequence.occurrences[0]!.transform;
+    const output = join(directory, "dissolve.mp4");
+    const renderer = new FfmpegTimelineRenderer();
+    const missingHandle = structuredClone(source);
+    missingHandle.sequence.occurrences[1]!.sourceStartTime = { value: "0", timescale: "1" };
+    const invalid = createFramekitRenderRequest({ timeline: missingHandle, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(join(directory, "missing-handle.mp4")) });
+    await assert.rejects(renderer.render(createFramekitRenderPlan(invalid, renderer.capabilities(invalid))), /incoming source handles/i);
+    await assert.rejects(readFile(invalid.parameters.outputPath), /ENOENT/);
+    const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(output) });
+    await renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request)));
+    const blend = ppmPixel(await frameAt(output, 0.9, directory, "dissolve-blend"), 160, 150);
+    assert.ok(blend.r > blend.g + 20 && blend.g > 10, `expected both source contributions: ${JSON.stringify(blend)}`);
+    const levels: number[] = [];
+    for (const [label, outputTime, sourceTime] of [["middle", 1.5, 1.0], ["tail", 1.96, 1.46]] as const) {
+      const actual = ppmPixel(await frameAt(output, outputTime, directory, `${label}-actual`), 160, 150).r;
+      const expected = ppmPixel(await frameAt(moving, sourceTime, directory, `${label}-source`), 160, 150).r;
+      assert.ok(Math.abs(actual - expected) <= 8, `${label}: output ${actual}, expected source ${expected}`);
+      levels.push(actual);
+    }
+    assert.ok(levels[1]! - levels[0]! > 15, "incoming video must still move at the tail");
+    const tailAudio = await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "info", "-ss", "1.75", "-t", "0.2", "-i", output, "-af", "volumedetect", "-f", "null", "-"]);
+    const mean = tailAudio.stderr.match(/mean_volume:\s*(-?[0-9.]+) dB/);
+    assert.ok(mean && Number(mean[1]) > -35, `incoming tail audio missing: ${mean?.[1]}`);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("FFmpeg renderer preserves apostrophes in title text", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-renderer-apostrophe-"));
   try {
@@ -249,7 +285,7 @@ test("FFmpeg Timeline IR renderer honors explicit output frame rate without muta
     assert.ok(countBrightPixels(closingTitleFrame, 40, 120, 20, 60) > countBrightPixels(noClosingTitleFrame, 40, 120, 20, 60) + 5, "closing title should render at its normalized upper-left position only during its window");
     assert.ok(unscaledMarkerPixel.r < 80, `expected the untransformed marker to leave the left edge blue/cyan, got ${JSON.stringify(unscaledMarkerPixel)}`);
     const unranged = structuredClone(source);
-    unranged.sequence.occurrences[1]!.sourceStartTime = { value: "0", timescale: "1" };
+    unranged.sequence.occurrences[1]!.sourceStartTime = { value: "1", timescale: "4" };
     const unrangedParameters = { ...parameters, outputPath: join(directory, "unranged.mp4") };
     const unrangedRequest = createFramekitRenderRequest({
       timeline: unranged,
@@ -258,8 +294,9 @@ test("FFmpeg Timeline IR renderer honors explicit output frame rate without muta
     });
     const unrangedPlan = createFramekitRenderPlan(unrangedRequest, renderer.capabilities(unrangedRequest));
     await renderer.render(unrangedPlan);
-    const unrangedFrame = await frameAt(unrangedParameters.outputPath, 1.4, directory, "unranged-blue");
-    assert.notEqual(frameDigest(rangedBlueFrame), frameDigest(unrangedFrame), "sourceStartTime must affect the selected rendered segment");
+    const unrangedFrame = await frameAt(unrangedParameters.outputPath, 1.1, directory, "unranged-blue");
+    const rangedComparison = await frameAt(parameters.outputPath, 1.1, directory, "ranged-comparison");
+    assert.notEqual(frameDigest(rangedComparison), frameDigest(unrangedFrame), "sourceStartTime must affect the selected rendered segment");
 
     const scaledBlue = structuredClone(source);
     scaledBlue.sequence.occurrences[1]!.transform = { scaleX: 1.25, scaleY: 1.25 };
