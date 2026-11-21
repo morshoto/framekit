@@ -14,7 +14,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
 import { compileTimelineIrToFcpxml } from "../../../adapters/final-cut/typescript/src/timeline-ir-fcpxml.js";
 import { HeadlessProjectService, externalEditOperations } from "@framekit/headless-application";
-import { FramekitProjectStore, timelineIrDigest, type FramekitProjectDocument, type TimelineIr } from "@framekit/runtime";
+import { createTimelineIrFromProjectSnapshot, FramekitProjectStore, timelineIrDigest, type FramekitProjectDocument, type TimelineIr } from "@framekit/runtime";
 import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer, FfmpegStoryboardRenderer } from "../../../adapters/headless/typescript/src/index.js";
 
 const execFileAsync = promisify(execFile);
@@ -62,6 +62,15 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     assert.match(xml, /<filter-audio ref="effect-audio-crossfade"/);
     assert.match(xml, /name="Music"/);
     assert.match(xml, /<text>FADE<\/text>/);
+    const readback = await new FcpxmlDocumentAdapter(request.fcpxml.path).readProject();
+    const recovered = createTimelineIrFromProjectSnapshot(readback);
+    assert.deepEqual(recovered.sequence.transitions, preview.after.timeline.sequence.transitions);
+    const expected = preview.after.timeline.sequence.occurrences.find((item) => item.id === "rough-cut-2")!;
+    const actual = recovered.sequence.occurrences.find((item) => item.id === "rough-cut-2")!;
+    assert.deepEqual(actual.startTime, expected.startTime);
+    assert.deepEqual(actual.durationTime, expected.durationTime);
+    assert.deepEqual(actual.sourceStartTime, expected.sourceStartTime);
+    assert.equal(readback.media.find((item) => item.mediaId === actual.mediaId)?.source, resources[1]!.source);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
