@@ -666,6 +666,9 @@ test("FFmpeg mixes independent music with source audio at the requested gain", a
     const expectedMusicAmplitude = frequencyAmplitude(sourceMusicPcm.stdout as unknown as Buffer, 1_760, 48_000) * 10 ** (-6 / 20);
     assert.ok(observedMusicAmplitude > 0.002, "independent music should remain audible in the mix");
     assert.ok(Math.abs(observedMusicAmplitude - expectedMusicAmplitude) < expectedMusicAmplitude * 0.25, "music gain should match the requested -6 dB");
+    const nativeDownmixExpected = expectedMusicAmplitude * Math.SQRT1_2;
+    assert.ok(Math.abs(20 * Math.log10(observedMusicAmplitude / nativeDownmixExpected)) <= 1,
+      `mono music must match the Final Cut stereo downmix within 1 dB: ${observedMusicAmplitude} vs ${nativeDownmixExpected}`);
     const window = (from: number, to: number) => samples.subarray(Math.round(from * 48_000) * 4, Math.round(to * 48_000) * 4);
     for (const [label, audio, expectedTone] of [["early", window(0.1, 0.5), 440], ["tail", window(1.5, 1.9), 880]] as const) {
       assert.ok(frequencyAmplitude(audio, expectedTone, 48_000) > 0.002, `${label} source audio must remain audible`);
