@@ -42,6 +42,26 @@ export interface DissolveExportMeasurements {
 
 export interface TitleBounds { x: number; y: number; width: number; height: number }
 
+/** Locate the fixture's white basic title in its fixed 720p center region. */
+export async function measureFixtureTitleBounds(path: string, frameNumber: number): Promise<TitleBounds> {
+  if (!Number.isSafeInteger(frameNumber) || frameNumber < 0) throw new Error("TITLE_FRAME_INVALID: expected a nonnegative frame number");
+  const probe = JSON.parse((await run(process.env.FFPROBE_BIN || "ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "json", path])).stdout) as { streams?: Array<{ width?: number; height?: number }> };
+  if (probe.streams?.[0]?.width !== 1280 || probe.streams[0]?.height !== 720) throw new Error("TITLE_FORMAT_UNSUPPORTED: fixture title measurement requires 1280x720 video");
+  const width = 320, height = 200, left = 480, top = 250;
+  const pixels = await runBytes(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-i", path, "-map", "0:v:0", "-vf", `select=eq(n\\,${frameNumber}),crop=${width}:${height}:${left}:${top},format=rgb24`, "-frames:v", "1", "-f", "rawvideo", "pipe:1"]);
+  if (pixels.length !== width * height * 3) throw new Error("TITLE_FRAME_INVALID: requested frame is unavailable");
+  let minX = width, minY = height, maxX = -1, maxY = -1;
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const offset = (y * width + x) * 3;
+    if (pixels[offset]! > 210 && pixels[offset + 1]! > 210 && pixels[offset + 2]! > 210) {
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+    }
+  }
+  if (maxX < 0) throw new Error("TITLE_NOT_DETECTED: no white fixture title pixels found");
+  if (minX === 0 || minY === 0 || maxX === width - 1 || maxY === height - 1) throw new Error("TITLE_BOUNDS_UNSUPPORTED: white pixels touch the measurement region boundary");
+  return { x: left + minX, y: top + minY, width: maxX - minX + 1, height: maxY - minY + 1 };
+}
+
 /** Compare only the sampled synthetic fixture; native provenance and exact boundaries require separate proof. */
 export function compareDissolveParity(reference: DissolveExportMeasurements, candidate: DissolveExportMeasurements, referenceTitle: TitleBounds, candidateTitle: TitleBounds) {
   const signals = evaluateDissolveExportMeasurements(reference).status === "PASS"
