@@ -15,6 +15,7 @@ import {
 } from "@framekit/runtime";
 import { FfmpegRenderVerifier, FfmpegTimelineRenderer } from "../../../adapters/headless/typescript/src/index.js";
 import { resolveFontFile } from "../../../adapters/headless/typescript/src/ffmpeg-renderer.js";
+import { compileTimelineIrToFcpxml, FcpxmlDocumentAdapter } from "@framekit/final-cut/fcpxml";
 
 const execFileAsync = promisify(execFile);
 const mediaFixtures = createMediaFixturePool();
@@ -65,6 +66,7 @@ test("FFmpeg renders a supported mixed-script title without tofu", async () => {
     source.sequence.titles = [{ id: "mixed-title", text: "A日", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "2" }, lane: 1 }];
     source.sequence.transitions = [];
     delete source.sequence.occurrences[0]!.transform;
+    source.sequence.occurrences[0]!.sourceStartTime = { value: "1", timescale: "5" };
     const output = join(directory, "mixed.mp4");
     const renderer = new FfmpegTimelineRenderer({ env: { FRAMEKIT_RENDER_FONT: relativeFont } });
     const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(output) });
@@ -88,6 +90,14 @@ test("FFmpeg renders a supported mixed-script title without tofu", async () => {
     const expectedDistance = maskDistance(actual, expected);
     const tofuDistance = maskDistance(actual, tofu);
     assert.ok(tofuDistance > expectedDistance + 30, `expected reference distance ${expectedDistance}, tofu distance ${tofuDistance}`);
+    const xml = compileTimelineIrToFcpxml(source, { target: { provider: "final-cut", libraryUid: "test-library", eventUid: "test-event", projectUid: "test-project", sequenceUid: "test-sequence" } });
+    const xmlPath = join(directory, "mixed.fcpxml");
+    await writeFile(xmlPath, xml.xml);
+    const readback = await new FcpxmlDocumentAdapter(xmlPath).readProject();
+    const title = readback.timeline.storyElements.find((item) => item.id === "mixed-title");
+    assert.equal(title?.text, "A日");
+    assert.deepEqual(title?.startTime, { value: "0", timescale: "1" });
+    assert.deepEqual(title?.durationTime, { value: "1", timescale: "2" });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
