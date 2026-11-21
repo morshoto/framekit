@@ -207,6 +207,15 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
     await assert.rejects(new FcpxmlDocumentAdapter(invalidPath).readProject(), /FCPXML_TRANSITION_METADATA_INVALID/);
     await writeFile(invalidPath, result.xml.replace('<filter-video ref="effect-cross-dissolve"', '<filter-video enabled="0" ref="effect-cross-dissolve"'));
     await assert.rejects(new FcpxmlDocumentAdapter(invalidPath).readProject(), /FCPXML_TRANSITION_METADATA_INVALID/);
+    for (const altered of [
+      result.xml.replace('value="11 (Video)"', 'value="10 (Film)"'),
+      result.xml.replace('<param name="Ease Amount" key="51" value="0" />', ''),
+      result.xml.replace('<param name="Amount" key="2" value="50" />', '<param name="Amount" key="2" value="50" unexpected="1" />'),
+      result.xml.replace('<filter-audio ref="effect-audio-crossfade"', '<reserved/><filter-audio ref="effect-audio-crossfade"'),
+    ]) {
+      await writeFile(invalidPath, altered);
+      await assert.rejects(new FcpxmlDocumentAdapter(invalidPath).readProject(), /FCPXML_TRANSITION_METADATA_INVALID/);
+    }
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
