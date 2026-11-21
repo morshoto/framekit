@@ -25,13 +25,13 @@ export class FfmpegMediaMetadataProbe implements LocalMediaMetadataProbe {
     const result = await execFileAsync(this.ffprobePath, [
       "-v", "error",
       "-show_entries", "stream=codec_type,codec_name,width,height,r_frame_rate,sample_rate,channels,time_base,start_pts,duration_ts,color_primaries,color_transfer,color_space,color_range",
-      "-show_entries", "format=duration,start_time",
+      "-show_entries", "format=duration,start_time,format_name",
       "-of", "json",
       sourcePath,
     ], { env: this.environment, maxBuffer: 2 * 1024 * 1024 });
     const parsed = JSON.parse(result.stdout) as {
       streams?: Array<{ codec_type?: string; codec_name?: string; width?: number; height?: number; r_frame_rate?: string; sample_rate?: string; channels?: number; time_base?: string; start_pts?: number; duration_ts?: number; color_primaries?: string; color_transfer?: string; color_space?: string; color_range?: string }>;
-      format?: { duration?: string; start_time?: string };
+      format?: { duration?: string; start_time?: string; format_name?: string };
     };
     const duration = decimalToRational(Number(parsed.format?.duration));
     if (!parsed.streams || !duration) throw new Error("HEADLESS_MEDIA_INVALID: ffprobe returned incomplete metadata");
@@ -41,6 +41,12 @@ export class FfmpegMediaMetadataProbe implements LocalMediaMetadataProbe {
         [["primaries", stream.color_primaries], ["transfer", stream.color_transfer], ["matrix", stream.color_space], ["range", stream.color_range]]
           .filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1] !== "unknown" && entry[1] !== "unspecified" && entry[1].length > 0),
       ) : {};
+      // A single WAV stream starts at zero even when ffprobe omits start_pts
+      // and format.start_time. Its duration_ts still supplies sample bounds.
+      const wavStart = stream.codec_type === "audio" && parsed.format?.format_name === "wav"
+        && parsed.streams!.length === 1 && stream.start_pts === undefined && parsed.format.start_time === undefined;
+      const bounds = streamBounds(wavStart ? { ...stream, start_pts: 0 } : stream,
+        wavStart ? "0" : parsed.format?.start_time);
       return [{
         kind: stream.codec_type,
         ...(stream.codec_name ? { codec: stream.codec_name } : {}),
@@ -48,7 +54,7 @@ export class FfmpegMediaMetadataProbe implements LocalMediaMetadataProbe {
         ...(stream.height !== undefined ? { height: stream.height } : {}),
         ...(stream.r_frame_rate ? { frameRate: parseRate(stream.r_frame_rate) } : {}),
         ...(Object.keys(color).length > 0 ? { color } : {}),
-        ...(stream.codec_type === "video" && streamBounds(stream, parsed.format?.start_time) ? { sourceRange: streamBounds(stream, parsed.format?.start_time)! } : {}),
+        ...(bounds ? { sourceRange: bounds } : {}),
         ...(stream.sample_rate ? { sampleRate: Number(stream.sample_rate) } : {}),
         ...(stream.channels !== undefined ? { channels: stream.channels } : {}),
       } satisfies TimelineIrMediaStream];

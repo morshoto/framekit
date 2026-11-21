@@ -1761,6 +1761,26 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     assert.equal(typeof (resumedAfterPreview as any).verifyPublishableRoughCut, "function");
     const executionId = (executed as any).executionId as string;
     const proof = await resumedAfterPreview.verifyPublishableRoughCut(executionId, request.fcpxml.path);
+    // A legacy execution can refer to a project that predates connected-audio
+    // stream-bound checks. Publication must not issue proof for that state.
+    const legacyProofProject = await resumedAfterPreview.open(created.timeline.project.id);
+    const legacyResource = structuredClone(legacyProofProject.timeline.resources[0]!);
+    legacyResource.id = "legacy-unverified-audio";
+    legacyResource.mediaKind = "audio";
+    legacyResource.metadata = { durationTime: { value: "2", timescale: "1" }, streams: [{ kind: "audio", sampleRate: 48000, channels: 1 }] };
+    legacyProofProject.timeline.resources.push(legacyResource);
+    legacyProofProject.timeline.sequence.occurrences.push({ id: "legacy-music", name: "Legacy", mediaId: legacyResource.id,
+      startTime: { value: "0", timescale: "1" }, sourceStartTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" }, track: 1, role: "music" });
+    const originalOpen = resumedAfterPreview.open;
+    resumedAfterPreview.open = async () => structuredClone(legacyProofProject);
+    try {
+      await assert.rejects(resumedAfterPreview.verifyPublishableRoughCut(executionId, request.fcpxml.path), /audio stream bounds/);
+      // Plausible but fabricated bounds must not turn an unobserved source into proof.
+      legacyResource.metadata!.streams[0]!.sourceRange = { start: { value: "0", timescale: "1" }, duration: { value: "2", timescale: "1" } };
+      await assert.rejects(resumedAfterPreview.verifyPublishableRoughCut(executionId, request.fcpxml.path), /MEDIA_METADATA_CHANGED/);
+    } finally {
+      resumedAfterPreview.open = originalOpen;
+    }
     assert.equal(proof.sourceRevision.id, plan.revision.id);
     assert.equal(proof.canonicalRevision.id, executed.after.timeline.revision.id);
     assert.equal(proof.planDigest, preview.planDigest);
@@ -2449,6 +2469,10 @@ test("external edit JSON previews registered clips, a title and music without mu
       const partialExecuted = payload(await client.callTool({ name: "headless.edit-json.execute", arguments: { ...args, approved: true, planDigest: partialPreview.planDigest } }));
       assert.equal(partialExecuted.after.timeline.sequence.titles.length, Number(withTitle));
       assert.equal(partialExecuted.after.timeline.sequence.occurrences.filter((item: any) => item.role === "music").length, Number(withMusic));
+      if (variant === "music") {
+        const musicExport = payload(await client.callTool({ name: "headless.fcpxml.export", arguments: { projectId: newTimeline.project.id, sequenceId: newTimeline.sequence.id, expectedRevision: partialExecuted.after.timeline.revision, outputPath: join(directory, "bounded-music.fcpxml"), target: { provider: "final-cut", libraryUid: "library", eventUid: "event", projectUid: "music", sequenceUid: "sequence", materialization: "versioned" } } }));
+        assert.equal(musicExport.artifact.verified, true, "bounded WAV must remain exportable");
+      }
       if (variant === "clips") {
         const revision = partialExecuted.after.timeline.revision;
         const rendered = payload(await client.callTool({ name: "headless.render", arguments: { projectId: newTimeline.project.id, sequenceId: newTimeline.sequence.id, expectedRevision: revision, parameters: { outputPath: join(directory, "clips-only.mp4"), format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } } }));
@@ -2464,6 +2488,146 @@ test("external edit JSON previews registered clips, a title and music without mu
     assert.throws(() => externalEditOperations(shiftedEdit, shiftedTimeline, shiftedTimeline.revision), /source frame grid/);
     shiftedStream.sourceRange.start = { value: "1", timescale: "30" };
     assert.doesNotThrow(() => externalEditOperations(shiftedEdit, shiftedTimeline, shiftedTimeline.revision));
+    // WAV audio has no ffprobe start fields, but its single stream has exact sample bounds.
+    const wavStream = b.resource.metadata.streams.find((stream: any) => stream.kind === "audio");
+    assert.deepEqual(wavStream.sourceRange, { start: seconds(0), duration: seconds(3) });
+    const boundedMusic = structuredClone(b.project.timeline);
+    const boundedStream = boundedMusic.resources.find((item: any) => item.id === b.resource.id).metadata.streams.find((stream: any) => stream.kind === "audio");
+    boundedStream.sourceRange = { start: seconds(1), duration: seconds(1) };
+    assert.throws(() => externalEditOperations(edit, boundedMusic, boundedMusic.revision), /range exceeds audio stream bounds/);
+    assert.throws(() => externalEditOperations({ ...edit, music: { ...edit.music, sourceStartTime: seconds(1) } }, boundedMusic, boundedMusic.revision), /range exceeds audio stream bounds/);
+    assert.doesNotThrow(() => externalEditOperations({ ...edit, music: { ...edit.music, sourceStartTime: seconds(1), durationTime: seconds(1) } }, boundedMusic, boundedMusic.revision));
+    // A subtitle can extend the container beyond the selected audio stream.
+    const subtitle = join(directory, "later.srt");
+    const shortMusic = join(directory, "short-music.mka");
+    await writeFile(subtitle, "1\n00:00:02,000 --> 00:00:03,000\ntext\n");
+    await execFileAsync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=1:sample_rate=48000", "-i", subtitle, "-map", "0:a", "-map", "1:s", "-c:a", "pcm_s16le", "-c:s", "srt", shortMusic]);
+    const shortTimeline = emptyTimeline();
+    shortTimeline.project.id = "short-music";
+    shortTimeline.sequence.id = "short-music-sequence";
+    const shortCreated = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: shortTimeline } }));
+    const shortVideo = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId: shortTimeline.project.id, sourcePath: video, expectedRevision: shortCreated.timeline.revision } }));
+    const shortAudio = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId: shortTimeline.project.id, sourcePath: shortMusic, expectedRevision: shortVideo.project.timeline.revision } }));
+    const shortEdit = { ...edit, clips: [{ ...edit.clips[0], mediaId: shortVideo.resource.id }, { ...edit.clips[1], mediaId: shortVideo.resource.id }], title: undefined,
+      music: { ...edit.music, mediaId: shortAudio.resource.id } };
+    const shortArgs = { projectId: shortTimeline.project.id, sequenceId: shortTimeline.sequence.id, expectedRevision: shortAudio.project.timeline.revision, edit: shortEdit };
+    const genericOperations = [
+      ...shortEdit.clips.map((clip) => ({ type: "insert-occurrence", placement: "append", occurrence: { ...clip, name: clip.id, startTime: seconds(0), track: 0, role: "video" } })),
+      { type: "insert-occurrence", occurrence: { ...shortEdit.music, name: shortEdit.music.id, track: 1, role: "music" } },
+    ];
+    const genericPreview = await client.callTool({ name: "headless.edit.preview", arguments: { projectId: shortTimeline.project.id, sequenceId: shortTimeline.sequence.id, expectedRevision: shortAudio.project.timeline.revision, operations: genericOperations } });
+    assert.equal(genericPreview.isError, true, "general editing must also reject unverifiable music bounds");
+    assert.match(toolErrorText(genericPreview), /audio stream bounds/);
+    const genericAudioOperations = genericOperations.map((operation, index) => index === 2 ? { ...operation, occurrence: { ...operation.occurrence, role: "audio" } } : operation);
+    const genericAudioPreview = await client.callTool({ name: "headless.edit.preview", arguments: { projectId: shortTimeline.project.id, sequenceId: shortTimeline.sequence.id, expectedRevision: shortAudio.project.timeline.revision, operations: genericAudioOperations } });
+    assert.equal(genericAudioPreview.isError, true, "audio role must not bypass music source bounds");
+    assert.match(toolErrorText(genericAudioPreview), /audio stream bounds/);
+    const genericExecution = await client.callTool({ name: "headless.edit.execute", arguments: { projectId: shortTimeline.project.id, sequenceId: shortTimeline.sequence.id, expectedRevision: shortAudio.project.timeline.revision, operations: genericOperations } });
+    assert.equal(genericExecution.isError, true);
+    assert.match(toolErrorText(genericExecution), /audio stream bounds/);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId: shortTimeline.project.id } })).timeline, shortAudio.project.timeline);
+    const validGeneric = [
+      ...edit.clips.map((clip) => ({ type: "insert-occurrence", placement: "append", occurrence: { ...clip, name: clip.id, startTime: seconds(0), track: 0, role: "video" } })),
+      { type: "insert-occurrence", occurrence: { ...edit.music, name: edit.music.id, track: 1, role: "music" } },
+    ];
+    const validGenericPreview = await client.callTool({ name: "headless.edit.preview", arguments: { projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, operations: validGeneric } });
+    assert.notEqual(validGenericPreview.isError, true, "bounded WAV remains valid for general editing");
+    const shortRoughCut = { projectId: shortTimeline.project.id, sequenceId: shortTimeline.sequence.id,
+      plan: { planner: { id: "short-music-test", version: 1 }, revision: shortAudio.project.timeline.revision, query: { query: "test" }, warnings: [],
+        shots: [{ order: 1, sourceIdentity: { mediaId: shortVideo.resource.id, source: shortVideo.resource.source, sourceDigest: shortVideo.resource.sourceDigest, mediaKind: "video", duration: 3 }, range: { start: 0, end: 2 }, confidence: 1, matchedProperties: [], rationale: "test" }] },
+      operations: [genericOperations[2]], render: { outputPath: join(directory, "short-music.mp4"), format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } },
+      fcpxml: { path: join(directory, "short-music.fcpxml"), target: { provider: "final-cut", libraryUid: "library", eventUid: "event", projectUid: "short", sequenceUid: "short", materialization: "versioned" } } };
+    const shortRoughPreview = await client.callTool({ name: "headless.rough-cut.preview", arguments: shortRoughCut });
+    assert.equal(shortRoughPreview.isError, true, "rough-cut preview must reject unverifiable music bounds");
+    assert.match(toolErrorText(shortRoughPreview), /audio stream bounds/);
+    // A legacy project can already contain an unverified music occurrence.
+    const legacyTimeline = structuredClone(shortAudio.project.timeline);
+    legacyTimeline.project.id = "legacy-short-music";
+    legacyTimeline.sequence.id = "legacy-short-sequence";
+    legacyTimeline.sequence.durationTime = seconds(2);
+    legacyTimeline.sequence.occurrences = [
+      { ...shortEdit.clips[0], name: "legacy-video", startTime: seconds(0), durationTime: seconds(2), track: 0, role: "video" },
+      { ...shortEdit.music, name: "legacy-music", track: 1, role: "music" },
+    ];
+    const forgedTimeline = structuredClone(legacyTimeline);
+    forgedTimeline.project.id = "forged-audio-bounds";
+    forgedTimeline.sequence.id = "forged-audio-sequence";
+    forgedTimeline.resources.find((resource: any) => resource.id === shortAudio.resource.id).metadata.streams.find((stream: any) => stream.kind === "audio").sourceRange = { start: seconds(0), duration: seconds(3) };
+    const forged = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: forgedTimeline } }));
+    const forgedOutput = join(directory, "forged-audio.mp4");
+    const forgedRender = await client.callTool({ name: "headless.render", arguments: { projectId: forgedTimeline.project.id, sequenceId: forgedTimeline.sequence.id, expectedRevision: forged.timeline.revision,
+      parameters: { outputPath: forgedOutput, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } } });
+    assert.equal(forgedRender.isError, true, "caller-provided bounds must be checked against the source");
+    assert.match(toolErrorText(forgedRender), /MEDIA_METADATA_CHANGED/);
+    await assert.rejects(stat(forgedOutput), { code: "ENOENT" });
+    const forgedEditArgs = { projectId: forgedTimeline.project.id, sequenceId: forgedTimeline.sequence.id, expectedRevision: forged.timeline.revision,
+      operations: [{ type: "set-gain", occurrenceId: shortEdit.music.id, gainDb: -6 }] };
+    for (const tool of ["headless.edit.preview", "headless.edit.execute"]) {
+      const rejected = await client.callTool({ name: tool, arguments: forgedEditArgs });
+      assert.equal(rejected.isError, true, `${tool} must re-probe the changed source`);
+      assert.match(toolErrorText(rejected), /MEDIA_METADATA_CHANGED/);
+    }
+    const forgedRough = { ...shortRoughCut, projectId: forgedTimeline.project.id, sequenceId: forgedTimeline.sequence.id,
+      plan: { ...shortRoughCut.plan, revision: forged.timeline.revision }, operations: [],
+      render: { ...shortRoughCut.render, outputPath: join(directory, "forged-rough.mp4") },
+      fcpxml: { ...shortRoughCut.fcpxml, path: join(directory, "forged-rough.fcpxml") } };
+    const forgedRoughPreview = await client.callTool({ name: "headless.rough-cut.preview", arguments: forgedRough });
+    assert.equal(forgedRoughPreview.isError, true);
+    assert.match(toolErrorText(forgedRoughPreview), /MEDIA_METADATA_CHANGED/);
+    const forgedXmlPath = join(directory, "forged-audio.fcpxml");
+    const forgedXml = await client.callTool({ name: "headless.fcpxml.export", arguments: { projectId: forgedTimeline.project.id, sequenceId: forgedTimeline.sequence.id, expectedRevision: forged.timeline.revision, outputPath: forgedXmlPath, target: shortRoughCut.fcpxml.target } });
+    assert.equal(forgedXml.isError, true);
+    assert.match(toolErrorText(forgedXml), /MEDIA_METADATA_CHANGED/);
+    await assert.rejects(stat(forgedXmlPath), { code: "ENOENT" });
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId: forgedTimeline.project.id } })).timeline, forged.timeline);
+    const legacy = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: legacyTimeline } }));
+    const legacyRough = { ...shortRoughCut, projectId: legacyTimeline.project.id, sequenceId: legacyTimeline.sequence.id,
+      plan: { ...shortRoughCut.plan, revision: legacy.timeline.revision }, operations: [],
+      render: { ...shortRoughCut.render, outputPath: join(directory, "legacy-rough.mp4") },
+      fcpxml: { ...shortRoughCut.fcpxml, path: join(directory, "legacy-rough.fcpxml") } };
+    const legacyPreview = await client.callTool({ name: "headless.rough-cut.preview", arguments: legacyRough });
+    assert.equal(legacyPreview.isError, true, "rough-cut must reject unverified existing music");
+    assert.match(toolErrorText(legacyPreview), /audio stream bounds/);
+    const legacyRenderPath = join(directory, "legacy-render.mp4");
+    const legacyRender = await client.callTool({ name: "headless.render", arguments: { projectId: legacyTimeline.project.id, sequenceId: legacyTimeline.sequence.id, expectedRevision: legacy.timeline.revision,
+      parameters: { outputPath: legacyRenderPath, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } } });
+    assert.equal(legacyRender.isError, true, "render must reject unverified existing music");
+    assert.match(toolErrorText(legacyRender), /audio stream bounds/);
+    await assert.rejects(stat(legacyRenderPath), { code: "ENOENT" });
+    const legacyExportPath = join(directory, "legacy-export.fcpxml");
+    const legacyExport = await client.callTool({ name: "headless.fcpxml.export", arguments: { projectId: legacyTimeline.project.id, sequenceId: legacyTimeline.sequence.id, expectedRevision: legacy.timeline.revision, outputPath: legacyExportPath, target: legacyRough.fcpxml.target } });
+    assert.equal(legacyExport.isError, true, "FCPXML export must reject unverified existing music");
+    assert.match(toolErrorText(legacyExport), /audio stream bounds/);
+    await assert.rejects(stat(legacyExportPath), { code: "ENOENT" });
+    const rejectedShort = await client.callTool({ name: "headless.edit-json.preview", arguments: shortArgs });
+    assert.equal(rejectedShort.isError, true);
+    assert.match(toolErrorText(rejectedShort), /audio stream bounds/);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId: shortTimeline.project.id } })).timeline, shortAudio.project.timeline);
+    // A multi-stream music file must not silently select its first audio stream.
+    const ambiguousMusic = structuredClone(b.project.timeline);
+    const multistreamMusic = join(directory, "multistream.m4a");
+    await execFileAsync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=1:sample_rate=48000", "-f", "lavfi", "-i", "sine=frequency=880:duration=3:sample_rate=48000", "-map", "0:a", "-map", "1:a", "-c:a", "aac", multistreamMusic]);
+    const musicMetadata = await new FfmpegMediaMetadataProbe().probe(multistreamMusic);
+    assert.equal(musicMetadata.streams.filter((stream) => stream.kind === "audio").length, 2);
+    assert.deepEqual(musicMetadata.streams.filter((stream) => stream.kind === "audio").map((stream) => stream.sourceRange), [
+      { start: seconds(0), duration: seconds(1) }, { start: seconds(0), duration: seconds(3) },
+    ]);
+    ambiguousMusic.resources.find((item: any) => item.id === b.resource.id).metadata = musicMetadata;
+    assert.throws(() => externalEditOperations(edit, ambiguousMusic, ambiguousMusic.revision), /EXTERNAL_EDIT_INVALID:.*exactly one audio stream/);
+    const multiTimeline = emptyTimeline();
+    multiTimeline.project.id = "ambiguous-music";
+    multiTimeline.sequence.id = "ambiguous-music-sequence";
+    const multiCreated = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: multiTimeline } }));
+    const multiVideo = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId: multiTimeline.project.id, sourcePath: video, expectedRevision: multiCreated.timeline.revision } }));
+    const multiAudio = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId: multiTimeline.project.id, sourcePath: multistreamMusic, expectedRevision: multiVideo.project.timeline.revision } }));
+    const multiEdit = { ...edit, clips: [{ ...edit.clips[0], mediaId: multiVideo.resource.id }], title: undefined,
+      music: { ...edit.music, mediaId: multiAudio.resource.id, durationTime: seconds(1) } };
+    const multiArgs = { projectId: multiTimeline.project.id, sequenceId: multiTimeline.sequence.id, expectedRevision: multiAudio.project.timeline.revision, edit: multiEdit };
+    const rejectedMulti = await client.callTool({ name: "headless.edit-json.preview", arguments: multiArgs });
+    assert.equal(rejectedMulti.isError, true);
+    assert.match(toolErrorText(rejectedMulti), /exactly one audio stream/);
+    const multiAfter = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId: multiTimeline.project.id } }));
+    assert.deepEqual(multiAfter.timeline, multiAudio.project.timeline);
     for (const gainDb of [-60, 12]) {
       assert.doesNotThrow(() => externalEditOperations({ ...edit, music: { ...edit.music, gainDb } }, b.project.timeline, b.project.timeline.revision));
     }
