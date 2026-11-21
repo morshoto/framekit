@@ -318,7 +318,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
   private readonly verifier?: FramekitRenderArtifactVerifier;
   private readonly storyboard?: StoryboardRenderer;
   private readonly clock: () => string;
-  private readonly approvedEdits = new Map<string, { projectId: string; sequenceId: string; command: HeadlessProjectEditCommand; expiresAt: number }>();
+  private readonly approvedEdits = new Map<string, { projectId: string; sequenceId: string; command: HeadlessProjectEditCommand; baseDigest: string; resultDigest: string; expiresAt: number }>();
 
   public constructor(options: HeadlessProjectServiceOptions) {
     this.directory = options.directory;
@@ -432,7 +432,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     for (const [token, entry] of this.approvedEdits) if (entry.expiresAt <= now) this.approvedEdits.delete(token);
     while (this.approvedEdits.size >= 256) this.approvedEdits.delete(this.approvedEdits.keys().next().value!);
     const previewToken = `headless-edit-${randomUUID()}`;
-    this.approvedEdits.set(previewToken, { projectId, sequenceId, command: structuredClone(preview.command), expiresAt: now + 10 * 60 * 1000 });
+    this.approvedEdits.set(previewToken, { projectId, sequenceId, command: structuredClone(preview.command), baseDigest: timelineIrDigest(preview.before.timeline), resultDigest: timelineIrDigest(preview.after.timeline), expiresAt: now + 10 * 60 * 1000 });
     return { ...preview, previewToken };
   }
 
@@ -443,10 +443,10 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     }
     // Consume synchronously before the first await so concurrent requests cannot reuse the token.
     this.approvedEdits.delete(previewToken);
-    return this.executeEdit(projectId, entry.command, sequenceId);
+    return this.executeEdit(projectId, entry.command, sequenceId, entry);
   }
 
-  public async executeEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string) {
+  public async executeEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string, approvedDigests?: { baseDigest: string; resultDigest: string }) {
     const project = await this.open(projectId);
     const timestamp = this.clock();
     const transaction = new ProjectTransactionService(this.snapshotStore(projectId, project), { clock: () => timestamp });
@@ -456,6 +456,10 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     };
     const preview = await transaction.preview(editCommand);
     await this.verifyConnectedAudioMetadata(projectId, preview.after.timeline, preview.before.timeline);
+    if (approvedDigests && (timelineIrDigest(preview.before.timeline) !== approvedDigests.baseDigest
+      || timelineIrDigest(preview.after.timeline) !== approvedDigests.resultDigest)) {
+      throw new Error("HEADLESS_EDIT_PREVIEW_MISMATCH: project or proposed edit differs from the approved preview");
+    }
     const recordId = `undo-${randomUUID()}`;
     const afterDigest = timelineIrDigest(preview.after.timeline);
     const record = {
