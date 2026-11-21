@@ -684,9 +684,32 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       || !sameRevision(project.timeline.revision, record.canonicalRevision)) {
       throw new Error("HEADLESS_ROUGH_CUT_STALE_REVISION: canonical project changed after the approved rough cut");
     }
-    const approvedSnapshot = await new FcpxmlDocumentAdapter(record.artifactPath, undefined, {
+    let artifact: string;
+    try {
+      const file = await open(record.artifactPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      try {
+        const before = await file.stat();
+        if (!before.isFile() || before.size !== record.artifactBytes) throw new Error("invalid FCPXML file");
+        const bytes = await file.readFile();
+        const after = await file.stat();
+        const current = await lstat(record.artifactPath);
+        if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size
+          || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs
+          || !current.isFile() || current.dev !== after.dev || current.ino !== after.ino
+          || current.size !== after.size || current.mtimeMs !== after.mtimeMs || current.ctimeMs !== after.ctimeMs
+          || bytes.length !== record.artifactBytes || createHash("sha256").update(bytes).digest("hex") !== record.artifactDigest) {
+          throw new Error("FCPXML differs from the approved artifact");
+        }
+        artifact = bytes.toString("utf8");
+      } finally {
+        await file.close();
+      }
+    } catch (cause) {
+      throw new Error("HEADLESS_ROUGH_CUT_ARTIFACT_CHANGED: approved FCPXML is missing or has changed", { cause });
+    }
+    const approvedSnapshot = FcpxmlDocumentAdapter.readProjectFromContent(record.artifactPath, artifact, {
       allowMissingImmutableIdsForReadback: true,
-    }).readProject();
+    });
     const referencedMediaIds = new Set([
       ...approvedSnapshot.timeline.clips.map(({ mediaId }) => mediaId),
       ...approvedSnapshot.timeline.storyElements.map(({ mediaId }) => mediaId),
@@ -734,10 +757,6 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       }
     } catch (cause) {
       throw new Error("HEADLESS_ROUGH_CUT_RENDER_CHANGED: verified render is missing or has changed", { cause });
-    }
-    const artifact = await readFile(record.artifactPath, "utf8");
-    if (hash(artifact) !== record.artifactDigest || Buffer.byteLength(artifact) !== record.artifactBytes) {
-      throw new Error("HEADLESS_ROUGH_CUT_ARTIFACT_CHANGED: approved FCPXML no longer matches its recorded digest");
     }
     if (!record.fcpxml.target.libraryUid?.trim()
       || !record.fcpxml.destination.projectUid?.trim()

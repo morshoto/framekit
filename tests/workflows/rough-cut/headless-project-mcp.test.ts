@@ -1555,6 +1555,32 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     await unlink(request.fcpxml.path);
     await rename(savedXml, request.fcpxml.path);
     assert.deepEqual(await (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path), proof);
+    if (process.platform !== "win32") {
+      await rename(request.fcpxml.path, savedXml);
+      await execFileAsync("mkfifo", [request.fcpxml.path]);
+      const result = (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path)
+        .then(() => "unexpected success", (error: Error) => error.message);
+      let timer: NodeJS.Timeout | undefined;
+      const observed = await Promise.race([result, new Promise<string>((resolve) => { timer = setTimeout(() => resolve("timed out"), 2000); })]);
+      if (timer) clearTimeout(timer);
+      if (observed === "timed out") {
+        const fifo = await open(request.fcpxml.path, constants.O_RDWR | constants.O_NONBLOCK);
+        await fifo.close();
+        await result;
+      }
+      await unlink(request.fcpxml.path);
+      await rename(savedXml, request.fcpxml.path);
+      assert.match(observed, /HEADLESS_ROUGH_CUT_ARTIFACT_CHANGED:/);
+    }
+    const originalXml = await readFile(request.fcpxml.path);
+    const alteredXml = Buffer.from(originalXml);
+    alteredXml[Math.floor(alteredXml.length / 2)]! ^= 1;
+    await writeFile(request.fcpxml.path, alteredXml);
+    await assert.rejects(
+      (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path),
+      /HEADLESS_ROUGH_CUT_ARTIFACT_CHANGED:/,
+    );
+    await writeFile(request.fcpxml.path, originalXml);
     await writeFile(request.fcpxml.path, "tampered FCPXML");
     await assert.rejects(
       (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path),
