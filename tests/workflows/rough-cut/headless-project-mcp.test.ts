@@ -813,6 +813,23 @@ test("approved headless edit rejects a changed base with the same revision", asy
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
+test("approved headless edit tokens expire without mutation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-approved-expiry-"));
+  const realNow = Date.now;
+  try {
+    let now = realNow();
+    Date.now = () => now;
+    const service = new HeadlessProjectService({ directory });
+    const initial = await service.create(emptyTimeline());
+    const projectId = initial.timeline.project.id, sequenceId = initial.timeline.sequence.id;
+    const preview = await service.previewApprovedEdit(projectId, { schemaVersion: 1, expectedRevision: initial.timeline.revision,
+      operations: [{ type: "add-marker", marker: { id: "expired", name: "Expired", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } } }] }, sequenceId);
+    now += 10 * 60 * 1000;
+    await assert.rejects(service.executeApprovedEdit(projectId, sequenceId, preview.previewToken), /HEADLESS_EDIT_PREVIEW_INVALID/);
+    assert.deepEqual((await service.open(projectId)).timeline, initial.timeline);
+  } finally { Date.now = realNow; await rm(directory, { recursive: true, force: true }); }
+});
+
 test("headless edit Undo survives MCP restart and verifies the restored project", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-headless-undo-"));
   const here = dirname(fileURLToPath(import.meta.url));
