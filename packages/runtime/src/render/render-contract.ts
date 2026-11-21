@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { ContextRevision, RationalTime } from "../domain/primitives.js";
-import { validateTimelineIr, type TimelineIr } from "../timeline/editing-session.js";
+import { validateTimelineIr, type TimelineIr, type TimelineIrTitleFont } from "../timeline/editing-session.js";
 import { parseRational } from "../timeline/rational-time.js";
 
 export const FRAMEKIT_RENDER_CONTRACT_VERSION = 1 as const;
@@ -45,6 +45,9 @@ export interface FramekitRenderRequestInput {
 export interface FramekitRenderCapabilityReport {
   renderer: { id: string; version: string };
   features: Partial<Record<FramekitRenderFeature, FramekitRenderCapabilityStatus>>;
+  /** SHA-256 of the exact font bytes inspected for the requested titles. */
+  titleFontDigest?: string;
+  titleFontFace?: { family: string; style: string; postscriptName: string };
 }
 
 export interface FramekitRenderPlan {
@@ -75,6 +78,10 @@ export interface FramekitRenderProvider {
   readonly id: string;
   readonly version: string;
   capabilities(request: FramekitRenderRequest): FramekitRenderCapabilityReport;
+  /** Select an inspectable font asset for the requested title text. */
+  inspectTitleFont?(texts: readonly string[]): TimelineIrTitleFont | undefined;
+  /** Reject output destinations that would replace a title rendering asset. */
+  validateTitleOutput?(request: FramekitRenderRequest, additionalOutputPaths?: readonly string[]): Promise<void>;
   render(plan: FramekitRenderPlan): Promise<FramekitRenderProviderResult>;
 }
 

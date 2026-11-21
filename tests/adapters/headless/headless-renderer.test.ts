@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, link, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { join, relative } from "node:path";
@@ -13,7 +13,7 @@ import {
   type FramekitRenderParameters,
   type TimelineIr,
 } from "@framekit/runtime";
-import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer } from "../../../adapters/headless/typescript/src/index.js";
+import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegStoryboardRenderer, FfmpegTimelineRenderer } from "../../../adapters/headless/typescript/src/index.js";
 import { resolveFontFile } from "../../../adapters/headless/typescript/src/ffmpeg-renderer.js";
 import { compileTimelineIrToFcpxml, FcpxmlDocumentAdapter } from "@framekit/final-cut/fcpxml";
 
@@ -48,6 +48,24 @@ test("FFmpeg renderer refuses an unimplemented nonzero source origin", async () 
   await assert.rejects(renderer.render(plan), /HEADLESS_RENDER_UNSUPPORTED.*source.*origin/i);
 });
 
+test("FFmpeg renderer rejects a missing explicitly configured title font", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-title-font-"));
+  try {
+    await mediaFixtures.copyTo(directory);
+    const source = await timeline(join(directory, "fixture-red-440hz.mp4"), join(directory, "fixture-blue-880hz.mp4"));
+    const output = join(directory, "output.mp4");
+    const renderer = new FfmpegTimelineRenderer({ env: { FRAMEKIT_RENDER_FONT: join(directory, "missing.otf") } });
+    const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(output) });
+    const capabilities = renderer.capabilities(request);
+    assert.equal(capabilities.features.titles, "unsupported");
+    const plan = createFramekitRenderPlan(request, { ...capabilities, features: { ...capabilities.features, titles: "supported" } });
+    await assert.rejects(renderer.render(plan), /title font.*(available|inspect)/i);
+    await assert.rejects(readFile(output), /ENOENT/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("FFmpeg renderer rejects titles with unavailable glyphs", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-title-glyphs-"));
   try {
@@ -59,11 +77,17 @@ test("FFmpeg renderer rejects titles with unavailable glyphs", async () => {
     const renderer = new FfmpegTimelineRenderer({ env: { FRAMEKIT_RENDER_FONT: fontPath } });
     const output = join(directory, "missing-glyph.mp4");
     const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(output) });
-    await assert.rejects(renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request))), /selected font lacks glyph U\+10FFFF/i);
+    const capabilities = renderer.capabilities(request);
+    assert.equal(capabilities.features.titles, "unsupported");
+    const plan = createFramekitRenderPlan(request, { ...capabilities, features: { ...capabilities.features, titles: "supported" } });
+    await assert.rejects(renderer.render(plan), /selected font lacks glyph U\+10FFFF/i);
     await assert.rejects(readFile(output), /ENOENT/);
     source.sequence.titles![0]!.text = "A\u200dA";
     const joined = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(output) });
-    await assert.rejects(renderer.render(createFramekitRenderPlan(joined, renderer.capabilities(joined))), /unverified shaping sequence/i);
+    const joinedCapabilities = renderer.capabilities(joined);
+    assert.equal(joinedCapabilities.features.titles, "unsupported");
+    const joinedPlan = createFramekitRenderPlan(joined, { ...joinedCapabilities, features: { ...joinedCapabilities.features, titles: "supported" } });
+    await assert.rejects(renderer.render(joinedPlan), /unverified shaping sequence/i);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -84,8 +108,67 @@ test("FFmpeg renders a supported mixed-script title without tofu", async () => {
     source.sequence.occurrences[0]!.sourceStartTime = { value: "1", timescale: "5" };
     const output = join(directory, "mixed.mp4");
     const renderer = new FfmpegTimelineRenderer({ env: { FRAMEKIT_RENDER_FONT: relativeFont } });
+    const originalFontBytes = await readFile(fontPath);
+    source.sequence.titles![0]!.font = { family: "Noto Sans CJK JP", style: "Regular", postscriptName: "NotoSansCJKjp-Regular", digest: createHash("sha256").update(originalFontBytes).digest("hex") };
+    assert.deepEqual(renderer.inspectTitleFont(["A日"]), source.sequence.titles![0]!.font);
+    assert.equal(renderer.inspectTitleFont(["A\u{10ffff}"]), undefined);
+    for (const changedFont of [{ ...source.sequence.titles![0]!.font, digest: "f".repeat(64) }, { ...source.sequence.titles![0]!.font, family: "Different family" }]) {
+      const changed = structuredClone(source);
+      changed.sequence.titles![0]!.font = changedFont;
+      const changedRequest = createFramekitRenderRequest({ timeline: changed, target: { projectId: changed.project.id, sequenceId: changed.sequence.id }, parameters: { ...parameters(output), width: 1280, height: 720 } });
+      const capabilities = renderer.capabilities(changedRequest);
+      assert.equal(capabilities.features.titles, "unsupported");
+      const forcedPlan = createFramekitRenderPlan(changedRequest, { ...capabilities, features: { ...capabilities.features, titles: "supported" } });
+      await assert.rejects(renderer.render(forcedPlan), /HEADLESS_RENDER_UNSUPPORTED.*title font/i);
+      await assert.rejects(readFile(output), /ENOENT/);
+    }
+    const fontSymlink = join(directory, "font-symlink.otf");
+    const fontHardlink = join(directory, "font-hardlink.otf");
+    await symlink(fontPath, fontSymlink);
+    await link(fontPath, fontHardlink);
+    for (const destination of [fontPath, fontSymlink, fontHardlink]) {
+      const collision = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: { ...parameters(destination), width: 1280, height: 720, overwrite: true } });
+      await assert.rejects(renderer.render(createFramekitRenderPlan(collision, renderer.capabilities(collision))), /OUTPUT_INVALID.*font/i);
+      assert.deepEqual(await readFile(fontPath), originalFontBytes);
+    }
     const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: { ...parameters(output), width: 1280, height: 720 } });
-    await renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request)));
+    const plan = createFramekitRenderPlan(request, renderer.capabilities(request));
+    const originalFont = await readFile(fontPath);
+    await writeFile(fontPath, Buffer.concat([originalFont, Buffer.from([0])]));
+    await assert.rejects(renderer.render(plan), /PLAN_MISMATCH.*font changed/i);
+    await assert.rejects(readFile(output), /ENOENT/);
+    await writeFile(fontPath, originalFont);
+    await renderer.render(plan);
+    const priorFont = process.env.FRAMEKIT_RENDER_FONT;
+    try {
+      process.env.FRAMEKIT_RENDER_FONT = fontPath;
+      const storyboard = await new FfmpegStoryboardRenderer().render(source, { width: 1280, height: 720 });
+      const sheet = join(directory, "sheet.png");
+      const storyFrame = join(directory, "story.ppm");
+      const scaledFrame = join(directory, "scaled.ppm");
+      await writeFile(sheet, Buffer.from(storyboard.data, "base64"));
+      await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-i", sheet, "-vf", "crop=640:360:0:0", "-frames:v", "1", storyFrame]);
+      await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-i", output, "-ss", "0.25", "-vf", "scale=640:360", "-frames:v", "1", scaledFrame]);
+      const bounds = (frame: Buffer) => {
+        let left = 640, right = -1, top = 360, bottom = -1;
+        for (let y = 110; y < 220; y++) for (let x = 200; x < 440; x++) {
+          const pixel = ppmPixel(frame, x, y);
+          if (pixel.r > 180 && pixel.g > 180 && pixel.b > 180) {
+            left = Math.min(left, x); right = Math.max(right, x); top = Math.min(top, y); bottom = Math.max(bottom, y);
+          }
+        }
+        assert.ok(right >= left && bottom >= top, "title pixels are visible");
+        return { left, right, top, bottom };
+      };
+      const storyboardBounds = bounds(await readFile(storyFrame));
+      const renderedBounds = bounds(await readFile(scaledFrame));
+      for (const edge of ["left", "right", "top", "bottom"] as const) {
+        assert.ok(Math.abs(storyboardBounds[edge] - renderedBounds[edge]) <= 3, `${edge}: storyboard ${storyboardBounds[edge]}, render ${renderedBounds[edge]}`);
+      }
+    } finally {
+      if (priorFont === undefined) delete process.env.FRAMEKIT_RENDER_FONT;
+      else process.env.FRAMEKIT_RENDER_FONT = priorFont;
+    }
     const actual = await frameAt(output, 0.25, directory, "actual-mixed");
     const reference = async (name: string, text: string) => {
       await writeFile(join(directory, `${name}.txt`), text, "utf8");
