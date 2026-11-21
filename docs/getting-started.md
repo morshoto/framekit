@@ -127,8 +127,10 @@ at least as long as the transition. The blend uses that handle before the cut,
 while frames and audio after the cut retain the approved source timing. The
 renderer rejects insufficient handles before writing the output.
 For explicitly tagged limited-range BT.709 video, the headless dissolve uses
-linear-light blending with frame-center sampling. FCPXML dissolve handoff is
-still guarded while native parity is verified.
+linear-light blending with frame-center sampling. Before a dissolve handoff,
+Framekit re-probes referenced media and rejects metadata that differs from the
+stored registration. FCPXML dissolve handoff is still guarded while native
+parity is verified.
 
 When all used audio streams are mono, the headless mono output applies a
 −3.01 dB adjustment after mixing. This matches the standard mono downmix of
