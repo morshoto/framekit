@@ -715,9 +715,10 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render artifact identity is missing or invalid");
     }
     try {
-      const file = await open(boundRender.path, constants.O_RDONLY | constants.O_NOFOLLOW);
+      const file = await open(boundRender.path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       try {
         const before = await file.stat();
+        if (!before.isFile()) throw new Error("render artifact is not a regular file");
         const digest = createHash("sha256");
         for await (const chunk of file.createReadStream({ autoClose: false })) digest.update(chunk as Buffer);
         const after = await file.stat();
