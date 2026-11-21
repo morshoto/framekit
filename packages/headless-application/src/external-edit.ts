@@ -55,6 +55,9 @@ export function externalEditOperations(edit: ExternalEdit, timeline: TimelineIr,
     aligned(clip.durationTime);
     aligned(clip.durationTime, sourceFrame, "source");
   }
+  if (!Number.isFinite(edit.music.gainDb) || edit.music.gainDb < -60 || edit.music.gainDb > 12) {
+    throw new Error("EXTERNAL_EDIT_INVALID: music.gainDb must be between -60 and 12 dB inclusive");
+  }
   assertSource(edit.music.mediaId, "audio");
   for (const time of [edit.music.sourceStartTime, edit.music.startTime, edit.music.durationTime, edit.title.startTime, edit.title.durationTime]) aligned(time);
   return [

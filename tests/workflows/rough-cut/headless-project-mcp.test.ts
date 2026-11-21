@@ -1929,12 +1929,19 @@ test("external edit JSON previews registered clips, a title and music without mu
     assert.throws(() => externalEditOperations(shiftedEdit, shiftedTimeline, shiftedTimeline.revision), /source frame grid/);
     shiftedStream.sourceRange.start = { value: "1", timescale: "30" };
     assert.doesNotThrow(() => externalEditOperations(shiftedEdit, shiftedTimeline, shiftedTimeline.revision));
+    for (const gainDb of [-60, 12]) {
+      assert.doesNotThrow(() => externalEditOperations({ ...edit, music: { ...edit.music, gainDb } }, b.project.timeline, b.project.timeline.revision));
+    }
+    for (const gainDb of [-60.01, 12.01, 40, Infinity, NaN]) {
+      assert.throws(() => externalEditOperations({ ...edit, music: { ...edit.music, gainDb } }, b.project.timeline, b.project.timeline.revision), /EXTERNAL_EDIT_INVALID: music.gainDb.*-60.*12/);
+    }
     for (const [name, invalidEdit] of [
       ["video stream exhausted", { ...edit, clips: [{ ...edit.clips[1], sourceStartTime: seconds(1) }] }],
       ["illegal XML title", { ...edit, title: { ...edit.title, text: "bad\u0000title" } }],
       ["unknown source", { ...edit, clips: [{ ...edit.clips[0], mediaId: "missing" }] }],
       ["audio used as video", { ...edit, clips: [{ ...edit.clips[0], mediaId: b.resource.id }] }],
       ["video used as music", { ...edit, music: { ...edit.music, mediaId: a.resource.id } }],
+      ["excessive music gain", { ...edit, music: { ...edit.music, gainDb: 40 } }],
       ["off-grid source start", { ...edit, clips: [{ ...edit.clips[0], sourceStartTime: { value: "1", timescale: "60" } }] }],
       ["source start between source frames", { ...edit, clips: [{ ...edit.clips[1], sourceStartTime: { value: "1", timescale: "30" }, durationTime: { value: "1", timescale: "2" } }] }],
       ["unsupported title styling", { ...edit, title: { ...edit.title, style: { color: "red" } } }],

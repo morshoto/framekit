@@ -1978,6 +1978,7 @@
     ],
     "tests/integration/headless-renderer.test.ts": [
       "\"FFmpeg renderer preserves apostrophes in title text\"",
+      "\"FFmpeg renderer ends titles before the cut frame\"",
       "\"FFmpeg renderer keeps title text separate from drawtext options\"",
       "\"FFmpeg Timeline IR renderer honors explicit output frame rate without mutating sources\"",
       "\"FFmpeg renderer fills a trailing video gap with black while music continues\"",
