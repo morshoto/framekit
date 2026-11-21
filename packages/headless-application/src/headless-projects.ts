@@ -1125,9 +1125,11 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     const planOperations: TimelineIrEditOperation[] = [];
     for (const shot of request.plan.shots) {
       const shotWithEvidence = shot as RoughCutShotWithEvidence;
-      const occurrenceId = `rough-cut-${shot.order}`;
-      if (existingOccurrenceIds.has(occurrenceId)) {
-        throw new Error(`HEADLESS_ROUGH_CUT_OCCURRENCE_COLLISION: ${occurrenceId} already exists`);
+      const baseOccurrenceId = `rough-cut-${shot.order}`;
+      let occurrenceId = baseOccurrenceId;
+      let suffix = 2;
+      while (existingOccurrenceIds.has(occurrenceId)) {
+        occurrenceId = `${baseOccurrenceId}-${suffix++}`;
       }
       existingOccurrenceIds.add(occurrenceId);
       const resource = resourceByMediaId.get(shot.sourceIdentity.mediaId);

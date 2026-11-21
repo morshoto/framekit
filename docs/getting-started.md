@@ -110,7 +110,9 @@ order; metadata identifies each sample's timeline and source time, media
 digest, proposed revision, and plan digest. Inspect the image, revise the plan
 or operations if needed, and preview again before executing with the new
 digest and explicit approval. Preview does not change the project or source
-media. The sheet is limited to 12 samples and a maximum of 640 × 360 pixels per
+media. A later rough cut appends its shots to the existing primary storyline;
+it does not replace earlier edits. Use the current revision and review the new
+preview before executing. The sheet is limited to 12 samples and a maximum of 640 × 360 pixels per
 sample. It does not show motion or audio, and frame-rate conversion can select
 a nearby source frame. Unsupported visual compositions or sample limits return
 JSON and a plan digest without an image; `storyboardUnavailable` explains why.
