@@ -1967,6 +1967,7 @@
       "\"production rough-cut MCP workflow previews and commits B-A-C video, title, and mixed music\"",
       "\"production stdio MCP persists and reopens the headless project and render record\"",
       "\"headless project open fails closed when local media has no metadata probe\"",
+      "\"media probing reports actionable coded failures\"",
       "\"headless rough-cut preview and execution preserve provenance and produce verified artifacts\"",
       "\"inferred rough-cut ranges align duration to the sequence frame grid\""
     ],

@@ -1967,7 +1967,9 @@
       "dependsOn": [
         "apps/mcp-server"
       ],
-      "requires": ["python3"],
+      "requires": [
+        "python3"
+      ],
       "platforms": [
         "darwin",
         "linux"
@@ -2807,7 +2809,9 @@
         {
           "name": "command audio bounds source verification before and after the provider",
           "reason": "requires the POSIX /dev/zero device",
-          "platforms": ["win32"]
+          "platforms": [
+            "win32"
+          ]
         }
       ]
     },
@@ -2913,7 +2917,9 @@
       "dependsOn": [
         "apps/mcp-server"
       ],
-      "requires": ["python3"],
+      "requires": [
+        "python3"
+      ],
       "platforms": [
         "darwin",
         "linux"
@@ -3880,12 +3886,26 @@
     {
       "path": "tests/workflows/rough-cut/manual-import-qa.test.ts",
       "owner": "scripts",
-      "tags": ["fixture-e2e", "headless", "integration"],
-      "requires": ["ffmpeg", "ffprobe"],
+      "tags": [
+        "fixture-e2e",
+        "headless",
+        "integration"
+      ],
+      "requires": [
+        "ffmpeg",
+        "ffprobe"
+      ],
       "reviewed": true,
       "evidence": "process",
-      "dependsOn": ["scripts", "apps/mcp-server", "packages/headless-application", "adapters/final-cut/typescript"],
-      "platforms": ["any"],
+      "dependsOn": [
+        "scripts",
+        "apps/mcp-server",
+        "packages/headless-application",
+        "adapters/final-cut/typescript"
+      ],
+      "platforms": [
+        "any"
+      ],
       "network": "none"
     },
     {
