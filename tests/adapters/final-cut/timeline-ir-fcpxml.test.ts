@@ -142,6 +142,10 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
     const before = snapshot.timeline.clips.find((clip) => clip.id === "before");
     const after = snapshot.timeline.clips.find((clip) => clip.id === "after");
     const transition = snapshot.timeline.storyElements.find((item) => item.id === "dissolve");
+    const title = snapshot.timeline.storyElements.find((item) => item.id === "title-over-dissolve");
+    assert.ok(title);
+    assert.equal(title.start, 1.5);
+    assert.equal(title.duration, 0.5);
     assert.ok(before && after && transition);
     assert.equal(transition.kind, "transition");
     assert.equal(transition.assetId, "fcpxml:effect:FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265");
