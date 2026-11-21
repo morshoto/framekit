@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   EditingSession,
   createTimelineIrFromProjectSnapshot,
+  timelineIrDigest,
   type TimelineIr,
 } from "@framekit/runtime";
 
@@ -51,6 +52,22 @@ function baseTimeline(): TimelineIr {
     revision: { id: "revision-1", sequence: 4, timestamp: "2026-09-14T00:00:00.000Z" },
   };
 }
+
+test("title font identity persists and rejects incomplete assets", () => {
+  const base = baseTimeline();
+  const font = { family: "Noto Sans CJK JP", style: "Regular", postscriptName: "NotoSansCJKjp-Regular", digest: "a".repeat(64) };
+  base.sequence.titles = [{ id: "title", text: "A日", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" }, lane: 1, font } as any];
+  const restored = EditingSession.fromJSON(EditingSession.create({ base }).serialize()).desired();
+  assert.deepEqual(restored.sequence.titles?.[0]?.font, font);
+  const changed = structuredClone(base);
+  changed.sequence.titles![0]!.font!.digest = "b".repeat(64);
+  assert.notEqual(timelineIrDigest(base), timelineIrDigest(changed));
+  for (const invalid of [null, { ...font, family: " " }, { ...font, digest: "bad" }, { ...font, extra: true }]) {
+    const candidate = structuredClone(base);
+    candidate.sequence.titles![0]!.font = invalid as typeof font;
+    assert.throws(() => EditingSession.create({ base: candidate }), /TIMELINE_IR_INVALID:.*font/i);
+  }
+});
 
 test("editing sessions retain native audio subroles across serialization", () => {
   const base = baseTimeline();
