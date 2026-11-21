@@ -30,3 +30,10 @@ test('code headings use stable hyphenated anchors while retaining exact codes', 
 test('reports structured error code literals as well as thrown messages', () => {
   assert.deepEqual([...extractDefinedCodes('return { code: "CAPABILITY_UNAVAILABLE", message: "no" };')], ['CAPABILITY_UNAVAILABLE']);
 });
+
+test('undo verification failure warns that a revision was saved', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const page = await readFile(new URL('../content/docs/en/error-reference.mdx', import.meta.url), 'utf8');
+  assert.ok(extractIndexedCodes(page).has('HEADLESS_UNDO_UNVERIFIED'));
+  assert.match(page, /## headless-undo-unverified[\s\S]*?(?:saved|committed)[\s\S]*?reinspect/i);
+});
