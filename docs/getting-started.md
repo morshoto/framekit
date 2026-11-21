@@ -131,9 +131,9 @@ linear-light blending with frame-center sampling. FCPXML dissolve handoff is
 still guarded while native parity is verified.
 
 When all used audio streams are mono, the headless mono output applies a
-−3.01 dB adjustment after mixing to match the standard mono downmix of the
-Final Cut stereo reference. Other input channel layouts retain their existing
-headless behavior and are not covered by that parity claim.
+−3.01 dB adjustment after mixing. This matches the standard mono downmix of
+the tested 48 kHz Final Cut stereo reference; other input channel layouts
+retain their existing headless behavior and are not covered by that result.
 
 Headless render verification measures the first output audio stream's decoded
 true peak using FFmpeg. The reported peak must be below 0 dBFS; a value rounded
