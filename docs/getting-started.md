@@ -168,8 +168,10 @@ Example `edit` for step 3, with two one-second clips and a two-second music bed:
 Version 1 requires at least one clip; `title` and `music` are independently
 optional. When present, each section must satisfy its normal validation rules.
 
-External edit music `gainDb` must be between -60 and +12 dB inclusive. This
-bound does not guarantee that the combined audio mix avoids clipping.
+External edit music requires exactly one audio stream; files with multiple audio
+streams are rejected rather than selecting one implicitly. Music `gainDb` must
+be between -60 and +12 dB inclusive. This bound does not guarantee that the
+combined audio mix avoids clipping.
 
 ```json
 {

@@ -59,7 +59,10 @@ export function externalEditOperations(edit: ExternalEdit, timeline: TimelineIr,
     if (!Number.isFinite(edit.music.gainDb) || edit.music.gainDb < -60 || edit.music.gainDb > 12) {
       throw new Error("EXTERNAL_EDIT_INVALID: music.gainDb must be between -60 and 12 dB inclusive");
     }
-    assertSource(edit.music.mediaId, "audio");
+    const music = assertSource(edit.music.mediaId, "audio");
+    if (music.metadata?.streams.filter((stream) => stream.kind === "audio").length !== 1) {
+      throw new Error(`EXTERNAL_EDIT_INVALID: ${edit.music.mediaId} must have exactly one audio stream`);
+    }
     for (const time of [edit.music.sourceStartTime, edit.music.startTime, edit.music.durationTime]) aligned(time);
   }
   if (edit.title) for (const time of [edit.title.startTime, edit.title.durationTime]) aligned(time);

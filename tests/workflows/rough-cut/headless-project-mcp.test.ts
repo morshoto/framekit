@@ -2280,6 +2280,20 @@ test("external edit JSON previews registered clips, a title and music without mu
     assert.equal(musicMetadata.streams.filter((stream) => stream.kind === "audio").length, 2);
     ambiguousMusic.resources.find((item: any) => item.id === b.resource.id).metadata = musicMetadata;
     assert.throws(() => externalEditOperations(edit, ambiguousMusic, ambiguousMusic.revision), /EXTERNAL_EDIT_INVALID:.*exactly one audio stream/);
+    const multiTimeline = emptyTimeline();
+    multiTimeline.project.id = "ambiguous-music";
+    multiTimeline.sequence.id = "ambiguous-music-sequence";
+    const multiCreated = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: multiTimeline } }));
+    const multiVideo = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId: multiTimeline.project.id, sourcePath: video, expectedRevision: multiCreated.timeline.revision } }));
+    const multiAudio = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId: multiTimeline.project.id, sourcePath: multistreamMusic, expectedRevision: multiVideo.project.timeline.revision } }));
+    const multiEdit = { ...edit, clips: [{ ...edit.clips[0], mediaId: multiVideo.resource.id }], title: undefined,
+      music: { ...edit.music, mediaId: multiAudio.resource.id, durationTime: seconds(1) } };
+    const multiArgs = { projectId: multiTimeline.project.id, sequenceId: multiTimeline.sequence.id, expectedRevision: multiAudio.project.timeline.revision, edit: multiEdit };
+    const rejectedMulti = await client.callTool({ name: "headless.edit-json.preview", arguments: multiArgs });
+    assert.equal(rejectedMulti.isError, true);
+    assert.match(toolErrorText(rejectedMulti), /exactly one audio stream/);
+    const multiAfter = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId: multiTimeline.project.id } }));
+    assert.deepEqual(multiAfter.timeline, multiAudio.project.timeline);
     for (const gainDb of [-60, 12]) {
       assert.doesNotThrow(() => externalEditOperations({ ...edit, music: { ...edit.music, gainDb } }, b.project.timeline, b.project.timeline.revision));
     }
