@@ -58,6 +58,9 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     assert.equal(executed.fcpxmlArtifact.verified, true);
     assert.deepEqual(executed.after.timeline.revision, preview.after.timeline.revision);
     const xml = await readFile(request.fcpxml.path, "utf8");
+    assert.match(xml, /name="Rough cut 1: approved source range" offset="0s" start="1\/5s" duration="9\/10s"/);
+    assert.match(xml, /<transition name="Cross Dissolve" offset="4\/5s" duration="1\/5s"/);
+    assert.match(xml, /name="Rough cut 2: approved source range" offset="9\/10s" start="2\/5s" duration="11\/10s"/);
     assert.match(xml, /<filter-video ref="effect-cross-dissolve"/);
     assert.match(xml, /<filter-audio ref="effect-audio-crossfade"/);
     assert.match(xml, /name="Music"/);
