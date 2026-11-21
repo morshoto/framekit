@@ -91,6 +91,12 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
   ];
   value.sequence.transitions = [{ id: "dissolve", kind: "cross-dissolve", beforeOccurrenceId: "before", afterOccurrenceId: "after", durationTime: { value: "1", timescale: "2" } }];
 
+  const noHandle = structuredClone(value);
+  noHandle.sequence.occurrences[1]!.sourceStartTime = { value: "0", timescale: "1" };
+  assert.throws(() => compileTimelineIrToFcpxml(noHandle, { target }), /FCPXML_.*handle/i);
+  const unaligned = structuredClone(value);
+  unaligned.sequence.transitions![0]!.durationTime = { value: "1", timescale: "7" };
+  assert.throws(() => compileTimelineIrToFcpxml(unaligned, { target }), /FCPXML_.*frame/i);
   const result = compileTimelineIrToFcpxml(value, { target });
   assert.match(result.xml, /<transition\b/);
   assert.match(result.xml, /duration="1\/2s"/);
