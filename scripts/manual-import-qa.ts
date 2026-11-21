@@ -113,6 +113,23 @@ export async function measureDissolveExport(path: string): Promise<DissolveExpor
   return { durationSeconds: Number(probe.format?.duration), frameCount: Number(video.nb_read_frames), frameRate: video.avg_frame_rate ?? "", frames, audio };
 }
 
+/** Inspect the fixed synthetic case without claiming an import or production provenance. */
+export async function inspectDissolveExport(exportPath: string, outputDirectory: string) {
+  const movie = resolve(exportPath), destination = resolve(outputDirectory);
+  const sha = async () => createHash("sha256").update(await readFile(movie)).digest("hex");
+  const exportSha256 = await sha();
+  await mkdir(destination);
+  const observed = await measureDissolveExport(movie);
+  if (await sha() !== exportSha256) throw new Error("EXPORT_CHANGED: video changed during inspection");
+  const report = {
+    schemaVersion: 1, scenario: "synthetic-six-frame-dissolve", exportSha256, observed,
+    measurements: evaluateDissolveExportMeasurements(observed), titleVisibility: "UNVERIFIED" as const,
+    limitation: "Signal measurements do not establish approved inputs, a Final Cut import or export, visual color parity, or title editability.",
+  };
+  await writeFile(join(destination, "observation.json"), `${JSON.stringify(report, null, 2)}\n`, { flag: "wx" });
+  return report;
+}
+
 export function evaluateExportMeasurements(observed: ExportMeasurements) {
   const samples = [0.5, 1.5, 2.5];
   const duration = Number.isFinite(observed.durationSeconds) && Math.abs(observed.durationSeconds - 3) <= 0.05
@@ -384,6 +401,7 @@ async function main(args: string[]): Promise<void> {
   const usage = [
     "Usage: node --import tsx scripts/manual-import-qa.ts prepare NEW_DIRECTORY",
     "       node --import tsx scripts/manual-import-qa.ts inspect FIXTURE_DIRECTORY VIDEO NEW_REPORT_DIRECTORY",
+    "       node --import tsx scripts/manual-import-qa.ts inspect-dissolve VIDEO NEW_REPORT_DIRECTORY",
     "These commands never operate Final Cut; native import, title editability and export provenance remain UNVERIFIED.",
   ].join("\n");
   if (args.length === 1 && args[0] === "--help") { process.stdout.write(`${usage}\n`); return; }
@@ -393,6 +411,12 @@ async function main(args: string[]): Promise<void> {
   }
   if (args[0] === "inspect" && args.length === 4) {
     const report = await verifyManualExport(args[1]!, args[2]!, args[3]!);
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    if (report.measurements.status !== "PASS") process.exitCode = 1;
+    return;
+  }
+  if (args[0] === "inspect-dissolve" && args.length === 3) {
+    const report = await inspectDissolveExport(args[1]!, args[2]!);
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
     if (report.measurements.status !== "PASS") process.exitCode = 1;
     return;
