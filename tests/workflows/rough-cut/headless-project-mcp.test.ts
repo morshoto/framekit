@@ -141,6 +141,12 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     const titleRequest = { ...request, operations: request.operations.map((operation) => operation.type === "add-title" ? { ...operation, title: { ...operation.title, text: "A日" } } : operation) };
     const unsupportedTitle = { ...titleRequest, operations: titleRequest.operations.map((operation) => operation.type === "add-title" ? { ...operation, title: { ...operation.title, text: "A\u{10ffff}" } } : operation) };
     await assert.rejects(fontService.previewRoughCut(unsupportedTitle), /RENDER_CAPABILITY_UNAVAILABLE.*titles/);
+    for (const titleFontDigest of [undefined, "f".repeat(64)]) {
+      const mismatchedStoryboard = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: new FfmpegMediaMetadataProbe(), renderer: new FfmpegTimelineRenderer({ env: { FRAMEKIT_RENDER_FONT: fontPath } }), storyboard: { render: async () => ({ data: "fake", mimeType: "image/png", samples: [], limitations: [], titleFontDigest }) } });
+      const result = await mismatchedStoryboard.previewRoughCut(titleRequest, undefined, true);
+      assert.equal(result.storyboard, undefined);
+      assert.match(result.storyboardUnavailable!, /STORYBOARD_UNSUPPORTED.*font/i);
+    }
     const approvedTitle = await fontService.previewRoughCut(titleRequest);
     const originalFont = await readFile(fontPath);
     assert.equal(approvedTitle.titleFont?.digest, createHash("sha256").update(originalFont).digest("hex"));
@@ -1123,6 +1129,7 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
     assert.equal(preview.storyboard.samples.filter((sample: any) => sample.kind === "shot").length, 3);
     assert.equal(preview.storyboard.samples.filter((sample: any) => sample.kind === "title").length, 1);
     assert.equal(preview.storyboard.planDigest, preview.planDigest);
+    assert.equal(preview.storyboard.titleFontDigest, preview.titleFont.digest);
     assert.deepEqual(preview.storyboard.revision, preview.after.timeline.revision);
     assert.deepEqual(preview.storyboard.samples.map((sample: any) => [sample.kind, sample.mediaId]), [
       ["shot", registrations.b.id], ["title", registrations.b.id], ["shot", registrations.a.id], ["shot", registrations.c.id],
