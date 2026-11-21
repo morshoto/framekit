@@ -169,8 +169,9 @@ Version 1 requires at least one clip; `title` and `music` are independently
 optional. When present, each section must satisfy its normal validation rules.
 
 New or changed local connected audio in headless edits requires exactly one audio
-stream with verified bounds covering the requested source range. Rough-cut output
-and headless rendering require those bounds for all local connected audio. Files
+stream with verified bounds covering the requested source range. Rough-cut output,
+FCPXML export and headless rendering require those bounds for all local connected
+audio. Files
 with ambiguous streams or unavailable bounds are rejected. Older registrations without stream bounds need
 to be registered in a new project. Music `gainDb` must be between -60 and +12 dB
 inclusive. This bound does not guarantee that the combined audio mix avoids

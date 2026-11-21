@@ -476,6 +476,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       throw new Error("HEADLESS_FCPXML_STALE: project target or revision does not match the requested export");
     }
     await this.assertOutputSeparation(project, [outputPath]);
+    verifyConnectedAudioOccurrences(project.timeline);
     await this.verifyDissolveMetadata(project.timeline);
     const compiled = compileTimelineIrToFcpxml(project.timeline, { target });
     const artifact = await writeVerifiedFcpxml(resolve(outputPath), compiled.xml, compiled.digest, false);
