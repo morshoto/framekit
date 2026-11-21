@@ -151,6 +151,39 @@ test("basic 720p title fits the observed Final Cut bounds", async () => {
   }
 });
 
+test("BT.709 dissolve samples meet the 720p Final Cut reference bounds", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-dissolve-color-"));
+  try {
+    const paths = [join(directory, "red.mp4"), join(directory, "blue.mp4")];
+    for (const [index, color] of ["red", "blue"].entries()) {
+      await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-f", "lavfi", "-i", `color=${color}:s=1280x720:r=30:d=2`, "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2", "-vf", "scale=in_color_matrix=bt601:out_color_matrix=bt709,setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-c:a", "aac", "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-movflags", "+write_colr", "-shortest", paths[index]!]);
+    }
+    const source = await timeline(paths[0]!, paths[1]!);
+    const probe = new FfmpegMediaMetadataProbe();
+    for (const resource of source.resources) resource.metadata = await probe.probe(resource.source!);
+    delete source.sequence.occurrences[0]!.transform;
+    source.sequence.occurrences[0]!.sourceStartTime = { value: "1", timescale: "5" };
+    source.sequence.occurrences[1]!.sourceStartTime = { value: "1", timescale: "2" };
+    source.sequence.transitions![0]!.durationTime = { value: "1", timescale: "5" };
+    source.sequence.titles = [];
+    const outputPath = join(directory, "dissolve.mp4");
+    const renderer = new FfmpegTimelineRenderer();
+    const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: { ...parameters(outputPath), width: 1280, height: 720 } });
+    await renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request)));
+    const raw = await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-i", outputPath, "-map", "0:v:0", "-vf", "crop=2:2:2:2,format=rgb24", "-fps_mode", "passthrough", "-f", "rawvideo", "pipe:1"], { encoding: "buffer" });
+    const bytes = raw.stdout as unknown as Buffer;
+    // Native Final Cut 720p BT.709 export, SHA-256 5ccb88eb9c8021498b7c8abef3390508f6694c6449c373623d41872dcdccd1dd.
+    const native = [[242, 0, 69], [218, 0, 124], [190, 0, 160], [161, 0, 193], [123, 0, 218], [69, 0, 242]];
+    for (const [index, expected] of native.entries()) {
+      const frame = index + 24;
+      const observed = [...bytes.subarray(frame * 12, frame * 12 + 3)];
+      assert.ok(observed.length === 3 && observed.every((value, channel) => Math.abs(value - expected[channel]!) <= 20), `frame ${frame}: ${observed} vs ${expected}`);
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("FFmpeg dissolve preserves incoming video and audio timing", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-dissolve-timing-"));
   try {
