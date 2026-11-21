@@ -211,7 +211,7 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     assert.deepEqual(proof.titleFont, preview.titleFont);
     const renderRecordPath = join(directory, "projects", `${executed.render.renderId}.json`);
     const originalRenderRecord = await readFile(renderRecordPath, "utf8");
-    for (const mutation of ["font", "renderer", "missing", "title", "revision", "render-revision", "target", "output", "verification", "verified-artifact"] as const) {
+    for (const mutation of ["font", "renderer", "missing", "title", "revision", "render-revision", "target", "output", "verification", "verified-artifact", "failed-check", "empty-checks"] as const) {
       const record = JSON.parse(originalRenderRecord);
       if (mutation === "font") record.outcome.plan.capabilities.titleFontDigest = "f".repeat(64);
       if (mutation === "renderer") {
@@ -230,6 +230,8 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
       }
       if (mutation === "verification") delete record.outcome.verification;
       if (mutation === "verified-artifact") record.outcome.verification.artifact.fileDigest = "f".repeat(64);
+      if (mutation === "failed-check") record.outcome.verification.checks[0].passed = false;
+      if (mutation === "empty-checks") record.outcome.verification.checks = [];
       const { planDigest: _oldPlanDigest, ...changedPlan } = record.outcome.plan;
       record.outcome.plan.planDigest = createHash("sha256").update(stable(changedPlan)).digest("hex");
       record.outcome.render.planDigest = record.outcome.plan.planDigest;
