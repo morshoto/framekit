@@ -47,6 +47,7 @@ export const FRAMEKIT_BOUNDARY_POLICY = {
     allowedModules: [
       "adapters/final-cut/typescript/src/documents.ts",
       "adapters/final-cut/typescript/src/fcpxml.ts",
+      "adapters/final-cut/typescript/src/fcpxml-transition-plan.ts",
       "adapters/final-cut/typescript/src/timeline-ir-fcpxml.ts",
     ],
   }],
