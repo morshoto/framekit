@@ -397,7 +397,8 @@ test("production MCP exports an edited headless project as FCPXML without a roug
     assert.equal(await readFile(pending, "utf8"), "synthetic reservation");
     const originalXml = await readFile(outputPath, "utf8");
     const duplicate = await client.callTool({ name: "headless.fcpxml.export", arguments: { ...args, expectedRevision: edit.after.timeline.revision } });
-    assert.match(toolErrorText(duplicate), /EXIST|OVERWRITE/);
+    assert.match(toolErrorText(duplicate), /FCPXML_OUTPUT_EXISTS: /);
+    assert.doesNotMatch(toolErrorText(duplicate), /EEXIST|\.tmp|link '/);
     assert.equal(await readFile(outputPath, "utf8"), originalXml);
     const fifo = join(directory, "existing.fifo");
     await execFileAsync("mkfifo", [fifo]);
