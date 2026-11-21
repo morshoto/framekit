@@ -13,3 +13,11 @@ test('reports literal error definitions missing from stable code headings', () =
 test('only exact code headings count as reference entries', () => {
   assert.deepEqual([...extractIndexedCodes('Mention `HEADLESS_ONE` here.\n\n## `HEADLESS_TWO`\n')], ['HEADLESS_TWO']);
 });
+
+test('reference covers previously documented codes and post-commit recovery', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const page = await readFile(new URL('../content/docs/en/error-reference.mdx', import.meta.url), 'utf8');
+  const codes = extractIndexedCodes(page);
+  for (const code of ['HEADLESS_ROUGH_CUT_HISTORY_UNCONFIRMED', 'ANALYZER_SOURCE_CHANGED', 'FINAL_CUT_NATIVE_SEARCH_TIMEOUT', 'FINAL_CUT_NATIVE_SEARCH_UNAVAILABLE', 'FINAL_CUT_SQLITE_INSPECTION_UNAVAILABLE']) assert.ok(codes.has(code), code);
+  assert.match(page, /already committed[\s\S]*reinspect/i);
+});
