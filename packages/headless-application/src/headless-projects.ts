@@ -11,6 +11,7 @@ import {
   type ContextRevision,
   type FramekitProjectDocument,
   type FramekitRenderArtifactVerifier,
+  type FramekitRenderAndVerifyResult,
   type FramekitRenderProvider,
   type FramekitRenderParameters,
   type LocalMediaRegistrationResult,
@@ -771,6 +772,22 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     if (render.status !== "passed" || render.projectId !== record.projectId || render.sequenceId !== record.sequenceId
       || !sameRevision(render.requestedRevision, record.canonicalRevision)) {
       throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render evidence does not match the approved revision");
+    }
+    if (project.timeline.sequence.titles?.length) {
+      const outcome = render.outcome as FramekitRenderAndVerifyResult | undefined;
+      const plan = outcome?.plan;
+      if (!approval.titleFont || outcome?.status !== "passed" || !plan || typeof plan !== "object"
+        || plan.capabilities?.titleFontDigest !== approval.titleFont.digest
+        || stableJson(plan.renderer) !== stableJson(approval.titleFont.renderer)
+        || stableJson(plan.capabilities?.renderer) !== stableJson(approval.titleFont.renderer)
+        || stableJson(outcome.render?.renderer) !== stableJson(approval.titleFont.renderer)
+        || outcome.render?.planDigest !== plan.planDigest) {
+        throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render font provenance differs from the approved preview");
+      }
+      const { planDigest, ...planBase } = plan;
+      if (typeof planDigest !== "string" || hash(stableJson(planBase)) !== planDigest) {
+        throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render font plan is invalid");
+      }
     }
     const boundRender = record.renderArtifact;
     if (!boundRender || typeof boundRender.path !== "string" || resolve(boundRender.path) !== resolve(record.outputIntent.render.outputPath)

@@ -213,8 +213,15 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     for (const mutation of ["font", "renderer", "missing"] as const) {
       const record = JSON.parse(originalRenderRecord);
       if (mutation === "font") record.outcome.plan.capabilities.titleFontDigest = "f".repeat(64);
-      if (mutation === "renderer") record.outcome.plan.renderer.version = "different";
+      if (mutation === "renderer") {
+        record.outcome.plan.renderer.version = "different";
+        record.outcome.plan.capabilities.renderer.version = "different";
+        record.outcome.render.renderer.version = "different";
+      }
       if (mutation === "missing") delete record.outcome.plan.capabilities.titleFontDigest;
+      const { planDigest: _oldPlanDigest, ...changedPlan } = record.outcome.plan;
+      record.outcome.plan.planDigest = createHash("sha256").update(stable(changedPlan)).digest("hex");
+      record.outcome.render.planDigest = record.outcome.plan.planDigest;
       await writeFile(renderRecordPath, JSON.stringify(record));
       await assert.rejects(service.verifyPublishableRoughCut(executed.executionId, request.fcpxml.path), /RENDER_EVIDENCE_MISMATCH.*font/i);
     }
