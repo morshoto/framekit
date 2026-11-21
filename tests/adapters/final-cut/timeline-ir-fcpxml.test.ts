@@ -195,6 +195,10 @@ test("native dissolve without canonical metadata stays unbound", async () => {
     await writeFile(animatedPath, unknownParam);
     const unknownSnapshot = await new FcpxmlDocumentAdapter(animatedPath).readProject();
     assert.throws(() => verifyFinalCutPublishReadback(unknownSnapshot, unknownSnapshot), /FINAL_CUT_PUBLISH_READBACK_UNSUPPORTED/);
+    const unknownChild = xml.replace('<filter-audio ref="audio"', '<reserved/><filter-audio ref="audio"');
+    await writeFile(animatedPath, unknownChild);
+    const reservedSnapshot = await new FcpxmlDocumentAdapter(animatedPath).readProject();
+    assert.throws(() => verifyFinalCutPublishReadback(reservedSnapshot, reservedSnapshot), /FINAL_CUT_PUBLISH_READBACK_UNSUPPORTED/);
     const reconstructed = createTimelineIrFromProjectSnapshot(snapshot);
     assert.equal(reconstructed.sequence.transitions, undefined);
     assert.ok(reconstructed.sequence.storyElements.some((item) => item.kind === "transition"));

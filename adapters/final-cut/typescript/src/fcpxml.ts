@@ -1001,6 +1001,9 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     const audioRef = audioFilter && attribute(audioFilter, "ref");
     const audioEffect = audioRef === undefined ? undefined : this.effectAssetId(String(audioRef));
     const enabled = (filter: XmlNode | undefined) => filter !== undefined && (attribute(filter, "enabled") === undefined || String(attribute(filter, "enabled")) === "1");
+    const transitionAttributes = new Set(["@_name", "@_offset", "@_duration"]);
+    const transitionComplete = Object.keys(attributes(node)).every((key) => transitionAttributes.has(key))
+      && storyEntries(node).every(({ kind: childKind }) => ["filter-video", "filter-audio", "metadata"].includes(childKind));
     const transitionEffects: NonNullable<StoryElement["transitionEffects"]> = filters.map(({ kind: filterKind, node: filter }) => {
       const ref = attribute(filter, "ref");
       const identity = ref === undefined ? undefined : this.effectAssetId(String(ref));
@@ -1008,7 +1011,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
       const allowedAttributes = new Set(["@_ref", "@_name", "@_enabled"]);
       const allowedParameterAttributes = new Set(["@_name", "@_key", "@_value", "@_auxValue", "@_enabled"]);
       const enabledValue = attribute(filter, "enabled");
-      const complete = identity !== undefined && Object.keys(attributes(filter)).every((key) => allowedAttributes.has(key))
+      const complete = transitionComplete && identity !== undefined && Object.keys(attributes(filter)).every((key) => allowedAttributes.has(key))
         && (enabledValue === undefined || String(enabledValue) === "0" || String(enabledValue) === "1")
         && children.every(({ kind: childKind, node: child }) => childKind === "param" && storyEntries(child).length === 0
           && typeof attribute(child, "name") === "string" && String(attribute(child, "name")).length > 0
