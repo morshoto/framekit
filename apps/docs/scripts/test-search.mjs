@@ -37,6 +37,16 @@ try {
   }
   {
     const page = await browser.newPage();
+    await page.goto(`${origin}${base}/en/docs/introduction/`, { waitUntil:'networkidle' });
+    await page.getByRole('button', { name:'Search docs' }).click();
+    await page.getByRole('combobox').fill('HEADLESS_ROUGH_CUT_HISTORY_UNCONFIRMED');
+    const result = page.locator('[role=option][href*="/en/docs/error-reference/"]').first();
+    await result.waitFor();
+    assert.ok((await result.getAttribute('href')).includes('/en/docs/error-reference/'));
+    await page.close();
+  }
+  {
+    const page = await browser.newPage();
     await page.goto(`${origin}${base}/`);
     await page.waitForURL(`${origin}${base}/en/`);
     await page.goto(`${origin}${base}/en/docs/`);
