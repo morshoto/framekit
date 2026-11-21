@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
-import { compareDissolveParity, evaluateDissolveExportMeasurements, evaluateExportMeasurements, evaluateRevisedExportMeasurements, inspectDissolveExport, measureDissolveExport, measureExport, measureFixtureTitleBounds, prepareManualImportFixture, verifyManualExport, verifyPreparedArtifact } from "../../../scripts/manual-import-qa.js";
+import { compareDissolveParity, compareDissolveVideos, evaluateDissolveExportMeasurements, evaluateExportMeasurements, evaluateRevisedExportMeasurements, inspectDissolveExport, measureDissolveExport, measureExport, measureFixtureTitleBounds, prepareManualImportFixture, verifyManualExport, verifyPreparedArtifact } from "../../../scripts/manual-import-qa.js";
 
 const valid = () => ({
   durationSeconds: 3,
@@ -68,6 +68,8 @@ test("title measurement uses the specified frame and rejects missing titles", as
     await promisify(execFile)(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=red:s=1280x720:r=30:d=2", "-vf", "drawbox=x=600:y=330:w=80:h=30:color=white:t=fill:enable='between(n,24,29)'", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", video]);
     assert.deepEqual(await measureFixtureTitleBounds(video, 27), { x: 600, y: 330, width: 80, height: 30 });
     await assert.rejects(measureFixtureTitleBounds(video, 30), /TITLE_NOT_DETECTED/);
+    await assert.rejects(compareDissolveVideos(video, video, join(directory, "report")), /AUDIO_FORMAT_UNSUPPORTED/);
+    await assert.rejects(readFile(join(directory, "report", "parity.json")), /ENOENT/);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
