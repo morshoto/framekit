@@ -37,6 +37,10 @@ try {
   }
   {
     const page = await browser.newPage();
+    await page.goto(`${origin}${base}/`);
+    await page.waitForURL(`${origin}${base}/en/`);
+    await page.goto(`${origin}${base}/en/docs/`);
+    await page.waitForURL(`${origin}${base}/en/docs/introduction/`);
     await page.goto(`${origin}${base}/en/`, {waitUntil:'networkidle'});
     await page.getByRole('button', {name:'Search docs'}).click();
     await page.getByRole('combobox').fill('render');
