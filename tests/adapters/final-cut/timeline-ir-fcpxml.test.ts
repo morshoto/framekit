@@ -98,12 +98,6 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
 
   const plan = planFcpxmlDissolve(value);
   assert.deepEqual(plan, { id: "dissolve", beforeId: "before", afterId: "after", startTime: { value: "3", timescale: "2" }, durationTime: { value: "1", timescale: "2" }, beforeDurationTime: { value: "53", timescale: "30" }, afterStartTime: { value: "53", timescale: "30" }, afterSourceStartTime: { value: "113", timescale: "30" }, afterDurationTime: { value: "67", timescale: "30" } });
-  const unknownColor = structuredClone(value);
-  delete unknownColor.resources[0]!.metadata!.streams[0]!.color;
-  assert.throws(() => planFcpxmlDissolve(unknownColor), /FCPXML_DISSOLVE_COLOR_UNSUPPORTED/);
-  const wideColor = structuredClone(value);
-  wideColor.resources[0]!.metadata!.streams[0]!.color!.primaries = "bt2020";
-  assert.throws(() => planFcpxmlDissolve(wideColor), /FCPXML_DISSOLVE_COLOR_UNSUPPORTED/);
   const tooShort = structuredClone(value);
   tooShort.sequence.occurrences[1]!.durationTime = { value: "3", timescale: "10" };
   assert.throws(() => planFcpxmlDissolve(tooShort), /FCPXML_DISSOLVE_DURATION/);
@@ -225,6 +219,24 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("dissolve planning rejects unknown or non-BT.709 colors", () => {
+  const value = timeline();
+  value.sequence.frameDuration = { value: "1", timescale: "30" };
+  value.sequence.occurrences = [
+    { id: "before", name: "Before", startTime: { value: "0", timescale: "1" }, durationTime: { value: "2", timescale: "1" }, sourceStartTime: { value: "1", timescale: "1" }, track: 0, role: "video", mediaId: "media-1" },
+    { id: "after", name: "After", startTime: { value: "2", timescale: "1" }, durationTime: { value: "2", timescale: "1" }, sourceStartTime: { value: "4", timescale: "1" }, track: 0, role: "video", mediaId: "media-1" },
+  ];
+  value.sequence.transitions = [{ id: "dissolve", kind: "cross-dissolve", beforeOccurrenceId: "before", afterOccurrenceId: "after", durationTime: { value: "1", timescale: "2" } }];
+  value.resources[0]!.metadata!.streams[0]!.frameRate = { value: "30", timescale: "1" };
+  assert.doesNotThrow(() => planFcpxmlDissolve(value));
+  const unknown = structuredClone(value);
+  delete unknown.resources[0]!.metadata!.streams[0]!.color;
+  assert.throws(() => planFcpxmlDissolve(unknown), /FCPXML_DISSOLVE_COLOR_UNSUPPORTED/);
+  const wide = structuredClone(value);
+  wide.resources[0]!.metadata!.streams[0]!.color!.primaries = "bt2020";
+  assert.throws(() => planFcpxmlDissolve(wide), /FCPXML_DISSOLVE_COLOR_UNSUPPORTED/);
 });
 
 test("unverified dissolve export fails closed", () => {

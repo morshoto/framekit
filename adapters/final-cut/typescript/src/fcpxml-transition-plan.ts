@@ -51,6 +51,10 @@ export function planFcpxmlDissolve(timeline: TimelineIr) {
     const video = timeline.resources.find((item) => item.id === clip.mediaId)?.metadata?.streams.find((stream) => stream.kind === "video");
     const rate = video?.frameRate && fraction(video.frameRate);
     if (!rate || rate.n <= 0n || rate.n * frame.n !== rate.d * frame.d) throw new Error("FCPXML_DISSOLVE_FRAME_RATE: source and sequence frame rates must match");
+    const color = video?.color;
+    if (color?.primaries !== "bt709" || color.transfer !== "bt709" || color.matrix !== "bt709" || color.range !== "tv") {
+      throw new Error("FCPXML_DISSOLVE_COLOR_UNSUPPORTED: cross-dissolve handoff requires explicitly tagged limited-range BT.709 video");
+    }
   }
   const durationFrames = duration.n * frame.d / (duration.d * frame.n);
   const halfDuration = { n: (durationFrames / 2n) * frame.n, d: frame.d };
