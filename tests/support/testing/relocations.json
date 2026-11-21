@@ -2802,6 +2802,7 @@
       "\"discovery includes documentation but deliberately delegates Docs app runners\""
     ],
     "tests/integration/timeline-ir-fcpxml.test.ts": [
+      "\"native dissolve without canonical metadata stays unbound\"",
       "\"exports an adjacent cross-dissolve with its media references\"",
       "\"unverified dissolve export fails closed\"",
       "\"dissolve planning preserves fractional frame timing and bounds\"",
