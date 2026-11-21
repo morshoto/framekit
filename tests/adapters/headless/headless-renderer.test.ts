@@ -13,7 +13,7 @@ import {
   type FramekitRenderParameters,
   type TimelineIr,
 } from "@framekit/runtime";
-import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer } from "../../../adapters/headless/typescript/src/index.js";
+import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegStoryboardRenderer, FfmpegTimelineRenderer } from "../../../adapters/headless/typescript/src/index.js";
 import { resolveFontFile } from "../../../adapters/headless/typescript/src/ffmpeg-renderer.js";
 import { compileTimelineIrToFcpxml, FcpxmlDocumentAdapter } from "@framekit/final-cut/fcpxml";
 
@@ -116,6 +116,36 @@ test("FFmpeg renders a supported mixed-script title without tofu", async () => {
     await assert.rejects(readFile(output), /ENOENT/);
     await writeFile(fontPath, originalFont);
     await renderer.render(plan);
+    const priorFont = process.env.FRAMEKIT_RENDER_FONT;
+    try {
+      process.env.FRAMEKIT_RENDER_FONT = fontPath;
+      const storyboard = await new FfmpegStoryboardRenderer().render(source, { width: 1280, height: 720 });
+      const sheet = join(directory, "sheet.png");
+      const storyFrame = join(directory, "story.ppm");
+      const scaledFrame = join(directory, "scaled.ppm");
+      await writeFile(sheet, Buffer.from(storyboard.data, "base64"));
+      await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-i", sheet, "-vf", "crop=640:360:0:0", "-frames:v", "1", storyFrame]);
+      await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-i", output, "-ss", "0.25", "-vf", "scale=640:360", "-frames:v", "1", scaledFrame]);
+      const bounds = (frame: Buffer) => {
+        let left = 640, right = -1, top = 360, bottom = -1;
+        for (let y = 110; y < 220; y++) for (let x = 200; x < 440; x++) {
+          const pixel = ppmPixel(frame, x, y);
+          if (pixel.r > 180 && pixel.g > 180 && pixel.b > 180) {
+            left = Math.min(left, x); right = Math.max(right, x); top = Math.min(top, y); bottom = Math.max(bottom, y);
+          }
+        }
+        assert.ok(right >= left && bottom >= top, "title pixels are visible");
+        return { left, right, top, bottom };
+      };
+      const storyboardBounds = bounds(await readFile(storyFrame));
+      const renderedBounds = bounds(await readFile(scaledFrame));
+      for (const edge of ["left", "right", "top", "bottom"] as const) {
+        assert.ok(Math.abs(storyboardBounds[edge] - renderedBounds[edge]) <= 3, `${edge}: storyboard ${storyboardBounds[edge]}, render ${renderedBounds[edge]}`);
+      }
+    } finally {
+      if (priorFont === undefined) delete process.env.FRAMEKIT_RENDER_FONT;
+      else process.env.FRAMEKIT_RENDER_FONT = priorFont;
+    }
     const actual = await frameAt(output, 0.25, directory, "actual-mixed");
     const reference = async (name: string, text: string) => {
       await writeFile(join(directory, `${name}.txt`), text, "utf8");
