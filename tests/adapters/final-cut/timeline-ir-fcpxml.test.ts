@@ -133,7 +133,7 @@ test("dissolve plans preserve source frames across rates and odd durations", () 
       assert.equal(frames(plan.startTime), 60 - transitionFrames);
       assert.equal(frames(plan.durationTime), transitionFrames);
       assert.equal(frames(plan.beforeDurationTime), frames(plan.afterStartTime));
-      for (const timelineFrame of [60, 61, 89, 119]) {
+      for (const timelineFrame of [60 - transitionFrames, 59, 60, 61, 89, 119]) {
         const nativeSourceFrame = frames(plan.afterSourceStartTime) + timelineFrame - frames(plan.afterStartTime);
         assert.equal(nativeSourceFrame, 120 + timelineFrame - 60, `incoming source drift at ${rate}/${scale}, ${transitionFrames} frames`);
       }
