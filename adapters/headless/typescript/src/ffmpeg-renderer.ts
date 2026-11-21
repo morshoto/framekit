@@ -724,12 +724,14 @@ export function escapeFilterValue(value: string): string {
 }
 
 export function resolveFontFile(preferred?: string): string | undefined {
+  // An explicit selection must be inspected as supplied, even when missing;
+  // silently falling back would render a different font than requested.
+  if (preferred) return resolve(preferred);
   const candidates = [
-    preferred,
     "/System/Library/Fonts/HelveticaNeue.ttc",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
-  ].filter((candidate): candidate is string => Boolean(candidate));
+  ];
   const found = candidates.find((candidate) => existsSync(candidate));
   return found === undefined ? undefined : resolve(found);
 }
