@@ -931,6 +931,14 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
         },
       },
     };
+    const unsampledRequest = { ...request, plan: { ...plan, shots: Array.from({ length: 13 }, (_, index) => shot(index + 1, "a", 0, 1)) }, operations: [] };
+    const unsampledResult = await client.callTool({ name: "headless.rough-cut.preview", arguments: unsampledRequest });
+    assert.notEqual(unsampledResult.isError, true);
+    const unsampled = payload(unsampledResult);
+    assert.match(unsampled.planDigest, /^[a-f0-9]{64}$/);
+    assert.equal(unsampled.storyboard, undefined);
+    assert.match(unsampled.storyboardUnavailable, /HEADLESS_STORYBOARD_LIMIT/);
+    assert.equal((unsampledResult.content as Array<{ type: string }>).some((item) => item.type === "image"), false);
     const previewResult = await client.callTool({ name: "headless.rough-cut.preview", arguments: request });
     let preview = payload(previewResult);
     const storyboardImage = (previewResult.content as Array<{ type: string; data?: string; mimeType?: string }>).find((item) => item.type === "image");
@@ -1408,13 +1416,25 @@ test("headless rough-cut preview and execution preserve provenance and produce v
       /HEADLESS_ROUGH_CUT_SOURCE_MISMATCH:/,
     );
 
+    await rm(collisionPath);
+    for (const code of ["HEADLESS_STORYBOARD_SOURCE_CHANGED", "UNEXPECTED_RENDER_FAILURE"]) {
+      const failing = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: new FfmpegMediaMetadataProbe(), storyboard: { render: async () => { throw new Error(`${code}: failure`); } } });
+      await assert.rejects(failing.previewRoughCut(request, undefined, true), new RegExp(code));
+      await assert.rejects(readFile(collisionPath), /ENOENT/);
+    }
+    const fallback = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: new FfmpegMediaMetadataProbe(), clock: () => "2026-10-05T00:00:00.000Z", storyboard: { render: async () => { throw new Error("HEADLESS_STORYBOARD_UNSUPPORTED: composition"); } } });
+    const fallbackPreview = await fallback.previewRoughCut(request, undefined, true);
+    assert.equal(fallbackPreview.planDigest, preview.planDigest);
+    assert.match(fallbackPreview.storyboardUnavailable!, /HEADLESS_STORYBOARD_UNSUPPORTED/);
+    assert.equal(fallbackPreview.storyboard, undefined);
+
     const resumedAfterPreview = new HeadlessProjectService({
       directory: join(directory, "projects"),
       mediaProbe: new FfmpegMediaMetadataProbe(),
       renderer: new FfmpegTimelineRenderer(),
       verifier: new FfmpegRenderVerifier(),
     });
-    const executed = await resumedAfterPreview.executeRoughCut({ ...request, approved: true, planDigest: preview.planDigest });
+    const executed = await resumedAfterPreview.executeRoughCut({ ...request, approved: true, planDigest: fallbackPreview.planDigest });
     assert.equal(executed.committed, true);
     assert.equal(executed.render.status, "passed");
     assert.equal(executed.fcpxmlArtifact.verified, true);
