@@ -32,7 +32,7 @@ import { HeadlessProjectService } from "@framekit/headless-application";
 import { createMcpServer } from "./server.js";
 import { createCanonicalSessionChangeSource } from "./headless-sessions.js";
 import { createCanonicalNativeSnapshotReader } from "./canonical-native-snapshot.js";
-import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer } from "@framekit/headless-renderer";
+import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer, FfmpegStoryboardRenderer } from "@framekit/headless-renderer";
 import { shouldConfigureFinalCutProjectPublisher } from "./final-cut-runtime-config.js";
 
 const fixture = new InMemoryEditorAdapter({
@@ -226,6 +226,7 @@ const headlessProjects = new HeadlessProjectService({
   protectedStateDirectory: framekitStateDirectory,
   mediaProbe: new FfmpegMediaMetadataProbe(),
   renderer: new FfmpegTimelineRenderer(),
+  storyboard: new FfmpegStoryboardRenderer(),
   verifier: new FfmpegRenderVerifier(),
 });
 const disposableNative = liveMode && !headlessFinalCut && !fcpxmlPath && nativeEditor

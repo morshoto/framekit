@@ -38,7 +38,19 @@ export interface HeadlessProjectServiceOptions {
   mediaProbe?: LocalMediaMetadataProbe;
   renderer?: FramekitRenderProvider;
   verifier?: FramekitRenderArtifactVerifier;
+  storyboard?: StoryboardRenderer;
   clock?: () => string;
+}
+
+export interface StoryboardRenderer {
+  render(timeline: TimelineIr, dimensions: { width: number; height: number }, signal?: AbortSignal): Promise<StoryboardImage>;
+}
+
+export interface StoryboardImage {
+  data: string;
+  mimeType: "image/png";
+  samples: Array<{ kind: "shot" | "title"; id: string; occurrenceId: string; mediaId: string; sourceDigest: string; timelineSeconds: number; sourceSeconds: number }>;
+  limitations: string[];
 }
 
 export type HeadlessProjectEditCommand = Omit<ProjectEditCommand, "target"> & {
@@ -68,7 +80,7 @@ export interface HeadlessProjectWorkflow {
   ): Promise<ProjectEditResult & { undoId: string }>;
   undoEdit(projectId: string, sequenceId: string, undoId: string, expectedRevision: ContextRevision): Promise<HeadlessUndoResult>;
   exportFcpxml(projectId: string, sequenceId: string, expectedRevision: ContextRevision, outputPath: string, target: TimelineIrToFcpxmlTarget): Promise<{ artifact: { path: string; digest: string; bytes: number; verified: true }; provenance: TimelineIrToFcpxmlResult["provenance"]; coverage: TimelineIrToFcpxmlResult["coverage"] }>;
-  previewRoughCut(request: HeadlessRoughCutRequest): Promise<HeadlessRoughCutPreview>;
+  previewRoughCut(request: HeadlessRoughCutRequest, signal?: AbortSignal, requireStoryboard?: boolean): Promise<HeadlessRoughCutPreview>;
   executeRoughCut(request: HeadlessRoughCutExecutionRequest): Promise<HeadlessRoughCutExecution>;
   verifyPublishableRoughCut(
     executionId: string,
@@ -178,6 +190,7 @@ export interface HeadlessRoughCutPreview extends ProjectEditPreview {
   plan: RoughCutPlan;
   planDigest: string;
   provenance: HeadlessRoughCutShotProvenance[];
+  storyboard?: StoryboardImage & { planDigest: string; revision: ContextRevision };
   outputIntent: {
     sourceAudioPolicy: "preserve-and-mix";
     render: FramekitRenderParameters;
@@ -271,6 +284,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
   private readonly mediaProbe?: LocalMediaMetadataProbe;
   private readonly renderer?: FramekitRenderProvider;
   private readonly verifier?: FramekitRenderArtifactVerifier;
+  private readonly storyboard?: StoryboardRenderer;
   private readonly clock: () => string;
 
   public constructor(options: HeadlessProjectServiceOptions) {
@@ -279,6 +293,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     this.mediaProbe = options.mediaProbe;
     this.renderer = options.renderer;
     this.verifier = options.verifier;
+    this.storyboard = options.storyboard;
     this.clock = options.clock ?? (() => new Date().toISOString());
   }
 
@@ -445,7 +460,9 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     return { artifact, provenance: compiled.provenance, coverage: compiled.coverage };
   }
 
-  public async previewRoughCut(request: HeadlessRoughCutRequest): Promise<HeadlessRoughCutPreview> {
+  public async previewRoughCut(request: HeadlessRoughCutRequest, signal?: AbortSignal, requireStoryboard = false): Promise<HeadlessRoughCutPreview> {
+    signal?.throwIfAborted();
+    if (requireStoryboard && !this.storyboard) throw new Error("HEADLESS_STORYBOARD_UNAVAILABLE: storyboard renderer is not configured");
     const prepared = await this.prepareRoughCut(request);
     const timestamp = this.clock();
     const { preview, fcpxml } = await this.previewPreparedRoughCut(request, prepared, timestamp);
@@ -459,12 +476,20 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       artifactDigest: fcpxml.digest,
       outputIntent: prepared.outputIntent,
     });
+    const storyboard = this.storyboard && await this.storyboard.render(preview.after.timeline, request.render, signal);
+    signal?.throwIfAborted();
+    const current = await this.open(request.projectId);
+    if (timelineIrDigest(current.timeline) !== timelineIrDigest(prepared.project.timeline)) {
+      throw new Error("HEADLESS_ROUGH_CUT_STALE_REVISION: project changed during storyboard generation");
+    }
+    signal?.throwIfAborted();
     await this.saveRoughCutApproval(approval);
     return {
       ...preview,
       plan: structuredClone(request.plan),
       planDigest: approval.planDigest,
       provenance: prepared.provenance,
+      ...(storyboard ? { storyboard: { ...storyboard, planDigest: approval.planDigest, revision: preview.after.timeline.revision } } : {}),
       outputIntent: prepared.outputIntent,
       fcpxml: selectFcpxmlMetadata(fcpxml),
     };

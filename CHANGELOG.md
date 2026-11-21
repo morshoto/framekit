@@ -1,5 +1,38 @@
 # Changelog
 
+## [v0.2.4](https://github.com/morshoto/framekit/compare/v0.2.3...v0.2.4) - 2026-11-21
+
+### New Features
+- test: verify versioned headless revisions by @morshoto in https://github.com/morshoto/framekit/pull/771
+- feat: use milestone descriptions in release notes by @morshoto in https://github.com/morshoto/framekit/pull/774
+- feat: add headless storyboard previews by @morshoto in https://github.com/morshoto/framekit/pull/782
+### Other changes
+- test: verify revised Final Cut export by @morshoto in https://github.com/morshoto/framekit/pull/772
+
+## [v0.2.3](https://github.com/morshoto/framekit/compare/v0.2.2...v0.2.3) - 2026-11-20
+
+### New Features
+- design: refresh English documentation overview by @morshoto in https://github.com/morshoto/framekit/pull/741
+- feat: prepare verified storyline reorder by @morshoto in https://github.com/morshoto/framekit/pull/720
+- feat: accept external edit JSON by @morshoto in https://github.com/morshoto/framekit/pull/768
+### Bug Fixes
+- fix: isolate test worker CI summaries by @morshoto in https://github.com/morshoto/framekit/pull/746
+- fix: guard canonical occurrence source evidence by @morshoto in https://github.com/morshoto/framekit/pull/718
+- fix: guard native placement target and retries by @morshoto in https://github.com/morshoto/framekit/pull/719
+- fix: reject incomplete native Browser scans by @morshoto in https://github.com/morshoto/framekit/pull/721
+- fix: guard unverified native media imports by @morshoto in https://github.com/morshoto/framekit/pull/711
+- fix: reject unsafe structural splits by @morshoto in https://github.com/morshoto/framekit/pull/713
+- fix: bind analyzer sources and measurement scope by @morshoto in https://github.com/morshoto/framekit/pull/738
+- fix: sync issue status with PR readiness by @morshoto in https://github.com/morshoto/framekit/pull/763
+### Documentation
+- perf: improve test confidence and organization by @morshoto in https://github.com/morshoto/framekit/pull/737
+- refactor: isolate FCPXML document interchange by @morshoto in https://github.com/morshoto/framekit/pull/736
+- test: prepare manual Final Cut import QA by @morshoto in https://github.com/morshoto/framekit/pull/769
+### Chores
+- chore(deps): lock file maintenance by @renovate[bot] in https://github.com/morshoto/framekit/pull/760
+- chore(deps): update dev dependencies by @renovate[bot] in https://github.com/morshoto/framekit/pull/761
+- chore(deps): update github actions by @renovate[bot] in https://github.com/morshoto/framekit/pull/762
+
 ## [v0.2.2](https://github.com/morshoto/framekit/compare/v0.2.1...v0.2.2) - 2026-11-14
 
 ### New Features

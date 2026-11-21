@@ -501,8 +501,17 @@ function addTitleOverlays(
   filters.push(`[${input}]format=yuv420p[video-titles-base]`);
   let current = "video-titles-base";
   for (const [index, title] of titles.entries()) {
-    const start = rationalSeconds(title.startTime, `${title.id}.startTime`);
-    const end = start + rationalSeconds(title.durationTime, `${title.id}.durationTime`);
+    const startNumerator = BigInt(title.startTime.value);
+    const startDenominator = BigInt(title.startTime.timescale);
+    const durationNumerator = BigInt(title.durationTime.value);
+    const durationDenominator = BigInt(title.durationTime.timescale);
+    const frameNumerator = BigInt(model.frameRate.value);
+    const frameDenominator = BigInt(model.frameRate.timescale);
+    const startFrame = ceilDivide(startNumerator * frameNumerator, startDenominator * frameDenominator);
+    const endFrame = ceilDivide(
+      (startNumerator * durationDenominator + durationNumerator * startDenominator) * frameNumerator,
+      startDenominator * durationDenominator * frameDenominator,
+    );
     const style = title.style;
     const color = escapeFilterValue(style?.color ?? "white");
     const size = formatNumber(style?.fontSize ?? 32);
@@ -516,10 +525,16 @@ function addTitleOverlays(
     const font = fontFile ? `fontfile='${escapeFilterValue(fontFile)}':` : "";
     const textFile = titleTextFiles[index];
     if (!textFile) throw new FfmpegRenderError("HEADLESS_RENDER_FAILED", `title text file is missing: ${index}`);
-    filters.push(`[${current}]drawtext=${font}textfile='${textFile}':expansion=none:fontcolor=${color}:fontsize=${size}:x=${x}:y=${y}:enable='between(t,${formatNumber(start)},${formatNumber(end)})'[${output}]`);
+    filters.push(`[${current}]drawtext=${font}textfile='${textFile}':expansion=none:fontcolor=${color}:fontsize=${size}:x=${x}:y=${y}:enable='gte(n,${startFrame})*lt(n,${endFrame})'[${output}]`);
     current = output;
   }
   return current;
+}
+
+// Frame n is active when n / fps is in the title's half-open time interval.
+function ceilDivide(numerator: bigint, denominator: bigint): bigint {
+  const quotient = numerator / denominator;
+  return numerator > 0n && numerator % denominator !== 0n ? quotient + 1n : quotient;
 }
 
 function transformFilter(occurrence: TimelineIrOccurrence, resource: TimelineIrResource, width: number, height: number): string {
@@ -663,11 +678,11 @@ function formatNumber(value: number): string {
   return Number(value.toFixed(6)).toString();
 }
 
-function escapeFilterValue(value: string): string {
+export function escapeFilterValue(value: string): string {
   return value.replaceAll("\\", "\\\\").replaceAll("'", "'\\''").replaceAll(":", "\\:").replaceAll(",", "\\,").replaceAll("[", "\\[").replaceAll("]", "\\]").replaceAll("\n", "\\n");
 }
 
-function resolveFontFile(preferred?: string): string | undefined {
+export function resolveFontFile(preferred?: string): string | undefined {
   const candidates = [
     preferred,
     "/System/Library/Fonts/HelveticaNeue.ttc",

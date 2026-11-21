@@ -1978,6 +1978,7 @@
     ],
     "tests/integration/headless-renderer.test.ts": [
       "\"FFmpeg renderer preserves apostrophes in title text\"",
+      "\"FFmpeg renderer ends titles before the cut frame\"",
       "\"FFmpeg renderer keeps title text separate from drawtext options\"",
       "\"FFmpeg Timeline IR renderer honors explicit output frame rate without mutating sources\"",
       "\"FFmpeg renderer fills a trailing video gap with black while music continues\"",
@@ -3055,6 +3056,11 @@
   },
   "recordedAtCommit": "37a92fa1",
   "addedTestNames": {
+    "tests/integration/release-notes-format.test.ts": [
+      "'matches exactly one nonempty milestone description by release version'",
+      "'omits categories and description when no milestone matches'",
+      "'CLI fetches paginated milestone descriptions and preserves manual notes'"
+    ],
     "tests/integration/phase1.test.ts": [
       "\"post-write speech reanalysis preserves mixed VAD coverage without advertising complete VAD\"",
       "\"post-write speech reanalysis rejects inconsistent provenance across disjoint ranges\"",
@@ -3105,7 +3111,8 @@
       "\"headless Undo rejects changed or missing media and a validation race\"",
       "\"headless Undo reports save and independent readback failures without verified success\"",
       "\"concurrent headless Undo attempts cannot both restore the same revision\"",
-      "\"artifact-first production MCP edits, restores, exports and renders fractional-frame media\""
+      "\"artifact-first production MCP edits, restores, exports and renders fractional-frame media\"",
+      "\"storyboard rejects stale media and cleans up after cancellation\""
     ],
     "tests/integration/project-status-sync.test.ts": [
       "'draft PRs select progress and ready PRs select review'",
