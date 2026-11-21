@@ -227,6 +227,7 @@ export interface HeadlessRoughCutPublishProof {
   canonicalRevision: ContextRevision;
   planDigest: string;
   renderId: string;
+  renderArtifact: { path: string; digest: string; bytes: number };
   artifactPath: string;
   artifactDigest: string;
   sourceAudioPolicy: "preserve-and-mix";
@@ -752,6 +753,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       canonicalRevision: structuredClone(record.canonicalRevision),
       planDigest: record.planDigest,
       renderId: record.renderId,
+      renderArtifact: structuredClone(boundRender),
       artifactPath: record.artifactPath,
       artifactDigest: record.artifactDigest,
       sourceAudioPolicy: record.outputIntent.sourceAudioPolicy,

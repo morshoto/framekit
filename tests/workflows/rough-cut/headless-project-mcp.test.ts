@@ -1053,6 +1053,10 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
     assert.equal(publishPreview.sourceTransactionId, `headless-rough-cut:${executed.executionId}`);
     assert.equal(publishPreview.sourceProof.planDigest, preview.planDigest);
     assert.equal(publishPreview.sourceProof.renderId, executed.render.renderId);
+    const renderBytes = await readFile(outputPath);
+    assert.deepEqual(publishPreview.sourceProof.renderArtifact, {
+      path: outputPath, digest: createHash("sha256").update(renderBytes).digest("hex"), bytes: renderBytes.length,
+    });
     assert.equal(publishPreview.sourceProof.destination.projectUid, executed.fcpxml.destination.projectUid);
     assert.equal(publishPreview.sourceProof.destination.sequenceUid, executed.fcpxml.destination.sequenceUid);
     const approvedMediaDigests = Object.values(registrations)
