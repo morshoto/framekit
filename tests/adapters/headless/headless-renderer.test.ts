@@ -13,12 +13,27 @@ import {
   type FramekitRenderParameters,
   type TimelineIr,
 } from "@framekit/runtime";
-import { FfmpegRenderVerifier, FfmpegTimelineRenderer } from "../../../adapters/headless/typescript/src/index.js";
+import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer } from "../../../adapters/headless/typescript/src/index.js";
 import { resolveFontFile } from "../../../adapters/headless/typescript/src/ffmpeg-renderer.js";
 import { compileTimelineIrToFcpxml, FcpxmlDocumentAdapter } from "@framekit/final-cut/fcpxml";
 
 const execFileAsync = promisify(execFile);
 const mediaFixtures = createMediaFixturePool();
+
+test("media probe retains declared video color metadata", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-color-probe-"));
+  try {
+    const source = join(directory, "bt709.mp4");
+    await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=red:s=320x180:r=30:d=1", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv", source]);
+    const video = (await new FfmpegMediaMetadataProbe().probe(source)).streams.find((stream) => stream.kind === "video");
+    assert.deepEqual((video as any)?.color, { primaries: "bt709", transfer: "bt709", matrix: "bt709", range: "tv" });
+    await mediaFixtures.copyTo(directory);
+    const unspecified = (await new FfmpegMediaMetadataProbe().probe(join(directory, "fixture-red-440hz.mp4"))).streams.find((stream) => stream.kind === "video");
+    assert.equal((unspecified as any)?.color, undefined);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 after(() => mediaFixtures.dispose());
 const repositoryRoot = process.cwd();
 
