@@ -485,6 +485,7 @@ test("FFmpeg mixes independent music with source audio at the requested gain", a
 
     const source = await timeline(join(directory, "fixture-red-440hz.mp4"), join(directory, "fixture-blue-880hz.mp4"));
     source.resources.push(audioResource("music", musicPath, await digest(musicPath)));
+    source.sequence.titles = [{ id: "transition-title", text: "FADE", startTime: { value: "3", timescale: "4" }, durationTime: { value: "1", timescale: "2" }, lane: 1 }];
     source.sequence.occurrences.push({
       id: "music-bed",
       name: "Music bed",
@@ -522,6 +523,19 @@ test("FFmpeg mixes independent music with source audio at the requested gain", a
     const expectedMusicAmplitude = frequencyAmplitude(sourceMusicPcm.stdout as unknown as Buffer, 1_760, 48_000) * 10 ** (-6 / 20);
     assert.ok(observedMusicAmplitude > 0.002, "independent music should remain audible in the mix");
     assert.ok(Math.abs(observedMusicAmplitude - expectedMusicAmplitude) < expectedMusicAmplitude * 0.25, "music gain should match the requested -6 dB");
+    const window = (from: number, to: number) => samples.subarray(Math.round(from * 48_000) * 4, Math.round(to * 48_000) * 4);
+    for (const [label, audio, expectedTone] of [["early", window(0.1, 0.5), 440], ["tail", window(1.5, 1.9), 880]] as const) {
+      assert.ok(frequencyAmplitude(audio, expectedTone, 48_000) > 0.002, `${label} source audio must remain audible`);
+      assert.ok(frequencyAmplitude(audio, 1_760, 48_000) > 0.002, `${label} music must remain audible`);
+    }
+    const noTitle = structuredClone(source);
+    noTitle.sequence.titles = [];
+    const plain = join(directory, "music-no-title.mp4");
+    const plainRequest = createFramekitRenderRequest({ timeline: noTitle, target: { projectId: noTitle.project.id, sequenceId: noTitle.sequence.id }, parameters: parameters(plain) });
+    await renderer.render(createFramekitRenderPlan(plainRequest, renderer.capabilities(plainRequest)));
+    const titledFrame = await frameAt(outputPath, 0.9, directory, "music-title-frame");
+    const plainFrame = await frameAt(plain, 0.9, directory, "music-no-title-frame");
+    assert.ok(countBrightPixels(titledFrame, 80, 240, 40, 140) > countBrightPixels(plainFrame, 80, 240, 40, 140) + 5, "title must remain visible over the mixed dissolve");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
