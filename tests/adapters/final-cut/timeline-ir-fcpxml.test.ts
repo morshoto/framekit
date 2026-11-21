@@ -645,6 +645,10 @@ test("encodes an explicitly selected basic title font", async () => {
   assert.match(artifact.xml, /key="com\.framekit\.title-font-postscript" value="NotoSansCJKjp-Regular"/);
   assert.ok(artifact.coverage.degraded.includes("native-title-font-availability-unverified"));
   assert.equal(artifact.digest, compileTimelineIrToFcpxml(value, { target, basicTitleFont: titleFont }).digest);
+  const changedFont = compileTimelineIrToFcpxml(value, { target, basicTitleFont: { ...titleFont, digest: "b".repeat(64) } });
+  assert.notEqual(artifact.destination.projectUid, changedFont.destination.projectUid);
+  assert.notEqual(artifact.destination.sequenceUid, changedFont.destination.sequenceUid);
+  assert.notEqual(artifact.destination.projectUid, compileTimelineIrToFcpxml(value, { target }).destination.projectUid);
   const escapedFont = compileTimelineIrToFcpxml(value, { target, basicTitleFont: { ...titleFont, family: 'Noto & "Friends"', style: "Maker's" } });
   assert.match(escapedFont.xml, /font="Noto &amp; &quot;Friends&quot;" fontFace="Maker&apos;s"/);
   for (const invalid of [null as unknown as typeof titleFont, { ...titleFont, family: " " }, { ...titleFont, style: "\u0000" }, { ...titleFont, digest: "bad" }]) {
