@@ -967,13 +967,21 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     const assetId = referencedEffect === undefined ? undefined : this.effectAssetId(String(referencedEffect));
     const text = kind === "title" ? textChildValue(node, "text") : undefined;
     const metadata = firstChild(node, "metadata");
-    const metadataValue = (key: string) => metadata === undefined ? undefined : storyEntries(metadata)
-      .find(({ kind: childKind, node: child }) => childKind === "md" && attribute(child, "key") === key)?.node;
+    const metadataValue = (key: string) => {
+      const matches = metadata === undefined ? [] : storyEntries(metadata)
+        .filter(({ kind: childKind, node: child }) => childKind === "md" && attribute(child, "key") === key);
+      if (matches.length > 1) throw new Error("FCPXML_TRANSITION_METADATA_INVALID: duplicate canonical transition metadata");
+      return matches[0]?.node;
+    };
     const transitionMarker = metadataValue("com.framekit.transition-kind");
     const transitionKind = transitionMarker && attribute(transitionMarker, "value");
     const beforeMetadata = metadataValue("com.framekit.before");
     const afterMetadata = metadataValue("com.framekit.after");
-    if (transitionKind !== undefined && (kind !== "transition" || transitionKind !== "cross-dissolve" || assetId !== "fcpxml:effect:FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265" || !beforeMetadata || !afterMetadata)) {
+    const beforeValue = beforeMetadata && attribute(beforeMetadata, "value");
+    const afterValue = afterMetadata && attribute(afterMetadata, "value");
+    const beforeAttribute = attribute(node, "framekit-before-clip");
+    const afterAttribute = attribute(node, "framekit-after-clip");
+    if ((transitionMarker || beforeMetadata || afterMetadata) && (kind !== "transition" || transitionKind !== "cross-dissolve" || assetId !== "fcpxml:effect:FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265" || !beforeValue || !afterValue || beforeAttribute !== undefined && String(beforeAttribute) !== String(beforeValue) || afterAttribute !== undefined && String(afterAttribute) !== String(afterValue))) {
       throw new Error("FCPXML_TRANSITION_METADATA_INVALID: unverified canonical transition metadata");
     }
     return {
