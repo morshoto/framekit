@@ -211,7 +211,7 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     assert.deepEqual(proof.titleFont, preview.titleFont);
     const renderRecordPath = join(directory, "projects", `${executed.render.renderId}.json`);
     const originalRenderRecord = await readFile(renderRecordPath, "utf8");
-    for (const mutation of ["font", "renderer", "missing", "title"] as const) {
+    for (const mutation of ["font", "renderer", "missing", "title", "revision", "render-revision", "target", "output"] as const) {
       const record = JSON.parse(originalRenderRecord);
       if (mutation === "font") record.outcome.plan.capabilities.titleFontDigest = "f".repeat(64);
       if (mutation === "renderer") {
@@ -221,6 +221,13 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
       }
       if (mutation === "missing") delete record.outcome.plan.capabilities.titleFontDigest;
       if (mutation === "title") record.outcome.plan.timeline.sequence.titles[0].text = "Different title";
+      if (mutation === "revision") record.outcome.plan.projectRevision.id = "different-revision";
+      if (mutation === "render-revision") record.outcome.render.projectRevision.id = "different-revision";
+      if (mutation === "target") record.outcome.plan.target.sequenceId = "different-sequence";
+      if (mutation === "output") {
+        record.outcome.plan.parameters.outputPath = join(directory, "other.mp4");
+        record.outcome.render.output.path = record.outcome.plan.parameters.outputPath;
+      }
       const { planDigest: _oldPlanDigest, ...changedPlan } = record.outcome.plan;
       record.outcome.plan.planDigest = createHash("sha256").update(stable(changedPlan)).digest("hex");
       record.outcome.render.planDigest = record.outcome.plan.planDigest;
