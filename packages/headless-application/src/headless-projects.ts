@@ -777,7 +777,14 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     if (project.timeline.sequence.titles?.length) {
       const outcome = render.outcome as FramekitRenderAndVerifyResult | undefined;
       const plan = outcome?.plan;
+      const verification = outcome?.verification;
+      const verifiedArtifact = verification?.artifact;
       if (!approval.titleFont || outcome?.status !== "passed" || !plan || typeof plan !== "object"
+        || outcome.render?.status !== "rendered" || verification?.status !== "passed"
+        || !Array.isArray(verification.checks) || !verification.checks.length || verification.checks.some((check) => check?.passed !== true)
+        || !record.renderArtifact || typeof record.renderArtifact.path !== "string" || typeof verifiedArtifact?.path !== "string"
+        || resolve(verifiedArtifact.path) !== resolve(record.renderArtifact.path)
+        || verifiedArtifact.fileDigest !== record.renderArtifact.digest || verifiedArtifact.sizeBytes !== record.renderArtifact.bytes
         || plan.capabilities?.titleFontDigest !== approval.titleFont.digest
         || stableJson(plan.renderer) !== stableJson(approval.titleFont.renderer)
         || stableJson(plan.capabilities?.renderer) !== stableJson(approval.titleFont.renderer)
