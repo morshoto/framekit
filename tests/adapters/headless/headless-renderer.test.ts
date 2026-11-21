@@ -70,6 +70,34 @@ test("FFmpeg renderer preserves apostrophes in title text", async () => {
   }
 });
 
+test("FFmpeg renderer ends titles before the cut frame", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-title-boundary-"));
+  try {
+    await mediaFixtures.copyTo(directory);
+    const source = await timeline(join(directory, "fixture-red-440hz.mp4"), join(directory, "fixture-blue-880hz.mp4"));
+    source.sequence.transitions = [];
+    delete source.sequence.occurrences[0]!.transform;
+    source.sequence.titles = [source.sequence.titles![0]!];
+    source.sequence.titles[0]!.durationTime = { value: "1", timescale: "1" };
+    const renderer = new FfmpegTimelineRenderer();
+    const output = join(directory, "boundary.mp4");
+    const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(output) });
+    await renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request)));
+    const bright = async (index: number) => {
+      const frame = join(directory, `frame-${index}.ppm`);
+      await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-i", output, "-vf", `select=eq(n\\,${index})`, "-frames:v", "1", frame]);
+      return countBrightPixels(await readFile(frame), 80, 240, 40, 140);
+    };
+    const before = await bright(29);
+    const boundary = await bright(30);
+    const after = await bright(31);
+    assert.ok(before > 5, `title must be visible on the final intended frame (${before})`);
+    assert.ok(boundary <= after + 5, `title must be absent on the first frame after its end (${boundary} vs ${after})`);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("FFmpeg renderer keeps title text separate from drawtext options", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-ffmpeg-renderer-title-textfile-"));
   try {
