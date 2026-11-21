@@ -139,6 +139,20 @@ convert an unobserved condition into PASS. Do not clear or replay a retained
 native reservation. A synthetic or FFmpeg-rendered movie is not a substitute
 for the actual Final Cut export.
 
+For the fixed two-second synthetic dissolve diagnostic (30 fps, six-frame
+red-to-blue transition, 440/880 Hz source audio and a 1760 Hz music bed), a
+separate measurement report can be created without overwriting an existing
+directory:
+
+```sh
+node --import tsx scripts/manual-import-qa.ts inspect-dissolve /path/to/video /path/to/new-dissolve-report
+```
+
+The report checks selected frame and audio windows and binds the inspected
+video hash. It does not verify the approved manifest, native import, Final Cut
+export provenance, title visibility or editability, or visual color parity.
+Record those checks independently; this diagnostic is not a release verdict.
+
 Apple documents [XML import](https://support.apple.com/guide/final-cut-pro/verdbd66ae/mac)
 and [Export File](https://support.apple.com/guide/final-cut-pro/export-final-mastering-files-ver0192a47b8/mac).
 
