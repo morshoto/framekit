@@ -1613,6 +1613,9 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     resumedAfterPreview.open = async () => structuredClone(legacyProofProject);
     try {
       await assert.rejects(resumedAfterPreview.verifyPublishableRoughCut(executionId, request.fcpxml.path), /audio stream bounds/);
+      // Plausible but fabricated bounds must not turn an unobserved source into proof.
+      legacyResource.metadata!.streams[0]!.sourceRange = { start: { value: "0", timescale: "1" }, duration: { value: "2", timescale: "1" } };
+      await assert.rejects(resumedAfterPreview.verifyPublishableRoughCut(executionId, request.fcpxml.path), /MEDIA_METADATA_CHANGED/);
     } finally {
       resumedAfterPreview.open = originalOpen;
     }
