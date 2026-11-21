@@ -49,6 +49,7 @@ export interface TimelineIrMediaStream {
   width?: number;
   height?: number;
   frameRate?: RationalTime;
+  color?: { primaries?: string; transfer?: string; matrix?: string; range?: string };
   sourceRange?: { start: RationalTime; duration: RationalTime };
   sampleRate?: number;
   channels?: number;
@@ -681,6 +682,14 @@ function validateMediaMetadata(metadata: TimelineIrMediaMetadata, field: string)
       validateRational(stream.sourceRange.duration, `${streamField}.sourceRange.duration`, true);
     }
     if (stream.codec !== undefined) requireText(stream.codec, `${streamField}.codec`);
+    if (stream.color !== undefined) {
+      if (stream.kind !== "video" || !stream.color || typeof stream.color !== "object" || Array.isArray(stream.color)) {
+        throw new Error(`TIMELINE_IR_INVALID: ${streamField}.color must be a video color object`);
+      }
+      for (const key of ["primaries", "transfer", "matrix", "range"] as const) {
+        if (stream.color[key] !== undefined) requireText(stream.color[key], `${streamField}.color.${key}`);
+      }
+    }
     if (stream.kind === "video") {
       if ((stream.width === undefined) !== (stream.height === undefined)) {
         throw new Error(`TIMELINE_IR_INVALID: ${streamField}.width and height must be provided together`);

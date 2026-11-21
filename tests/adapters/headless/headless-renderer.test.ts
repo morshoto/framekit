@@ -24,12 +24,12 @@ test("media probe retains declared video color metadata", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-color-probe-"));
   try {
     const source = join(directory, "bt709.mp4");
-    await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=red:s=320x180:r=30:d=1", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv", source]);
+    await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=red:s=320x180:r=30:d=1", "-vf", "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-movflags", "+write_colr", source]);
     const video = (await new FfmpegMediaMetadataProbe().probe(source)).streams.find((stream) => stream.kind === "video");
-    assert.deepEqual((video as any)?.color, { primaries: "bt709", transfer: "bt709", matrix: "bt709", range: "tv" });
+    assert.deepEqual(video?.color, { primaries: "bt709", transfer: "bt709", matrix: "bt709", range: "tv" });
     await mediaFixtures.copyTo(directory);
     const unspecified = (await new FfmpegMediaMetadataProbe().probe(join(directory, "fixture-red-440hz.mp4"))).streams.find((stream) => stream.kind === "video");
-    assert.equal((unspecified as any)?.color, undefined);
+    assert.equal(unspecified?.color, undefined);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
