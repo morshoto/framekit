@@ -81,6 +81,25 @@ test("artifact-first production MCP edits, restores, exports and renders fractio
       projectId, sequenceId, expectedRevision: b.project.timeline.revision,
       operations: placements.map((item) => ({ type: "insert-occurrence", placement: "append", occurrence: item })),
     } }));
+    // Publish the first immutable version before restarting the production server.
+    const v1Path = join(directory, "version-1.fcpxml");
+    const v1Target = { provider: "final-cut", libraryUid: "library", eventUid: "event", projectUid: "project-v1", sequenceUid: "sequence-v1", materialization: "versioned" };
+    const v1 = payload(await callTool({ name: "headless.fcpxml.export", arguments: {
+      projectId, sequenceId, expectedRevision: placed.after.timeline.revision, outputPath: v1Path, target: v1Target,
+    } }));
+    assert.equal(v1.artifact.verified, true);
+    const v1Digest = await sha(v1Path);
+    await client!.close();
+    await transport!.close();
+    ({ client, transport } = await connectProductionClient(here, environment));
+    const afterRestart = payload(await callTool({ name: "headless.project.inspect", arguments: { projectId } }));
+    assert.deepEqual(afterRestart.timeline, placed.after.timeline);
+    const splitOperation = [{ type: "split-occurrence", occurrenceId: "a", splitOffsetTime: frame(12), newOccurrenceId: "a-right" }];
+    const preview = payload(await callTool({ name: "headless.edit.preview", arguments: {
+      projectId, sequenceId, expectedRevision: placed.after.timeline.revision, operations: splitOperation,
+    } }));
+    assert.equal(preview.after.timeline.sequence.occurrences.length, 4);
+    assert.deepEqual(payload(await callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, afterRestart.timeline);
     const split = payload(await callTool({ name: "headless.edit.execute", arguments: {
       projectId, sequenceId, expectedRevision: placed.after.timeline.revision,
       operations: [{ type: "split-occurrence", occurrenceId: "a", splitOffsetTime: frame(12), newOccurrenceId: "a-right" }],
@@ -102,6 +121,11 @@ test("artifact-first production MCP edits, restores, exports and renders fractio
     const target = { provider: "final-cut", libraryUid: "library", eventUid: "event", projectUid: "project", sequenceUid: "sequence", materialization: "versioned" };
     const exported = payload(await callTool({ name: "headless.fcpxml.export", arguments: { projectId, sequenceId, expectedRevision: revision, outputPath: xmlPath, target } }));
     assert.equal(exported.artifact.verified, true);
+    assert.notEqual(exported.provenance.revision.id, v1.provenance.revision.id);
+    assert.equal(await sha(v1Path), v1Digest);
+    const overwrite = await callTool({ name: "headless.fcpxml.export", arguments: { projectId, sequenceId, expectedRevision: revision, outputPath: v1Path, target: v1Target } });
+    assert.equal(overwrite.isError, true);
+    assert.equal(await sha(v1Path), v1Digest);
     const render = payload(await callTool({ name: "headless.render", arguments: { projectId, sequenceId, expectedRevision: revision, parameters: { outputPath, format: "mp4", width: 320, height: 180, frameRate: { value: "24000", timescale: "1001" } } } }));
     assert.equal(render.status, "passed");
     const parsed = await new FcpxmlDocumentAdapter(xmlPath).readProject();
@@ -130,6 +154,30 @@ test("artifact-first production MCP edits, restores, exports and renders fractio
     assert.equal(video.r_frame_rate, "24000/1001");
     assert.equal(Number(video.nb_read_frames), 72);
     assert.ok(Math.abs(Number(video.duration) - 3.003) < 0.002);
+    const trimRemove = [
+      { type: "trim-occurrence", occurrenceId: "repeat-a", sourceStartTime: frame(24), durationTime: frame(12) },
+      { type: "remove-occurrence", occurrenceId: "b" },
+    ];
+    const beforeTrim = payload(await callTool({ name: "headless.project.inspect", arguments: { projectId } }));
+    const trimPreview = payload(await callTool({ name: "headless.edit.preview", arguments: { projectId, sequenceId, expectedRevision: revision, operations: trimRemove } }));
+    const revisedClip = trimPreview.after.timeline.sequence.occurrences.find((item: any) => item.id === "repeat-a");
+    assert.deepEqual(revisedClip.sourceStartTime, { value: "1001", timescale: "1000" });
+    assert.deepEqual(revisedClip.durationTime, { value: "1001", timescale: "2000" });
+    assert.equal(trimPreview.after.timeline.sequence.occurrences.some((item: any) => item.id === "b"), false);
+    assert.deepEqual(payload(await callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, beforeTrim.timeline);
+    const wrongTarget = await callTool({ name: "headless.edit.execute", arguments: { projectId, sequenceId: "wrong-sequence", expectedRevision: revision, operations: trimRemove } });
+    assert.equal(wrongTarget.isError, true);
+    const trimmed = payload(await callTool({ name: "headless.edit.execute", arguments: { projectId, sequenceId, expectedRevision: revision, operations: trimRemove } }));
+    const v3Path = join(directory, "version-3.fcpxml");
+    const v3Target = { ...v1Target, projectUid: "project-v3", sequenceUid: "sequence-v3" };
+    const v3 = payload(await callTool({ name: "headless.fcpxml.export", arguments: { projectId, sequenceId, expectedRevision: trimmed.after.timeline.revision, outputPath: v3Path, target: v3Target } }));
+    assert.equal(v3.artifact.verified, true);
+    const v3Document = await new FcpxmlDocumentAdapter(v3Path).readProject();
+    assert.deepEqual(v3Document.timeline.clips.map((clip) => [clip.sourceStart, clip.duration]), [[0.5005, 0.5005], [1.001, 0.5005], [1.001, 0.5005]]);
+    const restored = payload(await callTool({ name: "headless.edit.undo", arguments: { projectId, sequenceId, expectedRevision: trimmed.after.timeline.revision, undoId: trimmed.undoId } }));
+    assert.equal(restored.verification.verified, true);
+    assert.deepEqual(restored.project.timeline.sequence, beforeTrim.timeline.sequence);
+    assert.equal(await sha(v1Path), v1Digest);
     const hiddenPath = `${paths[1]!}.missing`;
     await rename(paths[1]!, hiddenPath);
     try {
