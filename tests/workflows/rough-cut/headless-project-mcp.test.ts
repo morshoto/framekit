@@ -52,6 +52,15 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
       render: { outputPath: join(directory, "render.mp4"), format: "mp4" as const, width: 320, height: 180, frameRate: { value: "30", timescale: "1" } },
       fcpxml: { path: join(directory, "edit.fcpxml"), target: { provider: "final-cut" as const, libraryUid: "test-library", eventUid: "test-event", projectUid: "test-project", sequenceUid: "test-sequence" } },
     };
+    const freshProbe = new FfmpegMediaMetadataProbe();
+    const mismatchedProbe = { probe: async (path: string) => {
+      const observed = await freshProbe.probe(path);
+      const video = observed.streams.find((stream) => stream.kind === "video");
+      if (video?.color) video.color.transfer = "smpte2084";
+      return observed;
+    } };
+    const mismatched = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: mismatchedProbe });
+    await assert.rejects(mismatched.previewRoughCut(request), /MEDIA_METADATA_CHANGED/);
     const preview = await service.previewRoughCut(request, undefined, true);
     assert.match(preview.storyboardUnavailable!, /HEADLESS_STORYBOARD_UNSUPPORTED/);
     assert.match(preview.planDigest, /^[a-f0-9]{64}$/);
