@@ -4,7 +4,7 @@ import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chmod, link, mkdir, open, readFile, readdir, mkdtemp, rename, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
@@ -1553,8 +1553,11 @@ test("storyboard rejects stale media and cleans up after cancellation", async ()
     await writeFile(fontPath, Buffer.from(await readFile(join(process.cwd(), "tests/fixtures/fonts/noto-sans-jp-test.otf.base64"), "utf8"), "base64"));
     const priorFont = process.env.FRAMEKIT_RENDER_FONT;
     try {
-      process.env.FRAMEKIT_RENDER_FONT = fontPath;
+      process.env.FRAMEKIT_RENDER_FONT = relative(process.cwd(), fontPath);
       await assert.rejects(renderer.render(missingGlyph, { width: 320, height: 180 }), /selected font lacks glyph U\+10FFFF/i);
+      const supported = structuredClone(missingGlyph);
+      supported.sequence.titles![0]!.text = "A日";
+      assert.ok(Buffer.from((await renderer.render(supported, { width: 320, height: 180 })).data, "base64").length > 100);
     } finally {
       if (priorFont === undefined) delete process.env.FRAMEKIT_RENDER_FONT;
       else process.env.FRAMEKIT_RENDER_FONT = priorFont;

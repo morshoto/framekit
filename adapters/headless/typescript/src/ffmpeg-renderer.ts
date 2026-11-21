@@ -708,5 +708,6 @@ export function resolveFontFile(preferred?: string): string | undefined {
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
   ].filter((candidate): candidate is string => Boolean(candidate));
-  return candidates.find((candidate) => existsSync(candidate));
+  const found = candidates.find((candidate) => existsSync(candidate));
+  return found === undefined ? undefined : resolve(found);
 }
