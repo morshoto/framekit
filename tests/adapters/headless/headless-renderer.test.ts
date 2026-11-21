@@ -52,7 +52,7 @@ test("FFmpeg dissolve preserves incoming video and audio timing", async () => {
     const blend = ppmPixel(await frameAt(output, 0.9, directory, "dissolve-blend"), 160, 150);
     assert.ok(blend.r > blend.g + 20 && blend.g > 10, `expected both source contributions: ${JSON.stringify(blend)}`);
     const levels: number[] = [];
-    for (const [label, outputTime, sourceTime] of [["middle", 1.5, 1.0], ["tail", 1.9, 1.4]] as const) {
+    for (const [label, outputTime, sourceTime] of [["middle", 1.5, 1.0], ["tail", 1.96, 1.46]] as const) {
       const actual = ppmPixel(await frameAt(output, outputTime, directory, `${label}-actual`), 160, 150).r;
       const expected = ppmPixel(await frameAt(moving, sourceTime, directory, `${label}-source`), 160, 150).r;
       assert.ok(Math.abs(actual - expected) <= 8, `${label}: output ${actual}, expected source ${expected}`);
