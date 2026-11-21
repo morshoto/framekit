@@ -111,6 +111,14 @@ export interface TimelineIrTitleStyle {
   alignment?: "left" | "center" | "right";
 }
 
+/** Identity of the exact font asset selected for a basic editable title. */
+export interface TimelineIrTitleFont {
+  family: string;
+  style: string;
+  postscriptName: string;
+  digest: string;
+}
+
 export interface TimelineIrTitle {
   id: string;
   text: string;
@@ -118,6 +126,7 @@ export interface TimelineIrTitle {
   durationTime: RationalTime;
   /** Connected/overlay lane; zero is reserved for the primary storyline. */
   lane: number;
+  font?: TimelineIrTitleFont;
   style?: TimelineIrTitleStyle;
   /** Normalized output coordinates in the centered canvas space: x and y are in [-1, 1], +x is right, and +y is up. */
   position?: { x: number; y: number };
@@ -887,6 +896,15 @@ function validateTitle(title: TimelineIrTitle): void {
   validateRational(title.startTime, `title ${title.id}.startTime`, false);
   validateRational(title.durationTime, `title ${title.id}.durationTime`, true);
   if (!Number.isInteger(title.lane) || title.lane < 1) throw new Error(`TIMELINE_IR_INVALID: title ${title.id}.lane must be a positive integer`);
+  if (title.font !== undefined) {
+    const font = title.font;
+    if (!font || typeof font !== "object" || Array.isArray(font)
+      || Object.keys(font).some((key) => !["family", "style", "postscriptName", "digest"].includes(key))
+      || ![font.family, font.style, font.postscriptName].every((value) => typeof value === "string" && value.trim())
+      || typeof font.digest !== "string" || !/^[a-f0-9]{64}$/.test(font.digest)) {
+      throw new Error(`TIMELINE_IR_INVALID: title ${title.id}.font requires an identifiable face and SHA-256`);
+    }
+  }
   if (title.position && (![title.position.x, title.position.y].every(Number.isFinite)
     || ![title.position.x, title.position.y].every((value) => value >= -1 && value <= 1))) {
     throw new Error(`TIMELINE_IR_INVALID: title ${title.id}.position must use normalized coordinates in [-1, 1]`);
