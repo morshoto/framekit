@@ -609,6 +609,7 @@ export function validateTimelineIr(timeline: TimelineIr): void {
     if (occurrence.nativeAudioRole !== undefined && (
       typeof occurrence.nativeAudioRole !== "string"
       || !/^dialogue(?:\.[^.]+)?$/.test(occurrence.nativeAudioRole)
+      || /[\t\r\n]/.test(occurrence.nativeAudioRole)
       || occurrence.role === "music"
       || occurrence.role === "title"
     )) {

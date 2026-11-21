@@ -184,8 +184,11 @@ Version 1 requires at least one clip; `title` and `music` are independently
 optional. When present, each section must satisfy its normal validation rules.
 An individual video clip may specify `nativeAudioRole` as `dialogue` or a
 `dialogue` subrole such as `dialogue.alternate` when its registered source has
-exactly one audio stream. The role is included in the approved preview and
-exported FCPXML; omitting it leaves the native role unspecified.
+exactly one audio stream. Framekit re-probes the source before accepting the role
+and before rendering or export, rejecting changed or unverifiable metadata. The
+role is included in the approved preview and exported FCPXML; omitting it leaves
+the native role unspecified. Tabs, carriage returns and newlines are rejected
+because XML would normalize them.
 
 New or changed local connected audio in headless edits requires exactly one audio
 stream with verified bounds covering the requested source range. Rough-cut output,
