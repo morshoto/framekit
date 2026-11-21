@@ -141,6 +141,9 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     const titleRequest = { ...request, operations: request.operations.map((operation) => operation.type === "add-title" ? { ...operation, title: { ...operation.title, text: "A日" } } : operation) };
     const unsupportedTitle = { ...titleRequest, operations: titleRequest.operations.map((operation) => operation.type === "add-title" ? { ...operation, title: { ...operation.title, text: "A\u{10ffff}" } } : operation) };
     await assert.rejects(fontService.previewRoughCut(unsupportedTitle), /RENDER_CAPABILITY_UNAVAILABLE.*titles/);
+    const concreteRenderer = new FfmpegTimelineRenderer({ env: { FRAMEKIT_RENDER_FONT: fontPath } });
+    const noDestinationCheck = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: new FfmpegMediaMetadataProbe(), renderer: { id: concreteRenderer.id, version: concreteRenderer.version, capabilities: (input) => concreteRenderer.capabilities(input), render: (plan) => concreteRenderer.render(plan) } });
+    await assert.rejects(noDestinationCheck.previewRoughCut(titleRequest), /RENDER_UNAVAILABLE.*output safety/);
     const originalFontBeforePreview = await readFile(fontPath);
     const fontCollision = { ...titleRequest, render: { ...titleRequest.render, outputPath: fontPath, overwrite: true } };
     await assert.rejects(fontService.previewRoughCut(fontCollision), /OUTPUT_INVALID.*font/i);

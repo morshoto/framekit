@@ -96,6 +96,12 @@ export class FfmpegTimelineRenderer implements FramekitRenderProvider {
     };
   }
 
+  public async validateTitleOutput(request: FramekitRenderRequest): Promise<void> {
+    if (request.timeline.sequence.titles?.length && this.fontFile) {
+      await assertFontOutputSeparation(resolve(request.parameters.outputPath), this.fontFile);
+    }
+  }
+
   public async render(plan: FramekitRenderPlan): Promise<FramekitRenderProviderResult> {
     if (plan.renderer.id !== this.id || plan.renderer.version !== this.version) {
       throw new FfmpegRenderError("HEADLESS_RENDER_PLAN_MISMATCH", "render plan is bound to another renderer version");

@@ -487,6 +487,8 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       if (capabilities.features.titles !== "supported" || !/^[a-f0-9]{64}$/.test(capabilities.titleFontDigest ?? "")) {
         throw new Error("RENDER_CAPABILITY_UNAVAILABLE: required title font or semantics are unavailable (titles)");
       }
+      if (!this.renderer.validateTitleOutput) throw new Error("HEADLESS_ROUGH_CUT_RENDER_UNAVAILABLE: renderer cannot validate title output safety");
+      await this.renderer.validateTitleOutput(renderRequest);
       titleFont = { renderer: capabilities.renderer, digest: capabilities.titleFontDigest! };
     }
     const approval = createRoughCutApproval({
