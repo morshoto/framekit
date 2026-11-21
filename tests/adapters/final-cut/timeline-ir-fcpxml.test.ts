@@ -219,8 +219,9 @@ test("dissolve planning preserves fractional frame timing and bounds", () => {
   value.sequence.transitions = [{ id: "fade", kind: "cross-dissolve", beforeOccurrenceId: "first", afterOccurrenceId: "second", durationTime: { value: "1001", timescale: "2000" } }];
   const result = planFcpxmlDissolve(value);
   assert.deepEqual(result.startTime, { value: "3003", timescale: "2000" });
-  assert.deepEqual(result.afterSourceStartTime, { value: "11011", timescale: "4000" });
-  assert.deepEqual(result.afterDurationTime, { value: "9009", timescale: "4000" });
+  assert.deepEqual(result.afterStartTime, { value: "53053", timescale: "30000" });
+  assert.deepEqual(result.afterSourceStartTime, { value: "83083", timescale: "30000" });
+  assert.deepEqual(result.afterDurationTime, { value: "67067", timescale: "30000" });
   value.resources[0]!.sourceRange = { start: { value: "3", timescale: "1" }, duration: { value: "10", timescale: "1" } };
   assert.throws(() => planFcpxmlDissolve(value), /FCPXML_DISSOLVE_HANDLE/);
 });
