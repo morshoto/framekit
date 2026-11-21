@@ -108,10 +108,10 @@ FFmpeg and its drawtext support are required for storyboard rendering.
 Publishing an approved rough cut requires its verified video and FCPXML to
 remain at their approved paths with unchanged contents. The publish preview's
 `sourceProof.renderArtifact` reports the checked video path, SHA-256 digest,
-and byte count. Older rough-cut
-execution records without a verified video identity cannot be published; use
-new output paths and run a new approved preview and execution to create
-current evidence.
+and byte count. Older rough-cut execution records without a verified video
+identity cannot be published. Restore the project to its pre-execution state,
+or recreate the intended edit in a fresh project, then use new output paths and
+run a new approved preview and execution to create current evidence.
 
 Headless title rendering checks glyph coverage in the selected font and fails
 when a glyph is missing or a variation or joined sequence cannot be verified.
