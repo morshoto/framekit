@@ -645,6 +645,11 @@ test("encodes an explicitly selected basic title font", async () => {
   assert.match(artifact.xml, /key="com\.framekit\.title-font-postscript" value="NotoSansCJKjp-Regular"/);
   assert.ok(artifact.coverage.degraded.includes("native-title-font-availability-unverified"));
   assert.equal(artifact.digest, compileTimelineIrToFcpxml(value, { target, basicTitleFont: titleFont }).digest);
+  const escapedFont = compileTimelineIrToFcpxml(value, { target, basicTitleFont: { ...titleFont, family: 'Noto & "Friends"', style: "Maker's" } });
+  assert.match(escapedFont.xml, /font="Noto &amp; &quot;Friends&quot;" fontFace="Maker&apos;s"/);
+  for (const invalid of [null as unknown as typeof titleFont, { ...titleFont, family: " " }, { ...titleFont, style: "\u0000" }, { ...titleFont, digest: "bad" }]) {
+    assert.throws(() => compileTimelineIrToFcpxml(value, { target, basicTitleFont: invalid }), /FCPXML_(TITLE_FONT_INVALID|INVALID)/);
+  }
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-explicit-title-"));
   try {
     const path = join(directory, "title.fcpxml");
