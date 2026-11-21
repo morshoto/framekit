@@ -1766,6 +1766,29 @@ test("headless rough-cut preview and execution preserve provenance and produce v
       verifier: new FfmpegRenderVerifier(),
     });
     assert.deepEqual(await (restarted as any).verifyPublishableRoughCut(executionId, request.fcpxml.path), proof);
+    // A render record is separate from the approved execution record. Even a
+    // self-consistent digest must not authorize a different no-title render.
+    const renderRecordPath = join(directory, "projects", `${executed.render.renderId}.json`);
+    const originalRenderRecord = await readFile(renderRecordPath, "utf8");
+    const stableRender = (value: any): string => value === null || typeof value !== "object" ? JSON.stringify(value)
+      : Array.isArray(value) ? `[${value.map(stableRender).join(",")}]`
+      : `{${Object.entries(value).filter(([, child]) => child !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => `${JSON.stringify(key)}:${stableRender(child)}`).join(",")}}`;
+    for (const mutation of ["title", "target", "revision", "parameters", "output", "missing-verification"] as const) {
+      const saved = JSON.parse(originalRenderRecord);
+      if (mutation === "title") saved.outcome.plan.timeline.sequence.titles = [{ id: "injected", text: "not approved", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "2" }, lane: 1 }];
+      if (mutation === "target") saved.outcome.plan.target.sequenceId = "other-sequence";
+      if (mutation === "revision") saved.outcome.plan.projectRevision.sequence++;
+      if (mutation === "parameters") saved.outcome.plan.parameters.width++;
+      if (mutation === "output") saved.outcome.render.output.path = join(directory, "other.mp4");
+      if (mutation === "missing-verification") delete saved.outcome.verification;
+      const { planDigest: _oldDigest, ...planBase } = saved.outcome.plan;
+      saved.outcome.plan.planDigest = createHash("sha256").update(stableRender(planBase)).digest("hex");
+      saved.outcome.render.planDigest = saved.outcome.plan.planDigest;
+      await writeFile(renderRecordPath, JSON.stringify(saved));
+      await assert.rejects(restarted.verifyPublishableRoughCut(executionId, request.fcpxml.path), /HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH/, mutation);
+    }
+    await writeFile(renderRecordPath, originalRenderRecord);
+    assert.deepEqual(await restarted.verifyPublishableRoughCut(executionId, request.fcpxml.path), proof);
     const originalRender = await readFile(request.render.outputPath);
     const alteredRender = Buffer.from(originalRender);
     alteredRender[Math.floor(alteredRender.length / 2)]! ^= 1;
