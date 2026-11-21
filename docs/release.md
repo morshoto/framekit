@@ -119,6 +119,116 @@ Preserve the tested tag, source commit, artifact digest, verification status,
 and any remaining blocker with the evidence. Never present fixture success,
 artifact dispatch, or metadata observation as a completed native import.
 
+## Emergency release rollback
+
+Use this runbook when a merged release PR may have shipped a severe regression,
+unsafe native extension, exposed secret, or destructive editing behavior. A
+release can be public on npm before the clean-client check, GitHub release, or
+native packaging finishes. Treat those as separate distribution surfaces.
+Assign an incident owner, record the affected version and commit, and announce
+the incident through the project's normal channels. Tell users to stop using
+the affected version while its impact is investigated. Do not post secrets,
+private media, or project contents in public incident records.
+
+### 1. Stop further distribution and establish state
+
+1. Cancel all active or queued Release workflow runs for the affected tag,
+   including native packaging and manual retries. Check their final status:
+   cancellation can race with an already running publish or asset upload.
+   Coordinate with maintainers to pause merges and manual release retries
+   until containment is verified. The workflow has no bad-tag quarantine or
+   global kill switch; cancellation alone does not prevent a new run.
+2. Record the merged PR, tag, resolved commit, workflow run URLs and timestamps.
+   Inspect the npm version and dist-tags, GitHub release and assets, and native
+   packaging runs separately. Repeat these checks after cancellation settles.
+   For example, substitute the affected tag and version below:
+
+   ```sh
+   gh run list --workflow release.yml --limit 30
+   gh release view vX.Y.Z --json tagName,isDraft,isPrerelease,assets,url
+   gh api repos/morshoto/framekit/releases/latest --jq .tag_name
+   git ls-remote origin 'refs/tags/vX.Y.Z*'
+   npm view @morshoto/framekit@X.Y.Z version dist.integrity --json
+   npm view @morshoto/framekit dist-tags --json
+   ```
+
+   A failed query is not proof that publication did not happen: distinguish a
+   confirmed registry 404 from authentication, network, or registry errors.
+3. Select a known-good fallback from actual release evidence. Verify its npm
+   version and integrity, GitHub release, and, if needed, the matching native
+   archive, checksum, signature and source identity. Check its known defects
+   and compatibility with the user's projects. Do not assume the preceding
+   version is safe or that npm and native assets are both available.
+
+### 2. Contain each affected surface
+
+**npm:** If the affected version is published, an authorized npm maintainer can
+move `latest` to the verified fallback and deprecate the exact bad version:
+
+```sh
+npm dist-tag add @morshoto/framekit@GOOD_VERSION latest
+npm deprecate @morshoto/framekit@BAD_VERSION "Do not use: INCIDENT. Use GOOD_VERSION or a verified fixed release."
+npm view @morshoto/framekit dist-tags --json
+npm view @morshoto/framekit@BAD_VERSION deprecated
+```
+
+Replace every placeholder, including the message, before running these
+commands. Trusted publishing grants the workflow publish access; it does not
+establish that an incident responder can change dist-tags or deprecate. Verify
+maintainer access in advance. Moving `latest` affects future resolution of
+that tag, not already installed or cached packages, lockfiles, explicit version
+pins, or all semver range resolution. Deprecation warns but does not prevent
+installation. Tell affected users the exact safe version and how to update or
+pin their client, and have them restart it and verify the installed version.
+
+Prefer deprecation to unpublishing. Consider unpublishing only when continued
+availability poses a greater risk than breaking consumers, and check the
+[npm unpublish policy](https://docs.npmjs.com/policies/unpublish/) first. A
+published package/version cannot be reused, even after unpublishing.
+
+**GitHub and native assets:** Add a prominent warning and safe-version guidance
+to the affected GitHub release. Set the verified fallback as the latest release
+if appropriate, and verify what GitHub displays. If an asset is dangerous,
+remove it from distribution after preserving its digest and incident evidence;
+downloads and installed copies cannot be recalled. Instruct users to replace
+the extension with a verified matching fallback and restart the relevant apps.
+Check package/extension build alignment; a mismatched pair may fail closed.
+The [GitHub release management guide](https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository?tool=cli)
+describes editing releases and their latest status.
+
+**Projects and secrets:** Stop further edits to affected projects. Preserve
+copies and available logs, then restore from a verified backup or use Undo only
+when its applicability and result can be independently verified. Do not claim
+that downgrading restores media or timelines. For a suspected credential leak,
+revoke and rotate the affected credentials, investigate access, and follow the
+project's security disclosure process. Removing an artifact cannot retract
+copies already downloaded.
+
+### 3. Repair, release and verify
+
+Identify and revert or fix the actual faulty changes on `main` through a
+reviewed PR; reverting the tagpr merge alone may only revert version metadata.
+Preserve the release tag and incident evidence rather than moving or reusing
+the tag. Quarantine the affected tag operationally: do not dispatch a retry for
+it, because the existing `release_tag` input accepts reachable tags and may
+publish or resume publication. Review active runs again before and after the
+repair.
+
+If the release candidate is sound and only publication infrastructure failed,
+the existing-tag retry in [Validation and retries](#validation-and-retries) is
+appropriate after confirming the partial publication state. If the published
+candidate itself is bad, validate and publish a **new version** through the
+normal release process. Verify its exact tag and commit, npm version and
+dist-tags, clean-client installation, GitHub release, and native assets and
+provenance separately. Perform any required headed Final Cut acceptance
+separately; package or fixture checks do not establish it.
+
+Close the incident only after containment and the chosen recovery are verified.
+Record the affected and fallback versions, user impact, remaining risks,
+timestamps, links to evidence and follow-up work. Notify users when a verified
+fix is available, including whether they need to restore a project or replace
+an installed extension.
+
 Milestone reports are generated from explicit baseline/current coverage,
 GitHub milestone activity, and the corresponding tags. Store their JSON,
 Markdown, and chart assets with the draft release. Exact reruns from the same
