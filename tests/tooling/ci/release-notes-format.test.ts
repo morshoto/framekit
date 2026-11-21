@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, mkdtemp, writeFile, chmod, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
 	collapseMaintenanceReleaseNotes,
 	formatReleaseNotes,
+	selectMilestoneDescription,
 	MAINTENANCE_RELEASE_SUMMARY,
 } from '../../../scripts/format-release-notes.mjs';
 
@@ -74,16 +77,13 @@ test('formats v0.1.16 generated notes into Codex sections and a complete changel
 		resolve(repository, 'tests/fixtures/release-notes/v0.1.16.md'),
 		'utf8',
 	);
-	const formatted = formatReleaseNotes(source);
+	const formatted = formatReleaseNotes(source, 'Goal: ship safely\n\nExit: done.');
 
+	assert.match(formatted, /## Description\n\nGoal: ship safely\n\nExit: done\./);
 	assert.match(formatted, /^<!-- Release notes generated[\s\S]*?-->/);
-	assert.match(formatted, /## New Features[\s\S]*?\[#495\]/);
-	assert.match(formatted, /## Bug Fixes[\s\S]*?\[#501\]/);
-	assert.match(formatted, /## Documentation[\s\S]*?\[#446\]/);
-	assert.match(formatted, /## Chores[\s\S]*?\[#441\]/);
 	assert.match(formatted, /\*\*Full Changelog\*\*: https:\/\/github\.com\/morshoto\/framekit\/compare\/v0\.1\.15\.\.\.v0\.1\.16/);
 	assert.match(formatted, /## Changelog[\s\S]*\[#495\].*feat: harden editable FCPXML materialization.*@morshoto/);
-	assert.equal((formatted.match(/\[#\d+\]/g) ?? []).length, 20);
+	assert.equal((formatted.match(/\[#\d+\]/g) ?? []).length, 10);
 	assert.equal(formatReleaseNotes(formatted), formatted);
 });
 
@@ -94,11 +94,8 @@ test('formats v0.1.15 notes including an existing maintenance details wrapper', 
 	);
 	const formatted = formatReleaseNotes(source);
 
-	assert.match(formatted, /## New Features/);
-	assert.match(formatted, /## Documentation/);
-	assert.match(formatted, /## Chores/);
 	assert.match(formatted, /## Changelog[\s\S]*\[#462\].*docs: record background read NO-GO gate.*@morshoto/);
-	assert.equal((formatted.match(/\[#\d+\]/g) ?? []).length, 40);
+	assert.equal((formatted.match(/\[#\d+\]/g) ?? []).length, 20);
 	assert.equal(formatReleaseNotes(formatted), formatted);
 });
 
@@ -118,8 +115,6 @@ test('preserves release comments and handles CRLF and unusual pull request title
 	const formatted = formatReleaseNotes(source);
 
 	assert.match(formatted, /^<!-- human release comment -->/);
-	assert.match(formatted, /## New Features[\s\S]*support.*special.*title/);
-	assert.match(formatted, /## Documentation[\s\S]*\[#5\]/);
 	assert.match(formatted, /<!-- keep this release note comment -->/);
 	assert.match(formatted, /## Changelog[\s\S]*\[#4\].*some-user/);
 	assert.equal(formatReleaseNotes(formatted), formatted);
@@ -177,4 +172,38 @@ test('format workflows target tag PR previews, draft releases, and published rel
 	assert.match(workflow, /name: Format generated release notes in tagpr PR/);
 	assert.match(workflow, /name: Format generated release notes in GitHub release/);
 	assert.doesNotMatch(workflow, /format-release-notes\.yml/);
+});
+
+
+test('matches exactly one nonempty milestone description by release version', () => {
+ const milestone = { title: 'Release for v0.2.4', description: 'Goal: first\n\n- second' };
+ assert.equal(selectMilestoneDescription([milestone], 'v0.2.4'), milestone.description);
+ assert.equal(selectMilestoneDescription([milestone], 'v0.2.5'), undefined);
+ assert.equal(selectMilestoneDescription([milestone, milestone], 'v0.2.4'), undefined);
+ assert.equal(selectMilestoneDescription([{ ...milestone, description: '  ' }], 'v0.2.4'), undefined);
+});
+
+test('omits categories and description when no milestone matches', () => {
+ const source = `## What's Changed\n### Chores\n* test: example by @user in https://github.com/example/repo/pull/1\n\n**Full Changelog**: https://github.com/example/repo/compare/v1...v2`;
+ const result = formatReleaseNotes(source);
+ assert.doesNotMatch(result, /## (Description|Chores)/);
+ assert.match(result, /## Changelog[\s\S]*\[#1\]/);
+});
+
+
+test('CLI fetches paginated milestone descriptions and preserves manual notes', async () => {
+ const dir = await mkdtemp(resolve(tmpdir(), 'framekit-notes-'));
+ try {
+  const gh = resolve(dir, 'gh');
+  await writeFile(gh, `#!/bin/sh\nprintf '%s' '[[] , [{"title":"Release for v0.2.4","description":"Goal: revise\\n\\n- editable"}]]'\n`);
+  await chmod(gh, 0o755);
+  const env = { ...process.env, PATH: `${dir}:${process.env.PATH}`, GITHUB_REPOSITORY: 'example/repo', RELEASE_VERSION: 'v0.2.4' };
+  const source = `<!-- Release notes generated -->\n## What's Changed\n* fix: example by @user in https://github.com/example/repo/pull/1\n\n**Full Changelog**: https://github.com/example/repo/compare/v1...v2\n`;
+  const run = spawnSync(process.execPath, [resolve(repository, 'scripts/format-release-notes.mjs')], { env, input: source, encoding: 'utf8' });
+  assert.equal(run.status, 0, run.stderr);
+  assert.match(run.stdout, /## Description\n\nGoal: revise\n\n- editable\n\n## Changelog/);
+  const manual = source.replace('<!-- Release notes generated -->', 'Manual introduction');
+  const preserved = spawnSync(process.execPath, [resolve(repository, 'scripts/format-release-notes.mjs')], { env, input: manual, encoding: 'utf8' });
+  assert.equal(preserved.stdout, manual);
+ } finally { await rm(dir, { recursive: true, force: true }); }
 });

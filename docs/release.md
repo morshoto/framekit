@@ -1,5 +1,10 @@
 # Release and provenance
 
+Release notes place the description of the milestone titled `Release for
+vX.Y.Z` before the changelog. If no unique milestone with a nonempty
+description exists, automation warns and retains the changelog without a
+description.
+
 The release workflow starts from `main` and coordinates a tagpr release pull
 request, npm publication, the GitHub release, release-note formatting, and
 native extension packaging. Package publication does not imply that a signed

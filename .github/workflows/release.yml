@@ -29,6 +29,7 @@ jobs:
         runs-on: ubuntu-latest
         permissions:
             contents: write
+            issues: read
         outputs:
             release-tag: ${{ steps.requested-tag.outputs.tag || steps.existing-tag.outputs.tag || steps.run-tagpr.outputs.tag }}
             milestone-release: ${{ steps.classify.outputs.milestone }}
@@ -92,6 +93,7 @@ jobs:
                   GH_TOKEN: ${{ github.token }}
                   GITHUB_REPOSITORY: ${{ github.repository }}
                   RELEASE_TAG: ${{ steps.requested-tag.outputs.tag || steps.existing-tag.outputs.tag || steps.run-tagpr.outputs.tag }}
+                  RELEASE_VERSION: ${{ steps.requested-tag.outputs.tag || steps.existing-tag.outputs.tag || steps.run-tagpr.outputs.tag }}
               shell: bash
               run: |
                   set -euo pipefail
@@ -518,6 +520,7 @@ jobs:
         runs-on: ubuntu-latest
         permissions:
             contents: read
+            issues: read
             pull-requests: write
         steps:
             - name: Check out repository
@@ -529,6 +532,7 @@ jobs:
               env:
                   GH_TOKEN: ${{ github.token }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
+                  PR_TITLE: ${{ github.event.pull_request.title }}
               shell: bash
               run: |
                   set -euo pipefail
@@ -536,6 +540,7 @@ jobs:
                   formatted="${RUNNER_TEMP}/release-pr-body-formatted.md"
                   payload="${RUNNER_TEMP}/release-pr-body.json"
 
+                  export RELEASE_VERSION="${PR_TITLE#Release for }"
                   gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '.body // ""' > "${original}"
                   node scripts/format-release-notes.mjs < "${original}" > "${formatted}"
 
@@ -557,6 +562,7 @@ jobs:
         runs-on: ubuntu-latest
         permissions:
             contents: write
+            issues: read
         steps:
             - name: Check out repository
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -567,6 +573,7 @@ jobs:
               env:
                   GH_TOKEN: ${{ github.token }}
                   RELEASE_ID: ${{ github.event.release.id }}
+                  RELEASE_VERSION: ${{ github.event.release.tag_name }}
               shell: bash
               run: |
                   set -euo pipefail
