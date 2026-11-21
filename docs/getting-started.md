@@ -101,8 +101,9 @@ or operations if needed, and preview again before executing with the new
 digest and explicit approval. Preview does not change the project or source
 media. The sheet is limited to 12 samples and a maximum of 640 × 360 pixels per
 sample. It does not show motion or audio, and frame-rate conversion can select
-a nearby source frame. Unsupported visual compositions fail rather than
-returning a misleading image. FFmpeg and its drawtext support are required.
+a nearby source frame. Unsupported visual compositions or sample limits return
+JSON and a plan digest without an image; `storyboardUnavailable` explains why.
+FFmpeg and its drawtext support are required for storyboard rendering.
 
 Empty `timeline` for step 1:
 

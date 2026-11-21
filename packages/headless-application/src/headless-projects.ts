@@ -191,6 +191,7 @@ export interface HeadlessRoughCutPreview extends ProjectEditPreview {
   planDigest: string;
   provenance: HeadlessRoughCutShotProvenance[];
   storyboard?: StoryboardImage & { planDigest: string; revision: ContextRevision };
+  storyboardUnavailable?: string;
   outputIntent: {
     sourceAudioPolicy: "preserve-and-mix";
     render: FramekitRenderParameters;
@@ -476,7 +477,15 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       artifactDigest: fcpxml.digest,
       outputIntent: prepared.outputIntent,
     });
-    const storyboard = this.storyboard && await this.storyboard.render(preview.after.timeline, request.render, signal);
+    let storyboard: StoryboardImage | undefined;
+    let storyboardUnavailable: string | undefined;
+    try {
+      storyboard = await this.storyboard?.render(preview.after.timeline, request.render, signal);
+    } catch (error) {
+      signal?.throwIfAborted();
+      if (!(error instanceof Error) || !/^HEADLESS_STORYBOARD_(UNSUPPORTED|LIMIT):/.test(error.message)) throw error;
+      storyboardUnavailable = error.message;
+    }
     signal?.throwIfAborted();
     const current = await this.open(request.projectId);
     if (timelineIrDigest(current.timeline) !== timelineIrDigest(prepared.project.timeline)) {
@@ -490,6 +499,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       planDigest: approval.planDigest,
       provenance: prepared.provenance,
       ...(storyboard ? { storyboard: { ...storyboard, planDigest: approval.planDigest, revision: preview.after.timeline.revision } } : {}),
+      ...(storyboardUnavailable ? { storyboardUnavailable } : {}),
       outputIntent: prepared.outputIntent,
       fcpxml: selectFcpxmlMetadata(fcpxml),
     };

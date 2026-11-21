@@ -1416,13 +1416,25 @@ test("headless rough-cut preview and execution preserve provenance and produce v
       /HEADLESS_ROUGH_CUT_SOURCE_MISMATCH:/,
     );
 
+    await rm(collisionPath);
+    for (const code of ["HEADLESS_STORYBOARD_SOURCE_CHANGED", "UNEXPECTED_RENDER_FAILURE"]) {
+      const failing = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: new FfmpegMediaMetadataProbe(), storyboard: { render: async () => { throw new Error(`${code}: failure`); } } });
+      await assert.rejects(failing.previewRoughCut(request, undefined, true), new RegExp(code));
+      await assert.rejects(readFile(collisionPath), /ENOENT/);
+    }
+    const fallback = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: new FfmpegMediaMetadataProbe(), clock: () => "2026-10-05T00:00:00.000Z", storyboard: { render: async () => { throw new Error("HEADLESS_STORYBOARD_UNSUPPORTED: composition"); } } });
+    const fallbackPreview = await fallback.previewRoughCut(request, undefined, true);
+    assert.equal(fallbackPreview.planDigest, preview.planDigest);
+    assert.match(fallbackPreview.storyboardUnavailable!, /HEADLESS_STORYBOARD_UNSUPPORTED/);
+    assert.equal(fallbackPreview.storyboard, undefined);
+
     const resumedAfterPreview = new HeadlessProjectService({
       directory: join(directory, "projects"),
       mediaProbe: new FfmpegMediaMetadataProbe(),
       renderer: new FfmpegTimelineRenderer(),
       verifier: new FfmpegRenderVerifier(),
     });
-    const executed = await resumedAfterPreview.executeRoughCut({ ...request, approved: true, planDigest: preview.planDigest });
+    const executed = await resumedAfterPreview.executeRoughCut({ ...request, approved: true, planDigest: fallbackPreview.planDigest });
     assert.equal(executed.committed, true);
     assert.equal(executed.render.status, "passed");
     assert.equal(executed.fcpxmlArtifact.verified, true);

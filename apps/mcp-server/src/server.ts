@@ -1605,6 +1605,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async (request, extra) => {
     try {
       const preview = await requireHeadlessProjects().previewRoughCut(request as unknown as HeadlessRoughCutRequest, extra.signal, true);
+      if (!preview.storyboard && preview.storyboardUnavailable) return jsonResult(preview);
       if (!preview.storyboard) throw new Error("HEADLESS_STORYBOARD_UNAVAILABLE: storyboard renderer returned no image");
       const { data, mimeType, ...metadata } = preview.storyboard;
       return { content: [
