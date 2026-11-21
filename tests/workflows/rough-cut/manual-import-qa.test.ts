@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
-import { evaluateDissolveExportMeasurements, evaluateExportMeasurements, evaluateRevisedExportMeasurements, measureExport, prepareManualImportFixture, verifyManualExport, verifyPreparedArtifact } from "../../../scripts/manual-import-qa.js";
+import { evaluateDissolveExportMeasurements, evaluateExportMeasurements, evaluateRevisedExportMeasurements, measureDissolveExport, measureExport, prepareManualImportFixture, verifyManualExport, verifyPreparedArtifact } from "../../../scripts/manual-import-qa.js";
 
 const valid = () => ({
   durationSeconds: 3,
@@ -63,6 +63,23 @@ test("revised export measurement decodes real clip and tail boundaries", async (
     assert.equal(evaluateRevisedExportMeasurements(measured).status, "PASS");
     assert.equal(evaluateRevisedExportMeasurements(measured).finalCutProvenance, "UNVERIFIED");
     assert.equal(evaluateExportMeasurements(measured).status, "FAIL");
+    const dissolvePath = join(directory, "dissolve.mp4");
+    await promisify(execFile)("ffmpeg", ["-hide_banner", "-loglevel", "error", "-n", "-filter_complex_threads", "1",
+      "-f", "lavfi", "-i", "color=red:s=320x180:r=30:d=1",
+      "-f", "lavfi", "-i", "color=blue:s=320x180:r=30:d=0.2",
+      "-f", "lavfi", "-i", "color=cyan:s=320x180:r=30:d=1",
+      "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=1",
+      "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000:duration=1.2",
+      "-f", "lavfi", "-i", "sine=frequency=1760:sample_rate=48000:duration=2",
+      "-filter_complex", "[1:v][2:v]concat=n=2:v=1:a=0,settb=1/30[vc];[0:v][vc]xfade=transition=fade:duration=0.2:offset=0.8[v];[3:a][4:a]acrossfade=d=0.2:c1=hsin:c2=hsin[a];[5:a]volume=-12dB[m];[a][m]amix=inputs=2:normalize=0[aout]",
+      "-map", "[v]", "-map", "[aout]", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-pix_fmt", "yuv420p", "-c:a", "aac", "-t", "2", dissolvePath]);
+    const dissolve = await measureDissolveExport(dissolvePath);
+    const evaluation = evaluateDissolveExportMeasurements(dissolve);
+    assert.equal(evaluation.status, "PASS");
+    assert.equal(evaluation.finalCutProvenance, "UNVERIFIED");
+    const silent = join(directory, "silent-dissolve.mp4");
+    await promisify(execFile)("ffmpeg", ["-v", "error", "-i", dissolvePath, "-an", "-c:v", "copy", silent]);
+    assert.equal(evaluateDissolveExportMeasurements(await measureDissolveExport(silent)).status, "FAIL");
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
@@ -112,7 +129,12 @@ test("manual import output checks reject incorrect duration, order and silent au
   silentMusic.audio[2]!.music = 0;
   const badFade = structuredClone(dissolve);
   badFade.audio[2]!.incoming = 0;
-  for (const invalid of [{ ...dissolve, frameCount: 66 }, hardCut, silentMusic, badFade, { ...dissolve, frames: dissolve.frames.slice(0, 4) }]) {
+  const linearFade = structuredClone(dissolve);
+  linearFade.audio[1]!.outgoing = 0.077;
+  linearFade.audio[1]!.incoming = 0.011;
+  linearFade.audio[3]!.outgoing = 0.011;
+  linearFade.audio[3]!.incoming = 0.077;
+  for (const invalid of [{ ...dissolve, frameCount: 66 }, hardCut, silentMusic, badFade, linearFade, { ...dissolve, frames: dissolve.frames.slice(0, 4) }]) {
     assert.equal(evaluateDissolveExportMeasurements(invalid).status, "FAIL");
   }
 });

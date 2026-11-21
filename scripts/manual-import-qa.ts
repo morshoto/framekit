@@ -31,6 +31,88 @@ export interface ExportMeasurements {
   toneAmplitudes: number[];
 }
 
+/** Measurements for the fixed two-second, 30 fps finishing diagnostic. */
+export interface DissolveExportMeasurements {
+  durationSeconds: number;
+  frameCount: number;
+  frameRate: string;
+  frames: Array<{ frameNumber: number; rgb: [number, number, number] }>;
+  audio: Array<{ timeSeconds: number; outgoing: number; incoming: number; music: number }>;
+}
+
+/** Check only sampled signals; this does not establish native provenance or title editability. */
+export function evaluateDissolveExportMeasurements(observed: DissolveExportMeasurements) {
+  const duration = Number.isFinite(observed.durationSeconds) && Math.abs(observed.durationSeconds - 2) <= 0.05
+    && observed.frameCount === 60 && observed.frameRate === "30/1";
+  const frameNumbers = [23, 25, 27, 29, 30];
+  const framesValid = observed.frames.length === frameNumbers.length && observed.frames.every((frame, index) =>
+    frame.frameNumber === frameNumbers[index] && frame.rgb.length === 3
+    && frame.rgb.every((value) => Number.isFinite(value) && value >= 0 && value <= 255));
+  let video = false;
+  if (framesValid) {
+    const [pre, early, middle, late, post] = observed.frames.map(({ rgb }) => rgb) as [[number, number, number], [number, number, number], [number, number, number], [number, number, number], [number, number, number]];
+    video = pre[0] > 140 && pre[0] - pre[2] > 100
+      && early[0] > 100 && early[2] > 30 && middle[0] > 80 && middle[2] > 100
+      && late[0] > 20 && late[2] > 140 && post[1] > 140 && post[2] > 140 && post[0] < 100
+      && early[0] > middle[0] && middle[0] > late[0] && early[2] < middle[2] && middle[2] < late[2];
+  }
+  const times = [0.5, 0.825, 0.9, 0.975, 1.5];
+  const windowsValid = observed.audio.length === times.length && observed.audio.every((window, index) =>
+    Math.abs(window.timeSeconds - times[index]!) < 0.001
+    && [window.outgoing, window.incoming, window.music].every((value) => Number.isFinite(value) && value >= 0 && value <= 0.2));
+  let audio = false;
+  if (windowsValid) {
+    const [pre, early, middle, late, post] = observed.audio;
+    const outgoingBase = pre!.outgoing;
+    const incomingBase = post!.incoming;
+    const ratio = (value: number, base: number, min: number, max: number) => base >= 0.01 && value / base >= min && value / base <= max;
+    audio = ratio(pre!.incoming, incomingBase, 0, 0.1) && ratio(post!.outgoing, outgoingBase, 0, 0.1)
+      && ratio(early!.outgoing, outgoingBase, 0.9, 1.1) && ratio(early!.incoming, incomingBase, 0, 0.1)
+      && ratio(middle!.outgoing, outgoingBase, 0.3, 0.7) && ratio(middle!.incoming, incomingBase, 0.3, 0.7)
+      && ratio(late!.outgoing, outgoingBase, 0, 0.1) && ratio(late!.incoming, incomingBase, 0.9, 1.1)
+      && observed.audio.every((window) => ratio(window.music, outgoingBase, 0.17, 0.34));
+  }
+  return { status: duration && video && audio ? "PASS" as const : "FAIL" as const, checks: { duration, video, audio }, nativeImport: "UNVERIFIED" as const, titleEditability: "UNVERIFIED" as const, finalCutProvenance: "UNVERIFIED" as const };
+}
+
+/** Decode the fixed synthetic dissolve case; the source of the file remains unverified. */
+export async function measureDissolveExport(path: string): Promise<DissolveExportMeasurements> {
+  const ffprobe = process.env.FFPROBE_BIN || "ffprobe";
+  const ffmpeg = process.env.FFMPEG_BIN || "ffmpeg";
+  const probe = JSON.parse((await run(ffprobe, ["-v", "error", "-count_frames", "-show_entries", "format=duration:stream=codec_type,avg_frame_rate,nb_read_frames", "-of", "json", path])).stdout) as {
+    format?: { duration?: string }; streams?: Array<{ codec_type?: string; avg_frame_rate?: string; nb_read_frames?: string }>;
+  };
+  const video = probe.streams?.find((stream) => stream.codec_type === "video");
+  if (!video) throw new Error("EXPORT_INVALID: video stream missing");
+  // Decode every cropped frame: a filter graph can reinitialize on a native
+  // format change and reset the `select` filter's frame counter.
+  const pixels = await runBytes(ffmpeg, ["-v", "error", "-i", path, "-map", "0:v:0", "-vf", "crop=2:2:2:2,format=rgb24", "-fps_mode", "passthrough", "-f", "rawvideo", "pipe:1"]);
+  if (pixels.length % 12 !== 0 || pixels.length / 12 !== Number(video.nb_read_frames)) throw new Error("EXPORT_INVALID: decoded frame count differs from probe");
+  const frames: DissolveExportMeasurements["frames"] = [];
+  for (const frameNumber of [23, 25, 27, 29, 30]) {
+    const offset = frameNumber * 12;
+    if (offset + 12 > pixels.length) throw new Error(`EXPORT_INVALID: missing frame ${frameNumber}`);
+    frames.push({ frameNumber, rgb: [pixels[offset]!, pixels[offset + 1]!, pixels[offset + 2]!] });
+  }
+  const audio: DissolveExportMeasurements["audio"] = [];
+  const hasAudio = probe.streams?.some((stream) => stream.codec_type === "audio") ?? false;
+  for (const timeSeconds of [0.5, 0.825, 0.9, 0.975, 1.5]) {
+    const pcm = hasAudio ? await runBytes(ffmpeg, ["-v", "error", "-ss", String(timeSeconds - 0.0125), "-i", path, "-t", "0.025", "-vn", "-ac", "1", "-ar", "48000", "-f", "f32le", "pipe:1"]) : Buffer.alloc(0);
+    const count = Math.floor(pcm.length / 4);
+    const amplitude = (frequency: number) => {
+      if (count < 1200) return 0;
+      let sine = 0, cosine = 0;
+      for (let i = 0; i < count; i++) {
+        const sample = pcm.readFloatLE(i * 4), phase = 2 * Math.PI * frequency * i / 48_000;
+        sine += sample * Math.sin(phase); cosine += sample * Math.cos(phase);
+      }
+      return 2 * Math.hypot(sine, cosine) / count;
+    };
+    audio.push({ timeSeconds, outgoing: amplitude(440), incoming: amplitude(880), music: amplitude(1760) });
+  }
+  return { durationSeconds: Number(probe.format?.duration), frameCount: Number(video.nb_read_frames), frameRate: video.avg_frame_rate ?? "", frames, audio };
+}
+
 export function evaluateExportMeasurements(observed: ExportMeasurements) {
   const samples = [0.5, 1.5, 2.5];
   const duration = Number.isFinite(observed.durationSeconds) && Math.abs(observed.durationSeconds - 3) <= 0.05
