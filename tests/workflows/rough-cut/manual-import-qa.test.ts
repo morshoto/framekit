@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
-import { evaluateDissolveExportMeasurements, evaluateExportMeasurements, evaluateRevisedExportMeasurements, inspectDissolveExport, measureDissolveExport, measureExport, prepareManualImportFixture, verifyManualExport, verifyPreparedArtifact } from "../../../scripts/manual-import-qa.js";
+import { compareDissolveParity, evaluateDissolveExportMeasurements, evaluateExportMeasurements, evaluateRevisedExportMeasurements, inspectDissolveExport, measureDissolveExport, measureExport, prepareManualImportFixture, verifyManualExport, verifyPreparedArtifact } from "../../../scripts/manual-import-qa.js";
 
 const valid = () => ({
   durationSeconds: 3,
@@ -25,6 +25,40 @@ const valid = () => ({
     { timeSeconds: 2.5, rgb: [20, 20, 235] as [number, number, number] },
   ],
   toneAmplitudes: [0.025, 0.024, 0.023],
+});
+
+test("dissolve parity applies declared bounds without claiming native proof", () => {
+  const reference = {
+    durationSeconds: 2, frameCount: 60, frameRate: "30/1",
+    frames: [
+      { frameNumber: 23, rgb: [244, 0, 0] as [number, number, number] },
+      { frameNumber: 25, rgb: [212, 0, 124] as [number, number, number] },
+      { frameNumber: 27, rgb: [157, 0, 194] as [number, number, number] },
+      { frameNumber: 29, rgb: [70, 0, 236] as [number, number, number] },
+      { frameNumber: 30, rgb: [0, 251, 255] as [number, number, number] },
+    ],
+    audio: [
+      { timeSeconds: 0.5, outgoing: 0.088, incoming: 0, music: 0.022 },
+      { timeSeconds: 0.825, outgoing: 0.084, incoming: 0.004, music: 0.022 },
+      { timeSeconds: 0.9, outgoing: 0.044, incoming: 0.044, music: 0.022 },
+      { timeSeconds: 0.975, outgoing: 0.004, incoming: 0.084, music: 0.022 },
+      { timeSeconds: 1.5, outgoing: 0, incoming: 0.088, music: 0.022 },
+    ],
+  };
+  const bounds = { x: 589, y: 330, width: 103, height: 30 };
+  const result = compareDissolveParity(reference, structuredClone(reference), bounds, bounds);
+  assert.equal(result.status, "PASS");
+  assert.equal(result.nativeImport, "UNVERIFIED");
+  assert.equal(result.exactBoundaries, "UNVERIFIED");
+  const dark = structuredClone(reference); dark.frames[2]!.rgb[0] -= 21;
+  assert.equal(compareDissolveParity(reference, dark, bounds, bounds).checks.colors, false);
+  const quiet = structuredClone(reference); quiet.audio[2]!.music *= 0.8;
+  assert.equal(compareDissolveParity(reference, quiet, bounds, bounds).checks.audio, false);
+  assert.equal(compareDissolveParity(reference, reference, bounds, { ...bounds, width: 80 }).checks.titleSize, false);
+  assert.equal(compareDissolveParity(reference, reference, bounds, { ...bounds, x: bounds.x + 15 }).checks.titlePosition, false);
+  const missing = structuredClone(reference); missing.frames.pop();
+  assert.equal(compareDissolveParity(reference, missing, bounds, bounds).status, "FAIL");
+  assert.equal(compareDissolveParity(reference, reference, bounds, { ...bounds, width: NaN }).status, "FAIL");
 });
 
 test("revised export checks verify clip boundaries and music through the black tail", () => {
