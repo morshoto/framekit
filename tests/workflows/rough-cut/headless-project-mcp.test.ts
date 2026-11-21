@@ -1773,7 +1773,7 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     const stableRender = (value: any): string => value === null || typeof value !== "object" ? JSON.stringify(value)
       : Array.isArray(value) ? `[${value.map(stableRender).join(",")}]`
       : `{${Object.entries(value).filter(([, child]) => child !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => `${JSON.stringify(key)}:${stableRender(child)}`).join(",")}}`;
-    for (const mutation of ["title", "target", "revision", "parameters", "output", "missing-verification"] as const) {
+    for (const mutation of ["title", "target", "revision", "parameters", "output", "missing-verification", "artifact-digest", "artifact-path", "renderer", "contract-version", "verification-required", "failed-check", "empty-checks"] as const) {
       const saved = JSON.parse(originalRenderRecord);
       if (mutation === "title") saved.outcome.plan.timeline.sequence.titles = [{ id: "injected", text: "not approved", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "2" }, lane: 1 }];
       if (mutation === "target") saved.outcome.plan.target.sequenceId = "other-sequence";
@@ -1781,6 +1781,13 @@ test("headless rough-cut preview and execution preserve provenance and produce v
       if (mutation === "parameters") saved.outcome.plan.parameters.width++;
       if (mutation === "output") saved.outcome.render.output.path = join(directory, "other.mp4");
       if (mutation === "missing-verification") delete saved.outcome.verification;
+      if (mutation === "artifact-digest") saved.outcome.verification.artifact.fileDigest = "f".repeat(64);
+      if (mutation === "artifact-path") delete saved.outcome.verification.artifact.path;
+      if (mutation === "renderer") saved.outcome.render.renderer.id = "other-renderer";
+      if (mutation === "contract-version") saved.outcome.render.contractVersion++;
+      if (mutation === "verification-required") saved.outcome.render.verificationRequired = false;
+      if (mutation === "failed-check") saved.outcome.verification.checks[0].passed = false;
+      if (mutation === "empty-checks") saved.outcome.verification.checks = [];
       const { planDigest: _oldDigest, ...planBase } = saved.outcome.plan;
       saved.outcome.plan.planDigest = createHash("sha256").update(stableRender(planBase)).digest("hex");
       saved.outcome.render.planDigest = saved.outcome.plan.planDigest;

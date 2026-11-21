@@ -113,6 +113,9 @@ and byte count. Older rough-cut execution records without a verified video
 identity cannot be published. Restore the project to its pre-execution state,
 or recreate the intended edit in a fresh project, then use new output paths and
 run a new approved preview and execution to create current evidence.
+Publication also rejects a saved render plan or verification record that does
+not match the approved timeline, revision, target and output, including for
+edits without titles.
 
 Headless title rendering checks glyph coverage in the selected font and fails
 when a glyph is missing or a variation or joined sequence cannot be verified.

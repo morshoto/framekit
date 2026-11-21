@@ -774,30 +774,37 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       || !sameRevision(render.requestedRevision, record.canonicalRevision)) {
       throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render evidence does not match the approved revision");
     }
-    if (project.timeline.sequence.titles?.length) {
-      const outcome = render.outcome as FramekitRenderAndVerifyResult | undefined;
-      const plan = outcome?.plan;
-      if (!approval.titleFont || outcome?.status !== "passed" || !plan || typeof plan !== "object"
-        || plan.capabilities?.titleFontDigest !== approval.titleFont.digest
-        || stableJson(plan.renderer) !== stableJson(approval.titleFont.renderer)
-        || stableJson(plan.capabilities?.renderer) !== stableJson(approval.titleFont.renderer)
-        || stableJson(outcome.render?.renderer) !== stableJson(approval.titleFont.renderer)
-        || outcome.render?.planDigest !== plan.planDigest
-        || stableJson(plan.target) !== stableJson({ projectId: record.projectId, sequenceId: record.sequenceId })
-        || stableJson(outcome.render?.target) !== stableJson(plan.target)
-        || stableJson(plan.projectRevision) !== stableJson(record.canonicalRevision)
-        || stableJson(outcome.render?.projectRevision) !== stableJson(record.canonicalRevision)
-        || stableJson(plan.parameters) !== stableJson(record.outputIntent.render)
-        || stableJson(outcome.render?.output) !== stableJson({ path: record.outputIntent.render.outputPath, format: record.outputIntent.render.format })
-        || !plan.timeline || typeof plan.timeline !== "object" || Array.isArray(plan.timeline)
-        || stableJson(plan.timeline.revision) !== stableJson(record.canonicalRevision)
-        || timelineIrDigest(plan.timeline) !== timelineIrDigest(project.timeline)) {
-        throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render font or timeline differs from the approved preview");
-      }
-      const { planDigest, ...planBase } = plan;
-      if (typeof planDigest !== "string" || hash(stableJson(planBase)) !== planDigest) {
-        throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render font plan is invalid");
-      }
+    const outcome = render.outcome as FramekitRenderAndVerifyResult | undefined;
+    const plan = outcome?.plan;
+    const verifiedArtifact = outcome?.verification?.artifact;
+    if (outcome?.status !== "passed" || outcome.verification?.status !== "passed" || !verifiedArtifact
+      || !Array.isArray(outcome.verification.checks) || !outcome.verification.checks.length || outcome.verification.checks.some((check) => check?.passed !== true)
+      || verifiedArtifact.fileDigest !== record.renderArtifact?.digest || verifiedArtifact.sizeBytes !== record.renderArtifact?.bytes
+      || typeof verifiedArtifact.path !== "string" || resolve(verifiedArtifact.path) !== resolve(record.outputIntent.render.outputPath)
+      || !plan || typeof plan !== "object" || outcome.render?.status !== "rendered"
+      || outcome.render.contractVersion !== plan.contractVersion || outcome.render.verificationRequired !== true
+      || stableJson(plan.capabilities?.renderer) !== stableJson(plan.renderer)
+      || stableJson(outcome.render?.renderer) !== stableJson(plan.renderer)
+      || outcome.render?.planDigest !== plan.planDigest
+      || stableJson(plan.target) !== stableJson({ projectId: record.projectId, sequenceId: record.sequenceId })
+      || stableJson(outcome.render?.target) !== stableJson(plan.target)
+      || stableJson(plan.projectRevision) !== stableJson(record.canonicalRevision)
+      || stableJson(outcome.render?.projectRevision) !== stableJson(record.canonicalRevision)
+      || stableJson(plan.parameters) !== stableJson(record.outputIntent.render)
+      || stableJson(outcome.render?.output) !== stableJson({ path: record.outputIntent.render.outputPath, format: record.outputIntent.render.format })
+      || !plan.timeline || typeof plan.timeline !== "object" || Array.isArray(plan.timeline)
+      || stableJson(plan.timeline.revision) !== stableJson(record.canonicalRevision)
+      || timelineIrDigest(plan.timeline) !== timelineIrDigest(project.timeline)) {
+      throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render font, plan or verification differs from the approved preview");
+    }
+    const { planDigest, ...planBase } = plan;
+    if (typeof planDigest !== "string" || hash(stableJson(planBase)) !== planDigest) {
+      throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render font or plan is invalid");
+    }
+    if (project.timeline.sequence.titles?.length && (!approval.titleFont
+      || plan.capabilities?.titleFontDigest !== approval.titleFont.digest
+      || stableJson(plan.renderer) !== stableJson(approval.titleFont.renderer))) {
+      throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render font differs from the approved preview");
     }
     const boundRender = record.renderArtifact;
     if (!boundRender || typeof boundRender.path !== "string" || resolve(boundRender.path) !== resolve(record.outputIntent.render.outputPath)
