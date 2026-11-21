@@ -19,6 +19,71 @@ import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer,
 
 const execFileAsync = promisify(execFile);
 
+test("production MCP preserves approval for an unsampled dissolve", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-788-dissolve-mcp-"));
+  const here = dirname(fileURLToPath(import.meta.url));
+  const environment: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1",
+    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0", FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"),
+    FRAMEKIT_STATE_DIR: join(directory, "state"),
+  };
+  let client: Client | undefined;
+  let transport: StdioClientTransport | undefined;
+  try {
+    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], { cwd: process.cwd(), env: process.env });
+    for (const name of ["fixture-red-440hz.mp4", "fixture-blue-880hz.mp4"]) {
+      const original = join(directory, name);
+      const tagged = join(directory, `tagged-${name}`);
+      await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-i", original, "-vf", "scale=in_color_matrix=bt601:out_color_matrix=bt709,setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-c:a", "copy", "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-movflags", "+write_colr", tagged]);
+      await rename(tagged, original);
+    }
+    ({ client, transport } = await connectProductionClient(here, environment));
+    const created = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: emptyTimeline() } }));
+    const projectId = created.timeline.project.id;
+    const sequenceId = created.timeline.sequence.id;
+    let revision = created.timeline.revision;
+    const sources: any[] = [];
+    for (const name of ["fixture-red-440hz.mp4", "fixture-blue-880hz.mp4"]) {
+      const registered = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: join(directory, name), expectedRevision: revision } }));
+      sources.push(registered.resource);
+      revision = registered.project.timeline.revision;
+    }
+    const shot = (order: number, source: any, start: number) => ({ order, sourceIdentity: { mediaId: source.id, source: source.source, sourceDigest: source.sourceDigest, mediaKind: "video", duration: 2 }, range: { start, end: start + 1 }, confidence: 1, matchedProperties: ["selected"], rationale: "approved source range" });
+    const request = {
+      projectId, sequenceId,
+      plan: { planner: { id: "framekit.rough-cut", version: 1 }, revision, query: { query: "dissolve" }, shots: [shot(1, sources[0], 0.2), shot(2, sources[1], 0.5)], warnings: [] },
+      operations: [{ type: "add-transition", transition: { id: "fade", kind: "cross-dissolve", beforeOccurrenceId: "rough-cut-1", afterOccurrenceId: "rough-cut-2", durationTime: { value: "1", timescale: "5" } } }],
+      render: { outputPath: join(directory, "render.mp4"), format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } },
+      fcpxml: { path: join(directory, "edit.fcpxml"), target: { provider: "final-cut", libraryUid: "test-library", eventUid: "test-event", projectUid: "test-project", sequenceUid: "test-sequence" } },
+    };
+    const result = await client.callTool({ name: "headless.rough-cut.preview", arguments: request });
+    assert.notEqual(result.isError, true, toolErrorText(result));
+    const preview = payload(result);
+    assert.match(preview.planDigest, /^[a-f0-9]{64}$/);
+    assert.match(preview.storyboardUnavailable, /HEADLESS_STORYBOARD_UNSUPPORTED/);
+    assert.equal(preview.storyboard, undefined);
+    assert.equal((result.content as Array<{ type: string }>).some((item) => item.type === "image"), false);
+    const before = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
+    assert.deepEqual(before.timeline.revision, revision);
+    assert.equal(before.timeline.sequence.occurrences.length, 0);
+    const changed = { ...request, operations: [{ ...request.operations[0]!, transition: { ...request.operations[0]!.transition, durationTime: { value: "1", timescale: "10" } } }] };
+    const rejected = await client.callTool({ name: "headless.rough-cut.execute", arguments: { ...changed, approved: true, planDigest: preview.planDigest } });
+    assert.equal(rejected.isError, true);
+    assert.match(toolErrorText(rejected), /PLAN_MISMATCH/);
+    const executed = payload(await client.callTool({ name: "headless.rough-cut.execute", arguments: { ...request, approved: true, planDigest: preview.planDigest } }));
+    assert.equal(executed.committed, true);
+    assert.equal(executed.render.status, "passed");
+    assert.equal(executed.fcpxmlArtifact.verified, true);
+    assert.deepEqual(executed.after.timeline.revision, preview.after.timeline.revision);
+    assert.match(await readFile(request.fcpxml.path, "utf8"), /<transition name="Cross Dissolve"/);
+  } finally {
+    await client?.close();
+    await transport?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("rough-cut dissolve preview binds render and FCPXML output", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-dissolve-rough-cut-"));
   try {
