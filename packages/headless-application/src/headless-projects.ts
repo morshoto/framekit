@@ -1119,9 +1119,11 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     const planOperations: TimelineIrEditOperation[] = [];
     for (const shot of request.plan.shots) {
       const shotWithEvidence = shot as RoughCutShotWithEvidence;
-      const occurrenceId = `rough-cut-${shot.order}`;
-      if (existingOccurrenceIds.has(occurrenceId)) {
-        throw new Error(`HEADLESS_ROUGH_CUT_OCCURRENCE_COLLISION: ${occurrenceId} already exists`);
+      const baseOccurrenceId = `rough-cut-${shot.order}`;
+      let occurrenceId = baseOccurrenceId;
+      let suffix = 2;
+      while (existingOccurrenceIds.has(occurrenceId)) {
+        occurrenceId = `${baseOccurrenceId}-${suffix++}`;
       }
       existingOccurrenceIds.add(occurrenceId);
       const resource = resourceByMediaId.get(shot.sourceIdentity.mediaId);
@@ -1159,6 +1161,18 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
         rationale: shot.rationale,
         ...(shotWithEvidence.evidence ? { evidence: structuredClone(shotWithEvidence.evidence) } : {}),
       });
+    }
+    // An existing bound title requires newly added titles to carry the same
+    // selected font before the first FCPXML compilation and transaction replay.
+    const existingTitles = project.timeline.sequence.titles ?? [];
+    if (existingTitles.some((title) => title.font) && operations.some((operation) => operation.type === "add-title" && !operation.title.font)) {
+      const selected = this.selectTitleFont([
+        ...existingTitles.map((title) => title.text),
+        ...operations.flatMap((operation) => operation.type === "add-title" ? [operation.title.text] : []),
+      ]);
+      for (const operation of operations) {
+        if (operation.type === "add-title" && !operation.title.font) operation.title.font = structuredClone(selected);
+      }
     }
     const editOperations = [...planOperations, ...operations];
     const command: ProjectEditCommand = {
