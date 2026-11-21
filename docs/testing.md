@@ -153,6 +153,19 @@ video hash. It does not verify the approved manifest, native import, Final Cut
 export provenance, title visibility or editability, or visual color parity.
 Record those checks independently; this diagnostic is not a release verdict.
 
+For the 720p fixture, compare a 48 kHz stereo reference and a 48 kHz mono
+candidate using the agreed sampled color, title-bounds, and audio-level limits:
+
+```sh
+node --import tsx scripts/manual-import-qa.ts compare-dissolve /path/to/reference.mov /path/to/candidate.mp4 /path/to/new-parity-report
+```
+
+The reference is downmixed as `0.7071067811865476 * left +
+0.7071067811865476 * right`. Title measurement detects white pixels in the
+fixture's central region at frame 27; it does not identify the text. A sampled
+pass leaves source lineage, exact boundaries, editable title/transition, and
+Final Cut import and export provenance unverified.
+
 Apple documents [XML import](https://support.apple.com/guide/final-cut-pro/verdbd66ae/mac)
 and [Export File](https://support.apple.com/guide/final-cut-pro/export-final-mastering-files-ver0192a47b8/mac).
 
