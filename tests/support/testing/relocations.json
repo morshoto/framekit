@@ -2799,6 +2799,7 @@
     ],
     "tests/integration/timeline-ir-fcpxml.test.ts": [
       "\"exports an adjacent cross-dissolve with its media references\"",
+      "\"unverified dissolve export fails closed\"",
       "\"dissolve planning preserves fractional frame timing and bounds\"",
       "\"materialization round trips plain dialogue on a video occurrence\"",
       "\"materialization retains native dialogue subroles\"",

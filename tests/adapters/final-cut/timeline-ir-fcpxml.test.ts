@@ -170,6 +170,18 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
   }
 });
 
+test("unverified dissolve export fails closed", () => {
+  const value = timeline();
+  value.sequence.frameDuration = { value: "1", timescale: "30" };
+  value.sequence.storyElements = []; value.sequence.markers = []; value.sequence.captions = [];
+  value.sequence.occurrences = [
+    { id: "a", name: "A", startTime: { value: "0", timescale: "1" }, durationTime: { value: "2", timescale: "1" }, sourceStartTime: { value: "1", timescale: "1" }, track: 0, role: "video", mediaId: "media-1" },
+    { id: "b", name: "B", startTime: { value: "2", timescale: "1" }, durationTime: { value: "2", timescale: "1" }, sourceStartTime: { value: "4", timescale: "1" }, track: 0, role: "video", mediaId: "media-1" },
+  ];
+  value.sequence.transitions = [{ id: "t", kind: "cross-dissolve", beforeOccurrenceId: "a", afterOccurrenceId: "b", durationTime: { value: "1", timescale: "2" } }];
+  assert.throws(() => compileTimelineIrToFcpxml(value, { target }), /FCPXML_DISSOLVE_UNVERIFIED/);
+});
+
 test("dissolve planning preserves fractional frame timing and bounds", () => {
   const value = timeline();
   value.sequence.frameDuration = { value: "1001", timescale: "30000" };
