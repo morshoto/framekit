@@ -3,7 +3,7 @@ import { openSync } from "fontkit";
 /** Check the same face that FFmpeg drawtext selects for an explicit font file. */
 export function titleGlyphProblem(fontFile: string | undefined, texts: readonly string[]): string | undefined {
   if (texts.length === 0) return undefined;
-  if (!fontFile) return "no explicit title font is available to check";
+  if (!fontFile) return "no title font is available to check; set FRAMEKIT_RENDER_FONT to a readable font file";
   try {
     const opened = openSync(fontFile);
     const font = "fonts" in opened ? opened.fonts[0] : opened;

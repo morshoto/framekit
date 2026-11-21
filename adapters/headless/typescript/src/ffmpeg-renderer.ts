@@ -251,6 +251,17 @@ async function prepareRenderModel(plan: FramekitRenderPlan): Promise<RenderModel
   if (transitions.length > 1) {
     throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", "the first FFmpeg provider supports one canonical cross-dissolve");
   }
+  const transition = transitions[0];
+  if (transition) {
+    const before = occurrences[0]!;
+    const after = occurrences[1]!;
+    const length = rationalSeconds(transition.durationTime, `${transition.id}.durationTime`);
+    const incomingStart = after.sourceStartTime ? rationalSeconds(after.sourceStartTime, `${after.id}.sourceStartTime`) : 0;
+    const beforeDuration = rationalSeconds(before.durationTime, `${before.id}.durationTime`);
+    if (transition.beforeOccurrenceId !== before.id || transition.afterOccurrenceId !== after.id || length <= 0 || length > beforeDuration || incomingStart + 1e-7 < length) {
+      throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", "cross-dissolve requires adjacent clips and sufficient incoming source handles");
+    }
+  }
   return {
     timeline,
     occurrences,
@@ -370,8 +381,14 @@ function buildFfmpegArguments(
   for (const occurrence of model.occurrences) {
     const index = inputIndices.get(occurrence.id)!;
     const resource = model.resources.get(occurrence.mediaId!);
-    const sourceStart = occurrence.sourceStartTime ? rationalSeconds(occurrence.sourceStartTime, `${occurrence.id}.sourceStartTime`) : 0;
-    const duration = rationalSeconds(occurrence.durationTime, `${occurrence.id}.durationTime`);
+    let sourceStart = occurrence.sourceStartTime ? rationalSeconds(occurrence.sourceStartTime, `${occurrence.id}.sourceStartTime`) : 0;
+    let duration = rationalSeconds(occurrence.durationTime, `${occurrence.id}.durationTime`);
+    const transition = model.timeline.sequence.transitions?.[0];
+    if (transition && occurrence.id === transition.afterOccurrenceId) {
+      const handle = rationalSeconds(transition.durationTime, `${transition.id}.durationTime`);
+      sourceStart -= handle;
+      duration += handle;
+    }
     const videoInput = `[${index}:v]`;
     const videoLabel = `clipv${index}`;
     filters.push(`${videoInput}trim=start=${formatNumber(sourceStart)}:duration=${formatNumber(duration)},setpts=PTS-STARTPTS,settb=AVTB,fps=${fps},${transformFilter(occurrence, resource!, model.width, model.height)}[${videoLabel}]`);
@@ -447,8 +464,7 @@ function addVideoComposition(
     if (offset < 0) throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", "transition duration exceeds the first occurrence duration");
     const output = "video-xfade";
     filters.push(`${labels[0]}${labels[1]}xfade=transition=fade:duration=${formatNumber(duration)}:offset=${formatNumber(offset)}[${output}]`);
-    const padding = Math.max(0, model.duration - (model.duration - duration));
-    filters.push(`[${output}]tpad=stop_mode=clone:stop_duration=${formatNumber(padding)}[${output}-padded]`);
+    filters.push(`[${output}]null[${output}-padded]`);
     return `${output}-padded`;
   }
   const output = "video-concat";
@@ -471,7 +487,7 @@ function addAudioComposition(
     const duration = rationalSeconds(transition.durationTime, `${transition.id}.durationTime`);
     const output = "audio-crossfade";
     filters.push(`${labels[0]}${labels[1]}acrossfade=d=${formatNumber(duration)}:c1=tri:c2=tri[${output}]`);
-    filters.push(`[${output}]apad,atrim=duration=${formatNumber(model.duration)},asetpts=PTS-STARTPTS[${output}-padded]`);
+    filters.push(`[${output}]atrim=duration=${formatNumber(model.duration)},asetpts=PTS-STARTPTS[${output}-padded]`);
     return `${output}-padded`;
   }
   const output = "audio-concat";

@@ -1187,7 +1187,7 @@ test("production stdio MCP persists and reopens the headless project and render 
       projectId: "mcp-headless-project",
       sequenceId: "mcp-headless-sequence",
       expectedRevision: first.after.timeline.revision,
-      operations: [{ type: "insert-occurrence", placement: "append", occurrence: occurrence("occurrence-blue", blueResource.id) }],
+      operations: [{ type: "insert-occurrence", placement: "append", occurrence: { ...occurrence("occurrence-blue", blueResource.id), sourceStartTime: { value: "1", timescale: "4" } } }],
     } }));
     const finished = payload(await client.callTool({ name: "headless.edit.execute", arguments: {
       projectId: "mcp-headless-project",
@@ -1548,8 +1548,17 @@ test("storyboard rejects stale media and cleans up after cancellation", async ()
     assert.ok(Buffer.from(result.data, "base64").length > 100);
     assert.equal((await readdir(directory)).filter((name) => name.startsWith("framekit-storyboard-")).length, 0);
     const missingGlyph = structuredClone(timeline);
-    missingGlyph.sequence.titles = [{ id: "missing-glyph", text: "Hello \u{10ffff}", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" }, lane: 1 }];
-    await assert.rejects(renderer.render(missingGlyph, { width: 320, height: 180 }), /HEADLESS_STORYBOARD_UNSUPPORTED.*glyph/i);
+    missingGlyph.sequence.titles = [{ id: "missing-glyph", text: "A\u{10ffff}", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" }, lane: 1 }];
+    const fontPath = join(directory, "font.otf");
+    await writeFile(fontPath, Buffer.from(await readFile(join(process.cwd(), "tests/fixtures/fonts/noto-sans-jp-test.otf.base64"), "utf8"), "base64"));
+    const priorFont = process.env.FRAMEKIT_RENDER_FONT;
+    try {
+      process.env.FRAMEKIT_RENDER_FONT = fontPath;
+      await assert.rejects(renderer.render(missingGlyph, { width: 320, height: 180 }), /selected font lacks glyph U\+10FFFF/i);
+    } finally {
+      if (priorFont === undefined) delete process.env.FRAMEKIT_RENDER_FONT;
+      else process.env.FRAMEKIT_RENDER_FONT = priorFont;
+    }
     const oversized = structuredClone(timeline);
     oversized.sequence.occurrences = Array.from({ length: 13 }, (_, index) => ({ ...occurrence(`shot-${index}`, "media"), startTime: { value: String(index), timescale: "1" } }));
     await assert.rejects(renderer.render(oversized, { width: 320, height: 180 }), /HEADLESS_STORYBOARD_LIMIT/);
