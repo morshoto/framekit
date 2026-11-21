@@ -124,6 +124,42 @@ test("FFmpeg dissolve preserves incoming video and audio timing", async () => {
     const tailAudio = await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "info", "-ss", "1.75", "-t", "0.2", "-i", output, "-af", "volumedetect", "-f", "null", "-"]);
     const mean = tailAudio.stderr.match(/mean_volume:\s*(-?[0-9.]+) dB/);
     assert.ok(mean && Number(mean[1]) > -35, `incoming tail audio missing: ${mean?.[1]}`);
+
+    // At 30000/1001 fps, a five-frame transition starts at frame 25 and
+    // ends at the frame-30 cut. Inspect decoded frame numbers, not seeks.
+    const fractionalPaths = [join(directory, "fractional-red.mp4"), join(directory, "fractional-blue.mp4")];
+    for (const [index, color] of ["red", "blue"].entries()) {
+      await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-f", "lavfi", "-i", `color=${color}:s=320x180:r=30000/1001:d=3`, "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=3", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", fractionalPaths[index]!]);
+    }
+    const fractional = await timeline(fractionalPaths[0]!, fractionalPaths[1]!);
+    const frame = (count: number) => ({ value: String(count * 1001), timescale: "30000" });
+    fractional.sequence.frameDuration = frame(1);
+    fractional.sequence.durationTime = frame(60);
+    fractional.sequence.titles = [];
+    delete fractional.sequence.occurrences[0]!.transform;
+    fractional.sequence.occurrences[0]!.durationTime = frame(30);
+    fractional.sequence.occurrences[0]!.sourceStartTime = frame(0);
+    fractional.sequence.occurrences[1]!.startTime = frame(30);
+    fractional.sequence.occurrences[1]!.durationTime = frame(30);
+    fractional.sequence.occurrences[1]!.sourceStartTime = frame(15);
+    fractional.sequence.transitions![0]!.durationTime = frame(5);
+    for (const resource of fractional.resources) {
+      resource.metadata!.durationTime = { value: "3", timescale: "1" };
+      resource.metadata!.streams[0]!.frameRate = { value: "30000", timescale: "1001" };
+    }
+    const fractionalOutput = join(directory, "fractional-dissolve.mp4");
+    const fractionalRequest = createFramekitRenderRequest({ timeline: fractional, target: { projectId: fractional.project.id, sequenceId: fractional.sequence.id }, parameters: { ...parameters(fractionalOutput), frameRate: { value: "30000", timescale: "1001" } } });
+    await renderer.render(createFramekitRenderPlan(fractionalRequest, renderer.capabilities(fractionalRequest)));
+    const decoded = await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-i", fractionalOutput, "-map", "0:v:0", "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"], { encoding: "buffer", maxBuffer: 16 * 1024 * 1024 });
+    const frames = decoded.stdout as unknown as Buffer;
+    const frameSize = 320 * 180 * 3;
+    assert.equal(frames.length, 60 * frameSize);
+    const pixel = (index: number) => Array.from(frames.subarray(index * frameSize, index * frameSize + 3));
+    const pre = pixel(24), mixed = pixel(27), cut = pixel(30), last = pixel(59);
+    assert.ok(pre[0]! > 220 && pre[2]! < 20, `frame 24 must be red: ${pre}`);
+    assert.ok(mixed[0]! > 30 && mixed[2]! > 30, `frame 27 must blend: ${mixed}`);
+    assert.ok(cut[2]! > 220 && cut[0]! < 20, `frame 30 must be blue: ${cut}`);
+    assert.ok(last[2]! > 220 && last[0]! < 20, `frame 59 must be blue: ${last}`);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
