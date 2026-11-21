@@ -139,6 +139,9 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
     assert.deepEqual(incoming?.startTime, { value: "2", timescale: "1" });
     assert.deepEqual(incoming?.sourceStartTime, { value: "4", timescale: "1" });
     assert.deepEqual(incoming?.durationTime, { value: "2", timescale: "1" });
+    const tampered = structuredClone(snapshot);
+    tampered.timeline.storyElements.find((item) => item.id === "dissolve")!.beforeClipId = "missing";
+    assert.throws(() => createTimelineIrFromProjectSnapshot(tampered), /TIMELINE_IR_.*transition/i);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
