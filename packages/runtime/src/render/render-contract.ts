@@ -45,6 +45,8 @@ export interface FramekitRenderRequestInput {
 export interface FramekitRenderCapabilityReport {
   renderer: { id: string; version: string };
   features: Partial<Record<FramekitRenderFeature, FramekitRenderCapabilityStatus>>;
+  /** SHA-256 of the exact font bytes inspected for the requested titles. */
+  titleFontDigest?: string;
 }
 
 export interface FramekitRenderPlan {
@@ -75,6 +77,8 @@ export interface FramekitRenderProvider {
   readonly id: string;
   readonly version: string;
   capabilities(request: FramekitRenderRequest): FramekitRenderCapabilityReport;
+  /** Reject output destinations that would replace a title rendering asset. */
+  validateTitleOutput?(request: FramekitRenderRequest, additionalOutputPaths?: readonly string[]): Promise<void>;
   render(plan: FramekitRenderPlan): Promise<FramekitRenderProviderResult>;
 }
 

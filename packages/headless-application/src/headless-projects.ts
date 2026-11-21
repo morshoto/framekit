@@ -11,6 +11,7 @@ import {
   type ContextRevision,
   type FramekitProjectDocument,
   type FramekitRenderArtifactVerifier,
+  type FramekitRenderAndVerifyResult,
   type FramekitRenderProvider,
   type FramekitRenderParameters,
   type LocalMediaRegistrationResult,
@@ -52,6 +53,7 @@ export interface StoryboardImage {
   mimeType: "image/png";
   samples: Array<{ kind: "shot" | "title"; id: string; occurrenceId: string; mediaId: string; sourceDigest: string; timelineSeconds: number; sourceSeconds: number }>;
   limitations: string[];
+  titleFontDigest?: string;
 }
 
 export type HeadlessProjectEditCommand = Omit<ProjectEditCommand, "target"> & {
@@ -193,6 +195,7 @@ export interface HeadlessRoughCutPreview extends ProjectEditPreview {
   provenance: HeadlessRoughCutShotProvenance[];
   storyboard?: StoryboardImage & { planDigest: string; revision: ContextRevision };
   storyboardUnavailable?: string;
+  titleFont?: { renderer: { id: string; version: string }; digest: string };
   outputIntent: {
     sourceAudioPolicy: "preserve-and-mix";
     render: FramekitRenderParameters;
@@ -228,6 +231,7 @@ export interface HeadlessRoughCutPublishProof {
   planDigest: string;
   renderId: string;
   renderArtifact: { path: string; digest: string; bytes: number };
+  titleFont?: HeadlessRoughCutPreview["titleFont"];
   artifactPath: string;
   artifactDigest: string;
   sourceAudioPolicy: "preserve-and-mix";
@@ -278,6 +282,7 @@ interface HeadlessRoughCutApprovalRecord {
   canonicalRevision: ContextRevision;
   artifactPath: string;
   artifactDigest: string;
+  titleFont?: HeadlessRoughCutPreview["titleFont"];
   outputIntent: HeadlessRoughCutPreview["outputIntent"];
   evidenceDigest: string;
 }
@@ -471,6 +476,23 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     const prepared = await this.prepareRoughCut(request);
     const timestamp = this.clock();
     const { preview, fcpxml } = await this.previewPreparedRoughCut(request, prepared, timestamp);
+    let titleFont: HeadlessRoughCutPreview["titleFont"];
+    if (preview.after.timeline.sequence.titles?.length) {
+      if (!this.renderer) throw new Error("HEADLESS_ROUGH_CUT_RENDER_UNAVAILABLE: renderer is required to check title support");
+      const renderRequest = createFramekitRenderRequest({
+        timeline: preview.after.timeline,
+        target: { projectId: request.projectId, sequenceId: request.sequenceId },
+        revision: preview.after.timeline.revision,
+        parameters: request.render,
+      });
+      const capabilities = this.renderer.capabilities(renderRequest);
+      if (capabilities.features.titles !== "supported" || !/^[a-f0-9]{64}$/.test(capabilities.titleFontDigest ?? "")) {
+        throw new Error("RENDER_CAPABILITY_UNAVAILABLE: required title font or semantics are unavailable (titles)");
+      }
+      if (!this.renderer.validateTitleOutput) throw new Error("HEADLESS_ROUGH_CUT_RENDER_UNAVAILABLE: renderer cannot validate title output safety");
+      await this.renderer.validateTitleOutput(renderRequest, [request.fcpxml.path]);
+      titleFont = { renderer: capabilities.renderer, digest: capabilities.titleFontDigest! };
+    }
     const approval = createRoughCutApproval({
       inputDigest: prepared.inputDigest,
       projectId: request.projectId,
@@ -479,12 +501,17 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       canonicalRevision: preview.after.timeline.revision,
       artifactPath: resolve(request.fcpxml.path),
       artifactDigest: fcpxml.digest,
+      ...(titleFont ? { titleFont } : {}),
       outputIntent: prepared.outputIntent,
     });
     let storyboard: StoryboardImage | undefined;
     let storyboardUnavailable: string | undefined;
     try {
-      storyboard = await this.storyboard?.render(preview.after.timeline, request.render, signal);
+      const sampled = await this.storyboard?.render(preview.after.timeline, request.render, signal);
+      if (sampled && titleFont && sampled.titleFontDigest !== titleFont.digest) {
+        throw new Error("HEADLESS_STORYBOARD_UNSUPPORTED: storyboard font does not match the approved title font");
+      }
+      storyboard = sampled;
     } catch (error) {
       signal?.throwIfAborted();
       if (!(error instanceof Error) || !/^HEADLESS_STORYBOARD_(UNSUPPORTED|LIMIT):/.test(error.message)) throw error;
@@ -502,6 +529,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       plan: structuredClone(request.plan),
       planDigest: approval.planDigest,
       provenance: prepared.provenance,
+      ...(titleFont ? { titleFont } : {}),
       ...(storyboard ? { storyboard: { ...storyboard, planDigest: approval.planDigest, revision: preview.after.timeline.revision } } : {}),
       ...(storyboardUnavailable ? { storyboardUnavailable } : {}),
       outputIntent: prepared.outputIntent,
@@ -558,7 +586,16 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     if (!this.renderer || !this.verifier) {
       throw new Error("HEADLESS_ROUGH_CUT_RENDER_UNAVAILABLE: renderer and verifier are not configured");
     }
-    const outcome = await renderAndVerifyFramekitProject(renderRequest, this.renderer, this.verifier);
+    const capabilities = this.renderer.capabilities(renderRequest);
+    if (preview.after.timeline.sequence.titles?.length) {
+      const currentFont = { renderer: capabilities.renderer, digest: capabilities.titleFontDigest };
+      if (capabilities.features.titles !== "supported" || !approval.titleFont || stableJson(currentFont) !== stableJson(approval.titleFont)) {
+        throw new Error("HEADLESS_ROUGH_CUT_PLAN_MISMATCH: title font or renderer changed after preview");
+      }
+      if (!this.renderer.validateTitleOutput) throw new Error("HEADLESS_ROUGH_CUT_RENDER_UNAVAILABLE: renderer cannot validate title output safety");
+      await this.renderer.validateTitleOutput(renderRequest, [request.fcpxml.path]);
+    }
+    const outcome = await renderAndVerifyFramekitProject(renderRequest, this.renderer, this.verifier, { capabilities });
     const renderId = `render-${randomUUID()}`;
     const renderRecord: HeadlessRenderRecord = {
       renderId,
@@ -579,6 +616,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: verified render artifact identity is unavailable or inconsistent");
     }
     await this.assertOutputSeparation(prepared.project, [request.render.outputPath, request.fcpxml.path]);
+    if (preview.after.timeline.sequence.titles?.length) await this.renderer.validateTitleOutput!(renderRequest, [request.fcpxml.path]);
     const fcpxmlArtifact = await writeVerifiedFcpxml(
       request.fcpxml.path,
       fcpxml.xml,
@@ -619,6 +657,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       plan: structuredClone(request.plan),
       planDigest: approval.planDigest,
       provenance: prepared.provenance,
+      ...(approval.titleFont ? { titleFont: approval.titleFont } : {}),
       outputIntent: prepared.outputIntent,
       fcpxml: selectFcpxmlMetadata(fcpxml),
       executionId,
@@ -735,6 +774,31 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       || !sameRevision(render.requestedRevision, record.canonicalRevision)) {
       throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render evidence does not match the approved revision");
     }
+    if (project.timeline.sequence.titles?.length) {
+      const outcome = render.outcome as FramekitRenderAndVerifyResult | undefined;
+      const plan = outcome?.plan;
+      if (!approval.titleFont || outcome?.status !== "passed" || !plan || typeof plan !== "object"
+        || plan.capabilities?.titleFontDigest !== approval.titleFont.digest
+        || stableJson(plan.renderer) !== stableJson(approval.titleFont.renderer)
+        || stableJson(plan.capabilities?.renderer) !== stableJson(approval.titleFont.renderer)
+        || stableJson(outcome.render?.renderer) !== stableJson(approval.titleFont.renderer)
+        || outcome.render?.planDigest !== plan.planDigest
+        || stableJson(plan.target) !== stableJson({ projectId: record.projectId, sequenceId: record.sequenceId })
+        || stableJson(outcome.render?.target) !== stableJson(plan.target)
+        || stableJson(plan.projectRevision) !== stableJson(record.canonicalRevision)
+        || stableJson(outcome.render?.projectRevision) !== stableJson(record.canonicalRevision)
+        || stableJson(plan.parameters) !== stableJson(record.outputIntent.render)
+        || stableJson(outcome.render?.output) !== stableJson({ path: record.outputIntent.render.outputPath, format: record.outputIntent.render.format })
+        || !plan.timeline || typeof plan.timeline !== "object" || Array.isArray(plan.timeline)
+        || stableJson(plan.timeline.revision) !== stableJson(record.canonicalRevision)
+        || timelineIrDigest(plan.timeline) !== timelineIrDigest(project.timeline)) {
+        throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render font or timeline differs from the approved preview");
+      }
+      const { planDigest, ...planBase } = plan;
+      if (typeof planDigest !== "string" || hash(stableJson(planBase)) !== planDigest) {
+        throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render font plan is invalid");
+      }
+    }
     const boundRender = record.renderArtifact;
     if (!boundRender || typeof boundRender.path !== "string" || resolve(boundRender.path) !== resolve(record.outputIntent.render.outputPath)
       || !/^[a-f0-9]{64}$/.test(boundRender.digest) || !Number.isSafeInteger(boundRender.bytes) || boundRender.bytes <= 0) {
@@ -778,6 +842,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       planDigest: record.planDigest,
       renderId: record.renderId,
       renderArtifact: structuredClone(boundRender),
+      ...(project.timeline.sequence.titles?.length && approval.titleFont ? { titleFont: structuredClone(approval.titleFont) } : {}),
       artifactPath: record.artifactPath,
       artifactDigest: record.artifactDigest,
       sourceAudioPolicy: record.outputIntent.sourceAudioPolicy,
