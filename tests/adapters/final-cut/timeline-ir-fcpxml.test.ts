@@ -11,7 +11,7 @@ import {
   compileTimelineIrToFcpxml,
   type TimelineIrToFcpxmlTarget,
 } from "@framekit/final-cut/fcpxml";
-import { createTimelineIrFromProjectSnapshot, type TimelineIr } from "@framekit/runtime";
+import { createTimelineIrFromProjectSnapshot, validateTimelineIr, type TimelineIr } from "@framekit/runtime";
 import { planFcpxmlDissolve } from "../../../adapters/final-cut/typescript/src/fcpxml-transition-plan.js";
 
 function timeline(): TimelineIr {
@@ -146,6 +146,10 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
     assert.deepEqual(incoming?.startTime, { value: "2", timescale: "1" });
     assert.deepEqual(incoming?.sourceStartTime, { value: "4", timescale: "1" });
     assert.deepEqual(incoming?.durationTime, { value: "2", timescale: "1" });
+    const incomingStory = reconstructed.sequence.storyElements.find((item) => item.id === "after");
+    assert.deepEqual(incomingStory?.startTime, incoming?.startTime);
+    assert.deepEqual(incomingStory?.durationTime, incoming?.durationTime);
+    validateTimelineIr(reconstructed);
     const tampered = structuredClone(snapshot);
     tampered.timeline.storyElements.find((item) => item.id === "dissolve")!.beforeClipId = "missing";
     assert.throws(() => createTimelineIrFromProjectSnapshot(tampered), /TIMELINE_IR_.*transition/i);
