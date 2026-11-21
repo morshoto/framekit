@@ -981,7 +981,15 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     const afterValue = afterMetadata && attribute(afterMetadata, "value");
     const beforeAttribute = attribute(node, "framekit-before-clip");
     const afterAttribute = attribute(node, "framekit-after-clip");
-    if ((transitionMarker || beforeMetadata || afterMetadata) && (kind !== "transition" || transitionKind !== "cross-dissolve" || assetId !== "fcpxml:effect:FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265" || !beforeValue || !afterValue || beforeAttribute !== undefined && String(beforeAttribute) !== String(beforeValue) || afterAttribute !== undefined && String(afterAttribute) !== String(afterValue))) {
+    const filters = storyEntries(node).filter(({ kind: childKind }) => childKind === "filter-video" || childKind === "filter-audio");
+    const videoFilters = filters.filter(({ kind: childKind }) => childKind === "filter-video");
+    const audioFilters = filters.filter(({ kind: childKind }) => childKind === "filter-audio");
+    const videoFilter = videoFilters[0]?.node;
+    const audioFilter = audioFilters[0]?.node;
+    const audioRef = audioFilter && attribute(audioFilter, "ref");
+    const audioEffect = audioRef === undefined ? undefined : this.effectAssetId(String(audioRef));
+    const enabled = (filter: XmlNode | undefined) => filter !== undefined && (attribute(filter, "enabled") === undefined || String(attribute(filter, "enabled")) === "1");
+    if ((transitionMarker || beforeMetadata || afterMetadata) && (kind !== "transition" || transitionKind !== "cross-dissolve" || assetId !== "fcpxml:effect:FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265" || audioEffect !== "fcpxml:effect:FFAudioTransition" || videoFilters.length !== 1 || audioFilters.length !== 1 || !enabled(videoFilter) || !enabled(audioFilter) || !beforeValue || !afterValue || beforeAttribute !== undefined && String(beforeAttribute) !== String(beforeValue) || afterAttribute !== undefined && String(afterAttribute) !== String(afterValue))) {
       throw new Error("FCPXML_TRANSITION_METADATA_INVALID: unverified canonical transition metadata");
     }
     return {
