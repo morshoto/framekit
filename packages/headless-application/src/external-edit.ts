@@ -60,7 +60,7 @@ export function externalEditOperations(edit: ExternalEdit, timeline: TimelineIr,
       throw new Error("EXTERNAL_EDIT_INVALID: music.gainDb must be between -60 and 12 dB inclusive");
     }
     const music = assertSource(edit.music.mediaId, "audio");
-    verifyMusicSourceBounds(music, edit.music.sourceStartTime, edit.music.durationTime, "EXTERNAL_EDIT_INVALID");
+    verifyConnectedAudioBounds(music, edit.music.sourceStartTime, edit.music.durationTime, "EXTERNAL_EDIT_INVALID");
     for (const time of [edit.music.sourceStartTime, edit.music.startTime, edit.music.durationTime]) aligned(time);
   }
   if (edit.title) for (const time of [edit.title.startTime, edit.title.durationTime]) aligned(time);
@@ -73,8 +73,8 @@ export function externalEditOperations(edit: ExternalEdit, timeline: TimelineIr,
   ];
 }
 
-/** Reject ambiguous or unverified local music ranges before an edit is approved. */
-export function verifyMusicSourceBounds(music: TimelineIrResource, sourceStartTime: RationalTime, durationTime: RationalTime, code = "HEADLESS_MUSIC_INVALID"): void {
+/** Reject ambiguous or unverified local connected-audio ranges before an edit is approved. */
+export function verifyConnectedAudioBounds(music: TimelineIrResource, sourceStartTime: RationalTime, durationTime: RationalTime, code = "HEADLESS_AUDIO_INVALID"): void {
   const audioStreams = music.metadata?.streams.filter((stream) => stream.kind === "audio");
   if (audioStreams?.length !== 1) {
     throw new Error(`${code}: ${music.id} must have exactly one audio stream`);
