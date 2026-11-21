@@ -533,13 +533,14 @@ function addTitleOverlays(
     );
     const style = title.style;
     const color = escapeFilterValue(style?.color ?? "white");
-    const size = formatNumber(style?.fontSize ?? 32);
+    const basicDefault = style === undefined && title.position === undefined;
+    const size = formatNumber(style?.fontSize ?? (basicDefault ? model.height * 44 / 720 : 32));
     const x = title.position
       ? `${formatNumber(model.width / 2 + title.position.x * model.width / 2)}-(text_w/2)`
       : style?.alignment === "left" ? "20" : style?.alignment === "right" ? "w-text_w-20" : "(w-text_w)/2";
     const y = title.position
       ? `${formatNumber(model.height / 2 - title.position.y * model.height / 2)}-(text_h/2)`
-      : "(h-text_h)/2";
+      : basicDefault ? "h/2-text_h" : "(h-text_h)/2";
     const output = `title-${index}`;
     const font = fontFile ? `fontfile='${escapeFilterValue(fontFile)}':` : "";
     const textFile = titleTextFiles[index];
