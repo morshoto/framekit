@@ -38,12 +38,17 @@ import { verifyConnectedAudioBounds } from "./external-edit.js";
 function verifyConnectedAudioOccurrences(timeline: TimelineIr, previousTimeline?: TimelineIr): TimelineIrResource[] {
   const resources = new Map<string, TimelineIrResource>();
   for (const occurrence of timeline.sequence.occurrences) {
-    if (occurrence.role !== "music" && occurrence.role !== "audio") continue;
+    const connectedAudio = occurrence.role === "music" || occurrence.role === "audio";
+    const videoAudioRole = occurrence.role === "video" && occurrence.nativeAudioRole !== undefined;
+    if (!connectedAudio && !videoAudioRole) continue;
     const previous = previousTimeline?.sequence.occurrences.find((item) => item.id === occurrence.id);
     if (previous && stableJson(previous) === stableJson(occurrence)) continue;
     const resource = timeline.resources.find((item) => item.id === occurrence.mediaId);
     if (resource?.sourceKind === "local-file") {
-      verifyConnectedAudioBounds(resource, occurrence.sourceStartTime ?? { value: "0", timescale: "1" }, occurrence.durationTime);
+      if (connectedAudio) verifyConnectedAudioBounds(resource, occurrence.sourceStartTime ?? { value: "0", timescale: "1" }, occurrence.durationTime);
+      if (videoAudioRole && resource.metadata?.streams.filter((stream) => stream.kind === "audio").length !== 1) {
+        throw new Error("HEADLESS_AUDIO_INVALID: video audio role requires exactly one audio stream");
+      }
       resources.set(resource.id, resource);
     }
   }
@@ -1048,7 +1053,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
   private async verifyConnectedAudioMetadata(projectId: string, timeline: TimelineIr, previousTimeline?: TimelineIr): Promise<void> {
     const resources = verifyConnectedAudioOccurrences(timeline, previousTimeline);
     if (!resources.length) return;
-    if (!this.mediaProbe) throw new Error("HEADLESS_MEDIA_PROBE_UNAVAILABLE: connected audio requires a source metadata probe");
+    if (!this.mediaProbe) throw new Error("HEADLESS_MEDIA_PROBE_UNAVAILABLE: audio roles require a source metadata probe");
     await new LocalMediaRegistrar(this.store(projectId), this.mediaProbe).verifyMetadata(resources);
   }
 
