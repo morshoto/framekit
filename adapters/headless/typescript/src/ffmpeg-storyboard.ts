@@ -61,7 +61,7 @@ export class FfmpegStoryboardRenderer {
       for (const [path, expected] of identities) {
         signal?.throwIfAborted();
         const info = await lstat(path);
-        if (!info.isFile() || info.isSymbolicLink() || await digest(path) !== expected) throw new Error("HEADLESS_STORYBOARD_SOURCE_CHANGED: source identity does not match registered media");
+        if (!info.isFile() || info.isSymbolicLink() || await digest(path, signal) !== expected) throw new Error("HEADLESS_STORYBOARD_SOURCE_CHANGED: source identity does not match registered media");
       }
     };
     await checkSources();
@@ -108,8 +108,8 @@ function seconds(value: { value: string; timescale: string }): number {
   return Number(value.value) / Number(value.timescale);
 }
 
-async function digest(path: string): Promise<string> {
+async function digest(path: string, signal?: AbortSignal): Promise<string> {
   const hash = createHash("sha256");
-  for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer);
+  for await (const chunk of createReadStream(path, { signal })) hash.update(chunk as Buffer);
   return hash.digest("hex");
 }

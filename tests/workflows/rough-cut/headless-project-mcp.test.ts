@@ -1507,6 +1507,9 @@ test("storyboard rejects stale media and cleans up after cancellation", async ()
     timeline.sequence.occurrences = [occurrence("shot", "media")];
     timeline.resources = [{ id: "media", name: "source", mediaKind: "video", source, sourceKind: "local-file", sourceDigest }];
     const renderer = new FfmpegStoryboardRenderer({ temporaryDirectory: directory });
+    const alreadyCancelled = new AbortController();
+    alreadyCancelled.abort();
+    await assert.rejects(renderer.render(timeline, { width: 320, height: 180 }, alreadyCancelled.signal), /abort/i);
     const result = await renderer.render(timeline, { width: 320, height: 180 });
     assert.equal(result.samples[0]?.sourceDigest, sourceDigest);
     assert.equal(result.samples[0]?.sourceSeconds, 0);
