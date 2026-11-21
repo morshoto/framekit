@@ -989,7 +989,7 @@ export class FcpxmlDocumentAdapter implements EditorPort {
     const audioRef = audioFilter && attribute(audioFilter, "ref");
     const audioEffect = audioRef === undefined ? undefined : this.effectAssetId(String(audioRef));
     const enabled = (filter: XmlNode | undefined) => filter !== undefined && (attribute(filter, "enabled") === undefined || String(attribute(filter, "enabled")) === "1");
-    if ((transitionMarker || beforeMetadata || afterMetadata) && (kind !== "transition" || transitionKind !== "cross-dissolve" || assetId !== "fcpxml:effect:FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265" || audioEffect !== "fcpxml:effect:FFAudioTransition" || videoFilters.length !== 1 || audioFilters.length !== 1 || !enabled(videoFilter) || !enabled(audioFilter) || !beforeValue || !afterValue || beforeAttribute !== undefined && String(beforeAttribute) !== String(beforeValue) || afterAttribute !== undefined && String(afterAttribute) !== String(afterValue))) {
+    if ((transitionMarker || beforeMetadata || afterMetadata) && (kind !== "transition" || transitionKind !== "cross-dissolve" || assetId !== "fcpxml:effect:FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265" || audioEffect !== "fcpxml:effect:FFAudioTransition" || videoFilters.length !== 1 || audioFilters.length !== 1 || !enabled(videoFilter) || !enabled(audioFilter) || !canonicalDissolveSettings(node, videoFilter, audioFilter) || !beforeValue || !afterValue || beforeAttribute !== undefined && String(beforeAttribute) !== String(beforeValue) || afterAttribute !== undefined && String(afterAttribute) !== String(afterValue))) {
       throw new Error("FCPXML_TRANSITION_METADATA_INVALID: unverified canonical transition metadata");
     }
     return {
@@ -1166,6 +1166,25 @@ function storyEntries(node: XmlNode): Array<{ kind: string; node: XmlNode }> {
       ? value.filter((child): child is XmlNode => typeof child === "object" && child !== null)
         .map((child) => ({ kind: Object.keys(child).find((key) => key !== ":@") ?? kind, node: child }))
       : []);
+}
+
+function canonicalDissolveSettings(transition: XmlNode, video: XmlNode | undefined, audio: XmlNode | undefined): boolean {
+  if (!video || !audio) return false;
+  const allowedTransition = new Set(["@_name", "@_offset", "@_duration"]);
+  const allowedFilter = new Set(["@_ref", "@_name", "@_enabled"]);
+  if (!Object.keys(attributes(transition)).every((key) => allowedTransition.has(key))
+    || !storyEntries(transition).every(({ kind }) => ["filter-video", "filter-audio", "metadata"].includes(kind))
+    || ![video, audio].every((filter) => Object.keys(attributes(filter)).every((key) => allowedFilter.has(key)))
+    || storyEntries(audio).length !== 0) return false;
+  const parameters = storyEntries(video);
+  const expected = [
+    { name: "Look", key: "1", value: "11 (Video)" },
+    { name: "Amount", key: "2", value: "50" },
+    { name: "Ease", key: "50", value: "2 (In & Out)" },
+    { name: "Ease Amount", key: "51", value: "0" },
+  ];
+  return parameters.length === expected.length && parameters.every(({ kind, node }) => kind === "param" && storyEntries(node).length === 0 && Object.keys(attributes(node)).length === 3)
+    && expected.every(({ name, key, value }) => parameters.some(({ node }) => attribute(node, "name") === name && attribute(node, "key") === key && attribute(node, "value") === value));
 }
 
 function effectResources(document: OrderedXml): XmlNode[] {
