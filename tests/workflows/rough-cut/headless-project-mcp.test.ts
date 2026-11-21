@@ -1769,7 +1769,20 @@ test("headless rough-cut preview and execution preserve provenance and produce v
       /HEADLESS_ROUGH_CUT_ARTIFACT_CHANGED:/,
     );
     assert.equal(await readFile(request.fcpxml.path, "utf8"), "tampered FCPXML");
-    assert.equal((await service.open(created.timeline.project.id)).timeline.revision.sequence, registered.project.timeline.revision.sequence + 1);
+    const secondRequest = {
+      ...request,
+      plan: { ...plan, revision: executed.after.timeline.revision },
+      render: { ...request.render, outputPath: join(directory, "second.mp4") },
+      fcpxml: { ...request.fcpxml, path: join(directory, "second.fcpxml") },
+    };
+    const secondPreview = await resumedAfterPreview.previewRoughCut(secondRequest);
+    assert.equal(secondPreview.after.timeline.sequence.occurrences.length, 2);
+    assert.notEqual(secondPreview.provenance[0]?.occurrenceId, preview.provenance[0]?.occurrenceId);
+    const secondExecuted = await resumedAfterPreview.executeRoughCut({ ...secondRequest, approved: true, planDigest: secondPreview.planDigest });
+    assert.equal(secondExecuted.committed, true);
+    assert.equal(secondExecuted.render.status, "passed");
+    assert.equal(secondExecuted.fcpxmlArtifact.verified, true);
+    assert.equal((await service.open(created.timeline.project.id)).timeline.revision.sequence, registered.project.timeline.revision.sequence + 2);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
