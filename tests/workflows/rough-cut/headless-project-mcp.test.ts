@@ -142,6 +142,10 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     const unsupportedTitle = { ...titleRequest, operations: titleRequest.operations.map((operation) => operation.type === "add-title" ? { ...operation, title: { ...operation.title, text: "A\u{10ffff}" } } : operation) };
     await assert.rejects(fontService.previewRoughCut(unsupportedTitle), /RENDER_CAPABILITY_UNAVAILABLE.*titles/);
     const approvedTitle = await fontService.previewRoughCut(titleRequest);
+    const originalFont = await readFile(fontPath);
+    await writeFile(fontPath, Buffer.concat([originalFont, Buffer.from([0])]));
+    await assert.rejects(fontService.executeRoughCut({ ...titleRequest, approved: true, planDigest: approvedTitle.planDigest }), /PLAN_MISMATCH.*font/i);
+    assert.equal(existsSync(request.render.outputPath), false);
     await rm(fontPath);
     await assert.rejects(fontService.executeRoughCut({ ...titleRequest, approved: true, planDigest: approvedTitle.planDigest }), /HEADLESS_ROUGH_CUT_RENDER_FAILED/);
     assert.equal(existsSync(request.render.outputPath), false);
