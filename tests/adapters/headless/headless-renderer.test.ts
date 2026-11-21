@@ -42,6 +42,9 @@ test("FFmpeg renderer rejects titles with unavailable glyphs", async () => {
     const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(output) });
     await assert.rejects(renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request))), /HEADLESS_RENDER_.*(?:glyph|font)/i);
     await assert.rejects(readFile(output), /ENOENT/);
+    source.sequence.titles![0]!.text = "a\u200db";
+    const joined = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(output) });
+    await assert.rejects(renderer.render(createFramekitRenderPlan(joined, renderer.capabilities(joined))), /unverified shaping sequence/i);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

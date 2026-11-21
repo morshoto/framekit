@@ -33,7 +33,7 @@ export const FRAMEKIT_BOUNDARY_POLICY = {
     "headless-application": [],
     testkit: [],
     "final-cut": ["fast-xml-parser"],
-    "headless-renderer": [],
+    "headless-renderer": ["fontkit"],
     "mcp-server": ["@modelcontextprotocol/sdk", "zod"],
     cli: [],
   },

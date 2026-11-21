@@ -1527,6 +1527,9 @@ test("storyboard rejects stale media and cleans up after cancellation", async ()
     assert.equal(result.samples[0]?.sourceSeconds, 0);
     assert.ok(Buffer.from(result.data, "base64").length > 100);
     assert.equal((await readdir(directory)).filter((name) => name.startsWith("framekit-storyboard-")).length, 0);
+    const missingGlyph = structuredClone(timeline);
+    missingGlyph.sequence.titles = [{ id: "missing-glyph", text: "Hello \u{10ffff}", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" }, lane: 1 }];
+    await assert.rejects(renderer.render(missingGlyph, { width: 320, height: 180 }), /HEADLESS_STORYBOARD_UNSUPPORTED.*glyph/i);
     const oversized = structuredClone(timeline);
     oversized.sequence.occurrences = Array.from({ length: 13 }, (_, index) => ({ ...occurrence(`shot-${index}`, "media"), startTime: { value: String(index), timescale: "1" } }));
     await assert.rejects(renderer.render(oversized, { width: 320, height: 180 }), /HEADLESS_STORYBOARD_LIMIT/);
