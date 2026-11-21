@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.2.4](https://github.com/morshoto/framekit/compare/v0.2.3...v0.2.4) - 2026-11-21
+
+### New Features
+- test: verify versioned headless revisions by @morshoto in https://github.com/morshoto/framekit/pull/771
+- feat: use milestone descriptions in release notes by @morshoto in https://github.com/morshoto/framekit/pull/774
+- feat: add headless storyboard previews by @morshoto in https://github.com/morshoto/framekit/pull/782
+### Other changes
+- test: verify revised Final Cut export by @morshoto in https://github.com/morshoto/framekit/pull/772
+
 ## [v0.2.3](https://github.com/morshoto/framekit/compare/v0.2.2...v0.2.3) - 2026-11-20
 
 ### New Features

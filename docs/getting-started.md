@@ -92,6 +92,30 @@ ffprobe to register local sources. Start the MCP server in headless mode, then:
    `headless.fcpxml.export`; provide a new output path and an explicit Final Cut
    target with `materialization: "versioned"`.
 
+For a semantic rough-cut plan, `headless.rough-cut.preview` also returns an MCP
+PNG image and storyboard metadata alongside the existing JSON preview. The
+sheet samples each primary shot start and each title midpoint in chronological
+order; metadata identifies each sample's timeline and source time, media
+digest, proposed revision, and plan digest. Inspect the image, revise the plan
+or operations if needed, and preview again before executing with the new
+digest and explicit approval. Preview does not change the project or source
+media. The sheet is limited to 12 samples and a maximum of 640 × 360 pixels per
+sample. It does not show motion or audio, and frame-rate conversion can select
+a nearby source frame. Unsupported visual compositions or sample limits return
+JSON and a plan digest without an image; `storyboardUnavailable` explains why.
+FFmpeg and its drawtext support are required for storyboard rendering.
+
+For a headless cross-dissolve, the incoming source must have a pre-roll handle
+at least as long as the transition. The blend uses that handle before the cut,
+while frames and audio after the cut retain the approved source timing. The
+renderer rejects insufficient handles before writing the output.
+
+Headless render verification measures the first output audio stream's decoded
+true peak using FFmpeg. The reported peak must be below 0 dBFS; a value rounded
+to 0.0 dBFS fails conservatively. If verification reports an excessive peak,
+reduce the mix gain and render again. A measurement failure also fails
+verification. Silent audio is accepted.
+
 Empty `timeline` for step 1:
 
 ```json
@@ -111,6 +135,12 @@ Empty `timeline` for step 1:
 ```
 
 Example `edit` for step 3, with two one-second clips and a two-second music bed:
+
+Version 1 requires at least one clip; `title` and `music` are independently
+optional. When present, each section must satisfy its normal validation rules.
+
+External edit music `gainDb` must be between -60 and +12 dB inclusive. This
+bound does not guarantee that the combined audio mix avoids clipping.
 
 ```json
 {

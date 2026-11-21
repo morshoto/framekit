@@ -1442,11 +1442,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     title: z.object({
       id: z.string().min(1), text: z.string().min(1),
       startTime: rationalTimeSchema, durationTime: rationalTimeSchema,
-    }).strict(),
+    }).strict().optional(),
     music: z.object({
       id: z.string().min(1), mediaId: z.string().min(1), sourceStartTime: rationalTimeSchema,
       startTime: rationalTimeSchema, durationTime: rationalTimeSchema, gainDb: z.number().finite(),
-    }).strict(),
+    }).strict().optional(),
   }).strict();
   server.registerTool("headless.edit-json.preview", {
     description: "Preview a versioned external edit against a Framekit project without mutation.",
@@ -1590,12 +1590,32 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       expectedRevision: revisionValueSchema.optional(),
       parameters: headlessRenderParametersSchema,
     },
-  }, async ({ projectId, sequenceId, expectedRevision, parameters }) => sessionResult(() => requireHeadlessProjects().render(projectId, sequenceId, parameters, expectedRevision)));
+  }, async ({ projectId, sequenceId, expectedRevision, parameters }) => {
+    try {
+      const record = await requireHeadlessProjects().render(projectId, sequenceId, parameters, expectedRevision);
+      return { ...jsonResult(record), ...(record.status === "failed" ? { isError: true } : {}) };
+    } catch (error) {
+      return sessionResult(async () => { throw error; });
+    }
+  });
 
   server.registerTool("headless.rough-cut.preview", {
-    description: "Preview a semantic rough-cut plan with optional Timeline IR operations; the digest binds both, and preview returns provenance and FCPXML output intent without mutation.",
+    description: "Preview a semantic rough-cut plan and a bounded storyboard; the digest binds the plan and operations without mutating the timeline.",
     inputSchema: headlessRoughCutRequestSchema.shape,
-  }, async (request) => sessionResult(() => requireHeadlessProjects().previewRoughCut(request as unknown as HeadlessRoughCutRequest)));
+  }, async (request, extra) => {
+    try {
+      const preview = await requireHeadlessProjects().previewRoughCut(request as unknown as HeadlessRoughCutRequest, extra.signal, true);
+      if (!preview.storyboard && preview.storyboardUnavailable) return jsonResult(preview);
+      if (!preview.storyboard) throw new Error("HEADLESS_STORYBOARD_UNAVAILABLE: storyboard renderer returned no image");
+      const { data, mimeType, ...metadata } = preview.storyboard;
+      return { content: [
+        { type: "text" as const, text: JSON.stringify({ ...preview, storyboard: { mimeType, ...metadata } }) },
+        { type: "image" as const, data, mimeType },
+      ] };
+    } catch (error) {
+      return sessionResult(async () => { throw error; });
+    }
+  });
 
   server.registerTool("headless.rough-cut.execute", {
     description: "Execute an explicitly approved semantic rough-cut plan and its digest-bound Timeline IR operations headlessly, verify MP4 output, and write equivalent editable FCPXML.",

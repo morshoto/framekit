@@ -1977,7 +1977,9 @@
       "\"headless render fixtures are reproducible and encode the canonical QA assertions\""
     ],
     "tests/integration/headless-renderer.test.ts": [
+      "\"FFmpeg dissolve preserves incoming video and audio timing\"",
       "\"FFmpeg renderer preserves apostrophes in title text\"",
+      "\"FFmpeg renderer ends titles before the cut frame\"",
       "\"FFmpeg renderer keeps title text separate from drawtext options\"",
       "\"FFmpeg Timeline IR renderer honors explicit output frame rate without mutating sources\"",
       "\"FFmpeg renderer fills a trailing video gap with black while music continues\"",
@@ -2606,6 +2608,7 @@
       "\"ffprobe verifier treats missing output as failure\"",
       "\"ffprobe verifier requires canonical audio streams\"",
       "\"ffprobe verifier accepts renderer audio resampling\"",
+      "\"render verification measures decoded mix true peak\"",
       "\"ffprobe verifier requires AAC for FFmpeg headless renders\"",
       "\"ffprobe verifier rejects output identity or bytes changing during verification\"",
       "\"render-and-verify preserves explicit unavailable state\""
@@ -3110,7 +3113,8 @@
       "\"headless Undo rejects changed or missing media and a validation race\"",
       "\"headless Undo reports save and independent readback failures without verified success\"",
       "\"concurrent headless Undo attempts cannot both restore the same revision\"",
-      "\"artifact-first production MCP edits, restores, exports and renders fractional-frame media\""
+      "\"artifact-first production MCP edits, restores, exports and renders fractional-frame media\"",
+      "\"storyboard rejects stale media and cleans up after cancellation\""
     ],
     "tests/integration/project-status-sync.test.ts": [
       "'draft PRs select progress and ready PRs select review'",

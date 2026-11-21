@@ -6,8 +6,8 @@ import type { ContextRevision, ProjectEditCommand, RationalTime, TimelineIr, Tim
 export interface ExternalEdit {
   schemaVersion: 1;
   clips: Array<{ id: string; mediaId: string; sourceStartTime: RationalTime; durationTime: RationalTime }>;
-  title: { id: string; text: string; startTime: RationalTime; durationTime: RationalTime };
-  music: { id: string; mediaId: string; sourceStartTime: RationalTime; startTime: RationalTime; durationTime: RationalTime; gainDb: number };
+  title?: { id: string; text: string; startTime: RationalTime; durationTime: RationalTime };
+  music?: { id: string; mediaId: string; sourceStartTime: RationalTime; startTime: RationalTime; durationTime: RationalTime; gainDb: number };
 }
 
 /** Convert the bounded interchange format to the existing project transaction operations. */
@@ -55,14 +55,20 @@ export function externalEditOperations(edit: ExternalEdit, timeline: TimelineIr,
     aligned(clip.durationTime);
     aligned(clip.durationTime, sourceFrame, "source");
   }
-  assertSource(edit.music.mediaId, "audio");
-  for (const time of [edit.music.sourceStartTime, edit.music.startTime, edit.music.durationTime, edit.title.startTime, edit.title.durationTime]) aligned(time);
+  if (edit.music) {
+    if (!Number.isFinite(edit.music.gainDb) || edit.music.gainDb < -60 || edit.music.gainDb > 12) {
+      throw new Error("EXTERNAL_EDIT_INVALID: music.gainDb must be between -60 and 12 dB inclusive");
+    }
+    assertSource(edit.music.mediaId, "audio");
+    for (const time of [edit.music.sourceStartTime, edit.music.startTime, edit.music.durationTime]) aligned(time);
+  }
+  if (edit.title) for (const time of [edit.title.startTime, edit.title.durationTime]) aligned(time);
   return [
     ...edit.clips.map((clip) => ({ type: "insert-occurrence" as const, placement: "append" as const, occurrence: {
       ...clip, name: clip.id, startTime: { value: "0", timescale: "1" }, track: 0, role: "video" as const,
     } })),
-    { type: "insert-occurrence", occurrence: { ...edit.music, name: edit.music.id, track: 1, role: "music" } },
-    { type: "add-title", title: { ...edit.title, lane: 1 } },
+    ...(edit.music ? [{ type: "insert-occurrence" as const, occurrence: { ...edit.music, name: edit.music.id, track: 1, role: "music" as const } }] : []),
+    ...(edit.title ? [{ type: "add-title" as const, title: { ...edit.title, lane: 1 } }] : []),
   ];
 }
 

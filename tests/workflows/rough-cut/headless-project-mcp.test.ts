@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { chmod, link, mkdir, open, readFile, mkdtemp, rename, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
+import { chmod, link, mkdir, open, readFile, readdir, mkdtemp, rename, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { dirname } from "node:path";
 import { tmpdir } from "node:os";
@@ -15,7 +15,7 @@ import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
 import { compileTimelineIrToFcpxml } from "../../../adapters/final-cut/typescript/src/timeline-ir-fcpxml.js";
 import { HeadlessProjectService, externalEditOperations } from "@framekit/headless-application";
 import { FramekitProjectStore, timelineIrDigest, type FramekitProjectDocument, type TimelineIr } from "@framekit/runtime";
-import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer } from "../../../adapters/headless/typescript/src/index.js";
+import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer, FfmpegStoryboardRenderer } from "../../../adapters/headless/typescript/src/index.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -931,7 +931,36 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
         },
       },
     };
-    const preview = payload(await client.callTool({ name: "headless.rough-cut.preview", arguments: request }));
+    const unsampledRequest = { ...request, plan: { ...plan, shots: Array.from({ length: 13 }, (_, index) => shot(index + 1, "a", 0, 1)) }, operations: [] };
+    const unsampledResult = await client.callTool({ name: "headless.rough-cut.preview", arguments: unsampledRequest });
+    assert.notEqual(unsampledResult.isError, true);
+    const unsampled = payload(unsampledResult);
+    assert.match(unsampled.planDigest, /^[a-f0-9]{64}$/);
+    assert.equal(unsampled.storyboard, undefined);
+    assert.match(unsampled.storyboardUnavailable, /HEADLESS_STORYBOARD_LIMIT/);
+    assert.equal((unsampledResult.content as Array<{ type: string }>).some((item) => item.type === "image"), false);
+    const previewResult = await client.callTool({ name: "headless.rough-cut.preview", arguments: request });
+    let preview = payload(previewResult);
+    const storyboardImage = (previewResult.content as Array<{ type: string; data?: string; mimeType?: string }>).find((item) => item.type === "image");
+    assert.equal(storyboardImage?.mimeType, "image/png");
+    assert.ok(Buffer.from(storyboardImage!.data!, "base64").length > 100);
+    assert.equal(preview.storyboard.samples.filter((sample: any) => sample.kind === "shot").length, 3);
+    assert.equal(preview.storyboard.samples.filter((sample: any) => sample.kind === "title").length, 1);
+    assert.equal(preview.storyboard.planDigest, preview.planDigest);
+    assert.deepEqual(preview.storyboard.revision, preview.after.timeline.revision);
+    assert.deepEqual(preview.storyboard.samples.map((sample: any) => [sample.kind, sample.mediaId]), [
+      ["shot", registrations.b.id], ["title", registrations.b.id], ["shot", registrations.a.id], ["shot", registrations.c.id],
+    ]);
+    const sheetPath = join(directory, "preview.png");
+    await writeFile(sheetPath, Buffer.from(storyboardImage!.data!, "base64"));
+    const tile = async (x: number, y: number) => {
+      const { stdout } = await execFileAsync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-i", sheetPath, "-vf", `crop=640:360:${x}:${y},scale=320:180`, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"], { encoding: "buffer", maxBuffer: 320 * 180 * 3 + 1024 });
+      return stdout as unknown as Buffer;
+    };
+    assertPixelDominates(await tile(0, 0), "blue");
+    assert.ok(countBrightPixels(await tile(640, 0)) > 100, "title midpoint is visible on the storyboard");
+    assertPixelDominates(await tile(1280, 0), "green");
+    assertPixelDominates(await tile(0, 360), "yellow");
     assert.equal(preview.before.timeline.sequence.occurrences.length, 0);
     assert.equal(preview.before.timeline.revision.sequence, revision.sequence);
     assert.deepEqual(preview.after.timeline.sequence.occurrences.filter((occurrence: any) => occurrence.track === 0).map((occurrence: any) => [
@@ -981,8 +1010,22 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
     assert.equal(unchanged.timeline.revision.id, revision.id);
     assert.equal(unchanged.timeline.sequence.occurrences.length, 0);
 
+    // Revise the title after seeing the contact sheet, then preview again.
+    const originalDigest = preview.planDigest;
+    const revisedRequest = { ...request, operations: operations.map((operation) => operation.type === "add-title"
+      ? { ...operation, title: { ...operation.title!, text: "Revised title" } }
+      : operation) };
+    const revisedResult = await client.callTool({ name: "headless.rough-cut.preview", arguments: revisedRequest });
+    preview = payload(revisedResult);
+    const revisedImage = (revisedResult.content as Array<{ type: string; data?: string }>).find((item) => item.type === "image");
+    assert.notEqual(revisedImage?.data, storyboardImage?.data);
+    assert.notEqual(preview.planDigest, originalDigest);
+    const stale = await client.callTool({ name: "headless.rough-cut.execute", arguments: { ...revisedRequest, approved: true, planDigest: originalDigest } });
+    assert.equal(stale.isError, true);
+    assert.match(toolErrorText(stale), /HEADLESS_ROUGH_CUT_PLAN_MISMATCH/);
+
     const executed = payload(await client.callTool({ name: "headless.rough-cut.execute", arguments: {
-      ...request, approved: true, planDigest: preview.planDigest,
+      ...revisedRequest, approved: true, planDigest: preview.planDigest,
     } }));
     assert.equal(executed.committed, true);
     assert.equal(executed.render.status, "passed");
@@ -1041,7 +1084,7 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
     if (existsSync(finalCutDtd)) {
       await execFileAsync("xmllint", ["--noout", "--dtdvalid", pathToFileURL(finalCutDtd).href, fcpxmlPath]);
     }
-    assert.match(xml, /<text>FrameKit MVP Test<\/text>/);
+    assert.match(xml, /<text>Revised title<\/text>/);
     assert.match(xml, /<asset-clip [^>]*duration="30s"[^>]*lane="1"[^>]*audioRole="music"/);
     assert.match(xml, /<md key="com\.framekit\.id" value="issue-517-music" \/>/);
     assert.match(xml, /<adjust-volume amount="-12dB" \/>/);
@@ -1059,7 +1102,7 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
       [sourcePaths.a, 8, 10, 12, 0, undefined],
       [sourcePaths.c, 20, 2, 10, 0, undefined],
     ]);
-    assert.deepEqual(fcpxmlReadback.timeline.storyElements.filter((element) => element.kind === "title").map(({ text, start, duration, lane }) => [text, start, duration, lane]), [["FrameKit MVP Test", 0, 6, 1]]);
+    assert.deepEqual(fcpxmlReadback.timeline.storyElements.filter((element) => element.kind === "title").map(({ text, start, duration, lane }) => [text, start, duration, lane]), [["Revised title", 0, 6, 1]]);
   } finally {
     await client?.close();
     await transport?.close();
@@ -1144,7 +1187,7 @@ test("production stdio MCP persists and reopens the headless project and render 
       projectId: "mcp-headless-project",
       sequenceId: "mcp-headless-sequence",
       expectedRevision: first.after.timeline.revision,
-      operations: [{ type: "insert-occurrence", placement: "append", occurrence: occurrence("occurrence-blue", blueResource.id) }],
+      operations: [{ type: "insert-occurrence", placement: "append", occurrence: { ...occurrence("occurrence-blue", blueResource.id), sourceStartTime: { value: "1", timescale: "4" } } }],
     } }));
     const finished = payload(await client.callTool({ name: "headless.edit.execute", arguments: {
       projectId: "mcp-headless-project",
@@ -1165,6 +1208,18 @@ test("production stdio MCP persists and reopens the headless project and render 
     } }));
     assert.equal(render.status, "passed");
     assert.equal(render.outcome.verification.status, "passed");
+    for (const [outputPath, code] of [[join(directory, "mcp-final.mp4"), "HEADLESS_RENDER_OUTPUT_EXISTS"], [join(directory, "missing", "output.mp4"), "HEADLESS_RENDER_OUTPUT_INVALID"]]) {
+      const failed = await client.callTool({ name: "headless.render", arguments: {
+        projectId: "mcp-headless-project", sequenceId: "mcp-headless-sequence", expectedRevision: finished.after.timeline.revision,
+        parameters: { outputPath, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } },
+      } });
+      assert.equal(failed.isError, true);
+      const record = JSON.parse(toolErrorText(failed));
+      assert.equal(record.outcome.error.code, code);
+      const inspectedFailure = payload(await client.callTool({ name: "headless.render.inspect", arguments: { renderId: record.renderId } }));
+      assert.equal(inspectedFailure.status, "failed");
+      assert.equal(inspectedFailure.outcome.error.code, code);
+    }
     const inspected = payload(await client.callTool({ name: "headless.render.inspect", arguments: { renderId: render.renderId } }));
     assert.equal(inspected.status, "passed");
     assert.equal(inspected.outcome.render.projectRevision.id, finished.after.timeline.revision.id);
@@ -1361,13 +1416,25 @@ test("headless rough-cut preview and execution preserve provenance and produce v
       /HEADLESS_ROUGH_CUT_SOURCE_MISMATCH:/,
     );
 
+    await rm(collisionPath);
+    for (const code of ["HEADLESS_STORYBOARD_SOURCE_CHANGED", "UNEXPECTED_RENDER_FAILURE"]) {
+      const failing = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: new FfmpegMediaMetadataProbe(), storyboard: { render: async () => { throw new Error(`${code}: failure`); } } });
+      await assert.rejects(failing.previewRoughCut(request, undefined, true), new RegExp(code));
+      await assert.rejects(readFile(collisionPath), /ENOENT/);
+    }
+    const fallback = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: new FfmpegMediaMetadataProbe(), clock: () => "2026-10-05T00:00:00.000Z", storyboard: { render: async () => { throw new Error("HEADLESS_STORYBOARD_UNSUPPORTED: composition"); } } });
+    const fallbackPreview = await fallback.previewRoughCut(request, undefined, true);
+    assert.equal(fallbackPreview.planDigest, preview.planDigest);
+    assert.match(fallbackPreview.storyboardUnavailable!, /HEADLESS_STORYBOARD_UNSUPPORTED/);
+    assert.equal(fallbackPreview.storyboard, undefined);
+
     const resumedAfterPreview = new HeadlessProjectService({
       directory: join(directory, "projects"),
       mediaProbe: new FfmpegMediaMetadataProbe(),
       renderer: new FfmpegTimelineRenderer(),
       verifier: new FfmpegRenderVerifier(),
     });
-    const executed = await resumedAfterPreview.executeRoughCut({ ...request, approved: true, planDigest: preview.planDigest });
+    const executed = await resumedAfterPreview.executeRoughCut({ ...request, approved: true, planDigest: fallbackPreview.planDigest });
     assert.equal(executed.committed, true);
     assert.equal(executed.render.status, "passed");
     assert.equal(executed.fcpxmlArtifact.verified, true);
@@ -1461,6 +1528,60 @@ test("render and rough-cut execution history cannot replace projects with matchi
   }
 });
 
+test("storyboard rejects stale media and cleans up after cancellation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-storyboard-test-"));
+  try {
+    const source = join(directory, "source.mp4");
+    await generateVideoAtFrameRate(source, 30, 2);
+    const sourceDigest = createHash("sha256").update(await readFile(source)).digest("hex");
+    const timeline = emptyTimeline();
+    timeline.sequence.durationTime = { value: "1", timescale: "1" };
+    timeline.sequence.occurrences = [occurrence("shot", "media")];
+    timeline.resources = [{ id: "media", name: "source", mediaKind: "video", source, sourceKind: "local-file", sourceDigest }];
+    const renderer = new FfmpegStoryboardRenderer({ temporaryDirectory: directory });
+    const alreadyCancelled = new AbortController();
+    alreadyCancelled.abort();
+    await assert.rejects(renderer.render(timeline, { width: 320, height: 180 }, alreadyCancelled.signal), /abort/i);
+    const result = await renderer.render(timeline, { width: 320, height: 180 });
+    assert.equal(result.samples[0]?.sourceDigest, sourceDigest);
+    assert.equal(result.samples[0]?.sourceSeconds, 0);
+    assert.ok(Buffer.from(result.data, "base64").length > 100);
+    assert.equal((await readdir(directory)).filter((name) => name.startsWith("framekit-storyboard-")).length, 0);
+    const oversized = structuredClone(timeline);
+    oversized.sequence.occurrences = Array.from({ length: 13 }, (_, index) => ({ ...occurrence(`shot-${index}`, "media"), startTime: { value: String(index), timescale: "1" } }));
+    await assert.rejects(renderer.render(oversized, { width: 320, height: 180 }), /HEADLESS_STORYBOARD_LIMIT/);
+    const failing = join(directory, "failing-ffmpeg");
+    await writeFile(failing, "#!/usr/bin/env node\nprocess.exit(2);\n");
+    await chmod(failing, 0o755);
+    await assert.rejects(new FfmpegStoryboardRenderer({ temporaryDirectory: directory, ffmpegPath: failing }).render(timeline, { width: 320, height: 180 }));
+    assert.equal((await readdir(directory)).filter((name) => name.startsWith("framekit-storyboard-")).length, 0);
+
+    // No cached image may be reused after the source bytes change.
+    await writeFile(source, "changed");
+    await assert.rejects(renderer.render(timeline, { width: 320, height: 180 }), /HEADLESS_STORYBOARD_SOURCE_CHANGED/);
+    await generateVideoAtFrameRate(source, 30, 2);
+    timeline.resources[0]!.sourceDigest = createHash("sha256").update(await readFile(source)).digest("hex");
+    const changing = join(directory, "changing-ffmpeg");
+    await writeFile(changing, `#!/usr/bin/env node\nconst { spawnSync } = require('node:child_process'); const { appendFileSync } = require('node:fs'); const result = spawnSync('ffmpeg', process.argv.slice(2)); appendFileSync(${JSON.stringify(source)}, 'changed'); process.exit(result.status ?? 1);\n`);
+    await chmod(changing, 0o755);
+    await assert.rejects(new FfmpegStoryboardRenderer({ temporaryDirectory: directory, ffmpegPath: changing }).render(timeline, { width: 320, height: 180 }), /HEADLESS_STORYBOARD_SOURCE_CHANGED/);
+    assert.equal((await readdir(directory)).filter((name) => name.startsWith("framekit-storyboard-")).length, 0);
+    await generateVideoAtFrameRate(source, 30, 2);
+    timeline.resources[0]!.sourceDigest = createHash("sha256").update(await readFile(source)).digest("hex");
+    const slow = join(directory, "slow-ffmpeg");
+    await writeFile(slow, "#!/usr/bin/env node\nsetTimeout(() => process.exit(0), 30000);\n");
+    await chmod(slow, 0o755);
+    const controller = new AbortController();
+    const pending = new FfmpegStoryboardRenderer({ temporaryDirectory: directory, ffmpegPath: slow }).render(timeline, { width: 320, height: 180 }, controller.signal);
+    const timer = setTimeout(() => controller.abort(), 200);
+    await assert.rejects(pending, /abort/i);
+    clearTimeout(timer);
+    assert.equal((await readdir(directory)).filter((name) => name.startsWith("framekit-storyboard-")).length, 0);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("inferred rough-cut ranges align duration to the sequence frame grid", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-headless-rough-cut-frame-grids-"));
   const sourcePath = join(directory, "source-24fps.mp4");
@@ -1522,6 +1643,7 @@ test("inferred rough-cut ranges align duration to the sequence frame grid", asyn
       },
     });
 
+    await assert.rejects(service.previewRoughCut(makeRequest({ start: 0, end: 0.75 }), undefined, true), /HEADLESS_STORYBOARD_UNAVAILABLE/);
     const preview = await service.previewRoughCut(makeRequest({ start: 0, end: 0.75 }));
     assert.deepEqual(preview.after.timeline.sequence.occurrences[0]?.durationTime, { value: "23", timescale: "30" });
     assert.deepEqual(preview.provenance[0]?.sourceRange.durationTime, { value: "23", timescale: "30" });
@@ -1570,6 +1692,25 @@ test("inferred rough-cut ranges align duration to the sequence frame grid", asyn
       service.previewRoughCut(makeRequest({ start: sourceDuration - 0.5, end: sourceDuration + 0.01 })),
       /HEADLESS_ROUGH_CUT_RANGE_INVALID: source range exceeds/,
     );
+
+    let startSampling!: () => void;
+    let finishSampling!: () => void;
+    const started = new Promise<void>((resolve) => { startSampling = resolve; });
+    const finish = new Promise<void>((resolve) => { finishSampling = resolve; });
+    const concurrent = new HeadlessProjectService({
+      directory: join(directory, "projects"), mediaProbe: new FfmpegMediaMetadataProbe(),
+      storyboard: { render: async () => { startSampling(); await finish; return { data: "", mimeType: "image/png", samples: [], limitations: [] }; } },
+    });
+    const approvalsBefore = (await readdir(join(directory, "projects"))).filter((name) => name.endsWith(".approval.json")).sort();
+    const pending = concurrent.previewRoughCut(makeRequest({ start: 0, end: 0.5 }));
+    await started;
+    await service.executeEdit(created.timeline.project.id, {
+      schemaVersion: 1, expectedRevision: registered.project.timeline.revision,
+      operations: [{ type: "insert-occurrence", occurrence: occurrence("concurrent", source.id) }],
+    }, created.timeline.sequence.id);
+    finishSampling();
+    await assert.rejects(pending, /HEADLESS_ROUGH_CUT_STALE_REVISION/);
+    assert.deepEqual((await readdir(join(directory, "projects"))).filter((name) => name.endsWith(".approval.json")).sort(), approvalsBefore);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -1801,6 +1942,30 @@ test("external edit JSON previews registered clips, a title and music without mu
       { id: "clip-b", mediaId: a2.resource.id, sourceStartTime: seconds(0), durationTime: seconds(1) },
     ], title: { id: "title", text: "Hello 世界 🎬", startTime: seconds(0), durationTime: seconds(1) },
     music: { id: "music", mediaId: b.resource.id, sourceStartTime: seconds(0), startTime: seconds(0), durationTime: seconds(2), gainDb: -12 } };
+    for (const [variant, withTitle, withMusic] of [["clips", false, false], ["title", true, false], ["music", false, true]] as const) {
+      const newTimeline = emptyTimeline();
+      newTimeline.project.id = `partial-${variant}`;
+      newTimeline.sequence.id = `sequence-${variant}`;
+      const created = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: newTimeline } }));
+      const registeredVideo = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId: newTimeline.project.id, sourcePath: video, expectedRevision: created.timeline.revision } }));
+      const registeredAudio = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId: newTimeline.project.id, sourcePath: music, expectedRevision: registeredVideo.project.timeline.revision } }));
+      const partialEdit = { schemaVersion: 1, clips: [{ ...edit.clips[0], mediaId: registeredVideo.resource.id }],
+        ...(withTitle ? { title: edit.title } : {}), ...(withMusic ? { music: { ...edit.music, mediaId: registeredAudio.resource.id, durationTime: seconds(1) } } : {}) };
+      const args = { projectId: newTimeline.project.id, sequenceId: newTimeline.sequence.id, expectedRevision: registeredAudio.project.timeline.revision, edit: partialEdit };
+      const before = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId: newTimeline.project.id } }));
+      const partialPreview = payload(await client.callTool({ name: "headless.edit-json.preview", arguments: args }));
+      assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId: newTimeline.project.id } })).timeline, before.timeline);
+      const partialExecuted = payload(await client.callTool({ name: "headless.edit-json.execute", arguments: { ...args, approved: true, planDigest: partialPreview.planDigest } }));
+      assert.equal(partialExecuted.after.timeline.sequence.titles.length, Number(withTitle));
+      assert.equal(partialExecuted.after.timeline.sequence.occurrences.filter((item: any) => item.role === "music").length, Number(withMusic));
+      if (variant === "clips") {
+        const revision = partialExecuted.after.timeline.revision;
+        const rendered = payload(await client.callTool({ name: "headless.render", arguments: { projectId: newTimeline.project.id, sequenceId: newTimeline.sequence.id, expectedRevision: revision, parameters: { outputPath: join(directory, "clips-only.mp4"), format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } } }));
+        assert.equal(rendered.status, "passed");
+        const exported = payload(await client.callTool({ name: "headless.fcpxml.export", arguments: { projectId: newTimeline.project.id, sequenceId: newTimeline.sequence.id, expectedRevision: revision, outputPath: join(directory, "clips-only.fcpxml"), target: { provider: "final-cut", libraryUid: "library", eventUid: "event", projectUid: "partial", sequenceUid: "sequence", materialization: "versioned" } } }));
+        assert.equal(exported.artifact.verified, true);
+      }
+    }
     const shiftedTimeline = structuredClone(b.project.timeline);
     const shiftedStream = shiftedTimeline.resources.find((item: any) => item.id === a.resource.id).metadata.streams.find((item: any) => item.kind === "video");
     shiftedStream.sourceRange.start = { value: "1", timescale: "100" };
@@ -1808,12 +1973,19 @@ test("external edit JSON previews registered clips, a title and music without mu
     assert.throws(() => externalEditOperations(shiftedEdit, shiftedTimeline, shiftedTimeline.revision), /source frame grid/);
     shiftedStream.sourceRange.start = { value: "1", timescale: "30" };
     assert.doesNotThrow(() => externalEditOperations(shiftedEdit, shiftedTimeline, shiftedTimeline.revision));
+    for (const gainDb of [-60, 12]) {
+      assert.doesNotThrow(() => externalEditOperations({ ...edit, music: { ...edit.music, gainDb } }, b.project.timeline, b.project.timeline.revision));
+    }
+    for (const gainDb of [-60.01, 12.01, 40, Infinity, NaN]) {
+      assert.throws(() => externalEditOperations({ ...edit, music: { ...edit.music, gainDb } }, b.project.timeline, b.project.timeline.revision), /EXTERNAL_EDIT_INVALID: music.gainDb.*-60.*12/);
+    }
     for (const [name, invalidEdit] of [
       ["video stream exhausted", { ...edit, clips: [{ ...edit.clips[1], sourceStartTime: seconds(1) }] }],
       ["illegal XML title", { ...edit, title: { ...edit.title, text: "bad\u0000title" } }],
       ["unknown source", { ...edit, clips: [{ ...edit.clips[0], mediaId: "missing" }] }],
       ["audio used as video", { ...edit, clips: [{ ...edit.clips[0], mediaId: b.resource.id }] }],
       ["video used as music", { ...edit, music: { ...edit.music, mediaId: a.resource.id } }],
+      ["excessive music gain", { ...edit, music: { ...edit.music, gainDb: 40 } }],
       ["off-grid source start", { ...edit, clips: [{ ...edit.clips[0], sourceStartTime: { value: "1", timescale: "60" } }] }],
       ["source start between source frames", { ...edit, clips: [{ ...edit.clips[1], sourceStartTime: { value: "1", timescale: "30" }, durationTime: { value: "1", timescale: "2" } }] }],
       ["unsupported title styling", { ...edit, title: { ...edit.title, style: { color: "red" } } }],
