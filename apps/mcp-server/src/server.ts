@@ -1438,7 +1438,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     clips: z.array(z.object({
       id: z.string().min(1), mediaId: z.string().min(1),
       sourceStartTime: rationalTimeSchema, durationTime: rationalTimeSchema,
-      nativeAudioRole: z.string().regex(/^dialogue(?:\.[^.]+)?$/).optional(),
+      nativeAudioRole: z.string().regex(/^dialogue(?:\.[^.]+)?$/).refine((role) => !/[\t\r\n]/.test(role)).optional(),
     }).strict()).min(1),
     title: z.object({
       id: z.string().min(1), text: z.string().min(1),
