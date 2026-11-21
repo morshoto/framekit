@@ -80,19 +80,36 @@ test("FFmpeg renderer ends titles before the cut frame", async () => {
     source.sequence.titles = [source.sequence.titles![0]!];
     source.sequence.titles[0]!.durationTime = { value: "1", timescale: "1" };
     const renderer = new FfmpegTimelineRenderer();
-    const output = join(directory, "boundary.mp4");
-    const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(output) });
-    await renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request)));
-    const bright = async (index: number) => {
-      const frame = join(directory, `frame-${index}.ppm`);
-      await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-i", output, "-vf", `select=eq(n\\,${index})`, "-frames:v", "1", frame]);
+    const render = async (timeline: TimelineIr, label: string) => {
+      const output = join(directory, `${label}.mp4`);
+      const request = createFramekitRenderRequest({ timeline, target: { projectId: timeline.project.id, sequenceId: timeline.sequence.id }, parameters: parameters(output) });
+      await renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request)));
+      return output;
+    };
+    const baseline = structuredClone(source);
+    baseline.sequence.titles = [];
+    const baselinePath = await render(baseline, "baseline");
+    const output = await render(source, "boundary");
+    const bright = async (path: string, index: number, label: string) => {
+      const frame = join(directory, `${label}-${index}.ppm`);
+      await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-i", path, "-vf", `select=eq(n\\,${index})`, "-frames:v", "1", frame]);
       return countBrightPixels(await readFile(frame), 80, 240, 40, 140);
     };
-    const before = await bright(29);
-    const boundary = await bright(30);
-    const after = await bright(31);
-    assert.ok(before > 5, `title must be visible on the final intended frame (${before})`);
-    assert.ok(boundary <= after + 5, `title must be absent on the first frame after its end (${boundary} vs ${after})`);
+    const assertTitle = async (path: string, index: number, present: boolean, label: string) => {
+      const actual = await bright(path, index, label);
+      const reference = await bright(baselinePath, index, `${label}-baseline`);
+      const difference = actual - reference;
+      assert.ok(present ? difference > 30 : Math.abs(difference) < 30,
+        `frame ${index}: expected title ${present ? "present" : "absent"}; bright-pixel difference ${difference}`);
+    };
+    for (const [index, present] of [[29, true], [30, false], [31, false]] as const) {
+      await assertTitle(output, index, present, "cut");
+    }
+    source.sequence.titles[0]!.startTime = { value: "2", timescale: "30" };
+    const fractionalOutput = await render(source, "fractional");
+    for (const [index, present] of [[32, false], [33, false], [1, false], [2, true], [31, true]] as const) {
+      await assertTitle(fractionalOutput, index, present, "fractional");
+    }
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
