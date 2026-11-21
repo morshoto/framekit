@@ -35,6 +35,16 @@ try {
     }
     assert.deepEqual(errors,[]); await context.close();
   }
+  {
+    const page = await browser.newPage();
+    await page.goto(`${origin}${base}/en/docs/introduction/`, { waitUntil:'networkidle' });
+    await page.getByRole('button', { name:'Search docs' }).click();
+    await page.getByRole('combobox').fill('HEADLESS_ROUGH_CUT_HISTORY_UNCONFIRMED');
+    const result = page.getByRole('option').filter({ hasText:'Error Reference' }).first();
+    await result.waitFor();
+    assert.ok((await result.getAttribute('href')).includes('/en/docs/error-reference/'));
+    await page.close();
+  }
   for (const colorScheme of ['light', 'dark']) {
     const offline=await browser.newContext({colorScheme}); const page=await offline.newPage(); await page.route('**/pagefind/**',route=>route.abort());
     await page.goto(`${origin}${base}/en/docs/introduction/`,{waitUntil:'networkidle'}); await page.getByRole('button',{name:'Search docs'}).click(); await page.getByRole('combobox').fill('Framekit'); await page.getByRole('link',{name:'Browse docs'}).waitFor(); const offlineAxe = await new AxeBuilder({ page }).include('[role=dialog]').analyze(); assert.deepEqual(offlineAxe.violations.map(item => item.id), []); await offline.close();
