@@ -102,6 +102,10 @@ test("video parity comparison binds bytes and reports unverified native evidence
     const negative = await compareDissolveVideos(reference, quiet, join(directory, "quiet-report"));
     assert.equal(negative.comparison.status, "FAIL");
     assert.equal(negative.comparison.checks.audio, false);
+    const misleading = join(directory, "multiple-audio.mp4");
+    await promisify(execFile)(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-i", reference, "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono", "-map", "0:v:0", "-map", "1:a:0", "-map", "0:a:0", "-c:v", "copy", "-c:a", "aac", "-t", "2", misleading]);
+    const wrongStream = await compareDissolveVideos(reference, misleading, join(directory, "multiple-audio-report"));
+    assert.equal(wrongStream.comparison.status, "FAIL", "a silent validated first stream must not be masked by a matching secondary stream");
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
