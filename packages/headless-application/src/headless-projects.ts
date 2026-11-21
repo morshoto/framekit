@@ -781,8 +781,10 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
         || stableJson(plan.renderer) !== stableJson(approval.titleFont.renderer)
         || stableJson(plan.capabilities?.renderer) !== stableJson(approval.titleFont.renderer)
         || stableJson(outcome.render?.renderer) !== stableJson(approval.titleFont.renderer)
-        || outcome.render?.planDigest !== plan.planDigest) {
-        throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render font provenance differs from the approved preview");
+        || outcome.render?.planDigest !== plan.planDigest
+        || !plan.timeline || typeof plan.timeline !== "object" || Array.isArray(plan.timeline)
+        || timelineIrDigest(plan.timeline) !== timelineIrDigest(project.timeline)) {
+        throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render font or timeline differs from the approved preview");
       }
       const { planDigest, ...planBase } = plan;
       if (typeof planDigest !== "string" || hash(stableJson(planBase)) !== planDigest) {
