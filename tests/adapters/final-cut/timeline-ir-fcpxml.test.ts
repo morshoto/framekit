@@ -361,6 +361,22 @@ test("anchors titles after a primary clip source in-point", async () => {
       readback.timeline.storyElements.filter(({ kind }) => kind === "title").map(({ start, duration }) => ({ start, duration })),
       [{ start: 0, duration: 6.006 }],
     );
+    const exact = structuredClone(value);
+    exact.sequence.frameDuration = { value: "1", timescale: "30" };
+    exact.sequence.titles![0]!.text = `A日 & <title> "quoted" 'apostrophe' 100%`;
+    exact.sequence.titles![0]!.startTime = { value: "1", timescale: "3" };
+    exact.sequence.titles![0]!.durationTime = { value: "1", timescale: "3" };
+    const exactPath = join(directory, "escaping.fcpxml");
+    const exactXml = compileTimelineIrToFcpxml(exact, { target }).xml;
+    assert.match(exactXml, /<text>A日 &amp; &lt;title&gt;/);
+    await writeFile(exactPath, exactXml, "utf8");
+    validateWithInstalledFinalCut(exactPath);
+    const exactReadback = await new FcpxmlDocumentAdapter(exactPath).readProject();
+    const exactTitle = exactReadback.timeline.storyElements.find(({ id }) => id === "trimmed-opening-title");
+    assert.ok(exactTitle);
+    assert.equal(exactTitle.text, exact.sequence.titles![0]!.text);
+    assert.deepEqual(exactTitle.startTime, { value: "1", timescale: "3" });
+    assert.deepEqual(exactTitle.durationTime, { value: "1", timescale: "3" });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
