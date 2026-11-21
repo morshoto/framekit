@@ -147,6 +147,7 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     await writeFile(fontPath, Buffer.concat([originalFont, Buffer.from([0])]));
     await assert.rejects(fontService.executeRoughCut({ ...titleRequest, approved: true, planDigest: approvedTitle.planDigest }), /PLAN_MISMATCH.*font/i);
     assert.equal(existsSync(request.render.outputPath), false);
+    assert.equal(existsSync(request.fcpxml.path), false);
     await rm(fontPath);
     await assert.rejects(fontService.executeRoughCut({ ...titleRequest, approved: true, planDigest: approvedTitle.planDigest }), /PLAN_MISMATCH.*font/i);
     assert.equal(existsSync(request.render.outputPath), false);
