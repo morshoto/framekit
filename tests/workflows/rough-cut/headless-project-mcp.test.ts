@@ -274,7 +274,7 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     const v1VideoDigest = createHash("sha256").update(await readFile(request.render.outputPath)).digest("hex");
     const command = { schemaVersion: 1 as const, expectedRevision: v1Revision, operations: [
       { type: "remove-title" as const, titleId: "title" },
-      { type: "add-title" as const, title: { id: "title-v2", text: "FADE 2", startTime: { value: "4", timescale: "5" }, durationTime: { value: "1", timescale: "6" }, lane: 1 } },
+      { type: "add-title" as const, title: { id: "title-v2", text: "FADE 2", startTime: { value: "4", timescale: "5" }, durationTime: { value: "1", timescale: "6" }, lane: 1, font: { ...preview.titleFont!.face, digest: preview.titleFont!.digest } } },
       { type: "set-gain" as const, occurrenceId: "music", gainDb: -9 },
     ] };
     const v2Preview = await service.previewEdit(request.projectId, command, request.sequenceId);
@@ -297,7 +297,7 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     assert.deepEqual(v2Xml.provenance.revision, v2Revision);
     assert.notEqual(v2Xml.provenance.destination.projectUid, executed.fcpxml.provenance.destination.projectUid);
     const revisedXml = await readFile(v2XmlPath, "utf8");
-    assert.match(revisedXml, /<text>FADE 2<\/text>/);
+    assert.match(revisedXml, /<text><text-style ref="title-style-1">FADE 2<\/text-style><\/text>/);
     assert.match(revisedXml, /<adjust-volume amount="-9dB"/);
     assert.match(revisedXml, /<transition name="Cross Dissolve" offset="4\/5s" duration="1\/5s"/);
     const v2Readback = await new FcpxmlDocumentAdapter(v2XmlPath).readProject();
