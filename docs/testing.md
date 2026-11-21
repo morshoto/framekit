@@ -160,6 +160,13 @@ candidate using the agreed sampled color, title-bounds, and audio-level limits:
 node --import tsx scripts/manual-import-qa.ts compare-dissolve /path/to/reference.mov /path/to/candidate.mp4 /path/to/new-parity-report
 ```
 
+The default signal profile expects the fixture music at −12 dB. For the
+otherwise identical approved revision at −9 dB, append `--music-gain=-9`;
+the report records the selected profile. These profiles apply only to the
+known synthetic source levels, not arbitrary music. The −9 dB profile
+requires the music-to-outgoing tone amplitude ratio to be 0.315–0.399
+(approximately ±1 dB around the expected ratio).
+
 The reference is downmixed as `0.7071067811865476 * left +
 0.7071067811865476 * right`. Title measurement detects white pixels in the
 fixture's central region at frame 27; it does not identify the text. A sampled

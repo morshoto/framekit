@@ -13,6 +13,7 @@ import {
 } from "@framekit/final-cut/fcpxml";
 import { createTimelineIrFromProjectSnapshot, validateTimelineIr, type TimelineIr } from "@framekit/runtime";
 import { planFcpxmlDissolve } from "../../../adapters/final-cut/typescript/src/fcpxml-transition-plan.js";
+import { verifyFinalCutPublishReadback } from "@framekit/final-cut";
 
 function timeline(): TimelineIr {
   return {
@@ -139,6 +140,71 @@ test("dissolve plans preserve source frames across rates and odd durations", () 
       }
       assert.equal(frames(plan.afterStartTime) + frames(plan.afterDurationTime), 120);
     }
+  }
+});
+
+test("native dissolve without canonical metadata stays unbound", async () => {
+  // Final Cut's export of the earlier disposable prototype retained the
+  // effect and filters but omitted Framekit's transition metadata. These
+  // synthetic paths and IDs model that structure without copying user media.
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+  <fcpxml version="1.11"><resources>
+    <format id="f" name="FFVideoFormat720p30" frameDuration="1/30s" width="1280" height="720"/>
+    <asset id="a" name="A" start="0s" duration="2s" hasVideo="1" format="f"><media-rep kind="original-media" src="file:///synthetic/a.mp4"/></asset>
+    <asset id="b" name="B" start="0s" duration="2s" hasVideo="1" format="f"><media-rep kind="original-media" src="file:///synthetic/b.mp4"/></asset>
+    <effect id="v" name="Cross Dissolve" uid="FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265"/>
+    <effect id="audio" name="Audio Crossfade" uid="FFAudioTransition"/>
+  </resources><library><event name="Test"><project name="Test" uid="project"><sequence format="f" duration="2s"><spine>
+    <asset-clip ref="a" name="A" offset="0s" start="1/5s" duration="9/10s"/>
+    <transition name="Cross Dissolve" offset="4/5s" duration="1/5s"><filter-video ref="v" name="Cross Dissolve"><param name="Look" key="1" value="11 (Video)"/></filter-video><filter-audio ref="audio" name="Audio Crossfade"/></transition>
+    <asset-clip ref="b" name="B" offset="9/10s" start="2/5s" duration="11/10s"/>
+  </spine></sequence></project></event></library></fcpxml>`;
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-native-transition-unbound-"));
+  try {
+    const path = join(directory, "native.fcpxml");
+    await writeFile(path, xml);
+    validateWithInstalledFinalCut(path);
+    const snapshot = await new FcpxmlDocumentAdapter(path).readProject();
+    const transition = snapshot.timeline.storyElements.find((item) => item.kind === "transition");
+    assert.ok(transition);
+    assert.equal(transition.assetId, "fcpxml:effect:FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265");
+    assert.deepEqual(transition.durationTime, { value: "1", timescale: "5" });
+    assert.equal(transition.transitionKind, undefined);
+    assert.equal(transition.beforeClipId, undefined);
+    assert.equal(transition.afterClipId, undefined);
+    assert.equal(verifyFinalCutPublishReadback(snapshot, snapshot).verified, true);
+    for (const alteredXml of [
+      xml.replace('<filter-audio ref="audio"', '<filter-audio enabled="0" ref="audio"'),
+      xml.replace('<filter-audio ref="audio" name="Audio Crossfade"/>', ''),
+      xml.replace('value="11 (Video)"', 'value="10 (Film)"'),
+    ]) {
+      const alteredPath = join(directory, "altered.fcpxml");
+      await writeFile(alteredPath, alteredXml);
+      const altered = await new FcpxmlDocumentAdapter(alteredPath).readProject();
+      assert.throws(() => verifyFinalCutPublishReadback(snapshot, altered), /FINAL_CUT_PUBLISH_SEMANTIC_MISMATCH/);
+      if (!alteredXml.includes('value="10 (Film)"')) {
+        assert.throws(() => verifyFinalCutPublishReadback(altered, altered), /FINAL_CUT_PUBLISH_READBACK_UNSUPPORTED/);
+      }
+    }
+    const animated = xml.replace('<param name="Look" key="1" value="11 (Video)"/>', '<param name="Look" key="1" value="11 (Video)"><keyframeAnimation><keyframe time="0s" value="1"/></keyframeAnimation></param>');
+    const animatedPath = join(directory, "animated.fcpxml");
+    await writeFile(animatedPath, animated);
+    const animatedSnapshot = await new FcpxmlDocumentAdapter(animatedPath).readProject();
+    assert.throws(() => verifyFinalCutPublishReadback(animatedSnapshot, animatedSnapshot), /FINAL_CUT_PUBLISH_READBACK_UNSUPPORTED/);
+    const unknownParam = xml.replace('name="Look" key="1"', 'name="Look" unexpected="1" key="1"');
+    await writeFile(animatedPath, unknownParam);
+    const unknownSnapshot = await new FcpxmlDocumentAdapter(animatedPath).readProject();
+    assert.throws(() => verifyFinalCutPublishReadback(unknownSnapshot, unknownSnapshot), /FINAL_CUT_PUBLISH_READBACK_UNSUPPORTED/);
+    const unknownChild = xml.replace('<filter-audio ref="audio"', '<reserved/><filter-audio ref="audio"');
+    await writeFile(animatedPath, unknownChild);
+    const reservedSnapshot = await new FcpxmlDocumentAdapter(animatedPath).readProject();
+    assert.throws(() => verifyFinalCutPublishReadback(reservedSnapshot, reservedSnapshot), /FINAL_CUT_PUBLISH_READBACK_UNSUPPORTED/);
+    const reconstructed = createTimelineIrFromProjectSnapshot(snapshot);
+    assert.equal(reconstructed.sequence.transitions, undefined);
+    assert.ok(reconstructed.sequence.storyElements.some((item) => item.kind === "transition"));
+    assert.throws(() => compileTimelineIrToFcpxml(reconstructed, { target }), /FCPXML_UNSUPPORTED_TIMELINE_FEATURE:.*story-element:transition/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
   }
 });
 
