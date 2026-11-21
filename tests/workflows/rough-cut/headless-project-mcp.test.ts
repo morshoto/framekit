@@ -2325,7 +2325,13 @@ test("external JSON binds one font through preview, render and FCPXML", async ()
     assert.deepEqual(executed.after.timeline.sequence.titles[0].font, font);
     const target = { provider: "final-cut", libraryUid: "library", eventUid: "event", projectUid: "project", sequenceUid: "sequence", materialization: "versioned" };
     const xmlPath = join(directory, "edit.fcpxml");
-    const exported = payload(await client.callTool({ name: "headless.fcpxml.export", arguments: { projectId, sequenceId, expectedRevision: executed.after.timeline.revision, outputPath: xmlPath, target } }));
+    const exportArgs = { projectId, sequenceId, expectedRevision: executed.after.timeline.revision, outputPath: xmlPath, target };
+    await writeFile(fontPath, Buffer.concat([fontBytes, Buffer.from([0])]));
+    const wrongExport = await client.callTool({ name: "headless.fcpxml.export", arguments: exportArgs });
+    assert.equal(wrongExport.isError, true);
+    assert.equal(existsSync(xmlPath), false);
+    await writeFile(fontPath, fontBytes);
+    const exported = payload(await client.callTool({ name: "headless.fcpxml.export", arguments: exportArgs }));
     assert.ok(exported.coverage.degraded.includes("native-title-font-availability-unverified"));
     const xml = await readFile(xmlPath, "utf8");
     assert.match(xml, /font="Noto Sans CJK JP" fontFace="Regular"/);
@@ -2336,7 +2342,7 @@ test("external JSON binds one font through preview, render and FCPXML", async ()
     const renderArgs = { projectId, sequenceId, expectedRevision: executed.after.timeline.revision, parameters: { outputPath: output, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } };
     await writeFile(fontPath, Buffer.concat([fontBytes, Buffer.from([0])]));
     const wrongFont = await client.callTool({ name: "headless.render", arguments: renderArgs });
-    assert.equal(wrongFont.isError, true);
+    assert.equal(payload(wrongFont).status, "unavailable");
     assert.equal(existsSync(output), false);
     await writeFile(fontPath, fontBytes);
     const rendered = payload(await client.callTool({ name: "headless.render", arguments: renderArgs }));
@@ -2355,11 +2361,12 @@ test("external edit JSON previews registered clips, a title and music without mu
     ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
     FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1",
     FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0", FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"),
-    FRAMEKIT_STATE_DIR: join(directory, "state"),
+    FRAMEKIT_STATE_DIR: join(directory, "state"), FRAMEKIT_RENDER_FONT: join(directory, "font.otf"),
   };
   let client: Client | undefined;
   let transport: StdioClientTransport | undefined;
   try {
+    await writeFile(environment.FRAMEKIT_RENDER_FONT!, Buffer.from(await readFile(join(process.cwd(), "tests/fixtures/fonts/noto-sans-jp-test.otf.base64"), "utf8"), "base64"));
     const calls = join(directory, "native-calls.log");
     const sentinelBin = join(directory, "sentinel-bin");
     await mkdir(sentinelBin);
@@ -2406,7 +2413,7 @@ test("external edit JSON previews registered clips, a title and music without mu
     const edit = { schemaVersion: 1 as const, clips: [
       { id: "clip-a", mediaId: a.resource.id, sourceStartTime: seconds(0), durationTime: seconds(1) },
       { id: "clip-b", mediaId: a2.resource.id, sourceStartTime: seconds(0), durationTime: seconds(1) },
-    ], title: { id: "title", text: "Hello 世界 🎬", startTime: seconds(0), durationTime: seconds(1) },
+    ], title: { id: "title", text: "A日", startTime: seconds(0), durationTime: seconds(1) },
     music: { id: "music", mediaId: b.resource.id, sourceStartTime: seconds(0), startTime: seconds(0), durationTime: seconds(2), gainDb: -12 } };
     for (const [variant, withTitle, withMusic] of [["clips", false, false], ["title", true, false], ["music", false, true]] as const) {
       const newTimeline = emptyTimeline();
@@ -2447,6 +2454,7 @@ test("external edit JSON previews registered clips, a title and music without mu
     }
     for (const [name, invalidEdit] of [
       ["video stream exhausted", { ...edit, clips: [{ ...edit.clips[1], sourceStartTime: seconds(1) }] }],
+      ["unsupported title glyphs", { ...edit, title: { ...edit.title, text: "Hello 世界 🎬" } }],
       ["illegal XML title", { ...edit, title: { ...edit.title, text: "bad\u0000title" } }],
       ["unknown source", { ...edit, clips: [{ ...edit.clips[0], mediaId: "missing" }] }],
       ["audio used as video", { ...edit, clips: [{ ...edit.clips[0], mediaId: b.resource.id }] }],
@@ -2484,7 +2492,7 @@ test("external edit JSON previews registered clips, a title and music without mu
       projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit,
     } }));
     assert.deepEqual(preview.after.timeline.sequence.occurrences.filter((item: any) => item.track === 0).map((item: any) => item.id), ["clip-a", "clip-b"]);
-    assert.equal(preview.after.timeline.sequence.titles[0].text, "Hello 世界 🎬");
+    assert.equal(preview.after.timeline.sequence.titles[0].text, "A日");
     assert.equal(preview.after.timeline.sequence.occurrences.find((item: any) => item.id === "music").gainDb, -12);
     const inspected = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
     assert.deepEqual(inspected.timeline, b.project.timeline);
@@ -2511,7 +2519,7 @@ test("external edit JSON previews registered clips, a title and music without mu
     assert.equal(notApproved.isError, true, "execution requires explicit approval");
     const changed = await client.callTool({ name: "headless.edit-json.execute", arguments: {
       projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision,
-      edit: { ...edit, title: { ...edit.title, text: "Changed" } }, approved: true, planDigest: preview.planDigest,
+      edit: { ...edit, title: { ...edit.title, text: "日A" } }, approved: true, planDigest: preview.planDigest,
     } });
     assert.equal(changed.isError, true, "execute must reject a different edit than the preview");
     assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, b.project.timeline);
@@ -2541,7 +2549,7 @@ test("external edit JSON previews registered clips, a title and music without mu
     const sourceFor = (id: string | undefined) => parsed.media.find((item) => item.mediaId === id)?.source;
     assert.deepEqual(parsed.timeline.clips.filter((clip) => [video, video2].includes(sourceFor(clip.mediaId) ?? "")).map((clip) => [sourceFor(clip.mediaId), clip.sourceStart, clip.duration]), [[video, 0, 1], [video2, 0, 1]]);
     assert.deepEqual(parsed.timeline.clips.filter((clip) => sourceFor(clip.mediaId) === music).map((clip) => [clip.sourceStart, clip.duration]), [[0, 2]]);
-    assert.equal(parsed.timeline.storyElements.find((item) => item.kind === "title")?.text, "Hello 世界 🎬");
+    assert.equal(parsed.timeline.storyElements.find((item) => item.kind === "title")?.text, "A日");
     assert.match(await readFile(xmlPath, "utf8"), /<adjust-volume amount="-12dB" \/>/);
     assert.deepEqual(await Promise.all(sourcePaths.map(async (path) => createHash("sha256").update(await readFile(path)).digest("hex"))), sourceDigests);
     assert.equal(await readFile(reservationPath, "utf8"), reservation);

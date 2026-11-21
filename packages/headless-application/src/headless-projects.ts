@@ -23,6 +23,7 @@ import {
   type RoughCutPlan,
   type TimelineIrEditOperation,
   type TimelineIr,
+  type TimelineIrTitleFont,
   type TimelineIrResource,
   timelineIrDigest,
 } from "@framekit/runtime";
@@ -65,6 +66,7 @@ export interface HeadlessProjectWorkflow {
   list(): Promise<HeadlessProjectSummary[]>;
   open(projectId: string): Promise<FramekitProjectDocument>;
   inspect(projectId: string): Promise<FramekitProjectDocument>;
+  selectTitleFont(texts: readonly string[]): TimelineIrTitleFont;
   registerMedia(
     projectId: string,
     sourcePath: string,
@@ -306,6 +308,15 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     this.clock = options.clock ?? (() => new Date().toISOString());
   }
 
+  public selectTitleFont(texts: readonly string[]): TimelineIrTitleFont {
+    const font = this.renderer?.inspectTitleFont?.(texts);
+    if (!font || ![font.family, font.style, font.postscriptName].every((value) => typeof value === "string" && value.trim())
+      || typeof font.digest !== "string" || !/^[a-f0-9]{64}$/.test(font.digest)) {
+      throw new Error("HEADLESS_TITLE_FONT_UNAVAILABLE: selected title font or required glyphs are unavailable");
+    }
+    return structuredClone(font);
+  }
+
   public async create(timeline: TimelineIr): Promise<FramekitProjectDocument> {
     const store = this.store(timeline.project.id);
     const timestamp = this.clock();
@@ -464,6 +475,15 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       throw new Error("HEADLESS_FCPXML_STALE: project target or revision does not match the requested export");
     }
     await this.assertOutputSeparation(project, [outputPath]);
+    const titles = project.timeline.sequence.titles ?? [];
+    const boundTitles = titles.filter((title) => title.font);
+    if (boundTitles.length) {
+      const selected = this.selectTitleFont(titles.map((title) => title.text));
+      if (boundTitles.some((title) => title.font!.family !== selected.family || title.font!.style !== selected.style
+        || title.font!.postscriptName !== selected.postscriptName || title.font!.digest !== selected.digest)) {
+        throw new Error("HEADLESS_TITLE_FONT_UNAVAILABLE: selected font does not match the approved title font");
+      }
+    }
     await this.verifyDissolveMetadata(project.timeline);
     const compiled = compileTimelineIrToFcpxml(project.timeline, { target });
     const artifact = await writeVerifiedFcpxml(resolve(outputPath), compiled.xml, compiled.digest, false);

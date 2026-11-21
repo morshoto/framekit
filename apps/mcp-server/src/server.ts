@@ -1454,7 +1454,13 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ projectId, sequenceId, expectedRevision, edit }) => sessionResult(async () => {
     const service = requireHeadlessProjects();
     const project = await service.inspect(projectId);
-    const operations = externalEditOperations(edit, project.timeline, expectedRevision);
+    let operations = externalEditOperations(edit, project.timeline, expectedRevision);
+    if (edit.title) {
+      const unbound = await service.previewEdit(projectId, { schemaVersion: 1, expectedRevision, operations }, sequenceId);
+      verifyExternalEditExportable(unbound.after.timeline);
+      const font = service.selectTitleFont([edit.title.text]);
+      operations = operations.map((operation) => operation.type === "add-title" ? { ...operation, title: { ...operation.title, font } } : operation);
+    }
     const preview = await service.previewEdit(projectId, { schemaVersion: 1, expectedRevision, operations }, sequenceId);
     verifyExternalEditExportable(preview.after.timeline);
     return { ...preview, planDigest: externalEditPlanDigest(preview.command) };
@@ -1466,7 +1472,13 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ projectId, sequenceId, expectedRevision, edit, planDigest }) => sessionResult(async () => {
     const service = requireHeadlessProjects();
     const project = await service.inspect(projectId);
-    const operations = externalEditOperations(edit, project.timeline, expectedRevision);
+    let operations = externalEditOperations(edit, project.timeline, expectedRevision);
+    if (edit.title) {
+      const unbound = await service.previewEdit(projectId, { schemaVersion: 1, expectedRevision, operations }, sequenceId);
+      verifyExternalEditExportable(unbound.after.timeline);
+      const font = service.selectTitleFont([edit.title.text]);
+      operations = operations.map((operation) => operation.type === "add-title" ? { ...operation, title: { ...operation.title, font } } : operation);
+    }
     const preview = await service.previewEdit(projectId, { schemaVersion: 1, expectedRevision, operations }, sequenceId);
     verifyExternalEditExportable(preview.after.timeline);
     if (externalEditPlanDigest(preview.command) !== planDigest) throw new Error("EXTERNAL_EDIT_STALE_PREVIEW: approved edit does not match preview");

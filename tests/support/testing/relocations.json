@@ -3113,6 +3113,7 @@
     "tests/integration/headless-project-mcp.test.ts": [
       "\"headless media search returns both registered same-name sources through production MCP\"",
       "\"external edit JSON previews registered clips, a title and music without mutation\"",
+      "\"external JSON binds one font through preview, render and FCPXML\"",
       "\"headless project list includes valid project IDs that resemble render records\"",
       "\"headless project list rejects a project whose stored ID differs from its filename\"",
       "\"rough-cut history failure reports the committed revision without execution proof\"",
