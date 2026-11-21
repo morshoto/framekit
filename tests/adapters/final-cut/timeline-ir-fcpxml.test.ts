@@ -98,6 +98,9 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
 
   const plan = planFcpxmlDissolve(value);
   assert.deepEqual(plan, { id: "dissolve", beforeId: "before", afterId: "after", startTime: { value: "3", timescale: "2" }, durationTime: { value: "1", timescale: "2" }, afterSourceStartTime: { value: "7", timescale: "2" }, afterDurationTime: { value: "5", timescale: "2" } });
+  const tooShort = structuredClone(value);
+  tooShort.sequence.occurrences[1]!.durationTime = { value: "3", timescale: "10" };
+  assert.throws(() => planFcpxmlDissolve(tooShort), /FCPXML_DISSOLVE_DURATION/);
   const noHandle = structuredClone(value);
   noHandle.sequence.occurrences[1]!.sourceStartTime = { value: "0", timescale: "1" };
   assert.throws(() => planFcpxmlDissolve(noHandle), /FCPXML_.*handle/i);
