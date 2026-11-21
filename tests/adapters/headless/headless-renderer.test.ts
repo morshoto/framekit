@@ -69,19 +69,19 @@ test("FFmpeg renders a supported mixed-script title without tofu", async () => {
     source.sequence.occurrences[0]!.sourceStartTime = { value: "1", timescale: "5" };
     const output = join(directory, "mixed.mp4");
     const renderer = new FfmpegTimelineRenderer({ env: { FRAMEKIT_RENDER_FONT: relativeFont } });
-    const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(output) });
+    const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: { ...parameters(output), width: 1280, height: 720 } });
     await renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request)));
     const actual = await frameAt(output, 0.25, directory, "actual-mixed");
     const reference = async (name: string, text: string) => {
       await writeFile(join(directory, `${name}.txt`), text, "utf8");
-      await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=red:s=320x180:r=30:d=1", "-vf", `drawtext=fontfile=font.otf:textfile=${name}.txt:expansion=none:fontcolor=white:fontsize=32:x=(w-text_w)/2:y=(h-text_h)/2`, "-frames:v", "1", `${name}.ppm`], { cwd: directory });
+      await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=red:s=1280x720:r=30:d=1", "-vf", `drawtext=fontfile=font.otf:textfile=${name}.txt:expansion=none:fontcolor=white:fontsize=44:x=(w-text_w)/2:y=h/2-text_h`, "-frames:v", "1", `${name}.ppm`], { cwd: directory });
       return readFile(join(directory, `${name}.ppm`));
     };
     const expected = await reference("expected", "A日");
     const tofu = await reference("tofu", "A\u{10ffff}");
     const maskDistance = (left: Buffer, right: Buffer) => {
       let different = 0;
-      for (let y = 65; y < 115; y++) for (let x = 100; x < 220; x++) {
+      for (let y = 280; y < 400; y++) for (let x = 480; x < 800; x++) {
         const a = ppmPixel(left, x, y); const b = ppmPixel(right, x, y);
         if ((a.r > 180 && a.g > 180 && a.b > 180) !== (b.r > 180 && b.g > 180 && b.b > 180)) different++;
       }
