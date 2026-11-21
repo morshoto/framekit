@@ -36,6 +36,8 @@ export interface TimelineIrToFcpxmlTarget extends FinalCutTargetIdentity {
 export interface TimelineIrToFcpxmlOptions {
   target: TimelineIrToFcpxmlTarget;
   version?: typeof FRAMEKIT_FCPXML_VERSION;
+  /** Explicit requested font; installation on the Final Cut target is not implied. */
+  basicTitleFont?: { family: string; style: string; postscriptName: string; digest: string };
 }
 
 export interface TimelineIrMaterializationCoverage {
@@ -118,6 +120,13 @@ export function compileTimelineIrToFcpxml(
     throw new Error(`FCPXML_VERSION_UNSUPPORTED: ${String(version)}`);
   }
   validateTarget(options.target);
+  if (options.basicTitleFont !== undefined) {
+    const font = options.basicTitleFont;
+    if (!font || typeof font !== "object" || Array.isArray(font) || ![font.family, font.style, font.postscriptName].every((value) => typeof value === "string" && value.trim()) || typeof font.digest !== "string" || !/^[a-f0-9]{64}$/.test(font.digest)) {
+      throw new Error("FCPXML_TITLE_FONT_INVALID: family, style, PostScript name and SHA-256 are required");
+    }
+    for (const value of [font.family, font.style, font.postscriptName]) xmlEscape(value);
+  }
   const unsupported = unsupportedFeatures(timeline);
   if (unsupported.length > 0) {
     throw new Error(`FCPXML_UNSUPPORTED_TIMELINE_FEATURE: ${unsupported.join(", ")}`);
@@ -201,7 +210,7 @@ export function compileTimelineIrToFcpxml(
     `      <project uid="${xmlEscape(destination.projectUid)}" name="${xmlEscape(destination.projectName)}">`,
     `        <sequence format="${formatId}" duration="${formatRational(timeline.sequence.durationTime, "sequence.durationTime")}"${timeline.sequence.timecodeStart ? ` tcStart="${formatRational(timeline.sequence.timecodeStart, "sequence.timecodeStart")}"` : ""}>`,
     "          <spine>",
-    ...renderElements(elements),
+    ...renderElements(elements, options.basicTitleFont),
     "          </spine>",
     "        </sequence>",
     "      </project>",
@@ -220,7 +229,7 @@ export function compileTimelineIrToFcpxml(
     target: structuredClone(options.target),
     destination,
     resourceIds: Object.fromEntries([...resourceIds.entries()].sort(([left], [right]) => left.localeCompare(right))),
-    coverage: materializationCoverage(timeline, destination.mode, elements),
+    coverage: materializationCoverage(timeline, destination.mode, elements, options.basicTitleFont !== undefined),
     provenance: {
       source: "framekit-timeline-ir",
       schemaVersion: 1,
@@ -262,6 +271,7 @@ function materializationCoverage(
   timeline: TimelineIr,
   destinationMode: TimelineIrToFcpxmlResult["destination"]["mode"],
   elements: readonly RenderableElement[],
+  hasExplicitTitleFont: boolean,
 ): TimelineIrMaterializationCoverage {
   const exact = new Set([
     "artifact",
@@ -287,6 +297,7 @@ function materializationCoverage(
   if (timeline.sequence.occurrences.some(({ enabled }) => enabled !== undefined)) exact.add("enabled");
   if (timeline.sequence.titles?.length) {
     exact.add("editable-titles");
+    if (hasExplicitTitleFont) degraded.add("native-title-font-availability-unverified");
   }
   if (destinationMode === "versioned") exact.add("versioned-destination");
   if (timeline.sequence.markers.length > 0) exact.add("markers");
@@ -635,7 +646,7 @@ function musicAttachmentTarget(occurrence: TimelineIrOccurrence, timeline: Timel
   return parent.id;
 }
 
-function renderElements(elements: RenderableElement[]): string[] {
+function renderElements(elements: RenderableElement[], titleFont?: TimelineIrToFcpxmlOptions["basicTitleFont"]): string[] {
   const byParent = new Map<string | undefined, RenderableElement[]>();
   const byId = new Map<string, RenderableElement>();
   for (const element of elements) {
@@ -657,6 +668,7 @@ function renderElements(elements: RenderableElement[]): string[] {
   }
   const rendered = new Set<string>();
   const lines: string[] = [];
+  let titleStyleNumber = 0;
   const render = (parentId: string | undefined, indent: string): void => {
     for (const element of byParent.get(parentId) ?? []) {
       if (rendered.has(element.id)) throw new Error(`FCPXML_CYCLIC_ATTACHMENT: ${element.id}`);
@@ -728,7 +740,11 @@ function renderElements(elements: RenderableElement[]): string[] {
         continue;
       }
       lines.push(`${indent}<${element.kind} ${attributes.join(" ")}>`);
-      if (element.kind === "title" || element.kind === "caption") {
+      if (element.kind === "title" && titleFont) {
+        const styleId = `title-style-${++titleStyleNumber}`;
+        lines.push(`${indent}  <text><text-style ref="${styleId}">${xmlEscape(element.text ?? "")}</text-style></text>`);
+        lines.push(`${indent}  <text-style-def id="${styleId}"><text-style font="${xmlEscape(titleFont.family)}" fontFace="${xmlEscape(titleFont.style)}" /></text-style-def>`);
+      } else if (element.kind === "title" || element.kind === "caption") {
         lines.push(`${indent}  <text>${xmlEscape(element.text ?? "")}</text>`);
       }
       if (element.gainDb !== undefined) {
@@ -738,7 +754,10 @@ function renderElements(elements: RenderableElement[]): string[] {
       if (element.kind === "caption") {
         lines.push(`${indent}  <note>com.framekit.id:${xmlEscape(element.id)}</note>`);
       } else {
-        lines.push(`${indent}  <metadata><md key="com.framekit.id" value="${xmlEscape(element.id)}" /></metadata>`);
+        const fontMetadata = element.kind === "title" && titleFont
+          ? `<md key="com.framekit.title-font-sha256" value="${titleFont.digest}" /><md key="com.framekit.title-font-postscript" value="${xmlEscape(titleFont.postscriptName)}" />`
+          : "";
+        lines.push(`${indent}  <metadata><md key="com.framekit.id" value="${xmlEscape(element.id)}" />${fontMetadata}</metadata>`);
       }
       lines.push(`${indent}</${element.kind}>`);
     }
