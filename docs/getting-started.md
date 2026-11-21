@@ -124,6 +124,9 @@ Empty `timeline` for step 1:
 
 Example `edit` for step 3, with two one-second clips and a two-second music bed:
 
+External edit music `gainDb` must be between -60 and +12 dB inclusive. This
+bound does not guarantee that the combined audio mix avoids clipping.
+
 ```json
 {
   "schemaVersion": 1,
