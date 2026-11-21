@@ -97,7 +97,7 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
   value.resources.push({ id: "music-source", name: "music.wav", mediaKind: "audio", source: "/media/music.wav", metadata: { durationTime: { value: "10", timescale: "1" }, streams: [{ kind: "audio", channels: 1, sampleRate: 48000 }] } });
 
   const plan = planFcpxmlDissolve(value);
-  assert.deepEqual(plan, { id: "dissolve", beforeId: "before", afterId: "after", startTime: { value: "3", timescale: "2" }, durationTime: { value: "1", timescale: "2" }, afterSourceStartTime: { value: "7", timescale: "2" }, afterDurationTime: { value: "5", timescale: "2" } });
+  assert.deepEqual(plan, { id: "dissolve", beforeId: "before", afterId: "after", startTime: { value: "3", timescale: "2" }, durationTime: { value: "1", timescale: "2" }, beforeDurationTime: { value: "7", timescale: "4" }, afterStartTime: { value: "7", timescale: "4" }, afterSourceStartTime: { value: "15", timescale: "4" }, afterDurationTime: { value: "9", timescale: "4" } });
   const tooShort = structuredClone(value);
   tooShort.sequence.occurrences[1]!.durationTime = { value: "3", timescale: "10" };
   assert.throws(() => planFcpxmlDissolve(tooShort), /FCPXML_DISSOLVE_DURATION/);
@@ -125,7 +125,7 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
   assert.ok(result.xml.indexOf("<transition") < result.xml.indexOf('name="After"'));
   assert.match(result.xml, /<effect[^>]*name="Cross Dissolve"[^>]*uid="FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265"/);
   assert.match(result.xml, /<transition[^>]*offset="3\/2s"[^>]*duration="1\/2s"/);
-  assert.match(result.xml, /<asset-clip[^>]*name="After"[^>]*offset="3\/2s"[^>]*start="7\/2s"[^>]*duration="5\/2s"/);
+  assert.match(result.xml, /<asset-clip[^>]*name="After"[^>]*offset="7\/4s"[^>]*start="15\/4s"[^>]*duration="9\/4s"/);
   assert.match(result.xml, /<filter-video[^>]*ref="effect-cross-dissolve"/);
   assert.match(result.xml, /<effect[^>]*name="Audio Crossfade"[^>]*uid="FFAudioTransition"/);
   assert.match(result.xml, /<filter-audio[^>]*ref="effect-audio-crossfade"/);
@@ -151,11 +151,11 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
     assert.equal(transition.assetId, "fcpxml:effect:FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265");
     assert.equal(transition.start, 1.5);
     assert.equal(transition.duration, 0.5);
-    assert.equal(before.start + before.duration, transition.start + transition.duration);
-    assert.equal(after.start, transition.start);
-    assert.equal(after.start + transition.duration, 2);
-    assert.equal(after.sourceStart! + transition.duration, 4);
-    assert.equal(after.duration - transition.duration, 2);
+    assert.equal(before.start + before.duration, transition.start + transition.duration / 2);
+    assert.equal(after.start, transition.start + transition.duration / 2);
+    assert.equal(after.start + transition.duration / 2, 2);
+    assert.equal(after.sourceStart! + transition.duration / 2, 4);
+    assert.equal(after.duration - transition.duration / 2, 2);
     assert.equal(before.mediaId, after.mediaId);
     const reconstructed = createTimelineIrFromProjectSnapshot(snapshot);
     assert.deepEqual(reconstructed.sequence.transitions, [{ id: "dissolve", kind: "cross-dissolve", beforeOccurrenceId: "before", afterOccurrenceId: "after", durationTime: { value: "1", timescale: "2" } }]);
@@ -219,8 +219,8 @@ test("dissolve planning preserves fractional frame timing and bounds", () => {
   value.sequence.transitions = [{ id: "fade", kind: "cross-dissolve", beforeOccurrenceId: "first", afterOccurrenceId: "second", durationTime: { value: "1001", timescale: "2000" } }];
   const result = planFcpxmlDissolve(value);
   assert.deepEqual(result.startTime, { value: "3003", timescale: "2000" });
-  assert.deepEqual(result.afterSourceStartTime, { value: "1001", timescale: "400" });
-  assert.deepEqual(result.afterDurationTime, { value: "1001", timescale: "400" });
+  assert.deepEqual(result.afterSourceStartTime, { value: "11011", timescale: "4000" });
+  assert.deepEqual(result.afterDurationTime, { value: "9009", timescale: "4000" });
   value.resources[0]!.sourceRange = { start: { value: "3", timescale: "1" }, duration: { value: "10", timescale: "1" } };
   assert.throws(() => planFcpxmlDissolve(value), /FCPXML_DISSOLVE_HANDLE/);
 });

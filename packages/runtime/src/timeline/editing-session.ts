@@ -449,24 +449,29 @@ export function createTimelineIrFromProjectSnapshot(
   } satisfies TimelineIrOccurrence));
   const canonicalTransitions: TimelineIrTransition[] = [];
   const usedIncoming = new Set<string>();
+  const adjustedBefore = new Set<string>();
   for (const element of snapshot.timeline.storyElements) {
     if (!element.transitionKind) continue;
     const before = occurrences.find((item) => item.id === element.beforeClipId);
     const after = occurrences.find((item) => item.id === element.afterClipId);
     const start = requiredRational(element.startTime, `transition ${element.id} startTime`);
     const duration = requiredRational(element.durationTime, `transition ${element.id} durationTime`);
-    if (element.kind !== "transition" || element.transitionKind !== "cross-dissolve" || !before || !after || before.id === after.id || usedIncoming.has(after.id) || before.track !== 0 || after.track !== 0 || before.role !== undefined && before.role !== "video" || after.role !== undefined && after.role !== "video" || !after.sourceStartTime || compareRational(after.sourceStartTime, { value: "0", timescale: "1" }) < 0 || compareRational(duration, { value: "0", timescale: "1" }) <= 0 || compareRational(after.startTime, start) !== 0 || compareRational(before.startTime, start) > 0 || compareRational(addRationalTimes(before.startTime, before.durationTime), addRationalTimes(start, duration)) !== 0 || compareRational(after.durationTime, duration) <= 0 || occurrences.some((item) => item.id !== before.id && item.id !== after.id && item.track === 0 && compareRational(item.startTime, before.startTime) > 0 && compareRational(item.startTime, start) <= 0)) {
+    const halfDuration = { value: duration.value, timescale: (BigInt(duration.timescale) * 2n).toString() };
+    const midpoint = addRationalTimes(start, halfDuration);
+    if (element.kind !== "transition" || element.transitionKind !== "cross-dissolve" || !before || !after || before.id === after.id || usedIncoming.has(after.id) || before.track !== 0 || after.track !== 0 || before.role !== undefined && before.role !== "video" || after.role !== undefined && after.role !== "video" || !after.sourceStartTime || compareRational(after.sourceStartTime, { value: "0", timescale: "1" }) < 0 || compareRational(duration, { value: "0", timescale: "1" }) <= 0 || compareRational(after.startTime, midpoint) !== 0 || compareRational(before.startTime, start) > 0 || compareRational(addRationalTimes(before.startTime, before.durationTime), midpoint) !== 0 || compareRational(after.durationTime, halfDuration) <= 0 || occurrences.some((item) => item.id !== before.id && item.id !== after.id && item.track === 0 && compareRational(item.startTime, before.startTime) > 0 && compareRational(item.startTime, start) <= 0)) {
       throw new Error(`TIMELINE_IR_INVALID: transition ${element.id} metadata does not match the clip timing`);
     }
     usedIncoming.add(after.id);
-    after.startTime = addRationalTimes(after.startTime, duration);
-    after.sourceStartTime = addRationalTimes(after.sourceStartTime, duration);
-    after.durationTime = subtractRationalTimes(after.durationTime, duration, "TIMELINE_IR_INVALID");
+    adjustedBefore.add(before.id);
+    before.durationTime = addRationalTimes(before.durationTime, halfDuration);
+    after.startTime = addRationalTimes(after.startTime, halfDuration);
+    after.sourceStartTime = addRationalTimes(after.sourceStartTime, halfDuration);
+    after.durationTime = subtractRationalTimes(after.durationTime, halfDuration, "TIMELINE_IR_INVALID");
     canonicalTransitions.push({ id: element.id, kind: "cross-dissolve", beforeOccurrenceId: before.id, afterOccurrenceId: after.id, durationTime: duration });
   }
   const storyElements = snapshot.timeline.storyElements.filter((element) => !element.transitionKind).map((element) => {
     const story = storyElementToIr(element, binding);
-    const occurrence = usedIncoming.has(element.id) && element.kind === "asset-clip"
+    const occurrence = (usedIncoming.has(element.id) || adjustedBefore.has(element.id)) && element.kind === "asset-clip"
       ? occurrences.find((item) => item.id === element.id)
       : undefined;
     return occurrence ? { ...story, startTime: occurrence.startTime, durationTime: occurrence.durationTime } : story;

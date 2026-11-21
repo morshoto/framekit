@@ -52,10 +52,11 @@ export function planFcpxmlDissolve(timeline: TimelineIr) {
     const rate = video?.frameRate && fraction(video.frameRate);
     if (!rate || rate.n <= 0n || rate.n * frame.n !== rate.d * frame.d) throw new Error("FCPXML_DISSOLVE_FRAME_RATE: source and sequence frame rates must match");
   }
-  const afterSourceStart = combine(source, duration, -1);
+  const halfDuration = { n: duration.n, d: duration.d * 2n };
+  const afterSourceStart = combine(source, halfDuration, -1);
   const resource = timeline.resources.find((item) => item.id === after.mediaId);
   const sourceFloor = fraction(resource?.sourceRange?.start ?? { value: "0", timescale: "1" });
-  if (!resource || compare(afterSourceStart, sourceFloor) < 0) throw new Error("FCPXML_DISSOLVE_HANDLE: insufficient incoming source handle");
+  if (!resource || compare(combine(source, duration, -1), sourceFloor) < 0) throw new Error("FCPXML_DISSOLVE_HANDLE: insufficient incoming source handle");
   const sourceEnd = combine(source, fraction(after.durationTime), 1);
   const sourceLimit = resource.sourceRange ? combine(fraction(resource.sourceRange.start), fraction(resource.sourceRange.duration), 1) : resource.metadata?.durationTime ? fraction(resource.metadata.durationTime) : undefined;
   if (!sourceLimit || compare(sourceEnd, sourceLimit) > 0) throw new Error("FCPXML_DISSOLVE_HANDLE: incoming source bounds are unavailable or exceeded");
@@ -65,7 +66,9 @@ export function planFcpxmlDissolve(timeline: TimelineIr) {
     afterId: after.id,
     startTime: rational(combine(cut, duration, -1)),
     durationTime: rational(duration),
+    beforeDurationTime: rational(combine(fraction(before.durationTime), halfDuration, -1)),
+    afterStartTime: rational(combine(cut, halfDuration, -1)),
     afterSourceStartTime: rational(afterSourceStart),
-    afterDurationTime: rational(combine(fraction(after.durationTime), duration, 1)),
+    afterDurationTime: rational(combine(fraction(after.durationTime), halfDuration, 1)),
   };
 }

@@ -135,16 +135,19 @@ export function compileTimelineIrToFcpxml(
     new Set(resources.filter(({ mediaKind }) => mediaKind === "audio").map(({ id }) => resourceIds.get(id)!)),
   );
   if (dissolve) {
+    const before = elements.find((element) => element.id === dissolve.beforeId);
     const after = elements.find((element) => element.id === dissolve.afterId);
+    if (!before || before.kind !== "asset-clip" || before.parentId !== undefined) throw new Error("FCPXML_DISSOLVE_ADJACENCY: outgoing clip is not a primary asset");
+    before.durationTime = dissolve.beforeDurationTime;
     if (!after || after.kind !== "asset-clip" || after.parentId !== undefined) throw new Error("FCPXML_DISSOLVE_ADJACENCY: incoming clip is not a primary asset");
-    after.startTime = dissolve.startTime;
+    after.startTime = dissolve.afterStartTime;
     after.sourceStartTime = dissolve.afterSourceStartTime;
     after.durationTime = dissolve.afterDurationTime;
     const afterEnd = addExactTimes(after.startTime, after.durationTime);
     for (const element of elements) {
       if (element.kind !== "title" || element.parentId !== dissolve.beforeId) continue;
       const end = addExactTimes(element.startTime, element.durationTime);
-      if (compareExactTimes(element.startTime, after.startTime) >= 0 && compareExactTimes(end, afterEnd) <= 0) {
+      if (compareExactTimes(element.startTime, dissolve.startTime) >= 0 && compareExactTimes(end, afterEnd) <= 0) {
         element.parentId = after.id;
       }
     }
@@ -668,12 +671,14 @@ function renderElements(elements: RenderableElement[]): string[] {
         ? { value: "0", timescale: "1" }
         : parentElement?.startTime;
       if (!parentStartTime) throw new Error(`FCPXML_ATTACHMENT_TARGET_NOT_FOUND: ${element.id} -> ${element.parentId}`);
-      const localStartTime = subtractRational(element.startTime, parentStartTime, `${element.id}.startTime`);
-      const offsetTime = parentElement?.kind === "asset-clip"
+      const sourceRelative = parentElement?.kind === "asset-clip"
         && (element.kind === "title" || element.kind === "caption" || element.kind === "marker" || element.role === "music")
-        && parentElement.sourceStartTime !== undefined
-        ? addExactTimes(localStartTime, parentElement.sourceStartTime)
-        : localStartTime;
+        && parentElement.sourceStartTime !== undefined;
+      const offsetTime = subtractRational(
+        sourceRelative ? addExactTimes(element.startTime, parentElement.sourceStartTime!) : element.startTime,
+        parentStartTime,
+        `${element.id}.startTime`,
+      );
       const attributes = element.kind === "asset-clip"
         ? [
             `ref="${xmlEscape(element.resourceId!)}"`,
