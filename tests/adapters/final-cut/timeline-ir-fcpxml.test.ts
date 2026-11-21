@@ -166,6 +166,22 @@ test("exports an adjacent cross-dissolve with its media references", async () =>
   }
 });
 
+test("dissolve planning preserves fractional frame timing and bounds", () => {
+  const value = timeline();
+  value.sequence.frameDuration = { value: "1001", timescale: "30000" };
+  value.sequence.occurrences = [
+    { id: "first", name: "First", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1001", timescale: "500" }, sourceStartTime: { value: "0", timescale: "1" }, track: 0, role: "video", mediaId: "media-1" },
+    { id: "second", name: "Second", startTime: { value: "1001", timescale: "500" }, durationTime: { value: "1001", timescale: "500" }, sourceStartTime: { value: "3003", timescale: "1000" }, track: 0, role: "video", mediaId: "media-1" },
+  ];
+  value.sequence.transitions = [{ id: "fade", kind: "cross-dissolve", beforeOccurrenceId: "first", afterOccurrenceId: "second", durationTime: { value: "1001", timescale: "2000" } }];
+  const result = planFcpxmlDissolve(value);
+  assert.deepEqual(result.startTime, { value: "3003", timescale: "2000" });
+  assert.deepEqual(result.afterSourceStartTime, { value: "1001", timescale: "400" });
+  assert.deepEqual(result.afterDurationTime, { value: "1001", timescale: "400" });
+  value.resources[0]!.sourceRange = { start: { value: "3", timescale: "1" }, duration: { value: "10", timescale: "1" } };
+  assert.throws(() => planFcpxmlDissolve(value), /FCPXML_DISSOLVE_HANDLE/);
+});
+
 test("FCPXML compilation preserves explicit nonzero source bounds", async () => {
   const value = timeline();
   value.resources[0]!.metadata = undefined;
