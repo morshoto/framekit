@@ -118,12 +118,22 @@ Headless title rendering checks glyph coverage in the selected font and fails
 when a glyph is missing or a variation or joined sequence cannot be verified.
 Set `FRAMEKIT_RENDER_FONT` to a suitable font file when the default lacks the
 needed characters. Glyph coverage alone does not establish visual correctness
-or shaping.
+or shaping. Unstyled, unpositioned titles use a canvas-scaled size (44 pixels
+at 720p) with their baseline at the frame center; explicitly styled or
+positioned titles retain their requested settings.
 
 For a headless cross-dissolve, the incoming source must have a pre-roll handle
 at least as long as the transition. The blend uses that handle before the cut,
 while frames and audio after the cut retain the approved source timing. The
 renderer rejects insufficient handles before writing the output.
+For explicitly tagged limited-range BT.709 video, the headless dissolve uses
+linear-light blending with frame-center sampling. FCPXML dissolve handoff is
+still guarded while native parity is verified.
+
+When all used audio streams are mono, the headless mono output applies a
+−3.01 dB adjustment after mixing to match the standard mono downmix of the
+Final Cut stereo reference. Other input channel layouts retain their existing
+headless behavior and are not covered by that parity claim.
 
 Headless render verification measures the first output audio stream's decoded
 true peak using FFmpeg. The reported peak must be below 0 dBFS; a value rounded
