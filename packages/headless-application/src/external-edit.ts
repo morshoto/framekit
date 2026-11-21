@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { compileTimelineIrToFcpxml } from "@framekit/final-cut/fcpxml";
 import { ProjectTransactionError } from "@framekit/runtime";
-import type { ContextRevision, ProjectEditCommand, RationalTime, TimelineIr, TimelineIrEditOperation } from "@framekit/runtime";
+import type { ContextRevision, ProjectEditCommand, RationalTime, TimelineIr, TimelineIrEditOperation, TimelineIrResource } from "@framekit/runtime";
 
 export interface ExternalEdit {
   schemaVersion: 1;
@@ -59,7 +59,8 @@ export function externalEditOperations(edit: ExternalEdit, timeline: TimelineIr,
     if (!Number.isFinite(edit.music.gainDb) || edit.music.gainDb < -60 || edit.music.gainDb > 12) {
       throw new Error("EXTERNAL_EDIT_INVALID: music.gainDb must be between -60 and 12 dB inclusive");
     }
-    assertSource(edit.music.mediaId, "audio");
+    const music = assertSource(edit.music.mediaId, "audio");
+    verifyConnectedAudioBounds(music, edit.music.sourceStartTime, edit.music.durationTime, "EXTERNAL_EDIT_INVALID");
     for (const time of [edit.music.sourceStartTime, edit.music.startTime, edit.music.durationTime]) aligned(time);
   }
   if (edit.title) for (const time of [edit.title.startTime, edit.title.durationTime]) aligned(time);
@@ -70,6 +71,21 @@ export function externalEditOperations(edit: ExternalEdit, timeline: TimelineIr,
     ...(edit.music ? [{ type: "insert-occurrence" as const, occurrence: { ...edit.music, name: edit.music.id, track: 1, role: "music" as const } }] : []),
     ...(edit.title ? [{ type: "add-title" as const, title: { ...edit.title, lane: 1 } }] : []),
   ];
+}
+
+/** Reject ambiguous or unverified local connected-audio ranges before an edit is approved. */
+export function verifyConnectedAudioBounds(music: TimelineIrResource, sourceStartTime: RationalTime, durationTime: RationalTime, code = "HEADLESS_AUDIO_INVALID"): void {
+  const audioStreams = music.metadata?.streams.filter((stream) => stream.kind === "audio");
+  if (audioStreams?.length !== 1) {
+    throw new Error(`${code}: ${music.id} must have exactly one audio stream`);
+  }
+  const bounds = audioStreams[0]!.sourceRange;
+  if (!bounds) throw new Error(`${code}: ${music.id} has no verified audio stream bounds; register a supported source in a new project`);
+  const compare = (a: RationalTime, b: RationalTime) => BigInt(a.value) * BigInt(b.timescale) - BigInt(b.value) * BigInt(a.timescale);
+  const add = (a: RationalTime, b: RationalTime): RationalTime => ({ value: String(BigInt(a.value) * BigInt(b.timescale) + BigInt(b.value) * BigInt(a.timescale)), timescale: String(BigInt(a.timescale) * BigInt(b.timescale)) });
+  if (compare(sourceStartTime, bounds.start) < 0n || compare(add(sourceStartTime, durationTime), add(bounds.start, bounds.duration)) > 0n) {
+    throw new Error(`${code}: ${music.id} range exceeds audio stream bounds`);
+  }
 }
 
 /** Check the actual compiler before a JSON edit can be committed. No artifact is written. */
