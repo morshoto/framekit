@@ -1241,6 +1241,20 @@ test("production stdio MCP persists and reopens the headless project and render 
   }
 });
 
+test("media probing reports actionable coded failures", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-probe-errors-"));
+  try {
+    const corrupt = join(directory, "corrupt.mp4");
+    await writeFile(corrupt, "truncated media");
+    await assert.rejects(new FfmpegMediaMetadataProbe().probe(corrupt), (error: unknown) =>
+      error instanceof Error && /^MEDIA_PROBE_FAILED: /.test(error.message) && !/Command failed|ffprobe -v/.test(error.message));
+    await assert.rejects(new FfmpegMediaMetadataProbe({ ffprobePath: join(directory, "missing-ffprobe") }).probe(corrupt), (error: unknown) =>
+      error instanceof Error && /^DEPENDENCY_MISSING: /.test(error.message) && /ffprobe/.test(error.message) && !/ENOENT|spawn/.test(error.message));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("headless project open fails closed when local media has no metadata probe", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-headless-no-probe-"));
   try {
