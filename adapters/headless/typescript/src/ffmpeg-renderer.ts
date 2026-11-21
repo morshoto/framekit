@@ -5,6 +5,7 @@ import { access, link, lstat, mkdtemp, rename, rm, unlink, writeFile } from "nod
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { titleGlyphProblem } from "./title-glyphs.js";
 import { HEADLESS_AUDIO_CHANNELS, HEADLESS_AUDIO_CODEC, HEADLESS_AUDIO_SAMPLE_RATE } from "./audio-output.js";
 import {
   createFramekitRenderResult,
@@ -93,6 +94,8 @@ export class FfmpegTimelineRenderer implements FramekitRenderProvider {
     }
 
     const model = await prepareRenderModel(plan);
+    const glyphProblem = titleGlyphProblem(this.fontFile, (model.timeline.sequence.titles ?? []).map((title) => title.text));
+    if (glyphProblem) throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", `title font: ${glyphProblem}`);
     const outputPath = resolve(plan.parameters.outputPath);
     await assertOutputPath(outputPath, plan.parameters.overwrite ?? false, model.sourcePaths);
     const outputDirectory = dirname(outputPath);
@@ -705,5 +708,6 @@ export function resolveFontFile(preferred?: string): string | undefined {
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
   ].filter((candidate): candidate is string => Boolean(candidate));
-  return candidates.find((candidate) => existsSync(candidate));
+  const found = candidates.find((candidate) => existsSync(candidate));
+  return found === undefined ? undefined : resolve(found);
 }
