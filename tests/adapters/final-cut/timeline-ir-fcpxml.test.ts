@@ -182,7 +182,19 @@ test("native dissolve without canonical metadata stays unbound", async () => {
       await writeFile(alteredPath, alteredXml);
       const altered = await new FcpxmlDocumentAdapter(alteredPath).readProject();
       assert.throws(() => verifyFinalCutPublishReadback(snapshot, altered), /FINAL_CUT_PUBLISH_SEMANTIC_MISMATCH/);
+      if (!alteredXml.includes('value="10 (Film)"')) {
+        assert.throws(() => verifyFinalCutPublishReadback(altered, altered), /FINAL_CUT_PUBLISH_READBACK_UNSUPPORTED/);
+      }
     }
+    const animated = xml.replace('<param name="Look" key="1" value="11 (Video)"/>', '<param name="Look" key="1" value="11 (Video)"><keyframeAnimation><keyframe time="0s" value="1"/></keyframeAnimation></param>');
+    const animatedPath = join(directory, "animated.fcpxml");
+    await writeFile(animatedPath, animated);
+    const animatedSnapshot = await new FcpxmlDocumentAdapter(animatedPath).readProject();
+    assert.throws(() => verifyFinalCutPublishReadback(animatedSnapshot, animatedSnapshot), /FINAL_CUT_PUBLISH_READBACK_UNSUPPORTED/);
+    const unknownParam = xml.replace('name="Look" key="1"', 'name="Look" unexpected="1" key="1"');
+    await writeFile(animatedPath, unknownParam);
+    const unknownSnapshot = await new FcpxmlDocumentAdapter(animatedPath).readProject();
+    assert.throws(() => verifyFinalCutPublishReadback(unknownSnapshot, unknownSnapshot), /FINAL_CUT_PUBLISH_READBACK_UNSUPPORTED/);
     const reconstructed = createTimelineIrFromProjectSnapshot(snapshot);
     assert.equal(reconstructed.sequence.transitions, undefined);
     assert.ok(reconstructed.sequence.storyElements.some((item) => item.kind === "transition"));
