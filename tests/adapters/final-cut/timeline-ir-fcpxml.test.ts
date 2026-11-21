@@ -252,6 +252,16 @@ test("dissolve planning rejects unknown or non-BT.709 colors", () => {
   stereoMusic.resources.push({ id: "music", name: "Music", mediaKind: "audio", source: "/media/music.wav", metadata: { durationTime: { value: "4", timescale: "1" }, streams: [{ kind: "audio", channels: 2, sampleRate: 48_000 }] } });
   stereoMusic.sequence.occurrences.push({ id: "music", name: "Music", startTime: { value: "0", timescale: "1" }, durationTime: { value: "4", timescale: "1" }, track: 1, role: "music", mediaId: "music" });
   assert.throws(() => planFcpxmlDissolve(stereoMusic), /FCPXML_DISSOLVE_AUDIO_UNSUPPORTED/);
+  const silent = structuredClone(value);
+  silent.resources[0]!.metadata!.streams = silent.resources[0]!.metadata!.streams.filter((stream) => stream.kind !== "audio");
+  assert.doesNotThrow(() => planFcpxmlDissolve(silent));
+  const oneSided = structuredClone(value);
+  const silentResource = structuredClone(oneSided.resources[0]!);
+  silentResource.id = "silent-media";
+  silentResource.metadata!.streams = silentResource.metadata!.streams.filter((stream) => stream.kind !== "audio");
+  oneSided.resources.push(silentResource);
+  oneSided.sequence.occurrences[1]!.mediaId = silentResource.id;
+  assert.throws(() => planFcpxmlDissolve(oneSided), /FCPXML_DISSOLVE_AUDIO_UNSUPPORTED/);
 });
 
 test("unverified dissolve export fails closed", () => {
