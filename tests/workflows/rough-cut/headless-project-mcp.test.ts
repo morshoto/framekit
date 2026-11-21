@@ -2295,6 +2295,12 @@ test("external edit JSON previews registered clips, a title and music without mu
     const shortEdit = { ...edit, clips: [{ ...edit.clips[0], mediaId: shortVideo.resource.id }, { ...edit.clips[1], mediaId: shortVideo.resource.id }], title: undefined,
       music: { ...edit.music, mediaId: shortAudio.resource.id } };
     const shortArgs = { projectId: shortTimeline.project.id, sequenceId: shortTimeline.sequence.id, expectedRevision: shortAudio.project.timeline.revision, edit: shortEdit };
+    const genericOperations = [
+      ...shortEdit.clips.map((clip) => ({ type: "insert-occurrence", placement: "append", occurrence: { ...clip, name: clip.id, startTime: seconds(0), track: 0, role: "video" } })),
+      { type: "insert-occurrence", occurrence: { ...shortEdit.music, name: shortEdit.music.id, track: 1, role: "music" } },
+    ];
+    const genericPreview = await client.callTool({ name: "headless.edit.preview", arguments: { projectId: shortTimeline.project.id, sequenceId: shortTimeline.sequence.id, expectedRevision: shortAudio.project.timeline.revision, operations: genericOperations } });
+    assert.equal(genericPreview.isError, true, "general editing must also reject unverifiable music bounds");
     const rejectedShort = await client.callTool({ name: "headless.edit-json.preview", arguments: shortArgs });
     assert.equal(rejectedShort.isError, true);
     assert.match(toolErrorText(rejectedShort), /audio stream bounds/);
