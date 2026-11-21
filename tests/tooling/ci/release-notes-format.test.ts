@@ -79,7 +79,7 @@ test('formats v0.1.16 generated notes into Codex sections and a complete changel
 	);
 	const formatted = formatReleaseNotes(source, 'Goal: ship safely\n\nExit: done.');
 
-	assert.match(formatted, /## Description\n\nGoal: ship safely\n\nExit: done\./);
+	assert.match(formatted, /## Summary\n\nGoal: ship safely\n\nExit: done\./);
 	assert.match(formatted, /^<!-- Release notes generated[\s\S]*?-->/);
 	assert.match(formatted, /\*\*Full Changelog\*\*: https:\/\/github\.com\/morshoto\/framekit\/compare\/v0\.1\.15\.\.\.v0\.1\.16/);
 	assert.match(formatted, /## Changelog[\s\S]*\[#495\].*feat: harden editable FCPXML materialization.*@morshoto/);
@@ -186,7 +186,7 @@ test('matches exactly one nonempty milestone description by release version', ()
 test('omits categories and description when no milestone matches', () => {
  const source = `## What's Changed\n### Chores\n* test: example by @user in https://github.com/example/repo/pull/1\n\n**Full Changelog**: https://github.com/example/repo/compare/v1...v2`;
  const result = formatReleaseNotes(source);
- assert.doesNotMatch(result, /## (Description|Chores)/);
+ assert.doesNotMatch(result, /## (Summary|Chores)/);
  assert.match(result, /## Changelog[\s\S]*\[#1\]/);
 });
 
@@ -201,7 +201,7 @@ test('CLI fetches paginated milestone descriptions and preserves manual notes', 
   const source = `<!-- Release notes generated -->\n## What's Changed\n* fix: example by @user in https://github.com/example/repo/pull/1\n\n**Full Changelog**: https://github.com/example/repo/compare/v1...v2\n`;
   const run = spawnSync(process.execPath, [resolve(repository, 'scripts/format-release-notes.mjs')], { env, input: source, encoding: 'utf8' });
   assert.equal(run.status, 0, run.stderr);
-  assert.match(run.stdout, /## Description\n\nGoal: revise\n\n- editable\n\n## Changelog/);
+  assert.match(run.stdout, /## Summary\n\nGoal: revise\n\n- editable\n\n## Changelog/);
   const manual = source.replace('<!-- Release notes generated -->', 'Manual introduction');
   const preserved = spawnSync(process.execPath, [resolve(repository, 'scripts/format-release-notes.mjs')], { env, input: manual, encoding: 'utf8' });
   assert.equal(preserved.stdout, manual);

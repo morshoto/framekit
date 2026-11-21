@@ -145,7 +145,7 @@ export function formatReleaseNotes(markdown, description) {
   output.push(FORMATTED_RELEASE_NOTES_MARKER, "");
 
   if (typeof description === "string" && description.trim()) {
-    output.push("## Description", "", description, "");
+    output.push("## Summary", "", description, "");
   }
 
   output.push("## Changelog", "");
