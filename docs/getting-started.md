@@ -121,7 +121,8 @@ needed characters. An unavailable configured font fails rendering instead of
 falling back to another font. Rough-cut previews with titles require a renderer
 that can inspect the selected font and cover the requested characters. The preview
 binds the font digest and renderer identity; execution rejects a changed font and
-renders from a checked copy. Glyph coverage alone does not establish visual correctness
+renders from a checked copy. A storyboard using a different or unverified font is
+reported unavailable. Glyph coverage alone does not establish visual correctness
 or shaping. Unstyled, unpositioned titles use a canvas-scaled size (44 pixels
 at 720p) with their baseline at the frame center; explicitly styled or
 positioned titles retain their requested settings.

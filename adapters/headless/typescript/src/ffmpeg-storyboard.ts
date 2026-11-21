@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { lstat, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { extname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { TimelineIr } from "@framekit/runtime";
 import { titleGlyphProblem } from "./title-glyphs.js";
@@ -20,7 +20,7 @@ type Sample = { kind: "shot" | "title"; id: string; occurrenceId: string; mediaI
 export class FfmpegStoryboardRenderer {
   constructor(private readonly options: { ffmpegPath?: string; temporaryDirectory?: string } = {}) {}
 
-  async render(timeline: TimelineIr, dimensions: { width: number; height: number }, signal?: AbortSignal): Promise<{ data: string; mimeType: "image/png"; samples: Sample[]; limitations: string[] }> {
+  async render(timeline: TimelineIr, dimensions: { width: number; height: number }, signal?: AbortSignal): Promise<{ data: string; mimeType: "image/png"; samples: Sample[]; limitations: string[]; titleFontDigest?: string }> {
     signal?.throwIfAborted();
     const sequence = timeline.sequence;
     if (sequence.transitions?.length || sequence.storyElements.length || sequence.captions.length || sequence.occurrences.some((item) => item.track === 0 && (item.transform || item.enabled === false))) {
@@ -28,8 +28,8 @@ export class FfmpegStoryboardRenderer {
     }
     const clips = sequence.occurrences.filter((item) => item.track === 0 && (!item.role || item.role === "video")).sort((a, b) => seconds(a.startTime) - seconds(b.startTime));
     const titles = sequence.titles ?? [];
-    const font = resolveFontFile(process.env.FRAMEKIT_RENDER_FONT);
-    const glyphProblem = titleGlyphProblem(font, titles.map((title) => title.text));
+    const selectedFont = resolveFontFile(process.env.FRAMEKIT_RENDER_FONT);
+    const glyphProblem = titleGlyphProblem(selectedFont, titles.map((title) => title.text));
     if (glyphProblem) throw new Error(`HEADLESS_STORYBOARD_UNSUPPORTED: title font: ${glyphProblem}`);
     if (!clips.length || clips.length + titles.length > MAX_SAMPLES) throw new Error(`HEADLESS_STORYBOARD_LIMIT: expected 1 to ${MAX_SAMPLES} total shots and titles`);
     if (sequence.occurrences.some((item) => item.track === 0 && item.role && item.role !== "video") || clips.some((item, index) => Math.abs(seconds(item.startTime) - (index ? seconds(clips[index - 1]!.startTime) + seconds(clips[index - 1]!.durationTime) : 0)) > 1e-7)) throw new Error("HEADLESS_STORYBOARD_UNSUPPORTED: primary clips must form a contiguous storyline");
@@ -71,6 +71,17 @@ export class FfmpegStoryboardRenderer {
     await checkSources();
     const dir = await mkdtemp(join(this.options.temporaryDirectory ?? tmpdir(), "framekit-storyboard-"));
     try {
+      let font: string | undefined;
+      let titleFontDigest: string | undefined;
+      if (titles.length) {
+        if (!selectedFont) throw new Error("HEADLESS_STORYBOARD_UNSUPPORTED: title font is unavailable");
+        const fontBytes = await readFile(selectedFont).catch(() => { throw new Error("HEADLESS_STORYBOARD_UNSUPPORTED: title font is unavailable"); });
+        titleFontDigest = createHash("sha256").update(fontBytes).digest("hex");
+        font = join(dir, `font${extname(selectedFont)}`);
+        await writeFile(font, fontBytes);
+        const stagedProblem = titleGlyphProblem(font, titles.map((title) => title.text));
+        if (stagedProblem) throw new Error(`HEADLESS_STORYBOARD_UNSUPPORTED: title font: ${stagedProblem}`);
+      }
       const frames: string[] = [];
       for (const [index, sample] of samples.entries()) {
         signal?.throwIfAborted();
@@ -99,7 +110,7 @@ export class FfmpegStoryboardRenderer {
       if (bytes.length > 8 * 1024 * 1024) throw new Error("HEADLESS_STORYBOARD_LIMIT: contact sheet exceeds 8 MiB");
       await checkSources();
       signal?.throwIfAborted();
-      return { data: bytes.toString("base64"), mimeType: "image/png", samples, limitations: [`${width}x${height} pixels per sample; ${columns} columns and ${rows} rows in sample order`, "Only shot starts and title midpoints are sampled; motion, audio and unsampled frames are not represented.", "Source frames are sought independently; source and output frame-rate conversion can select different nearby frames."] };
+      return { data: bytes.toString("base64"), mimeType: "image/png", samples, ...(titleFontDigest ? { titleFontDigest } : {}), limitations: [`${width}x${height} pixels per sample; ${columns} columns and ${rows} rows in sample order`, "Only shot starts and title midpoints are sampled; motion, audio and unsampled frames are not represented.", "Source frames are sought independently; source and output frame-rate conversion can select different nearby frames."] };
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

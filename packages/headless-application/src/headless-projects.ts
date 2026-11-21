@@ -52,6 +52,7 @@ export interface StoryboardImage {
   mimeType: "image/png";
   samples: Array<{ kind: "shot" | "title"; id: string; occurrenceId: string; mediaId: string; sourceDigest: string; timelineSeconds: number; sourceSeconds: number }>;
   limitations: string[];
+  titleFontDigest?: string;
 }
 
 export type HeadlessProjectEditCommand = Omit<ProjectEditCommand, "target"> & {
@@ -502,7 +503,11 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     let storyboard: StoryboardImage | undefined;
     let storyboardUnavailable: string | undefined;
     try {
-      storyboard = await this.storyboard?.render(preview.after.timeline, request.render, signal);
+      const sampled = await this.storyboard?.render(preview.after.timeline, request.render, signal);
+      if (sampled && titleFont && sampled.titleFontDigest !== titleFont.digest) {
+        throw new Error("HEADLESS_STORYBOARD_UNSUPPORTED: storyboard font does not match the approved title font");
+      }
+      storyboard = sampled;
     } catch (error) {
       signal?.throwIfAborted();
       if (!(error instanceof Error) || !/^HEADLESS_STORYBOARD_(UNSUPPORTED|LIMIT):/.test(error.message)) throw error;
