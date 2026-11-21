@@ -705,6 +705,10 @@ test("encodes an explicitly selected basic title font", async () => {
   value.sequence.titles = [{ id: "opening-title", text: "A日 & 'quote'", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" }, lane: 1 }];
   const titleFont = { family: "Noto Sans CJK JP", style: "Regular", postscriptName: "NotoSansCJKjp-Regular", digest: "a".repeat(64) };
   const artifact = compileTimelineIrToFcpxml(value, { target, basicTitleFont: titleFont });
+  // Final Cut's Basic Title preset uses 63 points and centered alignment at
+  // the independently measured 720p reference. Omitting these attributes
+  // when binding a font resets the imported title to 12 points.
+  assert.match(artifact.xml, /<text-style font="Noto Sans CJK JP" fontFace="Regular" fontSize="63" alignment="center" \/>/);
   assert.match(artifact.xml, /<text><text-style ref="title-style-1">A日 &amp; &apos;quote&apos;<\/text-style><\/text>/);
   assert.match(artifact.xml, /<text-style-def id="title-style-1"><text-style font="Noto Sans CJK JP" fontFace="Regular" \/><\/text-style-def>/);
   assert.match(artifact.xml, /key="com\.framekit\.title-font-sha256" value="a{64}"/);
