@@ -1613,7 +1613,8 @@
       "\"previews and applies deterministic edits while Final Cut is unavailable\"",
       "\"rejects stale desired revisions before changing the session\"",
       "\"blocks stale session plans without changing BASE or OURS\"",
-      "\"can construct an IR from a canonical snapshot without leaking editor types\""
+      "\"can construct an IR from a canonical snapshot without leaking editor types\"",
+      "\"canonical dissolve recovery rejects invalid provider readback\""
     ],
     "tests/integration/editor-first-routing.test.ts": [
       "\"routing selects the connected editor when required capabilities are available\"",
@@ -2797,6 +2798,8 @@
       "\"discovery includes documentation but deliberately delegates Docs app runners\""
     ],
     "tests/integration/timeline-ir-fcpxml.test.ts": [
+      "\"exports an adjacent cross-dissolve with its media references\"",
+      "\"dissolve planning preserves fractional frame timing and bounds\"",
       "\"materialization round trips plain dialogue on a video occurrence\"",
       "\"materialization retains native dialogue subroles\"",
       "\"compiled FCPXML validates against Final Cut's 1.11 DTD\"",
