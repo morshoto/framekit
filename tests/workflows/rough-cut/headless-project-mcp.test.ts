@@ -2301,6 +2301,17 @@ test("external edit JSON previews registered clips, a title and music without mu
     ];
     const genericPreview = await client.callTool({ name: "headless.edit.preview", arguments: { projectId: shortTimeline.project.id, sequenceId: shortTimeline.sequence.id, expectedRevision: shortAudio.project.timeline.revision, operations: genericOperations } });
     assert.equal(genericPreview.isError, true, "general editing must also reject unverifiable music bounds");
+    assert.match(toolErrorText(genericPreview), /audio stream bounds/);
+    const genericExecution = await client.callTool({ name: "headless.edit.execute", arguments: { projectId: shortTimeline.project.id, sequenceId: shortTimeline.sequence.id, expectedRevision: shortAudio.project.timeline.revision, operations: genericOperations } });
+    assert.equal(genericExecution.isError, true);
+    assert.match(toolErrorText(genericExecution), /audio stream bounds/);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId: shortTimeline.project.id } })).timeline, shortAudio.project.timeline);
+    const validGeneric = [
+      ...edit.clips.map((clip) => ({ type: "insert-occurrence", placement: "append", occurrence: { ...clip, name: clip.id, startTime: seconds(0), track: 0, role: "video" } })),
+      { type: "insert-occurrence", occurrence: { ...edit.music, name: edit.music.id, track: 1, role: "music" } },
+    ];
+    const validGenericPreview = await client.callTool({ name: "headless.edit.preview", arguments: { projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, operations: validGeneric } });
+    assert.notEqual(validGenericPreview.isError, true, "bounded WAV remains valid for general editing");
     const rejectedShort = await client.callTool({ name: "headless.edit-json.preview", arguments: shortArgs });
     assert.equal(rejectedShort.isError, true);
     assert.match(toolErrorText(rejectedShort), /audio stream bounds/);

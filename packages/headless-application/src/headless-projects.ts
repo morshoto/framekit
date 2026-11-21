@@ -33,6 +33,20 @@ import {
   type TimelineIrToFcpxmlTarget,
 } from "@framekit/final-cut/fcpxml";
 
+import { verifyMusicSourceBounds } from "./external-edit.js";
+
+function verifyChangedMusicBounds(preview: ProjectEditPreview): void {
+  for (const occurrence of preview.after.timeline.sequence.occurrences) {
+    if (occurrence.role !== "music") continue;
+    const previous = preview.before.timeline.sequence.occurrences.find((item) => item.id === occurrence.id);
+    if (previous && stableJson(previous) === stableJson(occurrence)) continue;
+    const resource = preview.after.timeline.resources.find((item) => item.id === occurrence.mediaId);
+    if (resource?.sourceKind === "local-file") {
+      verifyMusicSourceBounds(resource, occurrence.sourceStartTime ?? { value: "0", timescale: "1" }, occurrence.durationTime);
+    }
+  }
+}
+
 export interface HeadlessProjectServiceOptions {
   directory: string;
   protectedStateDirectory?: string;
@@ -380,10 +394,12 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
   public async previewEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string) {
     const project = await this.open(projectId);
     const transaction = new ProjectTransactionService(this.snapshotStore(projectId, project), { clock: this.clock });
-    return transaction.preview({
+    const preview = await transaction.preview({
       ...command,
       target: command.target ?? { projectId, sequenceId },
     });
+    verifyChangedMusicBounds(preview);
+    return preview;
   }
 
   public async executeEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string) {
@@ -395,6 +411,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       target: command.target ?? { projectId, sequenceId },
     };
     const preview = await transaction.preview(editCommand);
+    verifyChangedMusicBounds(preview);
     const recordId = `undo-${randomUUID()}`;
     const afterDigest = timelineIrDigest(preview.after.timeline);
     const record = {
