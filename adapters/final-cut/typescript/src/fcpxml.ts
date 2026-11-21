@@ -187,6 +187,18 @@ export class FcpxmlDocumentAdapter implements EditorPort {
 
   public async readProject(): Promise<ProjectSnapshot> {
     await this.ensureLoaded();
+    return this.projectSnapshot();
+  }
+
+  /** Parse a caller-verified document while retaining this adapter's path context. */
+  public static readProjectFromContent(filePath: string, content: string, options: FcpxmlDocumentAdapterOptions = {}): ProjectSnapshot {
+    const adapter = new FcpxmlDocumentAdapter(filePath, undefined, options);
+    adapter.xml = adapter.parser.parse(content) as OrderedXml;
+    adapter.fileSignature = hash(content);
+    return adapter.projectSnapshot();
+  }
+
+  private projectSnapshot(): ProjectSnapshot {
     const project = this.projectNode();
     const sequenceNode = findElement(project, "sequence");
     const sequence = sequenceNode ?? {};

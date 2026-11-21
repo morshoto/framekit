@@ -105,6 +105,15 @@ a nearby source frame. Unsupported visual compositions or sample limits return
 JSON and a plan digest without an image; `storyboardUnavailable` explains why.
 FFmpeg and its drawtext support are required for storyboard rendering.
 
+Publishing an approved rough cut requires its verified video and FCPXML to
+remain as regular files at their approved paths with unchanged contents;
+symbolic links are not accepted. The publish preview's
+`sourceProof.renderArtifact` reports the checked video path, SHA-256 digest,
+and byte count. Older rough-cut execution records without a verified video
+identity cannot be published. Restore the project to its pre-execution state,
+or recreate the intended edit in a fresh project, then use new output paths and
+run a new approved preview and execution to create current evidence.
+
 Headless title rendering checks glyph coverage in the selected font and fails
 when a glyph is missing or a variation or joined sequence cannot be verified.
 Set `FRAMEKIT_RENDER_FONT` to a suitable font file when the default lacks the
