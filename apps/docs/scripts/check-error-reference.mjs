@@ -8,7 +8,7 @@ export function extractDefinedCodes(source) {
   return new Set([...source.matchAll(/\b(?:new\s+Error|\w*[Ee]rror)\s*\(\s*["'`]([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)(?::|["'`])/g)].map(match => match[1]));
 }
 export function extractIndexedCodes(page) {
-  return new Set([...page.matchAll(/^## `([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)`\s*$/gm)].map(match => match[1]));
+  return new Set([...page.matchAll(/^## ([a-z0-9-]+)\s*\n\s*`([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)`/gm)].filter(match => match[1] === match[2].toLowerCase().replaceAll('_', '-')).map(match => match[2]));
 }
 export function findMissingCodes(sources, page) {
   const indexed = extractIndexedCodes(page);
