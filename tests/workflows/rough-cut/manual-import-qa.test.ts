@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
-import { compareDissolveParity, evaluateDissolveExportMeasurements, evaluateExportMeasurements, evaluateRevisedExportMeasurements, inspectDissolveExport, measureDissolveExport, measureExport, prepareManualImportFixture, verifyManualExport, verifyPreparedArtifact } from "../../../scripts/manual-import-qa.js";
+import { compareDissolveParity, evaluateDissolveExportMeasurements, evaluateExportMeasurements, evaluateRevisedExportMeasurements, inspectDissolveExport, measureDissolveExport, measureExport, measureFixtureTitleBounds, prepareManualImportFixture, verifyManualExport, verifyPreparedArtifact } from "../../../scripts/manual-import-qa.js";
 
 const valid = () => ({
   durationSeconds: 3,
@@ -59,6 +59,16 @@ test("dissolve parity applies declared bounds without claiming native proof", ()
   const missing = structuredClone(reference); missing.frames.pop();
   assert.equal(compareDissolveParity(reference, missing, bounds, bounds).status, "FAIL");
   assert.equal(compareDissolveParity(reference, reference, bounds, { ...bounds, width: NaN }).status, "FAIL");
+});
+
+test("title measurement uses the specified frame and rejects missing titles", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-title-measure-"));
+  try {
+    const video = join(directory, "title.mp4");
+    await promisify(execFile)(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=red:s=1280x720:r=30:d=2", "-vf", "drawbox=x=600:y=330:w=80:h=30:color=white:t=fill:enable='between(n,24,29)'", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", video]);
+    assert.deepEqual(await measureFixtureTitleBounds(video, 27), { x: 600, y: 330, width: 80, height: 30 });
+    await assert.rejects(measureFixtureTitleBounds(video, 30), /TITLE_NOT_DETECTED/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
 test("revised export checks verify clip boundaries and music through the black tail", () => {
