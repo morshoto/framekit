@@ -92,6 +92,17 @@ ffprobe to register local sources. Start the MCP server in headless mode, then:
    `headless.fcpxml.export`; provide a new output path and an explicit Final Cut
    target with `materialization: "versioned"`.
 
+For later Timeline IR revisions that require explicit approval, call
+`headless.edit.approved-preview` with the project, sequence, current revision
+and operations. Review the result, then call `headless.edit.approved-execute`
+with the same project and sequence, `approved: true`, and its `previewToken`.
+Execution uses the stored previewed operations and rejects changed base or result
+contents, even if a revision ID is reused. The token is single-use, expires
+after ten minutes, and does not survive a server restart. Preview again
+if it expires, the server restarts, or execution fails. The existing
+`headless.edit.execute` remains available for direct revision-bound edits and
+does not require an approved preview.
+
 For a semantic rough-cut plan, `headless.rough-cut.preview` also returns an MCP
 PNG image and storyboard metadata alongside the existing JSON preview. The
 sheet samples each primary shot start and each title midpoint in chronological

@@ -745,6 +745,91 @@ test("production MCP exports an edited headless project as FCPXML without a roug
   }
 });
 
+test("approved headless edits execute only a matching issued preview", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-approved-edit-"));
+  const here = dirname(fileURLToPath(import.meta.url));
+  const environment: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1",
+    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0", FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"),
+    FRAMEKIT_STATE_DIR: join(directory, "state"),
+  };
+  let client: Client | undefined;
+  let transport: StdioClientTransport | undefined;
+  try {
+    ({ client, transport } = await connectProductionClient(here, environment));
+    const initial = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: emptyTimeline() } }));
+    const projectId = initial.timeline.project.id, sequenceId = initial.timeline.sequence.id;
+    const request = { projectId, sequenceId, expectedRevision: initial.timeline.revision,
+      operations: [{ type: "add-marker", marker: { id: "approved", name: "Approved", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } } }] };
+    const preview = payload(await client.callTool({ name: "headless.edit.approved-preview", arguments: request }));
+    assert.equal(typeof preview.previewToken, "string");
+    const stalePreview = payload(await client.callTool({ name: "headless.edit.approved-preview", arguments: request }));
+    const execute = { projectId, sequenceId, previewToken: preview.previewToken, approved: true };
+    for (const invalid of [{ ...execute, sequenceId: "wrong-sequence" }, { ...execute, previewToken: "missing-token" }, { ...execute, approved: false }]) {
+      const result = await client.callTool({ name: "headless.edit.approved-execute", arguments: invalid });
+      assert.equal(result.isError, true);
+    }
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, initial.timeline);
+    const attempts = await Promise.all([
+      client.callTool({ name: "headless.edit.approved-execute", arguments: execute }),
+      client.callTool({ name: "headless.edit.approved-execute", arguments: execute }),
+    ]);
+    assert.equal(attempts.filter((result) => !result.isError).length, 1);
+    assert.equal(attempts.filter((result) => result.isError).length, 1);
+    const committed = payload(attempts.find((result) => !result.isError)!);
+    assert.equal(committed.after.timeline.sequence.markers[0].id, "approved");
+    assert.equal((await client.callTool({ name: "headless.edit.approved-execute", arguments: execute })).isError, true);
+    const stale = await client.callTool({ name: "headless.edit.approved-execute", arguments: { ...execute, previewToken: stalePreview.previewToken } });
+    assert.equal(stale.isError, true);
+    assert.match(toolErrorText(stale), /STALE/);
+    const next = payload(await client.callTool({ name: "headless.edit.approved-preview", arguments: { ...request, expectedRevision: committed.after.timeline.revision, operations: [{ ...request.operations[0], marker: { ...request.operations[0].marker, id: "after-restart" } }] } }));
+    await client.close(); await transport.close();
+    ({ client, transport } = await connectProductionClient(here, environment));
+    const lost = await client.callTool({ name: "headless.edit.approved-execute", arguments: { projectId, sequenceId, previewToken: next.previewToken, approved: true } });
+    assert.equal(lost.isError, true);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, committed.after.timeline);
+  } finally {
+    await client?.close(); await transport?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("approved headless edit rejects a changed base with the same revision", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-approved-base-"));
+  try {
+    const service = new HeadlessProjectService({ directory });
+    const initial = await service.create(emptyTimeline());
+    const projectId = initial.timeline.project.id, sequenceId = initial.timeline.sequence.id;
+    const marker = (id: string) => ({ id, name: id, startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } });
+    const preview = await service.previewApprovedEdit(projectId, { schemaVersion: 1, expectedRevision: initial.timeline.revision,
+      operations: [{ type: "add-marker", marker: marker("approved") }] }, sequenceId);
+    const store = new FramekitProjectStore(join(directory, `${projectId}.json`));
+    const changed = await store.load();
+    changed.timeline.sequence.markers.push(marker("unapproved"));
+    await store.save(changed, initial.timeline.revision);
+    await assert.rejects(service.executeApprovedEdit(projectId, sequenceId, preview.previewToken), /HEADLESS_EDIT_PREVIEW_MISMATCH/);
+    assert.deepEqual((await service.open(projectId)).timeline, changed.timeline);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("approved headless edit tokens expire without mutation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-approved-expiry-"));
+  const realNow = Date.now;
+  try {
+    let now = realNow();
+    Date.now = () => now;
+    const service = new HeadlessProjectService({ directory });
+    const initial = await service.create(emptyTimeline());
+    const projectId = initial.timeline.project.id, sequenceId = initial.timeline.sequence.id;
+    const preview = await service.previewApprovedEdit(projectId, { schemaVersion: 1, expectedRevision: initial.timeline.revision,
+      operations: [{ type: "add-marker", marker: { id: "expired", name: "Expired", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } } }] }, sequenceId);
+    now += 10 * 60 * 1000;
+    await assert.rejects(service.executeApprovedEdit(projectId, sequenceId, preview.previewToken), /HEADLESS_EDIT_PREVIEW_INVALID/);
+    assert.deepEqual((await service.open(projectId)).timeline, initial.timeline);
+  } finally { Date.now = realNow; await rm(directory, { recursive: true, force: true }); }
+});
+
 test("headless edit Undo survives MCP restart and verifies the restored project", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-headless-undo-"));
   const here = dirname(fileURLToPath(import.meta.url));

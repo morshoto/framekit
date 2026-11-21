@@ -105,6 +105,8 @@ export interface HeadlessProjectWorkflow {
     command: HeadlessProjectEditCommand,
     sequenceId: string,
   ): Promise<ProjectEditResult & { undoId: string }>;
+  previewApprovedEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string): Promise<Awaited<ReturnType<ProjectTransactionService["preview"]>> & { previewToken: string }>;
+  executeApprovedEdit(projectId: string, sequenceId: string, previewToken: string): Promise<ProjectEditResult & { undoId: string }>;
   undoEdit(projectId: string, sequenceId: string, undoId: string, expectedRevision: ContextRevision): Promise<HeadlessUndoResult>;
   exportFcpxml(projectId: string, sequenceId: string, expectedRevision: ContextRevision, outputPath: string, target: TimelineIrToFcpxmlTarget): Promise<{ artifact: { path: string; digest: string; bytes: number; verified: true }; provenance: TimelineIrToFcpxmlResult["provenance"]; coverage: TimelineIrToFcpxmlResult["coverage"] }>;
   previewRoughCut(request: HeadlessRoughCutRequest, signal?: AbortSignal, requireStoryboard?: boolean): Promise<HeadlessRoughCutPreview>;
@@ -321,6 +323,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
   private readonly verifier?: FramekitRenderArtifactVerifier;
   private readonly storyboard?: StoryboardRenderer;
   private readonly clock: () => string;
+  private readonly approvedEdits = new Map<string, { projectId: string; sequenceId: string; command: HeadlessProjectEditCommand; baseDigest: string; resultDigest: string; expiresAt: number }>();
 
   public constructor(options: HeadlessProjectServiceOptions) {
     this.directory = options.directory;
@@ -428,7 +431,27 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     return preview;
   }
 
-  public async executeEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string) {
+  public async previewApprovedEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string) {
+    const preview = await this.previewEdit(projectId, command, sequenceId);
+    const now = Date.now();
+    for (const [token, entry] of this.approvedEdits) if (entry.expiresAt <= now) this.approvedEdits.delete(token);
+    while (this.approvedEdits.size >= 256) this.approvedEdits.delete(this.approvedEdits.keys().next().value!);
+    const previewToken = `headless-edit-${randomUUID()}`;
+    this.approvedEdits.set(previewToken, { projectId, sequenceId, command: structuredClone(preview.command), baseDigest: timelineIrDigest(preview.before.timeline), resultDigest: timelineIrDigest(preview.after.timeline), expiresAt: now + 10 * 60 * 1000 });
+    return { ...preview, previewToken };
+  }
+
+  public async executeApprovedEdit(projectId: string, sequenceId: string, previewToken: string) {
+    const entry = this.approvedEdits.get(previewToken);
+    if (!entry || entry.expiresAt <= Date.now() || entry.projectId !== projectId || entry.sequenceId !== sequenceId) {
+      throw new Error("HEADLESS_EDIT_PREVIEW_INVALID: preview token is unknown, expired or belongs to another target");
+    }
+    // Consume synchronously before the first await so concurrent requests cannot reuse the token.
+    this.approvedEdits.delete(previewToken);
+    return this.executeEdit(projectId, entry.command, sequenceId, entry);
+  }
+
+  public async executeEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string, approvedDigests?: { baseDigest: string; resultDigest: string }) {
     const project = await this.open(projectId);
     const timestamp = this.clock();
     const transaction = new ProjectTransactionService(this.snapshotStore(projectId, project), { clock: () => timestamp });
@@ -438,6 +461,10 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     };
     const preview = await transaction.preview(editCommand);
     await this.verifyConnectedAudioMetadata(projectId, preview.after.timeline, preview.before.timeline);
+    if (approvedDigests && (timelineIrDigest(preview.before.timeline) !== approvedDigests.baseDigest
+      || timelineIrDigest(preview.after.timeline) !== approvedDigests.resultDigest)) {
+      throw new Error("HEADLESS_EDIT_PREVIEW_MISMATCH: project or proposed edit differs from the approved preview");
+    }
     const recordId = `undo-${randomUUID()}`;
     const afterDigest = timelineIrDigest(preview.after.timeline);
     const record = {
