@@ -1977,6 +1977,8 @@
       "\"headless render fixtures are reproducible and encode the canonical QA assertions\""
     ],
     "tests/integration/headless-renderer.test.ts": [
+      "\"FFmpeg renderer rejects titles with unavailable glyphs\"",
+      "\"FFmpeg renders a supported mixed-script title without tofu\"",
       "\"FFmpeg dissolve preserves incoming video and audio timing\"",
       "\"FFmpeg renderer preserves apostrophes in title text\"",
       "\"FFmpeg renderer ends titles before the cut frame\"",
