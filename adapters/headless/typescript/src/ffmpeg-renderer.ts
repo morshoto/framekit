@@ -78,7 +78,7 @@ export class FfmpegTimelineRenderer implements FramekitRenderProvider {
         "audio-gain": supportsAudioGain(timeline) ? "supported" : "unsupported",
         "audio-mixing": supportsAudioMixing(timeline) ? "supported" : "unsupported",
         transform: supportsTransforms(timeline) ? "supported" : "unsupported",
-        titles: supportsTitles(timeline) ? "supported" : "unsupported",
+        titles: supportsTitles(timeline) && !titleGlyphProblem(this.fontFile, (timeline.sequence.titles ?? []).map((title) => title.text)) ? "supported" : "unsupported",
         "cross-dissolve": supportsCrossDissolve(timeline) ? "supported" : "unsupported",
       },
     };

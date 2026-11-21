@@ -471,6 +471,18 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     const prepared = await this.prepareRoughCut(request);
     const timestamp = this.clock();
     const { preview, fcpxml } = await this.previewPreparedRoughCut(request, prepared, timestamp);
+    if (preview.after.timeline.sequence.titles?.length) {
+      if (!this.renderer) throw new Error("HEADLESS_ROUGH_CUT_RENDER_UNAVAILABLE: renderer is required to check title support");
+      const renderRequest = createFramekitRenderRequest({
+        timeline: preview.after.timeline,
+        target: { projectId: request.projectId, sequenceId: request.sequenceId },
+        revision: preview.after.timeline.revision,
+        parameters: request.render,
+      });
+      if (this.renderer.capabilities(renderRequest).features.titles !== "supported") {
+        throw new Error("RENDER_CAPABILITY_UNAVAILABLE: required title font or semantics are unavailable (titles)");
+      }
+    }
     const approval = createRoughCutApproval({
       inputDigest: prepared.inputDigest,
       projectId: request.projectId,

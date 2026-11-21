@@ -56,7 +56,10 @@ test("FFmpeg renderer rejects a missing explicitly configured title font", async
     const output = join(directory, "output.mp4");
     const renderer = new FfmpegTimelineRenderer({ env: { FRAMEKIT_RENDER_FONT: join(directory, "missing.otf") } });
     const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(output) });
-    await assert.rejects(renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request))), /title font.*(available|inspect)/i);
+    const capabilities = renderer.capabilities(request);
+    assert.equal(capabilities.features.titles, "unsupported");
+    const plan = createFramekitRenderPlan(request, { ...capabilities, features: { ...capabilities.features, titles: "supported" } });
+    await assert.rejects(renderer.render(plan), /title font.*(available|inspect)/i);
     await assert.rejects(readFile(output), /ENOENT/);
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -74,11 +77,17 @@ test("FFmpeg renderer rejects titles with unavailable glyphs", async () => {
     const renderer = new FfmpegTimelineRenderer({ env: { FRAMEKIT_RENDER_FONT: fontPath } });
     const output = join(directory, "missing-glyph.mp4");
     const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(output) });
-    await assert.rejects(renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request))), /selected font lacks glyph U\+10FFFF/i);
+    const capabilities = renderer.capabilities(request);
+    assert.equal(capabilities.features.titles, "unsupported");
+    const plan = createFramekitRenderPlan(request, { ...capabilities, features: { ...capabilities.features, titles: "supported" } });
+    await assert.rejects(renderer.render(plan), /selected font lacks glyph U\+10FFFF/i);
     await assert.rejects(readFile(output), /ENOENT/);
     source.sequence.titles![0]!.text = "A\u200dA";
     const joined = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(output) });
-    await assert.rejects(renderer.render(createFramekitRenderPlan(joined, renderer.capabilities(joined))), /unverified shaping sequence/i);
+    const joinedCapabilities = renderer.capabilities(joined);
+    assert.equal(joinedCapabilities.features.titles, "unsupported");
+    const joinedPlan = createFramekitRenderPlan(joined, { ...joinedCapabilities, features: { ...joinedCapabilities.features, titles: "supported" } });
+    await assert.rejects(renderer.render(joinedPlan), /unverified shaping sequence/i);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
