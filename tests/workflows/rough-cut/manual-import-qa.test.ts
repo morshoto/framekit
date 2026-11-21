@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
-import { evaluateExportMeasurements, measureExport, prepareManualImportFixture, verifyManualExport, verifyPreparedArtifact } from "../../../scripts/manual-import-qa.js";
+import { evaluateExportMeasurements, evaluateRevisedExportMeasurements, measureExport, prepareManualImportFixture, verifyManualExport, verifyPreparedArtifact } from "../../../scripts/manual-import-qa.js";
 
 const valid = () => ({
   durationSeconds: 3,
@@ -25,6 +25,26 @@ const valid = () => ({
     { timeSeconds: 2.5, rgb: [20, 20, 235] as [number, number, number] },
   ],
   toneAmplitudes: [0.025, 0.024, 0.023],
+});
+
+test("revised export checks verify clip boundaries and music through the black tail", () => {
+  const revised = { ...valid(), samples: [
+    { timeSeconds: 0.5, rgb: [20, 20, 235] as [number, number, number] },
+    { timeSeconds: 1.5, rgb: [235, 20, 20] as [number, number, number] },
+    { timeSeconds: 2.25, rgb: [20, 235, 20] as [number, number, number] },
+    { timeSeconds: 2.75, rgb: [0, 0, 0] as [number, number, number] },
+  ], boundarySamples: [
+    { frameNumber: 29, rgb: [20, 20, 235] as [number, number, number] },
+    { frameNumber: 30, rgb: [235, 20, 20] as [number, number, number] },
+    { frameNumber: 59, rgb: [235, 20, 20] as [number, number, number] },
+    { frameNumber: 60, rgb: [20, 235, 20] as [number, number, number] },
+    { frameNumber: 74, rgb: [20, 235, 20] as [number, number, number] },
+    { frameNumber: 75, rgb: [0, 0, 0] as [number, number, number] },
+  ], toneAmplitudes: [0.02, 0.02, 0.02, 0.02] };
+  assert.equal(evaluateRevisedExportMeasurements(revised).status, "PASS");
+  assert.equal(evaluateRevisedExportMeasurements({ ...revised, boundarySamples: revised.boundarySamples.slice(0, 4) }).status, "FAIL");
+  assert.equal(evaluateRevisedExportMeasurements({ ...revised, toneAmplitudes: [0.02, 0.02, 0.02, 0] }).status, "FAIL");
+  assert.equal(evaluateRevisedExportMeasurements({ ...revised, durationSeconds: 2.5 }).status, "FAIL");
 });
 
 test("manual import output checks independently verify timing, clip colors and music", () => {
