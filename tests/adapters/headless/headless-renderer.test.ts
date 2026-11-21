@@ -528,6 +528,10 @@ test("FFmpeg mixes independent music with source audio at the requested gain", a
       assert.ok(frequencyAmplitude(audio, expectedTone, 48_000) > 0.002, `${label} source audio must remain audible`);
       assert.ok(frequencyAmplitude(audio, 1_760, 48_000) > 0.002, `${label} music must remain audible`);
     }
+    const blendAudio = window(0.82, 0.94);
+    assert.ok(frequencyAmplitude(blendAudio, 440, 48_000) > 0.002, "outgoing audio must be present during the dissolve");
+    assert.ok(frequencyAmplitude(blendAudio, 880, 48_000) > 0.002, "incoming audio must be present during the dissolve");
+    assert.ok(frequencyAmplitude(blendAudio, 1_760, 48_000) > 0.002, "music must remain present during the dissolve");
     const noTitle = structuredClone(source);
     noTitle.sequence.titles = [];
     const plain = join(directory, "music-no-title.mp4");
