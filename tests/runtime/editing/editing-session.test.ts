@@ -56,7 +56,7 @@ function baseTimeline(): TimelineIr {
 test("title font identity persists and rejects incomplete assets", () => {
   const base = baseTimeline();
   const font = { family: "Noto Sans CJK JP", style: "Regular", postscriptName: "NotoSansCJKjp-Regular", digest: "a".repeat(64) };
-  base.sequence.titles = [{ id: "title", text: "A日", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" }, lane: 1, font } as any];
+  base.sequence.titles = [{ id: "title", text: "A日", startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" }, lane: 1, font }];
   const restored = EditingSession.fromJSON(EditingSession.create({ base }).serialize()).desired();
   assert.deepEqual(restored.sequence.titles?.[0]?.font, font);
   const changed = structuredClone(base);
@@ -64,7 +64,7 @@ test("title font identity persists and rejects incomplete assets", () => {
   assert.notEqual(timelineIrDigest(base), timelineIrDigest(changed));
   for (const invalid of [null, { ...font, family: " " }, { ...font, digest: "bad" }, { ...font, extra: true }]) {
     const candidate = structuredClone(base);
-    candidate.sequence.titles![0]!.font = invalid as typeof font;
+    candidate.sequence.titles![0]!.font = invalid as unknown as typeof font;
     assert.throws(() => EditingSession.create({ base: candidate }), /TIMELINE_IR_INVALID:.*font/i);
   }
 });
