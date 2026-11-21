@@ -40,6 +40,39 @@ export interface DissolveExportMeasurements {
   audio: Array<{ timeSeconds: number; outgoing: number; incoming: number; music: number }>;
 }
 
+export interface TitleBounds { x: number; y: number; width: number; height: number }
+
+/** Compare only the sampled synthetic fixture; native provenance and exact boundaries require separate proof. */
+export function compareDissolveParity(reference: DissolveExportMeasurements, candidate: DissolveExportMeasurements, referenceTitle: TitleBounds, candidateTitle: TitleBounds) {
+  const signals = evaluateDissolveExportMeasurements(reference).status === "PASS"
+    && evaluateDissolveExportMeasurements(candidate).status === "PASS";
+  const colors = signals && reference.frames.every((frame, index) => frame.rgb.every((value, channel) =>
+    Math.abs(value - candidate.frames[index]!.rgb[channel]!) <= 20));
+  const audio = signals && reference.audio.every((window, index) => {
+    const actual = candidate.audio[index]!;
+    return (["outgoing", "incoming", "music"] as const).every((name) => {
+      const minimum = name === "music" ? 0.002 : 0.01;
+      if (window[name] < minimum) return true; // Near-silent leakage is checked by the independent signal evaluator.
+      return actual[name] > 0 && Math.abs(20 * Math.log10(actual[name] / window[name])) <= 1;
+    });
+  });
+  const validBounds = (box: TitleBounds) => [box.x, box.y, box.width, box.height].every(Number.isFinite)
+    && box.x >= 0 && box.y >= 0 && box.width > 0 && box.height > 0
+    && box.x + box.width <= 1280 && box.y + box.height <= 720;
+  const titles = validBounds(referenceTitle) && validBounds(candidateTitle);
+  const titleSize = titles && Math.abs(candidateTitle.width / referenceTitle.width - 1) <= 0.1
+    && Math.abs(candidateTitle.height / referenceTitle.height - 1) <= 0.1;
+  const titlePosition = titles
+    && Math.abs(candidateTitle.x + candidateTitle.width / 2 - referenceTitle.x - referenceTitle.width / 2) <= 12.8
+    && Math.abs(candidateTitle.y + candidateTitle.height / 2 - referenceTitle.y - referenceTitle.height / 2) <= 7.2;
+  return {
+    status: signals && colors && audio && titleSize && titlePosition ? "PASS" as const : "FAIL" as const,
+    checks: { signals, colors, audio, titleSize, titlePosition },
+    nativeImport: "UNVERIFIED" as const, finalCutProvenance: "UNVERIFIED" as const,
+    titleEditability: "UNVERIFIED" as const, exactBoundaries: "UNVERIFIED" as const,
+  };
+}
+
 /** Check only sampled signals; this does not establish native provenance or title editability. */
 export function evaluateDissolveExportMeasurements(observed: DissolveExportMeasurements) {
   const duration = Number.isFinite(observed.durationSeconds) && Math.abs(observed.durationSeconds - 2) <= 0.05
