@@ -1451,6 +1451,12 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     assert.equal(proof.destination.projectUid, executed.fcpxml.destination.projectUid);
     assert.equal(proof.destination.sequenceUid, executed.fcpxml.destination.sequenceUid);
     assert.deepEqual(proof.sourceMediaDigests, [{ source: source.source, sha256: source.sourceDigest }]);
+    const renderedBytes = await readFile(request.render.outputPath);
+    assert.deepEqual(proof.renderArtifact, {
+      path: request.render.outputPath,
+      digest: createHash("sha256").update(renderedBytes).digest("hex"),
+      bytes: renderedBytes.length,
+    });
     assert.equal("targetBinding" in proof, false);
     const restarted = new HeadlessProjectService({
       directory: join(directory, "projects"),
