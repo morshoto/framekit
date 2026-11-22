@@ -26,7 +26,7 @@ pnpm run check:boundaries
 pnpm run check:docs
 ```
 
-リポジトリのルートから、決定的なインメモリのフィクスチャを使う MCP サーバーを起動できます。通信方式は stdio です。
+リポジトリのルートから、決定的なインメモリのフィクスチャを使う MCP サーバーを起動できます。サーバーは公式 MCP TypeScript SDK v2 を使用し、クライアントとの通信方式は引き続き stdio です。Codex と Claude Code の設定方法はセットアップガイドを参照してください。
 
 ```sh
 pnpm run mcp

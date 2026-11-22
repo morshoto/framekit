@@ -56,6 +56,9 @@ implementation subpaths are not stable package APIs.
 
 Start the deterministic in-memory MCP server from the repository root:
 
+The server uses the official MCP TypeScript SDK v2 with stdio transport. The
+existing Codex and Claude Code registration commands below remain applicable.
+
 ```sh
 pnpm run mcp
 ```

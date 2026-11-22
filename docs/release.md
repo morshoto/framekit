@@ -81,6 +81,11 @@ uploaded assets, app signature, extension version, and source commit before
 
 ## Validation and retries
 
+For the MCP TypeScript SDK v2 migration, include the SDK change and any verified
+client compatibility differences in the release notes. Validate clean Codex and
+Claude Code startup and representative calls against the exact candidate; a
+published-package run at a different commit is not candidate evidence.
+
 Before a release pull request is merged, run the standard checks in
 [Testing](./testing.md), then validate package and release metadata:
 
