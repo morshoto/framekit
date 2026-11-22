@@ -139,6 +139,40 @@ convert an unobserved condition into PASS. Do not clear or replay a retained
 native reservation. A synthetic or FFmpeg-rendered movie is not a substitute
 for the actual Final Cut export.
 
+For the fixed two-second synthetic dissolve diagnostic (30 fps, six-frame
+red-to-blue transition, 440/880 Hz source audio and a 1760 Hz music bed), a
+separate measurement report can be created without overwriting an existing
+directory:
+
+```sh
+node --import tsx scripts/manual-import-qa.ts inspect-dissolve /path/to/video /path/to/new-dissolve-report
+```
+
+The report checks selected frame and audio windows and binds the inspected
+video hash. It does not verify the approved manifest, native import, Final Cut
+export provenance, title visibility or editability, or visual color parity.
+Record those checks independently; this diagnostic is not a release verdict.
+
+For the 720p fixture, compare a 48 kHz stereo reference and a 48 kHz mono
+candidate using the agreed sampled color, title-bounds, and audio-level limits:
+
+```sh
+node --import tsx scripts/manual-import-qa.ts compare-dissolve /path/to/reference.mov /path/to/candidate.mp4 /path/to/new-parity-report
+```
+
+The default signal profile expects the fixture music at −12 dB. For the
+otherwise identical approved revision at −9 dB, append `--music-gain=-9`;
+the report records the selected profile. These profiles apply only to the
+known synthetic source levels, not arbitrary music. The −9 dB profile
+requires the music-to-outgoing tone amplitude ratio to be 0.315–0.399
+(approximately ±1 dB around the expected ratio).
+
+The reference is downmixed as `0.7071067811865476 * left +
+0.7071067811865476 * right`. Title measurement detects white pixels in the
+fixture's central region at frame 27; it does not identify the text. A sampled
+pass leaves source lineage, exact boundaries, editable title/transition, and
+Final Cut import and export provenance unverified.
+
 Apple documents [XML import](https://support.apple.com/guide/final-cut-pro/verdbd66ae/mac)
 and [Export File](https://support.apple.com/guide/final-cut-pro/export-final-mastering-files-ver0192a47b8/mac).
 

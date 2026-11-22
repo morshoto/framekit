@@ -31,6 +31,188 @@ export interface ExportMeasurements {
   toneAmplitudes: number[];
 }
 
+/** Measurements for the fixed two-second, 30 fps finishing diagnostic. */
+export interface DissolveExportMeasurements {
+  durationSeconds: number;
+  frameCount: number;
+  frameRate: string;
+  frames: Array<{ frameNumber: number; rgb: [number, number, number] }>;
+  audio: Array<{ timeSeconds: number; outgoing: number; incoming: number; music: number }>;
+}
+
+export interface TitleBounds { x: number; y: number; width: number; height: number }
+
+/** Locate the fixture's white basic title in its fixed 720p center region. */
+export async function measureFixtureTitleBounds(path: string, frameNumber: number): Promise<TitleBounds> {
+  if (!Number.isSafeInteger(frameNumber) || frameNumber < 0) throw new Error("TITLE_FRAME_INVALID: expected a nonnegative frame number");
+  const probe = JSON.parse((await run(process.env.FFPROBE_BIN || "ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "json", path])).stdout) as { streams?: Array<{ width?: number; height?: number }> };
+  if (probe.streams?.[0]?.width !== 1280 || probe.streams[0]?.height !== 720) throw new Error("TITLE_FORMAT_UNSUPPORTED: fixture title measurement requires 1280x720 video");
+  const width = 320, height = 200, left = 480, top = 250;
+  const pixels = await runBytes(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-i", path, "-map", "0:v:0", "-vf", `select=eq(n\\,${frameNumber}),crop=${width}:${height}:${left}:${top},format=rgb24`, "-frames:v", "1", "-f", "rawvideo", "pipe:1"]);
+  if (pixels.length !== width * height * 3) throw new Error("TITLE_FRAME_INVALID: requested frame is unavailable");
+  let minX = width, minY = height, maxX = -1, maxY = -1;
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const offset = (y * width + x) * 3;
+    if (pixels[offset]! > 210 && pixels[offset + 1]! > 210 && pixels[offset + 2]! > 210) {
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+    }
+  }
+  if (maxX < 0) throw new Error("TITLE_NOT_DETECTED: no white fixture title pixels found");
+  if (minX === 0 || minY === 0 || maxX === width - 1 || maxY === height - 1) throw new Error("TITLE_BOUNDS_UNSUPPORTED: white pixels touch the measurement region boundary");
+  return { x: left + minX, y: top + minY, width: maxX - minX + 1, height: maxY - minY + 1 };
+}
+
+/** Compare only the sampled synthetic fixture; native provenance and exact boundaries require separate proof. */
+export function compareDissolveParity(reference: DissolveExportMeasurements, candidate: DissolveExportMeasurements, referenceTitle: TitleBounds, candidateTitle: TitleBounds, musicGainDb: -12 | -9 = -12) {
+  const signals = evaluateDissolveExportMeasurements(reference, musicGainDb).status === "PASS"
+    && evaluateDissolveExportMeasurements(candidate, musicGainDb).status === "PASS";
+  const colors = signals && reference.frames.every((frame, index) => frame.rgb.every((value, channel) =>
+    Math.abs(value - candidate.frames[index]!.rgb[channel]!) <= 20));
+  const audio = signals && reference.audio.every((window, index) => {
+    const actual = candidate.audio[index]!;
+    return (["outgoing", "incoming", "music"] as const).every((name) => {
+      const minimum = name === "music" ? 0.002 : 0.01;
+      if (window[name] < minimum) return true; // Near-silent leakage is checked by the independent signal evaluator.
+      return actual[name] > 0 && Math.abs(20 * Math.log10(actual[name] / window[name])) <= 1;
+    });
+  });
+  const validBounds = (box: TitleBounds) => [box.x, box.y, box.width, box.height].every(Number.isFinite)
+    && box.x >= 0 && box.y >= 0 && box.width > 0 && box.height > 0
+    && box.x + box.width <= 1280 && box.y + box.height <= 720;
+  const titles = validBounds(referenceTitle) && validBounds(candidateTitle);
+  const titleSize = titles && Math.abs(candidateTitle.width - referenceTitle.width) <= referenceTitle.width * 0.1
+    && Math.abs(candidateTitle.height - referenceTitle.height) <= referenceTitle.height * 0.1;
+  const titlePosition = titles
+    && Math.abs(candidateTitle.x + candidateTitle.width / 2 - referenceTitle.x - referenceTitle.width / 2) <= 12.8
+    && Math.abs(candidateTitle.y + candidateTitle.height / 2 - referenceTitle.y - referenceTitle.height / 2) <= 7.2;
+  return {
+    status: signals && colors && audio && titleSize && titlePosition ? "PASS" as const : "FAIL" as const,
+    checks: { signals, colors, audio, titleSize, titlePosition },
+    nativeImport: "UNVERIFIED" as const, finalCutProvenance: "UNVERIFIED" as const,
+    titleEditability: "UNVERIFIED" as const, exactBoundaries: "UNVERIFIED" as const,
+  };
+}
+
+/** Check only sampled signals; this does not establish native provenance or title editability. */
+export function evaluateDissolveExportMeasurements(observed: DissolveExportMeasurements, musicGainDb: -12 | -9 = -12) {
+  if (musicGainDb !== -12 && musicGainDb !== -9) throw new Error("MUSIC_GAIN_UNSUPPORTED: expected -12 or -9 dB");
+  const duration = Number.isFinite(observed.durationSeconds) && Math.abs(observed.durationSeconds - 2) <= 0.05
+    && observed.frameCount === 60 && observed.frameRate === "30/1";
+  const frameNumbers = [23, 25, 27, 29, 30];
+  const framesValid = observed.frames.length === frameNumbers.length && observed.frames.every((frame, index) =>
+    frame.frameNumber === frameNumbers[index] && frame.rgb.length === 3
+    && frame.rgb.every((value) => Number.isFinite(value) && value >= 0 && value <= 255));
+  let video = false;
+  if (framesValid) {
+    const [pre, early, middle, late, post] = observed.frames.map(({ rgb }) => rgb) as [[number, number, number], [number, number, number], [number, number, number], [number, number, number], [number, number, number]];
+    video = pre[0] > 140 && pre[0] - pre[2] > 100
+      && early[0] > 100 && early[2] > 30 && middle[0] > 80 && middle[2] > 100
+      && late[0] > 20 && late[2] > 140 && post[1] > 140 && post[2] > 140 && post[0] < 100
+      && early[0] > middle[0] && middle[0] > late[0] && early[2] < middle[2] && middle[2] < late[2];
+  }
+  const times = [0.5, 0.825, 0.9, 0.975, 1.5];
+  const windowsValid = observed.audio.length === times.length && observed.audio.every((window, index) =>
+    Math.abs(window.timeSeconds - times[index]!) < 0.001
+    && [window.outgoing, window.incoming, window.music].every((value) => Number.isFinite(value) && value >= 0 && value <= 0.2));
+  let audio = false;
+  if (windowsValid) {
+    const [pre, early, middle, late, post] = observed.audio;
+    const outgoingBase = pre!.outgoing;
+    const incomingBase = post!.incoming;
+    const ratio = (value: number, base: number, min: number, max: number) => base >= 0.01 && value / base >= min && value / base <= max;
+    audio = ratio(pre!.incoming, incomingBase, 0, 0.1) && ratio(post!.outgoing, outgoingBase, 0, 0.1)
+      && ratio(early!.outgoing, outgoingBase, 0.9, 1.1) && ratio(early!.incoming, incomingBase, 0, 0.1)
+      && ratio(middle!.outgoing, outgoingBase, 0.3, 0.7) && ratio(middle!.incoming, incomingBase, 0.3, 0.7)
+      && ratio(late!.outgoing, outgoingBase, 0, 0.1) && ratio(late!.incoming, incomingBase, 0.9, 1.1)
+      && observed.audio.every((window) => ratio(window.music, outgoingBase, musicGainDb === -9 ? 0.315 : 0.17, musicGainDb === -9 ? 0.399 : 0.34));
+  }
+  return { status: duration && video && audio ? "PASS" as const : "FAIL" as const, checks: { duration, video, audio }, nativeImport: "UNVERIFIED" as const, titleEditability: "UNVERIFIED" as const, finalCutProvenance: "UNVERIFIED" as const };
+}
+
+/** Decode the fixed synthetic dissolve case; the source of the file remains unverified. */
+export async function measureDissolveExport(path: string, stereoDownmix = false): Promise<DissolveExportMeasurements> {
+  const ffprobe = process.env.FFPROBE_BIN || "ffprobe";
+  const ffmpeg = process.env.FFMPEG_BIN || "ffmpeg";
+  const probe = JSON.parse((await run(ffprobe, ["-v", "error", "-count_frames", "-show_entries", "format=duration:stream=codec_type,avg_frame_rate,nb_read_frames", "-of", "json", path])).stdout) as {
+    format?: { duration?: string }; streams?: Array<{ codec_type?: string; avg_frame_rate?: string; nb_read_frames?: string }>;
+  };
+  const video = probe.streams?.find((stream) => stream.codec_type === "video");
+  if (!video) throw new Error("EXPORT_INVALID: video stream missing");
+  // Decode every cropped frame: a filter graph can reinitialize on a native
+  // format change and reset the `select` filter's frame counter.
+  const pixels = await runBytes(ffmpeg, ["-v", "error", "-i", path, "-map", "0:v:0", "-vf", "crop=2:2:2:2,format=rgb24", "-fps_mode", "passthrough", "-f", "rawvideo", "pipe:1"]);
+  if (pixels.length % 12 !== 0 || pixels.length / 12 !== Number(video.nb_read_frames)) throw new Error("EXPORT_INVALID: decoded frame count differs from probe");
+  const frames: DissolveExportMeasurements["frames"] = [];
+  for (const frameNumber of [23, 25, 27, 29, 30]) {
+    const offset = frameNumber * 12;
+    if (offset + 12 > pixels.length) throw new Error(`EXPORT_INVALID: missing frame ${frameNumber}`);
+    frames.push({ frameNumber, rgb: [pixels[offset]!, pixels[offset + 1]!, pixels[offset + 2]!] });
+  }
+  const audio: DissolveExportMeasurements["audio"] = [];
+  const hasAudio = probe.streams?.some((stream) => stream.codec_type === "audio") ?? false;
+  for (const timeSeconds of [0.5, 0.825, 0.9, 0.975, 1.5]) {
+    const pcm = hasAudio ? await runBytes(ffmpeg, ["-v", "error", "-ss", String(timeSeconds - 0.0125), "-i", path, "-t", "0.025", "-map", "0:a:0", "-vn", ...(stereoDownmix ? ["-af", "pan=mono|c0=0.7071067811865476*c0+0.7071067811865476*c1"] : []), "-ac", "1", "-ar", "48000", "-f", "f32le", "pipe:1"]) : Buffer.alloc(0);
+    const count = Math.floor(pcm.length / 4);
+    const amplitude = (frequency: number) => {
+      if (count < 1200) return 0;
+      let sine = 0, cosine = 0;
+      for (let i = 0; i < count; i++) {
+        const sample = pcm.readFloatLE(i * 4), phase = 2 * Math.PI * frequency * i / 48_000;
+        sine += sample * Math.sin(phase); cosine += sample * Math.cos(phase);
+      }
+      return 2 * Math.hypot(sine, cosine) / count;
+    };
+    audio.push({ timeSeconds, outgoing: amplitude(440), incoming: amplitude(880), music: amplitude(1760) });
+  }
+  return { durationSeconds: Number(probe.format?.duration), frameCount: Number(video.nb_read_frames), frameRate: video.avg_frame_rate ?? "", frames, audio };
+}
+
+/** Compare two fixed-fixture videos; this does not authenticate their provenance. */
+export async function compareDissolveVideos(referencePath: string, candidatePath: string, outputDirectory: string, musicGainDb: -12 | -9 = -12) {
+  const reference = resolve(referencePath), candidate = resolve(candidatePath), destination = resolve(outputDirectory);
+  const sha = async (path: string) => createHash("sha256").update(await readFile(path)).digest("hex");
+  const [referenceSha256, candidateSha256] = await Promise.all([sha(reference), sha(candidate)]);
+  const probeAudio = async (path: string) => {
+    const value = JSON.parse((await run(process.env.FFPROBE_BIN || "ffprobe", ["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels,sample_rate", "-of", "json", path])).stdout) as { streams?: Array<{ channels?: number; sample_rate?: string }> };
+    return value.streams?.[0];
+  };
+  const [referenceAudio, candidateAudio] = await Promise.all([probeAudio(reference), probeAudio(candidate)]);
+  if (referenceAudio?.channels !== 2 || referenceAudio.sample_rate !== "48000" || candidateAudio?.channels !== 1 || candidateAudio.sample_rate !== "48000") {
+    throw new Error("AUDIO_FORMAT_UNSUPPORTED: reference must be 48 kHz stereo and candidate 48 kHz mono");
+  }
+  const [referenceMeasurements, candidateMeasurements, referenceTitle, candidateTitle] = await Promise.all([
+    measureDissolveExport(reference, true), measureDissolveExport(candidate),
+    measureFixtureTitleBounds(reference, 27), measureFixtureTitleBounds(candidate, 27),
+  ]);
+  if (await sha(reference) !== referenceSha256 || await sha(candidate) !== candidateSha256) throw new Error("EXPORT_CHANGED: video changed during comparison");
+  const report = { schemaVersion: 1, scenario: "synthetic-six-frame-dissolve-720p", referenceSha256, candidateSha256,
+    downmix: "mono = 0.7071067811865476 * left + 0.7071067811865476 * right; 48000 Hz",
+    referenceMeasurements, candidateMeasurements, referenceTitle, candidateTitle, musicGainDb,
+    comparison: compareDissolveParity(referenceMeasurements, candidateMeasurements, referenceTitle, candidateTitle, musicGainDb),
+    limitation: "Sampled parity does not establish approved source identity, exact boundaries, title text or editability, Final Cut import, or export provenance.",
+  };
+  await mkdir(destination);
+  await writeFile(join(destination, "parity.json"), `${JSON.stringify(report, null, 2)}\n`, { flag: "wx" });
+  return report;
+}
+
+/** Inspect the fixed synthetic case without claiming an import or production provenance. */
+export async function inspectDissolveExport(exportPath: string, outputDirectory: string) {
+  const movie = resolve(exportPath), destination = resolve(outputDirectory);
+  const sha = async () => createHash("sha256").update(await readFile(movie)).digest("hex");
+  const exportSha256 = await sha();
+  await mkdir(destination);
+  const observed = await measureDissolveExport(movie);
+  if (await sha() !== exportSha256) throw new Error("EXPORT_CHANGED: video changed during inspection");
+  const report = {
+    schemaVersion: 1, scenario: "synthetic-six-frame-dissolve", exportSha256, observed,
+    measurements: evaluateDissolveExportMeasurements(observed), titleVisibility: "UNVERIFIED" as const,
+    limitation: "Signal measurements do not establish approved inputs, a Final Cut import or export, visual color parity, or title editability.",
+  };
+  await writeFile(join(destination, "observation.json"), `${JSON.stringify(report, null, 2)}\n`, { flag: "wx" });
+  return report;
+}
+
 export function evaluateExportMeasurements(observed: ExportMeasurements) {
   const samples = [0.5, 1.5, 2.5];
   const duration = Number.isFinite(observed.durationSeconds) && Math.abs(observed.durationSeconds - 3) <= 0.05
@@ -302,6 +484,8 @@ async function main(args: string[]): Promise<void> {
   const usage = [
     "Usage: node --import tsx scripts/manual-import-qa.ts prepare NEW_DIRECTORY",
     "       node --import tsx scripts/manual-import-qa.ts inspect FIXTURE_DIRECTORY VIDEO NEW_REPORT_DIRECTORY",
+    "       node --import tsx scripts/manual-import-qa.ts inspect-dissolve VIDEO NEW_REPORT_DIRECTORY",
+    "       node --import tsx scripts/manual-import-qa.ts compare-dissolve REFERENCE_STEREO VIDEO_MONO NEW_REPORT_DIRECTORY [--music-gain=-9]",
     "These commands never operate Final Cut; native import, title editability and export provenance remain UNVERIFIED.",
   ].join("\n");
   if (args.length === 1 && args[0] === "--help") { process.stdout.write(`${usage}\n`); return; }
@@ -313,6 +497,18 @@ async function main(args: string[]): Promise<void> {
     const report = await verifyManualExport(args[1]!, args[2]!, args[3]!);
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
     if (report.measurements.status !== "PASS") process.exitCode = 1;
+    return;
+  }
+  if (args[0] === "inspect-dissolve" && args.length === 3) {
+    const report = await inspectDissolveExport(args[1]!, args[2]!);
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    if (report.measurements.status !== "PASS") process.exitCode = 1;
+    return;
+  }
+  if (args[0] === "compare-dissolve" && (args.length === 4 || (args.length === 5 && args[4] === "--music-gain=-9"))) {
+    const report = await compareDissolveVideos(args[1]!, args[2]!, args[3]!, args[4] ? -9 : -12);
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    if (report.comparison.status !== "PASS") process.exitCode = 1;
     return;
   }
   process.stderr.write(`${usage}\n`);

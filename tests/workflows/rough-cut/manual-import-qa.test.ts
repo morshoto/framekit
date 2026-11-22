@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
-import { evaluateExportMeasurements, evaluateRevisedExportMeasurements, measureExport, prepareManualImportFixture, verifyManualExport, verifyPreparedArtifact } from "../../../scripts/manual-import-qa.js";
+import { compareDissolveParity, compareDissolveVideos, evaluateDissolveExportMeasurements, evaluateExportMeasurements, evaluateRevisedExportMeasurements, inspectDissolveExport, measureDissolveExport, measureExport, measureFixtureTitleBounds, prepareManualImportFixture, verifyManualExport, verifyPreparedArtifact } from "../../../scripts/manual-import-qa.js";
 
 const valid = () => ({
   durationSeconds: 3,
@@ -25,6 +25,98 @@ const valid = () => ({
     { timeSeconds: 2.5, rgb: [20, 20, 235] as [number, number, number] },
   ],
   toneAmplitudes: [0.025, 0.024, 0.023],
+});
+
+test("dissolve parity applies declared bounds without claiming native proof", () => {
+  const reference = {
+    durationSeconds: 2, frameCount: 60, frameRate: "30/1",
+    frames: [
+      { frameNumber: 23, rgb: [244, 0, 0] as [number, number, number] },
+      { frameNumber: 25, rgb: [212, 0, 124] as [number, number, number] },
+      { frameNumber: 27, rgb: [157, 0, 194] as [number, number, number] },
+      { frameNumber: 29, rgb: [70, 0, 236] as [number, number, number] },
+      { frameNumber: 30, rgb: [0, 251, 255] as [number, number, number] },
+    ],
+    audio: [
+      { timeSeconds: 0.5, outgoing: 0.088, incoming: 0, music: 0.022 },
+      { timeSeconds: 0.825, outgoing: 0.084, incoming: 0.004, music: 0.022 },
+      { timeSeconds: 0.9, outgoing: 0.044, incoming: 0.044, music: 0.022 },
+      { timeSeconds: 0.975, outgoing: 0.004, incoming: 0.084, music: 0.022 },
+      { timeSeconds: 1.5, outgoing: 0, incoming: 0.088, music: 0.022 },
+    ],
+  };
+  const revised = structuredClone(reference);
+  for (const window of revised.audio) window.music *= 10 ** (3 / 20);
+  assert.equal(evaluateDissolveExportMeasurements(revised, -9).status, "PASS");
+  assert.equal(evaluateDissolveExportMeasurements(revised).status, "FAIL");
+  assert.equal(evaluateDissolveExportMeasurements(reference, -9).status, "FAIL");
+  assert.throws(() => evaluateDissolveExportMeasurements(reference, -6 as -9), /MUSIC_GAIN_UNSUPPORTED/);
+  assert.equal(compareDissolveParity(revised, revised, { x: 589, y: 330, width: 103, height: 30 }, { x: 589, y: 330, width: 103, height: 30 }, -9).status, "PASS");
+  const alteredRevision = structuredClone(revised);
+  alteredRevision.audio[2]!.music *= 0.7;
+  assert.equal(compareDissolveParity(revised, alteredRevision, { x: 589, y: 330, width: 103, height: 30 }, { x: 589, y: 330, width: 103, height: 30 }, -9).status, "FAIL");
+  const bounds = { x: 589, y: 330, width: 103, height: 30 };
+  const result = compareDissolveParity(reference, structuredClone(reference), bounds, bounds);
+  assert.equal(result.status, "PASS");
+  assert.equal(result.nativeImport, "UNVERIFIED");
+  assert.equal(result.exactBoundaries, "UNVERIFIED");
+  const edgeColor = structuredClone(reference); edgeColor.frames[2]!.rgb[0] -= 20;
+  assert.equal(compareDissolveParity(reference, edgeColor, bounds, bounds).checks.colors, true);
+  assert.equal(compareDissolveParity(reference, reference, { ...bounds, width: 100 }, { ...bounds, width: 110 }).checks.titleSize, true);
+  const dark = structuredClone(reference); dark.frames[2]!.rgb[0] -= 21;
+  assert.equal(compareDissolveParity(reference, dark, bounds, bounds).checks.colors, false);
+  const quiet = structuredClone(reference); quiet.audio[2]!.music *= 0.8;
+  assert.equal(compareDissolveParity(reference, quiet, bounds, bounds).checks.audio, false);
+  assert.equal(compareDissolveParity(reference, reference, bounds, { ...bounds, width: 80 }).checks.titleSize, false);
+  assert.equal(compareDissolveParity(reference, reference, bounds, { ...bounds, x: bounds.x + 15 }).checks.titlePosition, false);
+  const missing = structuredClone(reference); missing.frames.pop();
+  assert.equal(compareDissolveParity(reference, missing, bounds, bounds).status, "FAIL");
+  assert.equal(compareDissolveParity(reference, reference, bounds, { ...bounds, width: NaN }).status, "FAIL");
+});
+
+test("title measurement uses the specified frame and rejects missing titles", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-title-measure-"));
+  try {
+    const video = join(directory, "title.mp4");
+    await promisify(execFile)(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=red:s=1280x720:r=30:d=2", "-vf", "drawbox=x=600:y=330:w=80:h=30:color=white:t=fill:enable='between(n,24,29)'", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", video]);
+    assert.deepEqual(await measureFixtureTitleBounds(video, 27), { x: 600, y: 330, width: 80, height: 30 });
+    await assert.rejects(measureFixtureTitleBounds(video, 30), /TITLE_NOT_DETECTED/);
+    await assert.rejects(compareDissolveVideos(video, video, join(directory, "report")), /AUDIO_FORMAT_UNSUPPORTED/);
+    await assert.rejects(readFile(join(directory, "report", "parity.json")), /ENOENT/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("video parity comparison binds bytes and reports unverified native evidence", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-parity-videos-"));
+  try {
+    const reference = join(directory, "reference.mp4"), candidate = join(directory, "candidate.mp4");
+    await promisify(execFile)(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-filter_complex_threads", "1",
+      "-f", "lavfi", "-i", "color=red:s=1280x720:r=30:d=1",
+      "-f", "lavfi", "-i", "color=blue:s=1280x720:r=30:d=0.2",
+      "-f", "lavfi", "-i", "color=cyan:s=1280x720:r=30:d=1",
+      "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=1",
+      "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000:duration=1.2",
+      "-f", "lavfi", "-i", "sine=frequency=1760:sample_rate=48000:duration=2",
+      "-filter_complex", "[1:v][2:v]concat=n=2:v=1:a=0,settb=1/30[vc];[0:v][vc]xfade=transition=fade:duration=0.2:offset=0.8,drawbox=x=600:y=330:w=80:h=30:color=white:t=fill:enable='between(n,24,29)'[v];[3:a][4:a]acrossfade=d=0.2:c1=hsin:c2=hsin[a];[5:a]volume=-12dB[m];[a][m]amix=inputs=2:normalize=0[aout]",
+      "-map", "[v]", "-map", "[aout]", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-pix_fmt", "yuv420p", "-c:a", "aac", "-ac", "2", "-ar", "48000", "-t", "2", reference]);
+    await promisify(execFile)(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-i", reference, "-c:v", "copy", "-af", "pan=mono|c0=0.7071067811865476*c0+0.7071067811865476*c1", "-c:a", "aac", "-ar", "48000", candidate]);
+    const report = await compareDissolveVideos(reference, candidate, join(directory, "report"));
+    assert.equal(report.comparison.status, "PASS");
+    assert.equal(report.comparison.exactBoundaries, "UNVERIFIED");
+    assert.equal(report.comparison.finalCutProvenance, "UNVERIFIED");
+    assert.equal(report.referenceSha256, createHash("sha256").update(await readFile(reference)).digest("hex"));
+    assert.equal(report.candidateSha256, createHash("sha256").update(await readFile(candidate)).digest("hex"));
+    await assert.rejects(compareDissolveVideos(reference, reference, join(directory, "wrong-format")), /AUDIO_FORMAT_UNSUPPORTED/);
+    const quiet = join(directory, "quiet.mp4");
+    await promisify(execFile)(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-i", candidate, "-c:v", "copy", "-af", "volume=-2dB", "-c:a", "aac", quiet]);
+    const negative = await compareDissolveVideos(reference, quiet, join(directory, "quiet-report"));
+    assert.equal(negative.comparison.status, "FAIL");
+    assert.equal(negative.comparison.checks.audio, false);
+    const misleading = join(directory, "multiple-audio.mp4");
+    await promisify(execFile)(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-i", reference, "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono", "-map", "0:v:0", "-map", "1:a:0", "-map", "0:a:0", "-c:v", "copy", "-c:a", "aac", "-t", "2", misleading]);
+    const wrongStream = await compareDissolveVideos(reference, misleading, join(directory, "multiple-audio-report"));
+    assert.equal(wrongStream.comparison.status, "FAIL", "a silent validated first stream must not be masked by a matching secondary stream");
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
 test("revised export checks verify clip boundaries and music through the black tail", () => {
@@ -63,6 +155,31 @@ test("revised export measurement decodes real clip and tail boundaries", async (
     assert.equal(evaluateRevisedExportMeasurements(measured).status, "PASS");
     assert.equal(evaluateRevisedExportMeasurements(measured).finalCutProvenance, "UNVERIFIED");
     assert.equal(evaluateExportMeasurements(measured).status, "FAIL");
+    const dissolvePath = join(directory, "dissolve.mp4");
+    await promisify(execFile)("ffmpeg", ["-hide_banner", "-loglevel", "error", "-n", "-filter_complex_threads", "1",
+      "-f", "lavfi", "-i", "color=red:s=320x180:r=30:d=1",
+      "-f", "lavfi", "-i", "color=blue:s=320x180:r=30:d=0.2",
+      "-f", "lavfi", "-i", "color=cyan:s=320x180:r=30:d=1",
+      "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=1",
+      "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000:duration=1.2",
+      "-f", "lavfi", "-i", "sine=frequency=1760:sample_rate=48000:duration=2",
+      "-filter_complex", "[1:v][2:v]concat=n=2:v=1:a=0,settb=1/30[vc];[0:v][vc]xfade=transition=fade:duration=0.2:offset=0.8[v];[3:a][4:a]acrossfade=d=0.2:c1=hsin:c2=hsin[a];[5:a]volume=-12dB[m];[a][m]amix=inputs=2:normalize=0[aout]",
+      "-map", "[v]", "-map", "[aout]", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-pix_fmt", "yuv420p", "-c:a", "aac", "-t", "2", dissolvePath]);
+    const dissolve = await measureDissolveExport(dissolvePath);
+    const evaluation = evaluateDissolveExportMeasurements(dissolve);
+    assert.equal(evaluation.status, "PASS");
+    assert.equal(evaluation.finalCutProvenance, "UNVERIFIED");
+    const reportDirectory = join(directory, "dissolve-report");
+    const report = await inspectDissolveExport(dissolvePath, reportDirectory);
+    assert.equal(report.exportSha256, createHash("sha256").update(await readFile(dissolvePath)).digest("hex"));
+    assert.equal(report.measurements.status, "PASS");
+    assert.equal(report.measurements.nativeImport, "UNVERIFIED");
+    assert.equal(report.titleVisibility, "UNVERIFIED");
+    assert.deepEqual(JSON.parse(await readFile(join(reportDirectory, "observation.json"), "utf8")), report);
+    await assert.rejects(inspectDissolveExport(dissolvePath, reportDirectory), /EEXIST/);
+    const silent = join(directory, "silent-dissolve.mp4");
+    await promisify(execFile)("ffmpeg", ["-v", "error", "-i", dissolvePath, "-an", "-c:v", "copy", silent]);
+    assert.equal(evaluateDissolveExportMeasurements(await measureDissolveExport(silent)).status, "FAIL");
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
@@ -81,6 +198,45 @@ test("manual import output checks reject incorrect duration, order and silent au
     { ...valid(), toneAmplitudes: [0.025, 0, 0.023] },
     { ...valid(), toneAmplitudes: [0.025, Number.NaN, 0.023] },
   ]) assert.equal(evaluateExportMeasurements(invalid).status, "FAIL");
+
+  // Independent expected semantics for a two-second red-to-blue edit with a
+  // six-frame dissolve, 440/880 Hz sources and a 1760 Hz music bed.
+  const dissolve = {
+    durationSeconds: 2, frameCount: 60, frameRate: "30/1",
+    frames: [
+      { frameNumber: 23, rgb: [244, 30, 0] as [number, number, number] },
+      { frameNumber: 25, rgb: [212, 31, 124] as [number, number, number] },
+      { frameNumber: 27, rgb: [157, 30, 194] as [number, number, number] },
+      { frameNumber: 29, rgb: [70, 11, 236] as [number, number, number] },
+      { frameNumber: 30, rgb: [60, 251, 255] as [number, number, number] },
+    ],
+    audio: [
+      { timeSeconds: 0.5, outgoing: 0.088, incoming: 0, music: 0.022 },
+      { timeSeconds: 0.825, outgoing: 0.084, incoming: 0.004, music: 0.022 },
+      { timeSeconds: 0.9, outgoing: 0.044, incoming: 0.044, music: 0.022 },
+      { timeSeconds: 0.975, outgoing: 0.004, incoming: 0.084, music: 0.022 },
+      { timeSeconds: 1.5, outgoing: 0, incoming: 0.088, music: 0.022 },
+    ],
+  };
+  const result = evaluateDissolveExportMeasurements(dissolve);
+  assert.equal(result.status, "PASS");
+  assert.equal(result.nativeImport, "UNVERIFIED");
+  assert.equal(result.titleEditability, "UNVERIFIED");
+  assert.equal(result.finalCutProvenance, "UNVERIFIED");
+  const hardCut = structuredClone(dissolve);
+  for (const frame of hardCut.frames.slice(1, 4)) frame.rgb = [244, 30, 0];
+  const silentMusic = structuredClone(dissolve);
+  silentMusic.audio[2]!.music = 0;
+  const badFade = structuredClone(dissolve);
+  badFade.audio[2]!.incoming = 0;
+  const linearFade = structuredClone(dissolve);
+  linearFade.audio[1]!.outgoing = 0.077;
+  linearFade.audio[1]!.incoming = 0.011;
+  linearFade.audio[3]!.outgoing = 0.011;
+  linearFade.audio[3]!.incoming = 0.077;
+  for (const invalid of [{ ...dissolve, frameCount: 66 }, hardCut, silentMusic, badFade, linearFade, { ...dissolve, frames: dissolve.frames.slice(0, 4) }]) {
+    assert.equal(evaluateDissolveExportMeasurements(invalid).status, "FAIL");
+  }
 });
 
 
