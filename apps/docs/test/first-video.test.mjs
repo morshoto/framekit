@@ -16,3 +16,9 @@ test('first video routes failures to the symptom guide', async () => {
 test('does not assert an unspecified repository license', async () => {
   assert.doesNotMatch(await read('../content/docs/en/your-first-video.mdx'), /under its license/i);
 });
+
+test('separates published plugin smoke from the real-render evidence', async () => {
+  const guide = await read('../content/docs/en/your-first-video.mdx');
+  assert.match(guide, /published[^\n]*fixture backend/i);
+  assert.match(guide, /fixture[^\n]*does not verify[^\n]*render/i);
+});
