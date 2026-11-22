@@ -46,6 +46,7 @@ export async function runFirstVideo({ client, sourcePath, outputPath, confirm, c
   };
   const created = await call(client, 'headless.project.create', { timeline });
   const media = await call(client, 'headless.media.register', { projectId, sourcePath, expectedRevision: created.timeline.revision });
+  if (media.resource.sourceDigest !== sampleDigest) throw new Error('Registered media digest differs from the verified sample; stop and check the source.');
   const args = {
     projectId, sequenceId, expectedRevision: media.project.timeline.revision,
     operations: [{ type: 'insert-occurrence', placement: 'append', occurrence: { id: 'sample-shot', name: 'CC0 sample', startTime: { value: '0', timescale: '1' }, sourceStartTime: { value: '0', timescale: '1' }, durationTime: { value: '2', timescale: '1' }, track: 0, role: 'video', mediaId: media.resource.id } }],

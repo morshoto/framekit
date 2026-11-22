@@ -13,7 +13,7 @@ function fakeClient() {
       calls.push(structuredClone(request));
       const payload = {
         'headless.project.create': { timeline: { revision: initial, sequence: { occurrences: [] } } },
-        'headless.media.register': { resource: { id: 'media-1' }, project: { timeline: { revision: registered } } },
+        'headless.media.register': { resource: { id: 'media-1', sourceDigest: 'e96efec0c3bf57836b54cbead8d195564ee4e1303a320b343b4fda6642ce5904' }, project: { timeline: { revision: registered } } },
         'headless.edit.preview': { after: { timeline: { sequence: { occurrences: [{ id: 'sample-shot' }] } } } },
         'headless.edit.execute': { after: { timeline: { revision: edited, sequence: { occurrences: [{ id: 'sample-shot' }] } } } },
         'headless.render': { status: 'passed', outcome: { verification: { status: 'passed' } } },
