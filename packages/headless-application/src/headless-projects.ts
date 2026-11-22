@@ -171,7 +171,7 @@ export interface HeadlessRoughCutRequest {
   operations?: TimelineIrEditOperation[];
   sourceAudioPolicy?: "preserve-and-mix";
   render: FramekitRenderParameters;
-  fcpxml: {
+  fcpxml?: {
     path: string;
     target: TimelineIrToFcpxmlTarget;
     overwrite?: boolean;
@@ -225,9 +225,9 @@ export interface HeadlessRoughCutPreview extends ProjectEditPreview {
   outputIntent: {
     sourceAudioPolicy: "preserve-and-mix";
     render: FramekitRenderParameters;
-    fcpxml: { path: string; target: TimelineIrToFcpxmlTarget; overwrite: boolean };
+    fcpxml?: { path: string; target: TimelineIrToFcpxmlTarget; overwrite: boolean };
   };
-  fcpxml: Pick<TimelineIrToFcpxmlResult, "digest" | "target" | "destination" | "coverage" | "provenance">;
+  fcpxml: Pick<TimelineIrToFcpxmlResult, "digest" | "target" | "destination" | "coverage" | "provenance"> | { status: "not-requested" };
 }
 
 export interface HeadlessRoughCutExecution extends HeadlessRoughCutPreview {
@@ -243,7 +243,7 @@ export interface HeadlessRoughCutExecution extends HeadlessRoughCutPreview {
     digest: string;
     bytes: number;
     verified: true;
-  };
+  } | { status: "not-requested" };
   transaction: ProjectEditResult;
 }
 
@@ -292,9 +292,9 @@ interface HeadlessRoughCutExecutionRecord {
   renderId: string;
   renderer: { id: string; version: string };
   renderArtifact: { path: string; digest: string; bytes: number };
-  artifactPath: string;
-  artifactDigest: string;
-  artifactBytes: number;
+  artifactPath?: string;
+  artifactDigest?: string;
+  artifactBytes?: number;
   fcpxml: HeadlessRoughCutPreview["fcpxml"];
   provenance: HeadlessRoughCutShotProvenance[];
   evidenceDigest: string;
@@ -308,8 +308,8 @@ interface HeadlessRoughCutApprovalRecord {
   sequenceId: string;
   sourceRevision: ContextRevision;
   canonicalRevision: ContextRevision;
-  artifactPath: string;
-  artifactDigest: string;
+  artifactPath?: string;
+  artifactDigest?: string;
   titleFont?: HeadlessRoughCutPreview["titleFont"];
   outputIntent: HeadlessRoughCutPreview["outputIntent"];
   evidenceDigest: string;
@@ -569,9 +569,9 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
         throw new Error("RENDER_CAPABILITY_UNAVAILABLE: required title font or semantics are unavailable (titles)");
       }
       if (!this.renderer.validateTitleOutput) throw new Error("HEADLESS_ROUGH_CUT_RENDER_UNAVAILABLE: renderer cannot validate title output safety");
-      await this.renderer.validateTitleOutput(renderRequest, [request.fcpxml.path]);
+      await this.renderer.validateTitleOutput(renderRequest, request.fcpxml ? [request.fcpxml.path] : []);
       titleFont = { renderer: capabilities.renderer, digest: capabilities.titleFontDigest!, face: capabilities.titleFontFace };
-      fcpxml = compileTimelineIrToFcpxml(preview.after.timeline, {
+      if (request.fcpxml) fcpxml = compileTimelineIrToFcpxml(preview.after.timeline, {
         target: request.fcpxml.target,
         basicTitleFont: { ...titleFont.face, digest: titleFont.digest },
       });
@@ -582,8 +582,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       sequenceId: request.sequenceId,
       sourceRevision: request.plan.revision,
       canonicalRevision: preview.after.timeline.revision,
-      artifactPath: resolve(request.fcpxml.path),
-      artifactDigest: fcpxml.digest,
+      ...(request.fcpxml && fcpxml ? { artifactPath: resolve(request.fcpxml.path), artifactDigest: fcpxml.digest } : {}),
       ...(titleFont ? { titleFont } : {}),
       outputIntent: prepared.outputIntent,
     });
@@ -616,7 +615,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       ...(storyboard ? { storyboard: { ...storyboard, planDigest: approval.planDigest, revision: preview.after.timeline.revision } } : {}),
       ...(storyboardUnavailable ? { storyboardUnavailable } : {}),
       outputIntent: prepared.outputIntent,
-      fcpxml: selectFcpxmlMetadata(fcpxml),
+      fcpxml: fcpxml ? selectFcpxmlMetadata(fcpxml) : { status: "not-requested" },
     };
   }
 
@@ -641,7 +640,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       || approval.projectId !== request.projectId
       || approval.sequenceId !== request.sequenceId
       || !sameRevision(approval.sourceRevision, request.plan.revision)
-      || approval.artifactPath !== resolve(request.fcpxml.path)
+      || approval.artifactPath !== (request.fcpxml ? resolve(request.fcpxml.path) : undefined)
       || stableJson(approval.outputIntent) !== stableJson(prepared.outputIntent)) {
       throw new Error("HEADLESS_ROUGH_CUT_PLAN_MISMATCH: planDigest does not match the submitted rough-cut plan");
     }
@@ -657,16 +656,16 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     );
     if (preview.after.timeline.sequence.titles?.length) {
       if (!approval.titleFont?.face) throw new Error("HEADLESS_ROUGH_CUT_PLAN_MISMATCH: title font is not bound to the preview");
-      fcpxml = compileTimelineIrToFcpxml(preview.after.timeline, {
+      if (request.fcpxml) fcpxml = compileTimelineIrToFcpxml(preview.after.timeline, {
         target: request.fcpxml.target,
         basicTitleFont: { ...approval.titleFont.face, digest: approval.titleFont.digest },
       });
     }
     if (!sameRevision(preview.after.timeline.revision, approval.canonicalRevision)
-      || fcpxml.digest !== approval.artifactDigest) {
+      || fcpxml?.digest !== approval.artifactDigest) {
       throw new Error("HEADLESS_ROUGH_CUT_PLAN_MISMATCH: replayed preview differs from the approved revision or FCPXML digest");
     }
-    await this.assertOutputSeparation(prepared.project, [request.render.outputPath, request.fcpxml.path]);
+    await this.assertOutputSeparation(prepared.project, [request.render.outputPath, ...(request.fcpxml ? [request.fcpxml.path] : [])]);
     const renderRequest = createFramekitRenderRequest({
       timeline: preview.after.timeline,
       target: { projectId: request.projectId, sequenceId: request.sequenceId },
@@ -683,7 +682,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
         throw new Error("HEADLESS_ROUGH_CUT_PLAN_MISMATCH: title font or renderer changed after preview");
       }
       if (!this.renderer.validateTitleOutput) throw new Error("HEADLESS_ROUGH_CUT_RENDER_UNAVAILABLE: renderer cannot validate title output safety");
-      await this.renderer.validateTitleOutput(renderRequest, [request.fcpxml.path]);
+      await this.renderer.validateTitleOutput(renderRequest, request.fcpxml ? [request.fcpxml.path] : []);
     }
     const outcome = await renderAndVerifyFramekitProject(renderRequest, this.renderer, this.verifier, { capabilities });
     const renderId = `render-${randomUUID()}`;
@@ -708,14 +707,11 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       || !/^[a-f0-9]{64}$/.test(renderedArtifact.fileDigest) || !Number.isSafeInteger(renderedArtifact.sizeBytes) || renderedArtifact.sizeBytes <= 0) {
       throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: verified render artifact identity is unavailable or inconsistent");
     }
-    await this.assertOutputSeparation(prepared.project, [request.render.outputPath, request.fcpxml.path]);
-    if (preview.after.timeline.sequence.titles?.length) await this.renderer.validateTitleOutput!(renderRequest, [request.fcpxml.path]);
-    const fcpxmlArtifact = await writeVerifiedFcpxml(
-      request.fcpxml.path,
-      fcpxml.xml,
-      fcpxml.digest,
-      request.fcpxml.overwrite === true,
-    );
+    await this.assertOutputSeparation(prepared.project, [request.render.outputPath, ...(request.fcpxml ? [request.fcpxml.path] : [])]);
+    if (preview.after.timeline.sequence.titles?.length) await this.renderer.validateTitleOutput!(renderRequest, request.fcpxml ? [request.fcpxml.path] : []);
+    const fcpxmlArtifact = request.fcpxml && fcpxml ? await writeVerifiedFcpxml(
+      request.fcpxml.path, fcpxml.xml, fcpxml.digest, request.fcpxml.overwrite === true,
+    ) : undefined;
     const committed = await transaction.execute(prepared.command);
     const executionId = `rough-cut-${randomUUID()}`;
     try {
@@ -735,10 +731,8 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
         renderId,
         renderer: structuredClone(outcome.plan.renderer),
         renderArtifact: { path: resolve(renderedArtifact.path), digest: renderedArtifact.fileDigest, bytes: renderedArtifact.sizeBytes },
-        artifactPath: resolve(fcpxmlArtifact.path),
-        artifactDigest: fcpxmlArtifact.digest,
-        artifactBytes: fcpxmlArtifact.bytes,
-        fcpxml: selectFcpxmlMetadata(fcpxml),
+        ...(fcpxmlArtifact ? { artifactPath: resolve(fcpxmlArtifact.path), artifactDigest: fcpxmlArtifact.digest, artifactBytes: fcpxmlArtifact.bytes } : {}),
+        fcpxml: fcpxml ? selectFcpxmlMetadata(fcpxml) : { status: "not-requested" },
         provenance: structuredClone(prepared.provenance),
       });
     } catch (error) {
@@ -753,11 +747,11 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       provenance: prepared.provenance,
       ...(approval.titleFont ? { titleFont: approval.titleFont } : {}),
       outputIntent: prepared.outputIntent,
-      fcpxml: selectFcpxmlMetadata(fcpxml),
+      fcpxml: fcpxml ? selectFcpxmlMetadata(fcpxml) : { status: "not-requested" },
       executionId,
       committed: true,
       render: { renderId, status: "passed", outcome },
-      fcpxmlArtifact,
+      fcpxmlArtifact: fcpxmlArtifact ?? { status: "not-requested" },
       transaction: committed,
     };
   }
@@ -800,6 +794,9 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     if (!sameRevision(record.sourceRevision, record.plan.revision)) {
       throw new Error("HEADLESS_ROUGH_CUT_EXECUTION_INVALID: source revision differs from the approved plan revision");
     }
+    if ("status" in record.fcpxml || !record.artifactPath || !record.artifactDigest || !record.artifactBytes) {
+      throw new Error("HEADLESS_ROUGH_CUT_EXPORT_NOT_REQUESTED: execution has no FCPXML artifact to publish");
+    }
     if (!sameRevision(record.canonicalRevision, record.fcpxml.provenance.revision)) {
       throw new Error("HEADLESS_ROUGH_CUT_REVISION_MISMATCH: FCPXML provenance differs from the committed canonical revision");
     }
@@ -821,13 +818,13 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     await this.verifyConnectedAudioMetadata(record.projectId, project.timeline);
     const readApprovedArtifact = async (): Promise<string> => {
       try {
-        const file = await open(record.artifactPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+        const file = await open(record.artifactPath!, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
         try {
           const before = await file.stat();
           if (!before.isFile() || before.size !== record.artifactBytes) throw new Error("invalid FCPXML file");
           const bytes = await file.readFile();
           const after = await file.stat();
-          const current = await lstat(record.artifactPath);
+          const current = await lstat(record.artifactPath!);
           if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size
             || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs
             || !current.isFile() || current.dev !== after.dev || current.ino !== after.ino
@@ -856,7 +853,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       .map(({ source }) => resolve(source));
     const digestBySource = new Map(project.timeline.resources
       .filter((resource) => resource.source && resource.sourceDigest)
-      .map((resource) => [resolveMediaSource(resource.source!, record.artifactPath), resource.sourceDigest!]));
+      .map((resource) => [resolveMediaSource(resource.source!, record.artifactPath!), resource.sourceDigest!]));
     const sourceMediaDigests = [...new Set(approvedSources)].sort().map((source) => {
       const sha256 = digestBySource.get(source);
       if (!sha256) {
@@ -1102,18 +1099,18 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     if (!sameRevision(project.timeline.revision, request.plan.revision)) {
       throw new Error("HEADLESS_ROUGH_CUT_STALE_REVISION: rough-cut plan revision does not match the persisted project");
     }
-    await this.assertOutputSeparation(project, [request.render.outputPath, request.fcpxml.path]);
+    await this.assertOutputSeparation(project, [request.render.outputPath, ...(request.fcpxml ? [request.fcpxml.path] : [])]);
     if (!request.plan.shots.length) throw new Error("HEADLESS_ROUGH_CUT_EMPTY_PLAN: rough-cut plan must contain at least one shot");
     const operations = structuredClone(request.operations ?? []);
     const sourceAudioPolicy = request.sourceAudioPolicy ?? "preserve-and-mix";
     const outputIntent = {
       sourceAudioPolicy,
       render: structuredClone(request.render),
-      fcpxml: {
+      ...(request.fcpxml ? { fcpxml: {
         path: request.fcpxml.path,
         target: structuredClone(request.fcpxml.target),
         overwrite: request.fcpxml.overwrite === true,
-      },
+      } } : {}),
     };
     const inputDigest = digestRoughCutPlan(request.plan, operations, outputIntent);
     const existingOccurrenceIds = new Set(project.timeline.sequence.occurrences.map(({ id }) => id));
@@ -1194,7 +1191,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     prepared: PreparedRoughCut,
     timestamp: string,
     transaction = new ProjectTransactionService(this.snapshotStore(request.projectId, prepared.project), { clock: () => timestamp }),
-  ): Promise<{ preview: ProjectEditPreview; fcpxml: TimelineIrToFcpxmlResult }> {
+  ): Promise<{ preview: ProjectEditPreview; fcpxml: TimelineIrToFcpxmlResult | undefined }> {
     const rawPreview = await transaction.preview(prepared.command);
     await this.verifyConnectedAudioMetadata(request.projectId, rawPreview.after.timeline);
     const canonicalRevision: ContextRevision = {
@@ -1209,7 +1206,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       after: { ...rawPreview.after, timeline: canonicalTimeline },
     };
     await this.verifyDissolveMetadata(canonicalTimeline);
-    const fcpxml = compileTimelineIrToFcpxml(canonicalTimeline, { target: request.fcpxml.target });
+    const fcpxml = request.fcpxml ? compileTimelineIrToFcpxml(canonicalTimeline, { target: request.fcpxml.target }) : undefined;
     return { preview, fcpxml };
   }
 
@@ -1447,7 +1444,7 @@ function sameRevision(left: TimelineIr["revision"], right: TimelineIr["revision"
   return left.id === right.id && left.sequence === right.sequence && left.timestamp === right.timestamp;
 }
 
-function selectFcpxmlMetadata(result: TimelineIrToFcpxmlResult): HeadlessRoughCutPreview["fcpxml"] {
+function selectFcpxmlMetadata(result: TimelineIrToFcpxmlResult): Pick<TimelineIrToFcpxmlResult, "digest" | "target" | "destination" | "coverage" | "provenance"> {
   return {
     digest: result.digest,
     target: structuredClone(result.target),

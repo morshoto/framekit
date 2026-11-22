@@ -1616,7 +1616,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       path: z.string().min(1),
       target: headlessFcpxmlTargetSchema,
       overwrite: z.boolean().optional(),
-    }).strict(),
+    }).strict().optional(),
   }).strict();
 
   server.registerTool("headless.render", {
