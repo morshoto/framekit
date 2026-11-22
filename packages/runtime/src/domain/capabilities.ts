@@ -12,7 +12,7 @@ export interface EditorIdentity {
   buildFingerprint?: BuildFingerprint;
 }
 
-export type ProjectSelectionMode = "background-capable" | "headed-only" | "unavailable";
+export type ProjectSelectionMode = "background-capable" | "active-target-only" | "headed-only" | "unavailable";
 export type ArtifactPublishMode = "background-capable" | "headed-only" | "unavailable";
 
 export interface CapabilityInspectionOptions {
@@ -50,6 +50,8 @@ export interface EditorCapabilities {
   projectSelection?: boolean;
   /** How project selection is performed, independent of canonical mutation guarantees. */
   projectSelectionMode?: ProjectSelectionMode;
+  /** Marker IDs may be assigned by the editor after insertion. */
+  markerIdentityMode?: "requested" | "editor-assigned";
   /** The backend can atomically preview and apply ordered workflow operations. */
   compositeTransactions?: boolean;
   /** The backend can export the active timeline to a verified local video file. */

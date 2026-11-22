@@ -105,6 +105,11 @@ export async function runPublishStages(call, input, onStage, beforeDispatch = as
       throw new Error(`PUBLISH_SOURCE_INTEGRITY_MISMATCH: job ${preview.jobId} does not preserve the approved source digests`);
     }
   }
+  const recoveryReservation = verified.recoveryReservation ?? dispatched.recoveryReservation;
+  if (recoveryReservation) {
+    onStage("verification-recovery-required", { ...verified, recoveryReservation });
+    throw new Error(`PUBLISH_RECOVERY_REQUIRED: job ${preview.jobId} has verified readback but native quiescence is unproven; retain the reservation and do not redispatch`);
+  }
   onStage("verified", verified);
   return verified;
 }

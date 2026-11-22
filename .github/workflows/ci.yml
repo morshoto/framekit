@@ -6,22 +6,24 @@ on:
       - opened
       - synchronize
       - reopened
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number }}
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: 22.14.0
+  NODE_VERSION: 22.23.5
   CONSUMER_NODE_VERSION: 20.0.0
 
 jobs:
   lint:
     name: Lint / static checks
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -34,6 +36,9 @@ jobs:
   test:
     name: Unit / integration tests
     runs-on: ubuntu-latest
+    # FFmpeg package downloads can consume most of a 10-minute job budget;
+    # retain enough time for the complete coverage-enabled suite and reports.
+    timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -42,11 +47,106 @@ jobs:
         uses: ./.github/action/test
         with:
           node-version: ${{ env.NODE_VERSION }}
-          validation-level: fast
+          validation-level: deterministic
+
+  docs-changes:
+    name: Detect docs changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      changed: ${{ steps.paths.outputs.changed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Test docs change detection
+        run: node --test scripts/docs-ci-paths.test.mjs
+      - id: paths
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=$(node scripts/docs-ci-paths.mjs "$BASE_SHA" "$HEAD_SHA")" >> "$GITHUB_OUTPUT"
+          fi
+
+  docs-foundation:
+    name: Docs typecheck / unit tests
+    needs: docs-changes
+    if: always() && (needs.docs-changes.result != 'success' || needs.docs-changes.outputs.changed != 'false')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/action/setup
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Typecheck
+        run: pnpm --filter @framekit/docs typecheck
+      - name: Docs unit tests
+        run: pnpm --filter @framekit/docs test --reporter=default --reporter=json --reporter=junit --outputFile.json="$RUNNER_TEMP/docs-unit.json" --outputFile.junit="$RUNNER_TEMP/docs-unit.xml"
+      - name: Summarize Docs tests
+        if: always()
+        run: node scripts/ci/summarize-docs.mjs "$RUNNER_TEMP/docs-unit.json"
+      - name: Upload Docs unit results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: docs-unit-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/docs-unit.*
+          if-no-files-found: warn
+          retention-days: 14
+
+  docs-export:
+    name: Docs static export (${{ matrix.profile }})
+    needs: docs-changes
+    if: always() && (needs.docs-changes.result != 'success' || needs.docs-changes.outputs.changed != 'false')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: root
+            base_path: ''
+          - profile: project
+            base_path: /framekit
+    env:
+      DOCS_BASE_PATH: ${{ matrix.base_path }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/action/setup
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Build export
+        shell: bash
+        run: pnpm --filter @framekit/docs build 2>&1 | tee "$RUNNER_TEMP/docs-build.log"
+      - name: Verify export
+        shell: bash
+        run: pnpm --filter @framekit/docs test:export 2>&1 | tee "$RUNNER_TEMP/docs-export.log"
+      - name: Upload failed export diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: docs-export-${{ matrix.profile }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/docs-build.log
+            ${{ runner.temp }}/docs-export.log
+            apps/docs/.next/diagnostics/
+          if-no-files-found: warn
+          retention-days: 14
 
   nix-fixture:
     name: Linux Nix fixture bootstrap
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -58,9 +158,13 @@ jobs:
         run: |
           nix develop ./nix --command bash -c '
             set -euo pipefail
+            {
+              echo "## Nix bootstrap environment"
+              echo "Tested commit: $(git rev-parse HEAD)"
+              echo "Node: $(node --version); pnpm: $(pnpm --version)"
+            } >> "$GITHUB_STEP_SUMMARY"
             pnpm install --frozen-lockfile
             pnpm run build
-            pnpm run test:fixtures
             pnpm run framekit -- doctor dev --profile fixture --json
             pnpm run smoke:fixture-mcp
           '
@@ -68,6 +172,7 @@ jobs:
   consumer-runtime:
     name: Published package consumer minimum
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -81,9 +186,28 @@ jobs:
   swift:
     name: Swift type-check
     runs-on: macos-26
+    timeout-minutes: 5
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Validate Swift Workflow Extension
         uses: ./.github/action/swift
+
+  ci-passed:
+    name: CI passed
+    needs: [lint, test, nix-fixture, consumer-runtime, swift, docs-changes, docs-foundation, docs-export]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Verify every expected result
+        env:
+          CI_JOB_RESULTS: ${{ toJSON(needs) }}
+        run: node scripts/ci/check-results.mjs

@@ -100,7 +100,7 @@ try {
   const job = await runPublishStages(callJson, {
     artifactPath, headlessExecutionId: executionId, targetLibraryPath, artifactDigest: approvedDigest,
   }, (stage, snapshot) => {
-    process.stderr.write(`${JSON.stringify({ stage, jobId: snapshot.jobId, state: snapshot.state, artifactDigest: approvedDigest, errorCode: snapshot.error?.code })}\n`);
+    process.stderr.write(`${JSON.stringify({ stage, jobId: snapshot.jobId, state: snapshot.state, artifactDigest: approvedDigest, errorCode: snapshot.error?.code, reservationId: snapshot.recoveryReservation?.reservationId, recoveryReason: snapshot.recoveryReservation?.reason })}\n`);
   }, async () => verifyBaselineTarget(await callJson("editor.live.inspect"), baseline));
   const result = job.result;
 

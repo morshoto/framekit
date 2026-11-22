@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { readFile } from "node:fs/promises";
 import type { TimelineIr } from "@framekit/runtime";
 import { timelineIrDigest, validateTimelineIr } from "@framekit/runtime";
@@ -49,6 +50,7 @@ export interface FinalCutBackgroundMaterializationPublisherOptions {
  * readback; this adapter never activates Final Cut or falls back to UI calls.
  */
 export class FinalCutBackgroundMaterializationPublisher {
+  private readonly dispatchContext = new AsyncLocalStorage<() => void>();
   private readonly commandTimeoutMs: number;
 
   public constructor(private readonly options: FinalCutBackgroundMaterializationPublisherOptions = {}) {
@@ -62,8 +64,12 @@ export class FinalCutBackgroundMaterializationPublisher {
     return this.options.executor !== undefined || Boolean(this.options.command?.trim());
   }
 
+  public async trackNativeDispatch<T>(operation: () => Promise<T>, onDispatch: () => void): Promise<T> {
+    return this.dispatchContext.run(onDispatch, operation);
+  }
+
   public async publish(request: FinalCutBackgroundMaterializationRequest): Promise<FinalCutBackgroundMaterializationResult> {
-    validateRequest(request);
+    validateFinalCutBackgroundMaterializationRequest(request);
     const executor = this.options.executor ?? (this.options.command?.trim()
       ? commandExecutor(this.options.command.trim(), this.commandTimeoutMs)
       : undefined);
@@ -83,12 +89,13 @@ export class FinalCutBackgroundMaterializationPublisher {
     if (timelineIrDigest(request.desired) !== request.desiredDigest) {
       throw new Error("MATERIALIZATION_DESIRED_SNAPSHOT_INVALID: the staged desired Timeline IR digest is invalid");
     }
+    this.dispatchContext.getStore()?.();
     const result = await executor({ ...request, desired: structuredClone(request.desired) });
     return validateResult(result);
   }
 }
 
-function validateRequest(request: FinalCutBackgroundMaterializationRequest): void {
+export function validateFinalCutBackgroundMaterializationRequest(request: FinalCutBackgroundMaterializationRequest): void {
   if (!request.jobId.trim()) throw new Error("MATERIALIZATION_REQUEST_INVALID: jobId is required");
   if (!request.artifactPath.trim() || !request.artifactDigest.trim()) {
     throw new Error("MATERIALIZATION_REQUEST_INVALID: immutable artifact path and digest are required");

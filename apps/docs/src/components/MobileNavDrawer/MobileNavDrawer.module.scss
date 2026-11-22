@@ -1,0 +1,3 @@
+.overlay { position: fixed; inset: 0; z-index: 20; background: rgb(0 0 0 / .48); display: flex; }
+.panel { width: min(320px, 90vw); height: 100%; overflow-y: auto; background: var(--surface); padding: 16px; box-shadow: 8px 0 24px rgb(0 0 0 / .16); }
+.close { display: block; margin-left: auto; min-width: 44px; min-height: 44px; border: 0; background: transparent; color: var(--text); font-size: 1.5rem; cursor: pointer; }

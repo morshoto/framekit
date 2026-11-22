@@ -2,7 +2,7 @@
 name: 🔥 Bug report
 about: Report broken or unexpected Framekit behavior
 title: "[Bug] "
-labels: "Problem: Bug"
+labels: "Problem: Bug, Status: Backlog"
 assignees: ""
 ---
 

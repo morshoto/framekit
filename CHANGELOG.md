@@ -1,5 +1,147 @@
 # Changelog
 
+## [v0.2.5](https://github.com/morshoto/framekit/compare/v0.2.4...v0.2.5) - 2026-11-21
+
+### New Features
+- feat: allow optional external edit sections by @morshoto in https://github.com/morshoto/framekit/pull/792
+- feat: prepare bounded cross-dissolve handoff by @morshoto in https://github.com/morshoto/framekit/pull/817
+- feat: publish llms documentation exports by @morshoto in https://github.com/morshoto/framekit/pull/821
+- feat: publish docs crawler metadata by @morshoto in https://github.com/morshoto/framekit/pull/820
+- feat: bind explicit clip audio roles by @morshoto in https://github.com/morshoto/framekit/pull/830
+### Bug Fixes
+- fix: end titles at the cut frame by @morshoto in https://github.com/morshoto/framekit/pull/789
+- fix: bound external edit music gain by @morshoto in https://github.com/morshoto/framekit/pull/790
+- fix: signal failed renders as MCP errors by @morshoto in https://github.com/morshoto/framekit/pull/791
+- fix: preserve previews when storyboard cannot sample by @morshoto in https://github.com/morshoto/framekit/pull/794
+- fix: verify decoded output audio peaks by @morshoto in https://github.com/morshoto/framekit/pull/795
+- fix: preserve incoming dissolve timing by @morshoto in https://github.com/morshoto/framekit/pull/810
+- fix: reject titles with missing font glyphs by @morshoto in https://github.com/morshoto/framekit/pull/807
+- fix: bind handoff to verified render by @morshoto in https://github.com/morshoto/framekit/pull/812
+- fix: canonicalize documentation landing routes by @morshoto in https://github.com/morshoto/framekit/pull/819
+- fix: verify native transition effects on readback by @morshoto in https://github.com/morshoto/framekit/pull/823
+- fix: allow repeated rough-cut plans by @morshoto in https://github.com/morshoto/framekit/pull/809
+- fix: bind title font across outputs by @morshoto in https://github.com/morshoto/framekit/pull/824
+### Documentation
+- docs: add emergency release rollback runbook by @morshoto in https://github.com/morshoto/framekit/pull/770
+- test: measure finishing parity outputs by @morshoto in https://github.com/morshoto/framekit/pull/816
+- docs: add searchable error reference by @morshoto in https://github.com/morshoto/framekit/pull/822
+- fix: validate connected audio source bounds by @morshoto in https://github.com/morshoto/framekit/pull/828
+- fix: verify connected audio proof by @morshoto in https://github.com/morshoto/framekit/pull/827
+- fix: bind approved edits and render evidence by @morshoto in https://github.com/morshoto/framekit/pull/829
+- fix: bound audio mix and verify finishing parity by @morshoto in https://github.com/morshoto/framekit/pull/826
+### Other changes
+- test: verify reused music artifacts by @morshoto in https://github.com/morshoto/framekit/pull/813
+- test: verify editable title artifacts by @morshoto in https://github.com/morshoto/framekit/pull/814
+- test: preserve dissolve MCP approval by @morshoto in https://github.com/morshoto/framekit/pull/818
+
+## [v0.2.4](https://github.com/morshoto/framekit/compare/v0.2.3...v0.2.4) - 2026-11-21
+
+### New Features
+- test: verify versioned headless revisions by @morshoto in https://github.com/morshoto/framekit/pull/771
+- feat: use milestone descriptions in release notes by @morshoto in https://github.com/morshoto/framekit/pull/774
+- feat: add headless storyboard previews by @morshoto in https://github.com/morshoto/framekit/pull/782
+### Other changes
+- test: verify revised Final Cut export by @morshoto in https://github.com/morshoto/framekit/pull/772
+
+## [v0.2.3](https://github.com/morshoto/framekit/compare/v0.2.2...v0.2.3) - 2026-11-20
+
+### New Features
+- design: refresh English documentation overview by @morshoto in https://github.com/morshoto/framekit/pull/741
+- feat: prepare verified storyline reorder by @morshoto in https://github.com/morshoto/framekit/pull/720
+- feat: accept external edit JSON by @morshoto in https://github.com/morshoto/framekit/pull/768
+### Bug Fixes
+- fix: isolate test worker CI summaries by @morshoto in https://github.com/morshoto/framekit/pull/746
+- fix: guard canonical occurrence source evidence by @morshoto in https://github.com/morshoto/framekit/pull/718
+- fix: guard native placement target and retries by @morshoto in https://github.com/morshoto/framekit/pull/719
+- fix: reject incomplete native Browser scans by @morshoto in https://github.com/morshoto/framekit/pull/721
+- fix: guard unverified native media imports by @morshoto in https://github.com/morshoto/framekit/pull/711
+- fix: reject unsafe structural splits by @morshoto in https://github.com/morshoto/framekit/pull/713
+- fix: bind analyzer sources and measurement scope by @morshoto in https://github.com/morshoto/framekit/pull/738
+- fix: sync issue status with PR readiness by @morshoto in https://github.com/morshoto/framekit/pull/763
+### Documentation
+- perf: improve test confidence and organization by @morshoto in https://github.com/morshoto/framekit/pull/737
+- refactor: isolate FCPXML document interchange by @morshoto in https://github.com/morshoto/framekit/pull/736
+- test: prepare manual Final Cut import QA by @morshoto in https://github.com/morshoto/framekit/pull/769
+### Chores
+- chore(deps): lock file maintenance by @renovate[bot] in https://github.com/morshoto/framekit/pull/760
+- chore(deps): update dev dependencies by @renovate[bot] in https://github.com/morshoto/framekit/pull/761
+- chore(deps): update github actions by @renovate[bot] in https://github.com/morshoto/framekit/pull/762
+
+## [v0.2.2](https://github.com/morshoto/framekit/compare/v0.2.1...v0.2.2) - 2026-11-14
+
+### New Features
+- test: exercise isolated sender lifecycle by @morshoto in https://github.com/morshoto/framekit/pull/697
+- feat: define multilingual docs structure by @morshoto in https://github.com/morshoto/framekit/pull/694
+- docs: improve onboarding and search by @morshoto in https://github.com/morshoto/framekit/pull/705
+- feat: improve documentation code snippets by @morshoto in https://github.com/morshoto/framekit/pull/708
+- feat: search media in headless projects by @morshoto in https://github.com/morshoto/framekit/pull/726
+- feat: sync issue project status from PR activity by @morshoto in https://github.com/morshoto/framekit/pull/735
+- feat: export headless projects to FCPXML by @morshoto in https://github.com/morshoto/framekit/pull/729
+- feat: verify headless edit restoration by @morshoto in https://github.com/morshoto/framekit/pull/728
+### Bug Fixes
+- fix: distinguish native search timeouts by @morshoto in https://github.com/morshoto/framekit/pull/669
+- fix: scope canonical snapshot reuse by @morshoto in https://github.com/morshoto/framekit/pull/701
+- fix: reject unsafe native occurrence targets by @morshoto in https://github.com/morshoto/framekit/pull/674
+- fix: retain uncertain native dispatch intent by @morshoto in https://github.com/morshoto/framekit/pull/702
+- fix: reject unsupported canonical search queries by @morshoto in https://github.com/morshoto/framekit/pull/712
+- fix: retain uncertain project locks by @morshoto in https://github.com/morshoto/framekit/pull/731
+- fix: reject unsafe headless split structures by @morshoto in https://github.com/morshoto/framekit/pull/730
+- fix: preserve project listing alongside history records by @morshoto in https://github.com/morshoto/framekit/pull/734
+### Documentation
+- chore: isolate experimental SQLite providers by @morshoto in https://github.com/morshoto/framekit/pull/668
+- chore(deps): update pnpm to v12.18.0 by @renovate[bot] in https://github.com/morshoto/framekit/pull/715
+- chore(deps): update node.js to v22.23.5 by @renovate[bot] in https://github.com/morshoto/framekit/pull/710
+- fix: make PR CI coverage explicit by @morshoto in https://github.com/morshoto/framekit/pull/727
+- test: gate artifact-first editing workflow by @morshoto in https://github.com/morshoto/framekit/pull/732
+### Chores
+- chore(deps): update dev dependencies by @renovate[bot] in https://github.com/morshoto/framekit/pull/700
+- chore(deps): update github actions by @renovate[bot] in https://github.com/morshoto/framekit/pull/699
+- chore(deps): update dependency @babel/parser to v7.29.13 by @renovate[bot] in https://github.com/morshoto/framekit/pull/714
+- chore(deps): lock file maintenance by @renovate[bot] in https://github.com/morshoto/framekit/pull/716
+### Other changes
+- fix: preserve plain dialogue audio roles by @morshoto in https://github.com/morshoto/framekit/pull/717
+- chore: consolidate project status workflow by @morshoto in https://github.com/morshoto/framekit/pull/722
+
+## [v0.2.1](https://github.com/morshoto/framekit/compare/v0.2.0...v0.2.1) - 2026-11-04
+
+### New Features
+- fix: separate native publish verification consent by @morshoto in https://github.com/morshoto/framekit/pull/639
+- fix: clarify publish capability guarantees by @morshoto in https://github.com/morshoto/framekit/pull/650
+- fix: reject stale canonical Final Cut context by @morshoto in https://github.com/morshoto/framekit/pull/640
+- fix: persist verified Final Cut targets by @morshoto in https://github.com/morshoto/framekit/pull/556
+- feat: bootstrap static docs workspace by @morshoto in https://github.com/morshoto/framekit/pull/685
+- feat: add docs component toolkit by @morshoto in https://github.com/morshoto/framekit/pull/687
+- feat: build responsive docs shell by @morshoto in https://github.com/morshoto/framekit/pull/688
+- feat: deploy docs to GitHub Pages by @morshoto in https://github.com/morshoto/framekit/pull/686
+- feat: add localized mock MDX pages by @morshoto in https://github.com/morshoto/framekit/pull/689
+- feat: add static documentation search by @morshoto in https://github.com/morshoto/framekit/pull/690
+- Add static docs cross-browser quality gates by @morshoto in https://github.com/morshoto/framekit/pull/691
+- design: review native recovery decision independently by @morshoto in https://github.com/morshoto/framekit/pull/695
+- feat: inspect native recovery evidence read-only by @morshoto in https://github.com/morshoto/framekit/pull/696
+### Bug Fixes
+- fix: report CodeQL policy on merge commits by @morshoto in https://github.com/morshoto/framekit/pull/661
+- fix: restore documentation intent gate by @morshoto in https://github.com/morshoto/framekit/pull/651
+- fix: bind headed native selection targets by @morshoto in https://github.com/morshoto/framekit/pull/435
+### Documentation
+- chore: align contributor toolchain requirements by @morshoto in https://github.com/morshoto/framekit/pull/638
+- chore: gate CodeQL on PR readiness and Swift changes by @morshoto in https://github.com/morshoto/framekit/pull/644
+- chore: consolidate release automation by @morshoto in https://github.com/morshoto/framekit/pull/647
+- chore: separate CodeQL and security validation by @morshoto in https://github.com/morshoto/framekit/pull/658
+- chore: move Swift CodeQL off pull requests by @morshoto in https://github.com/morshoto/framekit/pull/660
+- chore: add fixture-first dev environment by @morshoto in https://github.com/morshoto/framekit/pull/655
+- chore: add compatible project storage ports by @morshoto in https://github.com/morshoto/framekit/pull/652
+- fix: preserve native publish evidence by @morshoto in https://github.com/morshoto/framekit/pull/663
+- chore: Update CodeQL workflow to remove main branch restriction by @morshoto in https://github.com/morshoto/framekit/pull/667
+- fix: guard canonical edits and recovery by @morshoto in https://github.com/morshoto/framekit/pull/664
+### Chores
+- chore: extract skill MCP tools by @morshoto in https://github.com/morshoto/framekit/pull/653
+- chore: validate skill tool metadata by @morshoto in https://github.com/morshoto/framekit/pull/656
+- chore: make Swift CodeQL profiling repeatable by @morshoto in https://github.com/morshoto/framekit/pull/654
+- chore(deps): lock file maintenance by @renovate[bot] in https://github.com/morshoto/framekit/pull/672
+### Other changes
+- chore: instrument Swift CodeQL build bottleneck by @morshoto in https://github.com/morshoto/framekit/pull/643
+- chore: consolidate CI workflows into ci.yml by @morshoto in https://github.com/morshoto/framekit/pull/649
+
 ## [v0.2.0](https://github.com/morshoto/framekit/compare/v0.1.18...v0.2.0) - 2026-10-30
 
 ### Bug Fixes

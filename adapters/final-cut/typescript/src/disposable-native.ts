@@ -82,7 +82,7 @@ export interface NativeFinalCutDisposableUndoResult {
 }
 
 export interface DisposableNativeEditWorkflowOptions {
-  native: Pick<NativeFinalCutEditor, "capabilities" | "inspect" | "edit" | "undo">;
+  native: Pick<NativeFinalCutEditor, "capabilities" | "inspect" | "edit" | "undo" | "trackNativeDispatch">;
   readCanonicalSnapshot: () => Promise<ProjectSnapshot>;
   readCanonicalCapabilities: () => Promise<RuntimeCapabilities>;
   prepareTarget?: DisposableNativeTargetPreparer;
@@ -124,6 +124,12 @@ export class DisposableNativeEditWorkflow {
     if (!Number.isInteger(this.maxOperations) || this.maxOperations < 1) {
       throw new Error("INVALID_OPERATION: disposable native maxOperations must be a positive integer");
     }
+  }
+
+  public async trackNativeDispatch<T>(operation: () => Promise<T>, onDispatch: () => void): Promise<T> {
+    if (this.options.native.trackNativeDispatch) return this.options.native.trackNativeDispatch(operation, onDispatch);
+    onDispatch();
+    return operation();
   }
 
   public async preview(request: NativeFinalCutDisposableRequest): Promise<NativeFinalCutDisposablePreview> {

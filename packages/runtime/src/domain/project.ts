@@ -93,6 +93,10 @@ export interface ProjectSnapshot {
     name: string;
     duration: number;
     durationTime?: RationalTime;
+    /** Explicit source timecode origin, when independently present in the artifact. */
+    timecodeStart?: RationalTime;
+    /** Sequence-coordinate frame-grid origin, when supplied by the snapshot provider. */
+    frameGridOrigin?: RationalTime;
     frameDuration?: RationalTime;
     clips: Clip[];
     storyElements: StoryElement[];
@@ -118,6 +122,16 @@ export interface StoryElement {
   attachedTo?: string;
   beforeClipId?: string;
   afterClipId?: string;
+  /** Explicitly identified transition semantics, when supplied by a provider. */
+  transitionKind?: "cross-dissolve";
+  /** Observed effect filters; omitted when the provider cannot inspect them. */
+  transitionEffects?: Array<{
+    kind: "video" | "audio";
+    assetId?: string;
+    enabled: boolean;
+    parameters: Array<Record<string, string>>;
+    complete: boolean;
+  }>;
   position?: PictureInPicturePosition;
   scale?: number;
   crop?: PictureInPictureCrop;

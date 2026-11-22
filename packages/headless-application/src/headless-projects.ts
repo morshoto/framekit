@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
-import { readdir, readFile, rename, writeFile, mkdir } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { constants } from "node:fs";
+import { readdir, readFile, rename, writeFile, mkdir, link, unlink, realpath, stat, lstat, open } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   FramekitProjectStore,
   LocalMediaRegistrar,
@@ -10,6 +11,7 @@ import {
   type ContextRevision,
   type FramekitProjectDocument,
   type FramekitRenderArtifactVerifier,
+  type FramekitRenderAndVerifyResult,
   type FramekitRenderProvider,
   type FramekitRenderParameters,
   type LocalMediaRegistrationResult,
@@ -17,9 +19,12 @@ import {
   type ProjectEditCommand,
   type ProjectEditPreview,
   type ProjectEditResult,
+  type ProjectStore,
   type RoughCutPlan,
   type TimelineIrEditOperation,
   type TimelineIr,
+  type TimelineIrTitleFont,
+  type TimelineIrResource,
   timelineIrDigest,
 } from "@framekit/runtime";
 import {
@@ -28,14 +33,50 @@ import {
   resolveMediaSource,
   type TimelineIrToFcpxmlResult,
   type TimelineIrToFcpxmlTarget,
-} from "@framekit/final-cut";
+} from "@framekit/final-cut/fcpxml";
+
+import { verifyConnectedAudioBounds } from "./external-edit.js";
+
+function verifyConnectedAudioOccurrences(timeline: TimelineIr, previousTimeline?: TimelineIr): TimelineIrResource[] {
+  const resources = new Map<string, TimelineIrResource>();
+  for (const occurrence of timeline.sequence.occurrences) {
+    const connectedAudio = occurrence.role === "music" || occurrence.role === "audio";
+    const videoAudioRole = occurrence.role === "video" && occurrence.nativeAudioRole !== undefined;
+    if (!connectedAudio && !videoAudioRole) continue;
+    const previous = previousTimeline?.sequence.occurrences.find((item) => item.id === occurrence.id);
+    if (previous && stableJson(previous) === stableJson(occurrence)) continue;
+    const resource = timeline.resources.find((item) => item.id === occurrence.mediaId);
+    if (resource?.sourceKind === "local-file") {
+      if (connectedAudio) verifyConnectedAudioBounds(resource, occurrence.sourceStartTime ?? { value: "0", timescale: "1" }, occurrence.durationTime);
+      if (videoAudioRole && resource.metadata?.streams.filter((stream) => stream.kind === "audio").length !== 1) {
+        throw new Error("HEADLESS_AUDIO_INVALID: video audio role requires exactly one audio stream");
+      }
+      resources.set(resource.id, resource);
+    }
+  }
+  return [...resources.values()];
+}
 
 export interface HeadlessProjectServiceOptions {
   directory: string;
+  protectedStateDirectory?: string;
   mediaProbe?: LocalMediaMetadataProbe;
   renderer?: FramekitRenderProvider;
   verifier?: FramekitRenderArtifactVerifier;
+  storyboard?: StoryboardRenderer;
   clock?: () => string;
+}
+
+export interface StoryboardRenderer {
+  render(timeline: TimelineIr, dimensions: { width: number; height: number }, signal?: AbortSignal): Promise<StoryboardImage>;
+}
+
+export interface StoryboardImage {
+  data: string;
+  mimeType: "image/png";
+  samples: Array<{ kind: "shot" | "title"; id: string; occurrenceId: string; mediaId: string; sourceDigest: string; timelineSeconds: number; sourceSeconds: number }>;
+  limitations: string[];
+  titleFontDigest?: string;
 }
 
 export type HeadlessProjectEditCommand = Omit<ProjectEditCommand, "target"> & {
@@ -47,11 +88,13 @@ export interface HeadlessProjectWorkflow {
   list(): Promise<HeadlessProjectSummary[]>;
   open(projectId: string): Promise<FramekitProjectDocument>;
   inspect(projectId: string): Promise<FramekitProjectDocument>;
+  selectTitleFont(texts: readonly string[]): TimelineIrTitleFont;
   registerMedia(
     projectId: string,
     sourcePath: string,
     expectedRevision?: ContextRevision,
   ): Promise<LocalMediaRegistrationResult>;
+  searchMedia(projectId: string, query: string): Promise<{ revision: ContextRevision; media: TimelineIrResource[] }>;
   previewEdit(
     projectId: string,
     command: HeadlessProjectEditCommand,
@@ -61,8 +104,12 @@ export interface HeadlessProjectWorkflow {
     projectId: string,
     command: HeadlessProjectEditCommand,
     sequenceId: string,
-  ): ReturnType<ProjectTransactionService["execute"]>;
-  previewRoughCut(request: HeadlessRoughCutRequest): Promise<HeadlessRoughCutPreview>;
+  ): Promise<ProjectEditResult & { undoId: string }>;
+  previewApprovedEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string): Promise<Awaited<ReturnType<ProjectTransactionService["preview"]>> & { previewToken: string }>;
+  executeApprovedEdit(projectId: string, sequenceId: string, previewToken: string): Promise<ProjectEditResult & { undoId: string }>;
+  undoEdit(projectId: string, sequenceId: string, undoId: string, expectedRevision: ContextRevision): Promise<HeadlessUndoResult>;
+  exportFcpxml(projectId: string, sequenceId: string, expectedRevision: ContextRevision, outputPath: string, target: TimelineIrToFcpxmlTarget): Promise<{ artifact: { path: string; digest: string; bytes: number; verified: true }; provenance: TimelineIrToFcpxmlResult["provenance"]; coverage: TimelineIrToFcpxmlResult["coverage"] }>;
+  previewRoughCut(request: HeadlessRoughCutRequest, signal?: AbortSignal, requireStoryboard?: boolean): Promise<HeadlessRoughCutPreview>;
   executeRoughCut(request: HeadlessRoughCutExecutionRequest): Promise<HeadlessRoughCutExecution>;
   verifyPublishableRoughCut(
     executionId: string,
@@ -88,6 +135,23 @@ export interface HeadlessProjectSummary {
   sequenceName: string;
   revision: ContextRevision;
   path: string;
+}
+
+export interface HeadlessUndoResult {
+  project: FramekitProjectDocument;
+  verification: { verified: true; expectedDigest: string; observedDigest: string };
+}
+
+interface HeadlessUndoRecord {
+  version: 1;
+  undoId: string;
+  projectId: string;
+  sequenceId: string;
+  before: FramekitProjectDocument;
+  beforeDigest: string;
+  afterDigest: string;
+  afterRevision: ContextRevision;
+  checksum: string;
 }
 
 export interface HeadlessRenderRecord {
@@ -155,6 +219,9 @@ export interface HeadlessRoughCutPreview extends ProjectEditPreview {
   plan: RoughCutPlan;
   planDigest: string;
   provenance: HeadlessRoughCutShotProvenance[];
+  storyboard?: StoryboardImage & { planDigest: string; revision: ContextRevision };
+  storyboardUnavailable?: string;
+  titleFont?: { renderer: { id: string; version: string }; digest: string; face: { family: string; style: string; postscriptName: string } };
   outputIntent: {
     sourceAudioPolicy: "preserve-and-mix";
     render: FramekitRenderParameters;
@@ -189,6 +256,9 @@ export interface HeadlessRoughCutPublishProof {
   canonicalRevision: ContextRevision;
   planDigest: string;
   renderId: string;
+  renderer: { id: string; version: string };
+  renderArtifact: { path: string; digest: string; bytes: number };
+  titleFont?: HeadlessRoughCutPreview["titleFont"];
   artifactPath: string;
   artifactDigest: string;
   sourceAudioPolicy: "preserve-and-mix";
@@ -220,6 +290,8 @@ interface HeadlessRoughCutExecutionRecord {
   planDigest: string;
   inputDigest: string;
   renderId: string;
+  renderer: { id: string; version: string };
+  renderArtifact: { path: string; digest: string; bytes: number };
   artifactPath: string;
   artifactDigest: string;
   artifactBytes: number;
@@ -238,23 +310,38 @@ interface HeadlessRoughCutApprovalRecord {
   canonicalRevision: ContextRevision;
   artifactPath: string;
   artifactDigest: string;
+  titleFont?: HeadlessRoughCutPreview["titleFont"];
   outputIntent: HeadlessRoughCutPreview["outputIntent"];
   evidenceDigest: string;
 }
 
 export class HeadlessProjectService implements HeadlessProjectWorkflow {
   private readonly directory: string;
+  private readonly protectedStateDirectory: string;
   private readonly mediaProbe?: LocalMediaMetadataProbe;
   private readonly renderer?: FramekitRenderProvider;
   private readonly verifier?: FramekitRenderArtifactVerifier;
+  private readonly storyboard?: StoryboardRenderer;
   private readonly clock: () => string;
+  private readonly approvedEdits = new Map<string, { projectId: string; sequenceId: string; command: HeadlessProjectEditCommand; baseDigest: string; resultDigest: string; expiresAt: number }>();
 
   public constructor(options: HeadlessProjectServiceOptions) {
     this.directory = options.directory;
+    this.protectedStateDirectory = options.protectedStateDirectory ?? options.directory;
     this.mediaProbe = options.mediaProbe;
     this.renderer = options.renderer;
     this.verifier = options.verifier;
+    this.storyboard = options.storyboard;
     this.clock = options.clock ?? (() => new Date().toISOString());
+  }
+
+  public selectTitleFont(texts: readonly string[]): TimelineIrTitleFont {
+    const font = this.renderer?.inspectTitleFont?.(texts);
+    if (!font || ![font.family, font.style, font.postscriptName].every((value) => typeof value === "string" && value.trim())
+      || typeof font.digest !== "string" || !/^[a-f0-9]{64}$/.test(font.digest)) {
+      throw new Error("HEADLESS_TITLE_FONT_UNAVAILABLE: selected title font or required glyphs are unavailable");
+    }
+    return structuredClone(font);
   }
 
   public async create(timeline: TimelineIr): Promise<FramekitProjectDocument> {
@@ -271,12 +358,36 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     await mkdir(this.directory, { recursive: true });
     const entries = await readdir(this.directory, { withFileTypes: true });
     const summaries: HeadlessProjectSummary[] = [];
-    for (const entry of entries.filter((candidate) => candidate.isFile() && candidate.name.endsWith(".json") && !candidate.name.startsWith("render-"))) {
+    for (const entry of entries.filter((candidate) => (candidate.isFile() || candidate.isSymbolicLink()) && candidate.name.endsWith(".json"))) {
       const projectId = entry.name.slice(0, -".json".length);
+      if (await this.isInternalRecord(entry.name)) continue;
       const project = await this.store(projectId).load();
+      if (project.timeline.project.id !== projectId) {
+        throw new Error("HEADLESS_PROJECT_IDENTITY_MISMATCH: stored project ID differs from its filename");
+      }
       summaries.push(toSummary(project, this.projectPath(projectId)));
     }
     return summaries.sort((left, right) => left.projectId.localeCompare(right.projectId));
+  }
+
+  private async isInternalRecord(name: string): Promise<boolean> {
+    let value: unknown;
+    try {
+      value = JSON.parse(await readFile(join(this.directory, name), "utf8"));
+    } catch {
+      return false;
+    }
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    const record = value as Record<string, unknown>;
+    // A document-shaped file remains a project even when its ID resembles an
+    // internal record. Unknown or corrupt files still fail through the store.
+    if ("timeline" in record || "metadata" in record) return false;
+    const render = /^(render-[0-9a-f-]{36})\.json$/.exec(name);
+    if (render && record.renderId === render[1]) return true;
+    const execution = /^(rough-cut-[0-9a-f-]{36})\.json$/.exec(name);
+    if (execution && record.schemaVersion === 1 && record.executionId === execution[1]) return true;
+    const approval = /^([0-9a-f]{64})\.approval\.json$/.exec(name);
+    return Boolean(approval && record.schemaVersion === 1 && record.planDigest === approval[1]);
   }
 
   public async open(projectId: string): Promise<FramekitProjectDocument> {
@@ -285,7 +396,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     if (hasLocalMedia && !this.mediaProbe) {
       throw new Error("HEADLESS_MEDIA_PROBE_UNAVAILABLE: local-file resources require a configured media probe");
     }
-    if (this.mediaProbe) await new LocalMediaRegistrar(this.store(projectId), this.mediaProbe).reopen();
+    if (this.mediaProbe) return new LocalMediaRegistrar(this.store(projectId), this.mediaProbe).reopen();
     return project;
   }
 
@@ -298,28 +409,173 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     return new LocalMediaRegistrar(this.store(projectId), this.mediaProbe, { clock: this.clock }).register(sourcePath, expectedRevision);
   }
 
+  public async searchMedia(projectId: string, query: string): Promise<{ revision: ContextRevision; media: TimelineIrResource[] }> {
+    const project = await this.open(projectId);
+    const needle = query.toLowerCase();
+    return {
+      revision: structuredClone(project.timeline.revision),
+      media: project.timeline.resources.filter((resource) =>
+        [resource.id, resource.name, resource.source].some((value) => value?.toLowerCase().includes(needle)),
+      ).map((resource) => structuredClone(resource)),
+    };
+  }
+
   public async previewEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string) {
-    await this.open(projectId);
-    const transaction = new ProjectTransactionService(this.store(projectId), { clock: this.clock });
-    return transaction.preview({
+    const project = await this.open(projectId);
+    const transaction = new ProjectTransactionService(this.snapshotStore(projectId, project), { clock: this.clock });
+    const preview = await transaction.preview({
       ...command,
       target: command.target ?? { projectId, sequenceId },
     });
+    await this.verifyConnectedAudioMetadata(projectId, preview.after.timeline, preview.before.timeline);
+    return preview;
   }
 
-  public async executeEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string) {
-    await this.open(projectId);
-    const transaction = new ProjectTransactionService(this.store(projectId), { clock: this.clock });
-    return transaction.execute({
+  public async previewApprovedEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string) {
+    const preview = await this.previewEdit(projectId, command, sequenceId);
+    const now = Date.now();
+    for (const [token, entry] of this.approvedEdits) if (entry.expiresAt <= now) this.approvedEdits.delete(token);
+    while (this.approvedEdits.size >= 256) this.approvedEdits.delete(this.approvedEdits.keys().next().value!);
+    const previewToken = `headless-edit-${randomUUID()}`;
+    this.approvedEdits.set(previewToken, { projectId, sequenceId, command: structuredClone(preview.command), baseDigest: timelineIrDigest(preview.before.timeline), resultDigest: timelineIrDigest(preview.after.timeline), expiresAt: now + 10 * 60 * 1000 });
+    return { ...preview, previewToken };
+  }
+
+  public async executeApprovedEdit(projectId: string, sequenceId: string, previewToken: string) {
+    const entry = this.approvedEdits.get(previewToken);
+    if (!entry || entry.expiresAt <= Date.now() || entry.projectId !== projectId || entry.sequenceId !== sequenceId) {
+      throw new Error("HEADLESS_EDIT_PREVIEW_INVALID: preview token is unknown, expired or belongs to another target");
+    }
+    // Consume synchronously before the first await so concurrent requests cannot reuse the token.
+    this.approvedEdits.delete(previewToken);
+    return this.executeEdit(projectId, entry.command, sequenceId, entry);
+  }
+
+  public async executeEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string, approvedDigests?: { baseDigest: string; resultDigest: string }) {
+    const project = await this.open(projectId);
+    const timestamp = this.clock();
+    const transaction = new ProjectTransactionService(this.snapshotStore(projectId, project), { clock: () => timestamp });
+    const editCommand = {
       ...command,
       target: command.target ?? { projectId, sequenceId },
-    });
+    };
+    const preview = await transaction.preview(editCommand);
+    await this.verifyConnectedAudioMetadata(projectId, preview.after.timeline, preview.before.timeline);
+    if (approvedDigests && (timelineIrDigest(preview.before.timeline) !== approvedDigests.baseDigest
+      || timelineIrDigest(preview.after.timeline) !== approvedDigests.resultDigest)) {
+      throw new Error("HEADLESS_EDIT_PREVIEW_MISMATCH: project or proposed edit differs from the approved preview");
+    }
+    const recordId = `undo-${randomUUID()}`;
+    const afterDigest = timelineIrDigest(preview.after.timeline);
+    const record = {
+      version: 1 as const, undoId: recordId, projectId, sequenceId,
+      before: preview.before,
+      beforeDigest: timelineIrDigest(preview.before.timeline),
+      afterDigest,
+      afterRevision: { id: `ir:${afterDigest}`, sequence: preview.before.timeline.revision.sequence + 1, timestamp },
+    };
+    const directory = join(this.directory, "undo");
+    await mkdir(directory, { recursive: true });
+    const serialized = JSON.stringify({ ...record, checksum: hash(stableJson(record)) });
+    // The client retains this commitment independently of the stored record.
+    const undoId = `${recordId}-${hash(serialized)}`;
+    await writeFile(join(directory, `${recordId}.json`), serialized, { encoding: "utf8", flag: "wx" });
+    const result = await transaction.execute(editCommand);
+    if (!sameRevision(result.after.timeline.revision, record.afterRevision) || timelineIrDigest(result.after.timeline) !== afterDigest) {
+      throw new Error("HEADLESS_EDIT_UNCERTAIN: committed edit differs from the recorded Undo state");
+    }
+    return { ...result, undoId };
   }
 
-  public async previewRoughCut(request: HeadlessRoughCutRequest): Promise<HeadlessRoughCutPreview> {
+  public async undoEdit(projectId: string, sequenceId: string, undoId: string, expectedRevision: ContextRevision): Promise<HeadlessUndoResult> {
+    const handle = /^(undo-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})-([0-9a-f]{64})$/.exec(undoId);
+    if (!handle) {
+      throw new Error("HEADLESS_UNDO_INVALID: invalid Undo identifier");
+    }
+    let record: HeadlessUndoRecord;
+    try {
+      const serialized = await readFile(join(this.directory, "undo", `${handle[1]}.json`), "utf8");
+      if (hash(serialized) !== handle[2]) throw new Error("record does not match client commitment");
+      record = JSON.parse(serialized) as HeadlessUndoRecord;
+      const { checksum, ...content } = record;
+      if (record.version !== 1 || record.undoId !== handle[1] || checksum !== hash(stableJson(content))
+        || record.projectId !== projectId || record.sequenceId !== sequenceId
+        || record.before.timeline.project.id !== projectId || record.before.timeline.sequence.id !== sequenceId
+        || timelineIrDigest(record.before.timeline) !== record.beforeDigest) throw new Error("invalid record");
+    } catch {
+      throw new Error("HEADLESS_UNDO_INVALID: Undo record is missing or invalid");
+    }
+    const current = await this.open(projectId);
+    if (current.timeline.sequence.id !== sequenceId || !sameRevision(current.timeline.revision, expectedRevision)
+      || !sameRevision(current.timeline.revision, record.afterRevision) || timelineIrDigest(current.timeline) !== record.afterDigest) {
+      throw new Error("HEADLESS_UNDO_STALE: current target or revision differs from the recorded edit");
+    }
+    const restored = structuredClone(record.before);
+    const timestamp = this.clock();
+    restored.metadata.updatedAt = timestamp;
+    restored.timeline.revision = { id: `ir:${record.beforeDigest}`, sequence: current.timeline.revision.sequence + 1, timestamp };
+    await this.store(projectId).save(restored, current.timeline.revision);
+    const observed = await this.open(projectId);
+    const observedDigest = timelineIrDigest(observed.timeline);
+    if (!sameRevision(observed.timeline.revision, restored.timeline.revision) || observedDigest !== record.beforeDigest) {
+      throw new Error("HEADLESS_UNDO_UNVERIFIED: restored project could not be independently verified");
+    }
+    return { project: observed, verification: { verified: true, expectedDigest: record.beforeDigest, observedDigest } };
+  }
+
+  public async exportFcpxml(projectId: string, sequenceId: string, expectedRevision: ContextRevision, outputPath: string, target: TimelineIrToFcpxmlTarget) {
+    const project = await this.open(projectId);
+    if (project.timeline.sequence.id !== sequenceId || !sameRevision(project.timeline.revision, expectedRevision)) {
+      throw new Error("HEADLESS_FCPXML_STALE: project target or revision does not match the requested export");
+    }
+    await this.assertOutputSeparation(project, [outputPath]);
+    const titles = project.timeline.sequence.titles ?? [];
+    const boundTitles = titles.filter((title) => title.font);
+    if (boundTitles.length !== titles.length) {
+      throw new Error("HEADLESS_TITLE_FONT_UNBOUND: every title must bind an approved font before export");
+    }
+    if (boundTitles.length) {
+      const selected = this.selectTitleFont(titles.map((title) => title.text));
+      if (boundTitles.some((title) => title.font!.family !== selected.family || title.font!.style !== selected.style
+        || title.font!.postscriptName !== selected.postscriptName || title.font!.digest !== selected.digest)) {
+        throw new Error("HEADLESS_TITLE_FONT_UNAVAILABLE: selected font does not match the approved title font");
+      }
+    }
+    await this.verifyConnectedAudioMetadata(projectId, project.timeline);
+    await this.verifyDissolveMetadata(project.timeline);
+    const compiled = compileTimelineIrToFcpxml(project.timeline, { target });
+    const artifact = await writeVerifiedFcpxml(resolve(outputPath), compiled.xml, compiled.digest, false);
+    return { artifact, provenance: compiled.provenance, coverage: compiled.coverage };
+  }
+
+  public async previewRoughCut(request: HeadlessRoughCutRequest, signal?: AbortSignal, requireStoryboard = false): Promise<HeadlessRoughCutPreview> {
+    signal?.throwIfAborted();
+    if (requireStoryboard && !this.storyboard) throw new Error("HEADLESS_STORYBOARD_UNAVAILABLE: storyboard renderer is not configured");
     const prepared = await this.prepareRoughCut(request);
     const timestamp = this.clock();
-    const { preview, fcpxml } = await this.previewPreparedRoughCut(request, prepared, timestamp);
+    let { preview, fcpxml } = await this.previewPreparedRoughCut(request, prepared, timestamp);
+    let titleFont: HeadlessRoughCutPreview["titleFont"];
+    if (preview.after.timeline.sequence.titles?.length) {
+      if (!this.renderer) throw new Error("HEADLESS_ROUGH_CUT_RENDER_UNAVAILABLE: renderer is required to check title support");
+      const renderRequest = createFramekitRenderRequest({
+        timeline: preview.after.timeline,
+        target: { projectId: request.projectId, sequenceId: request.sequenceId },
+        revision: preview.after.timeline.revision,
+        parameters: request.render,
+      });
+      const capabilities = this.renderer.capabilities(renderRequest);
+      if (capabilities.features.titles !== "supported" || !/^[a-f0-9]{64}$/.test(capabilities.titleFontDigest ?? "") || !capabilities.titleFontFace
+        || ![capabilities.titleFontFace.family, capabilities.titleFontFace.style, capabilities.titleFontFace.postscriptName].every((value) => typeof value === "string" && value.trim())) {
+        throw new Error("RENDER_CAPABILITY_UNAVAILABLE: required title font or semantics are unavailable (titles)");
+      }
+      if (!this.renderer.validateTitleOutput) throw new Error("HEADLESS_ROUGH_CUT_RENDER_UNAVAILABLE: renderer cannot validate title output safety");
+      await this.renderer.validateTitleOutput(renderRequest, [request.fcpxml.path]);
+      titleFont = { renderer: capabilities.renderer, digest: capabilities.titleFontDigest!, face: capabilities.titleFontFace };
+      fcpxml = compileTimelineIrToFcpxml(preview.after.timeline, {
+        target: request.fcpxml.target,
+        basicTitleFont: { ...titleFont.face, digest: titleFont.digest },
+      });
+    }
     const approval = createRoughCutApproval({
       inputDigest: prepared.inputDigest,
       projectId: request.projectId,
@@ -328,14 +584,37 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       canonicalRevision: preview.after.timeline.revision,
       artifactPath: resolve(request.fcpxml.path),
       artifactDigest: fcpxml.digest,
+      ...(titleFont ? { titleFont } : {}),
       outputIntent: prepared.outputIntent,
     });
+    let storyboard: StoryboardImage | undefined;
+    let storyboardUnavailable: string | undefined;
+    try {
+      const sampled = await this.storyboard?.render(preview.after.timeline, request.render, signal);
+      if (sampled && titleFont && sampled.titleFontDigest !== titleFont.digest) {
+        throw new Error("HEADLESS_STORYBOARD_UNSUPPORTED: storyboard font does not match the approved title font");
+      }
+      storyboard = sampled;
+    } catch (error) {
+      signal?.throwIfAborted();
+      if (!(error instanceof Error) || !/^HEADLESS_STORYBOARD_(UNSUPPORTED|LIMIT):/.test(error.message)) throw error;
+      storyboardUnavailable = error.message;
+    }
+    signal?.throwIfAborted();
+    const current = await this.open(request.projectId);
+    if (timelineIrDigest(current.timeline) !== timelineIrDigest(prepared.project.timeline)) {
+      throw new Error("HEADLESS_ROUGH_CUT_STALE_REVISION: project changed during storyboard generation");
+    }
+    signal?.throwIfAborted();
     await this.saveRoughCutApproval(approval);
     return {
       ...preview,
       plan: structuredClone(request.plan),
       planDigest: approval.planDigest,
       provenance: prepared.provenance,
+      ...(titleFont ? { titleFont } : {}),
+      ...(storyboard ? { storyboard: { ...storyboard, planDigest: approval.planDigest, revision: preview.after.timeline.revision } } : {}),
+      ...(storyboardUnavailable ? { storyboardUnavailable } : {}),
       outputIntent: prepared.outputIntent,
       fcpxml: selectFcpxmlMetadata(fcpxml),
     };
@@ -367,19 +646,27 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       throw new Error("HEADLESS_ROUGH_CUT_PLAN_MISMATCH: planDigest does not match the submitted rough-cut plan");
     }
 
-    const transaction = new ProjectTransactionService(this.store(request.projectId), {
+    const transaction = new ProjectTransactionService(this.snapshotStore(request.projectId, prepared.project), {
       clock: () => approval.canonicalRevision.timestamp,
     });
-    const { preview, fcpxml } = await this.previewPreparedRoughCut(
+    let { preview, fcpxml } = await this.previewPreparedRoughCut(
       request,
       prepared,
       approval.canonicalRevision.timestamp,
       transaction,
     );
+    if (preview.after.timeline.sequence.titles?.length) {
+      if (!approval.titleFont?.face) throw new Error("HEADLESS_ROUGH_CUT_PLAN_MISMATCH: title font is not bound to the preview");
+      fcpxml = compileTimelineIrToFcpxml(preview.after.timeline, {
+        target: request.fcpxml.target,
+        basicTitleFont: { ...approval.titleFont.face, digest: approval.titleFont.digest },
+      });
+    }
     if (!sameRevision(preview.after.timeline.revision, approval.canonicalRevision)
       || fcpxml.digest !== approval.artifactDigest) {
       throw new Error("HEADLESS_ROUGH_CUT_PLAN_MISMATCH: replayed preview differs from the approved revision or FCPXML digest");
     }
+    await this.assertOutputSeparation(prepared.project, [request.render.outputPath, request.fcpxml.path]);
     const renderRequest = createFramekitRenderRequest({
       timeline: preview.after.timeline,
       target: { projectId: request.projectId, sequenceId: request.sequenceId },
@@ -389,7 +676,16 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     if (!this.renderer || !this.verifier) {
       throw new Error("HEADLESS_ROUGH_CUT_RENDER_UNAVAILABLE: renderer and verifier are not configured");
     }
-    const outcome = await renderAndVerifyFramekitProject(renderRequest, this.renderer, this.verifier);
+    const capabilities = this.renderer.capabilities(renderRequest);
+    if (preview.after.timeline.sequence.titles?.length) {
+      const currentFont = { renderer: capabilities.renderer, digest: capabilities.titleFontDigest, face: capabilities.titleFontFace };
+      if (capabilities.features.titles !== "supported" || !approval.titleFont || stableJson(currentFont) !== stableJson(approval.titleFont)) {
+        throw new Error("HEADLESS_ROUGH_CUT_PLAN_MISMATCH: title font or renderer changed after preview");
+      }
+      if (!this.renderer.validateTitleOutput) throw new Error("HEADLESS_ROUGH_CUT_RENDER_UNAVAILABLE: renderer cannot validate title output safety");
+      await this.renderer.validateTitleOutput(renderRequest, [request.fcpxml.path]);
+    }
+    const outcome = await renderAndVerifyFramekitProject(renderRequest, this.renderer, this.verifier, { capabilities });
     const renderId = `render-${randomUUID()}`;
     const renderRecord: HeadlessRenderRecord = {
       renderId,
@@ -404,6 +700,16 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     if (outcome.status !== "passed") {
       throw new Error(`HEADLESS_ROUGH_CUT_RENDER_FAILED: render verification status was ${outcome.status}; inspect ${renderId}`);
     }
+    const renderedArtifact = outcome.verification?.artifact;
+    if (!outcome.plan?.renderer?.id?.trim() || !outcome.plan.renderer.version?.trim()) {
+      throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: renderer identity is unavailable");
+    }
+    if (!renderedArtifact || resolve(renderedArtifact.path) !== resolve(request.render.outputPath)
+      || !/^[a-f0-9]{64}$/.test(renderedArtifact.fileDigest) || !Number.isSafeInteger(renderedArtifact.sizeBytes) || renderedArtifact.sizeBytes <= 0) {
+      throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: verified render artifact identity is unavailable or inconsistent");
+    }
+    await this.assertOutputSeparation(prepared.project, [request.render.outputPath, request.fcpxml.path]);
+    if (preview.after.timeline.sequence.titles?.length) await this.renderer.validateTitleOutput!(renderRequest, [request.fcpxml.path]);
     const fcpxmlArtifact = await writeVerifiedFcpxml(
       request.fcpxml.path,
       fcpxml.xml,
@@ -412,32 +718,40 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     );
     const committed = await transaction.execute(prepared.command);
     const executionId = `rough-cut-${randomUUID()}`;
-    await this.saveRoughCutExecution({
-      schemaVersion: 1,
-      executionId,
-      approved: true,
-      projectId: request.projectId,
-      sequenceId: request.sequenceId,
-      sourceRevision: structuredClone(request.plan.revision),
-      canonicalRevision: structuredClone(committed.after.timeline.revision),
-      plan: structuredClone(request.plan),
-      operations: structuredClone(request.operations ?? []),
-      outputIntent: structuredClone(prepared.outputIntent),
-      planDigest: approval.planDigest,
-      inputDigest: prepared.inputDigest,
-      renderId,
-      artifactPath: resolve(fcpxmlArtifact.path),
-      artifactDigest: fcpxmlArtifact.digest,
-      artifactBytes: fcpxmlArtifact.bytes,
-      fcpxml: selectFcpxmlMetadata(fcpxml),
-      provenance: structuredClone(prepared.provenance),
-    });
+    try {
+      await this.saveRoughCutExecution({
+        schemaVersion: 1,
+        executionId,
+        approved: true,
+        projectId: request.projectId,
+        sequenceId: request.sequenceId,
+        sourceRevision: structuredClone(request.plan.revision),
+        canonicalRevision: structuredClone(committed.after.timeline.revision),
+        plan: structuredClone(request.plan),
+        operations: structuredClone(request.operations ?? []),
+        outputIntent: structuredClone(prepared.outputIntent),
+        planDigest: approval.planDigest,
+        inputDigest: prepared.inputDigest,
+        renderId,
+        renderer: structuredClone(outcome.plan.renderer),
+        renderArtifact: { path: resolve(renderedArtifact.path), digest: renderedArtifact.fileDigest, bytes: renderedArtifact.sizeBytes },
+        artifactPath: resolve(fcpxmlArtifact.path),
+        artifactDigest: fcpxmlArtifact.digest,
+        artifactBytes: fcpxmlArtifact.bytes,
+        fcpxml: selectFcpxmlMetadata(fcpxml),
+        provenance: structuredClone(prepared.provenance),
+      });
+    } catch (error) {
+      const details = { projectId: request.projectId, sequenceId: request.sequenceId, executionId, committedRevision: committed.after.timeline.revision };
+      throw new Error(`HEADLESS_ROUGH_CUT_HISTORY_UNCONFIRMED: project already committed; no execution or publish proof was returned; reinspect project before retry: ${JSON.stringify(details)}`, { cause: error });
+    }
     return {
       ...preview,
       after: committed.after,
       plan: structuredClone(request.plan),
       planDigest: approval.planDigest,
       provenance: prepared.provenance,
+      ...(approval.titleFont ? { titleFont: approval.titleFont } : {}),
       outputIntent: prepared.outputIntent,
       fcpxml: selectFcpxmlMetadata(fcpxml),
       executionId,
@@ -504,9 +818,35 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       || !sameRevision(project.timeline.revision, record.canonicalRevision)) {
       throw new Error("HEADLESS_ROUGH_CUT_STALE_REVISION: canonical project changed after the approved rough cut");
     }
-    const approvedSnapshot = await new FcpxmlDocumentAdapter(record.artifactPath, undefined, {
+    await this.verifyConnectedAudioMetadata(record.projectId, project.timeline);
+    const readApprovedArtifact = async (): Promise<string> => {
+      try {
+        const file = await open(record.artifactPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+        try {
+          const before = await file.stat();
+          if (!before.isFile() || before.size !== record.artifactBytes) throw new Error("invalid FCPXML file");
+          const bytes = await file.readFile();
+          const after = await file.stat();
+          const current = await lstat(record.artifactPath);
+          if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size
+            || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs
+            || !current.isFile() || current.dev !== after.dev || current.ino !== after.ino
+            || current.size !== after.size || current.mtimeMs !== after.mtimeMs || current.ctimeMs !== after.ctimeMs
+            || bytes.length !== record.artifactBytes || createHash("sha256").update(bytes).digest("hex") !== record.artifactDigest) {
+            throw new Error("FCPXML differs from the approved artifact");
+          }
+          return bytes.toString("utf8");
+        } finally {
+          await file.close();
+        }
+      } catch (cause) {
+        throw new Error("HEADLESS_ROUGH_CUT_ARTIFACT_CHANGED: approved FCPXML is missing or has changed", { cause });
+      }
+    };
+    const artifact = await readApprovedArtifact();
+    const approvedSnapshot = FcpxmlDocumentAdapter.readProjectFromContent(record.artifactPath, artifact, {
       allowMissingImmutableIdsForReadback: true,
-    }).readProject();
+    });
     const referencedMediaIds = new Set([
       ...approvedSnapshot.timeline.clips.map(({ mediaId }) => mediaId),
       ...approvedSnapshot.timeline.storyElements.map(({ mediaId }) => mediaId),
@@ -529,10 +869,69 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       || !sameRevision(render.requestedRevision, record.canonicalRevision)) {
       throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render evidence does not match the approved revision");
     }
-    const artifact = await readFile(record.artifactPath, "utf8");
-    if (hash(artifact) !== record.artifactDigest || Buffer.byteLength(artifact) !== record.artifactBytes) {
-      throw new Error("HEADLESS_ROUGH_CUT_ARTIFACT_CHANGED: approved FCPXML no longer matches its recorded digest");
+    const outcome = render.outcome as FramekitRenderAndVerifyResult | undefined;
+    const plan = outcome?.plan;
+    const verifiedArtifact = outcome?.verification?.artifact;
+    if (outcome?.status !== "passed" || outcome.verification?.status !== "passed" || !verifiedArtifact
+      || !Array.isArray(outcome.verification.checks) || !outcome.verification.checks.length || outcome.verification.checks.some((check) => check?.passed !== true)
+      || verifiedArtifact.fileDigest !== record.renderArtifact?.digest || verifiedArtifact.sizeBytes !== record.renderArtifact?.bytes
+      || typeof verifiedArtifact.path !== "string" || resolve(verifiedArtifact.path) !== resolve(record.outputIntent.render.outputPath)
+      || !plan || typeof plan !== "object" || outcome.render?.status !== "rendered"
+      || outcome.render.contractVersion !== plan.contractVersion || outcome.render.verificationRequired !== true
+      || typeof record.renderer?.id !== "string" || !record.renderer.id.trim()
+      || typeof record.renderer?.version !== "string" || !record.renderer.version.trim()
+      || stableJson(record.renderer) !== stableJson(plan.renderer)
+      || stableJson(plan.capabilities?.renderer) !== stableJson(plan.renderer)
+      || stableJson(outcome.render?.renderer) !== stableJson(plan.renderer)
+      || outcome.render?.planDigest !== plan.planDigest
+      || stableJson(plan.target) !== stableJson({ projectId: record.projectId, sequenceId: record.sequenceId })
+      || stableJson(outcome.render?.target) !== stableJson(plan.target)
+      || stableJson(plan.projectRevision) !== stableJson(record.canonicalRevision)
+      || stableJson(outcome.render?.projectRevision) !== stableJson(record.canonicalRevision)
+      || stableJson(plan.parameters) !== stableJson(record.outputIntent.render)
+      || stableJson(outcome.render?.output) !== stableJson({ path: record.outputIntent.render.outputPath, format: record.outputIntent.render.format })
+      || !plan.timeline || typeof plan.timeline !== "object" || Array.isArray(plan.timeline)
+      || stableJson(plan.timeline.revision) !== stableJson(record.canonicalRevision)
+      || timelineIrDigest(plan.timeline) !== timelineIrDigest(project.timeline)) {
+      throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render font, plan or verification differs from the approved preview");
     }
+    const { planDigest, ...planBase } = plan;
+    if (typeof planDigest !== "string" || hash(stableJson(planBase)) !== planDigest) {
+      throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render font or plan is invalid");
+    }
+    if (project.timeline.sequence.titles?.length && (!approval.titleFont
+      || plan.capabilities?.titleFontDigest !== approval.titleFont.digest
+      || stableJson(plan.capabilities?.titleFontFace) !== stableJson(approval.titleFont.face)
+      || stableJson(plan.renderer) !== stableJson(approval.titleFont.renderer))) {
+      throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render font differs from the approved preview");
+    }
+    const boundRender = record.renderArtifact;
+    if (!boundRender || typeof boundRender.path !== "string" || resolve(boundRender.path) !== resolve(record.outputIntent.render.outputPath)
+      || !/^[a-f0-9]{64}$/.test(boundRender.digest) || !Number.isSafeInteger(boundRender.bytes) || boundRender.bytes <= 0) {
+      throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render artifact identity is missing or invalid");
+    }
+    try {
+      const file = await open(boundRender.path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      try {
+        const before = await file.stat();
+        if (!before.isFile()) throw new Error("render artifact is not a regular file");
+        const digest = createHash("sha256");
+        for await (const chunk of file.createReadStream({ autoClose: false })) digest.update(chunk as Buffer);
+        const after = await file.stat();
+        const current = await lstat(boundRender.path);
+        if (!before.isFile() || before.size !== boundRender.bytes || before.dev !== after.dev || before.ino !== after.ino
+          || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs
+          || !current.isFile() || current.dev !== after.dev || current.ino !== after.ino || current.size !== after.size
+          || current.mtimeMs !== after.mtimeMs || current.ctimeMs !== after.ctimeMs || digest.digest("hex") !== boundRender.digest) {
+          throw new Error("render bytes differ from the verified artifact");
+        }
+      } finally {
+        await file.close();
+      }
+    } catch (cause) {
+      throw new Error("HEADLESS_ROUGH_CUT_RENDER_CHANGED: verified render is missing or has changed", { cause });
+    }
+    await readApprovedArtifact();
     if (!record.fcpxml.target.libraryUid?.trim()
       || !record.fcpxml.destination.projectUid?.trim()
       || !record.fcpxml.destination.sequenceUid?.trim()) {
@@ -548,6 +947,9 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       canonicalRevision: structuredClone(record.canonicalRevision),
       planDigest: record.planDigest,
       renderId: record.renderId,
+      renderer: structuredClone(record.renderer),
+      renderArtifact: structuredClone(boundRender),
+      ...(project.timeline.sequence.titles?.length && approval.titleFont ? { titleFont: structuredClone(approval.titleFont) } : {}),
       artifactPath: record.artifactPath,
       artifactDigest: record.artifactDigest,
       sourceAudioPolicy: record.outputIntent.sourceAudioPolicy,
@@ -582,12 +984,17 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
   ): Promise<HeadlessRenderRecord> {
     if (!this.renderer || !this.verifier) throw new Error("HEADLESS_RENDER_UNAVAILABLE: renderer and verifier are not configured");
     const project = await this.open(projectId);
+    await this.assertOutputSeparation(project, [parameters.outputPath]);
     const request = createFramekitRenderRequest({
       timeline: project.timeline,
       target: { projectId, sequenceId },
       ...(expectedRevision ? { revision: expectedRevision } : {}),
       parameters,
     });
+    if ((project.timeline.sequence.titles ?? []).some((title) => !title.font)) {
+      throw new Error("HEADLESS_TITLE_FONT_UNBOUND: every title must bind an approved font before rendering");
+    }
+    await this.verifyConnectedAudioMetadata(projectId, project.timeline);
     const outcome = await renderAndVerifyFramekitProject(request, this.renderer, this.verifier);
     const renderId = `render-${randomUUID()}`;
     const record: HeadlessRenderRecord = {
@@ -613,8 +1020,31 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     }
   }
 
+  private async assertOutputSeparation(project: FramekitProjectDocument, paths: string[]): Promise<void> {
+    const summaries = await this.list();
+    const projects = await Promise.all(summaries.map((summary) => new FramekitProjectStore(summary.path).load()));
+    // Keep the already validated snapshot even if the project changed during enumeration.
+    await assertOutputSeparation([project, ...projects], this.protectedStateDirectory, paths);
+  }
+
   private store(projectId: string): FramekitProjectStore {
     return new FramekitProjectStore(this.projectPath(projectId));
+  }
+
+  private snapshotStore(projectId: string, project: FramekitProjectDocument): ProjectStore {
+    const store = this.store(projectId);
+    return {
+      create: (value) => store.create(value),
+      load: async () => {
+        const current = await store.load();
+        if (!sameRevision(current.timeline.revision, project.timeline.revision)
+          || timelineIrDigest(current.timeline) !== timelineIrDigest(project.timeline)) {
+          throw new Error("HEADLESS_PROJECT_STALE: project changed after media validation");
+        }
+        return current;
+      },
+      save: (value, expectedRevision) => store.save(value, expectedRevision),
+    };
   }
 
   private projectPath(projectId: string): string {
@@ -635,27 +1065,21 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
   private async saveRender(record: HeadlessRenderRecord): Promise<void> {
     await mkdir(this.directory, { recursive: true });
     const path = join(this.directory, `${record.renderId}.json`);
-    const temporary = `${path}.${randomUUID()}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(record)}\n`, { encoding: "utf8", flag: "wx" });
-    await rename(temporary, path);
+    await publishHistory(path, `${JSON.stringify(record)}\n`);
   }
 
   private async saveRoughCutExecution(record: Omit<HeadlessRoughCutExecutionRecord, "evidenceDigest">): Promise<void> {
     await mkdir(this.directory, { recursive: true });
     const execution = { ...record, evidenceDigest: hash(stableJson(record)) };
     const path = this.executionPath(record.executionId);
-    const temporary = `${path}.${randomUUID()}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(execution)}\n`, { encoding: "utf8", flag: "wx" });
-    await rename(temporary, path);
+    await publishHistory(path, `${JSON.stringify(execution)}\n`);
   }
 
   private async saveRoughCutApproval(record: Omit<HeadlessRoughCutApprovalRecord, "evidenceDigest">): Promise<void> {
     await mkdir(this.directory, { recursive: true });
     const approval = { ...record, evidenceDigest: hash(stableJson(record)) };
     const path = this.approvalPath(record.planDigest);
-    const temporary = `${path}.${randomUUID()}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(approval)}\n`, { encoding: "utf8", flag: "wx" });
-    await rename(temporary, path);
+    await publishHistory(path, `${JSON.stringify(approval)}\n`, true);
   }
 
   private async readRoughCutApproval(planDigest: string): Promise<HeadlessRoughCutApprovalRecord> {
@@ -671,14 +1095,14 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
   }
 
   private async prepareRoughCut(request: HeadlessRoughCutRequest): Promise<PreparedRoughCut> {
-    await this.open(request.projectId);
-    const project = await this.store(request.projectId).load();
+    const project = await this.open(request.projectId);
     if (project.timeline.sequence.id !== request.sequenceId) {
       throw new Error("HEADLESS_ROUGH_CUT_TARGET_MISMATCH: sequenceId does not match the persisted project");
     }
     if (!sameRevision(project.timeline.revision, request.plan.revision)) {
       throw new Error("HEADLESS_ROUGH_CUT_STALE_REVISION: rough-cut plan revision does not match the persisted project");
     }
+    await this.assertOutputSeparation(project, [request.render.outputPath, request.fcpxml.path]);
     if (!request.plan.shots.length) throw new Error("HEADLESS_ROUGH_CUT_EMPTY_PLAN: rough-cut plan must contain at least one shot");
     const operations = structuredClone(request.operations ?? []);
     const sourceAudioPolicy = request.sourceAudioPolicy ?? "preserve-and-mix";
@@ -700,17 +1124,21 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     const planOperations: TimelineIrEditOperation[] = [];
     for (const shot of request.plan.shots) {
       const shotWithEvidence = shot as RoughCutShotWithEvidence;
-      const occurrenceId = `rough-cut-${shot.order}`;
-      if (existingOccurrenceIds.has(occurrenceId)) {
-        throw new Error(`HEADLESS_ROUGH_CUT_OCCURRENCE_COLLISION: ${occurrenceId} already exists`);
+      const baseOccurrenceId = `rough-cut-${shot.order}`;
+      let occurrenceId = baseOccurrenceId;
+      let suffix = 2;
+      while (existingOccurrenceIds.has(occurrenceId)) {
+        occurrenceId = `${baseOccurrenceId}-${suffix++}`;
       }
       existingOccurrenceIds.add(occurrenceId);
       const resource = resourceByMediaId.get(shot.sourceIdentity.mediaId);
       if (!resource) throw new Error(`HEADLESS_ROUGH_CUT_SOURCE_NOT_FOUND: ${shot.sourceIdentity.mediaId}`);
       assertSourceIdentity(resource, shot.sourceIdentity);
-      const sourceStartTime = shot.range.startTime ?? secondsToRational(shot.range.start);
-      const durationTime = shot.range.durationTime ?? secondsToRational(shot.range.end - shot.range.start);
-      assertSourceRange(resource, shot.range, sourceStartTime, durationTime);
+      assertSourceRange(resource, shot.range);
+      const sourceRange = alignInferredRoughCutRange(resource, shot.range, project.timeline.sequence.frameDuration);
+      assertSourceRange(resource, sourceRange);
+      const sourceStartTime = sourceRange.startTime ?? secondsToRational(sourceRange.start);
+      const durationTime = sourceRange.durationTime ?? secondsToRational(sourceRange.end - sourceRange.start);
       const appendToPrimaryStoryline = hasPrimaryStoryContent || planOperations.length > 0;
       planOperations.push({
         type: "insert-occurrence",
@@ -732,12 +1160,24 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
         occurrenceId,
         mediaId: resource.id,
         sourceIdentity: structuredClone(shot.sourceIdentity),
-        sourceRange: structuredClone(shot.range),
+        sourceRange: structuredClone(sourceRange),
         confidence: shot.confidence,
         matchedProperties: [...shot.matchedProperties],
         rationale: shot.rationale,
         ...(shotWithEvidence.evidence ? { evidence: structuredClone(shotWithEvidence.evidence) } : {}),
       });
+    }
+    // An existing bound title requires newly added titles to carry the same
+    // selected font before the first FCPXML compilation and transaction replay.
+    const existingTitles = project.timeline.sequence.titles ?? [];
+    if (existingTitles.some((title) => title.font) && operations.some((operation) => operation.type === "add-title" && !operation.title.font)) {
+      const selected = this.selectTitleFont([
+        ...existingTitles.map((title) => title.text),
+        ...operations.flatMap((operation) => operation.type === "add-title" ? [operation.title.text] : []),
+      ]);
+      for (const operation of operations) {
+        if (operation.type === "add-title" && !operation.title.font) operation.title.font = structuredClone(selected);
+      }
     }
     const editOperations = [...planOperations, ...operations];
     const command: ProjectEditCommand = {
@@ -746,16 +1186,17 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       expectedRevision: structuredClone(request.plan.revision),
       operations: editOperations,
     };
-    return { command, inputDigest, provenance, outputIntent };
+    return { command, inputDigest, provenance, outputIntent, project };
   }
 
   private async previewPreparedRoughCut(
     request: HeadlessRoughCutRequest,
     prepared: PreparedRoughCut,
     timestamp: string,
-    transaction = new ProjectTransactionService(this.store(request.projectId), { clock: () => timestamp }),
+    transaction = new ProjectTransactionService(this.snapshotStore(request.projectId, prepared.project), { clock: () => timestamp }),
   ): Promise<{ preview: ProjectEditPreview; fcpxml: TimelineIrToFcpxmlResult }> {
     const rawPreview = await transaction.preview(prepared.command);
+    await this.verifyConnectedAudioMetadata(request.projectId, rawPreview.after.timeline);
     const canonicalRevision: ContextRevision = {
       id: `ir:${timelineIrDigest(rawPreview.after.timeline)}`,
       sequence: rawPreview.before.timeline.revision.sequence + 1,
@@ -767,12 +1208,49 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       ...rawPreview,
       after: { ...rawPreview.after, timeline: canonicalTimeline },
     };
+    await this.verifyDissolveMetadata(canonicalTimeline);
     const fcpxml = compileTimelineIrToFcpxml(canonicalTimeline, { target: request.fcpxml.target });
     return { preview, fcpxml };
+  }
+
+  private async verifyConnectedAudioMetadata(projectId: string, timeline: TimelineIr, previousTimeline?: TimelineIr): Promise<void> {
+    const resources = verifyConnectedAudioOccurrences(timeline, previousTimeline);
+    if (!resources.length) return;
+    if (!this.mediaProbe) throw new Error("HEADLESS_MEDIA_PROBE_UNAVAILABLE: audio roles require a source metadata probe");
+    await new LocalMediaRegistrar(this.store(projectId), this.mediaProbe).verifyMetadata(resources);
+  }
+
+  private async verifyDissolveMetadata(timeline: TimelineIr): Promise<void> {
+    if (!timeline.sequence.transitions?.length) return;
+    if (!this.mediaProbe) throw new Error("HEADLESS_MEDIA_PROBE_UNAVAILABLE: dissolve handoff requires a source metadata probe");
+    const ids = new Set(timeline.sequence.occurrences.map((occurrence) => occurrence.mediaId).filter((id): id is string => id !== undefined));
+    const resources = timeline.resources.filter((resource) => ids.has(resource.id));
+    if (resources.length !== ids.size) throw new Error("MEDIA_METADATA_CHANGED: dissolve source metadata is unavailable");
+    await new LocalMediaRegistrar(this.store(timeline.project.id), this.mediaProbe).verifyMetadata(resources);
+  }
+}
+
+async function publishHistory(path: string, contents: string, allowIdentical = false): Promise<void> {
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, contents, { encoding: "utf8", flag: "wx" });
+    try {
+      // Linking a fully written file fails atomically if the destination exists.
+      await link(temporary, path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if (allowIdentical && await readFile(path, "utf8") === contents) return;
+      throw new Error("HEADLESS_HISTORY_COLLISION: history destination already exists", { cause: error });
+    }
+  } finally {
+    try { await unlink(temporary); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
   }
 }
 
 interface PreparedRoughCut {
+  project: FramekitProjectDocument;
   command: ProjectEditCommand;
   inputDigest: string;
   provenance: HeadlessRoughCutShotProvenance[];
@@ -819,8 +1297,6 @@ function assertSourceIdentity(resource: TimelineIr["resources"][number], source:
 function assertSourceRange(
   resource: TimelineIr["resources"][number],
   range: RoughCutPlan["shots"][number]["range"],
-  sourceStartTime: TimelineIr["sequence"]["frameDuration"],
-  durationTime: TimelineIr["sequence"]["frameDuration"],
 ): void {
   if (!Number.isFinite(range.start) || !Number.isFinite(range.end) || range.start < 0 || range.end <= range.start) {
     throw new Error("HEADLESS_ROUGH_CUT_RANGE_INVALID: source range must be finite and non-empty");
@@ -828,11 +1304,123 @@ function assertSourceRange(
   if (resource.metadata?.durationTime !== undefined && range.end > rationalSeconds(resource.metadata.durationTime) + 0.001) {
     throw new Error(`HEADLESS_ROUGH_CUT_RANGE_INVALID: source range exceeds ${resource.id}`);
   }
+  const sourceStartTime = range.startTime ?? secondsToRational(range.start);
+  const durationTime = range.durationTime ?? secondsToRational(range.end - range.start);
   if (rationalSeconds(sourceStartTime) < 0 || rationalSeconds(durationTime) <= 0
     || Math.abs(rationalSeconds(sourceStartTime) - range.start) > 0.001
     || Math.abs(rationalSeconds(durationTime) - (range.end - range.start)) > 0.001) {
     throw new Error("HEADLESS_ROUGH_CUT_RANGE_INVALID: rational source range must be non-negative and non-empty");
   }
+}
+
+function alignInferredRoughCutRange(
+  resource: TimelineIr["resources"][number],
+  range: RoughCutPlan["shots"][number]["range"],
+  sequenceFrameDuration: TimelineIr["sequence"]["frameDuration"],
+): RoughCutPlan["shots"][number]["range"] {
+  if (range.startTime !== undefined || range.durationTime !== undefined
+    || !Number.isFinite(range.start) || !Number.isFinite(range.end) || range.end <= range.start) {
+    return structuredClone(range);
+  }
+  const frameRate = resource.metadata?.streams.find((stream) => stream.kind === "video" && stream.frameRate)?.frameRate;
+  if (!frameRate || BigInt(frameRate.value) <= 0n || BigInt(frameRate.timescale) <= 0n
+    || BigInt(sequenceFrameDuration.value) <= 0n || BigInt(sequenceFrameDuration.timescale) <= 0n) {
+    return structuredClone(range);
+  }
+  const sourceFrameDuration = { value: frameRate.timescale, timescale: frameRate.value };
+  const startTime = nearestFrameTime(secondsToRational(range.start), sourceFrameDuration);
+  const sourceEndTime = nearestFrameTime(secondsToRational(range.end), sourceFrameDuration);
+  let durationTime = nearestFrameTime(subtractRationalTimes(sourceEndTime, startTime), sequenceFrameDuration);
+  if (resource.metadata?.durationTime !== undefined) {
+    // The FCPXML compiler rounds source starts to the sequence grid. Bound
+    // both the canonical and exported ranges when that rounding moves later.
+    const exportedStartTime = nearestFrameTime(startTime, sequenceFrameDuration);
+    const latestStartTime = compareRationalTimes(startTime, exportedStartTime) >= 0 ? startTime : exportedStartTime;
+    const available = subtractRationalTimes(resource.metadata.durationTime, latestStartTime);
+    const maxDuration = floorFrameTime(available, sequenceFrameDuration);
+    if (compareRationalTimes(durationTime, maxDuration) > 0) durationTime = maxDuration;
+  }
+  if (BigInt(durationTime.value) <= 0n) {
+    throw new Error("HEADLESS_ROUGH_CUT_RANGE_INVALID: frame alignment produced an empty source range");
+  }
+  const endTime = addRationalTimes(startTime, durationTime);
+  return {
+    ...structuredClone(range),
+    start: rationalSeconds(startTime),
+    end: rationalSeconds(endTime),
+    startTime,
+    durationTime,
+  };
+}
+
+function floorFrameTime(
+  time: { value: string; timescale: string },
+  frameDuration: { value: string; timescale: string },
+): { value: string; timescale: string } {
+  const numerator = BigInt(time.value) * BigInt(frameDuration.timescale);
+  const denominator = BigInt(time.timescale) * BigInt(frameDuration.value);
+  const frames = numerator > 0n ? numerator / denominator : 0n;
+  return normalizeRationalTime(frames * BigInt(frameDuration.value), BigInt(frameDuration.timescale));
+}
+
+function nearestFrameTime(
+  time: { value: string; timescale: string },
+  frameDuration: { value: string; timescale: string },
+): { value: string; timescale: string } {
+  const timeValue = BigInt(time.value);
+  const timeScale = BigInt(time.timescale);
+  const frameValue = BigInt(frameDuration.value);
+  const frameScale = BigInt(frameDuration.timescale);
+  const numerator = timeValue * frameScale;
+  const denominator = timeScale * frameValue;
+  const frameCount = (numerator * 2n + denominator) / (denominator * 2n);
+  return normalizeRationalTime(frameCount * frameValue, frameScale);
+}
+
+function compareRationalTimes(
+  left: { value: string; timescale: string },
+  right: { value: string; timescale: string },
+): number {
+  const difference = BigInt(left.value) * BigInt(right.timescale) - BigInt(right.value) * BigInt(left.timescale);
+  return difference < 0n ? -1 : difference > 0n ? 1 : 0;
+}
+
+function subtractRationalTimes(
+  left: { value: string; timescale: string },
+  right: { value: string; timescale: string },
+): { value: string; timescale: string } {
+  const leftValue = BigInt(left.value);
+  const leftScale = BigInt(left.timescale);
+  const rightValue = BigInt(right.value);
+  const rightScale = BigInt(right.timescale);
+  return normalizeRationalTime(leftValue * rightScale - rightValue * leftScale, leftScale * rightScale);
+}
+
+function addRationalTimes(
+  left: { value: string; timescale: string },
+  right: { value: string; timescale: string },
+): { value: string; timescale: string } {
+  const leftValue = BigInt(left.value);
+  const leftScale = BigInt(left.timescale);
+  const rightValue = BigInt(right.value);
+  const rightScale = BigInt(right.timescale);
+  return normalizeRationalTime(leftValue * rightScale + rightValue * leftScale, leftScale * rightScale);
+}
+
+function normalizeRationalTime(value: bigint, timescale: bigint): { value: string; timescale: string } {
+  const divisor = greatestCommonDivisorBigInt(value < 0n ? -value : value, timescale);
+  return { value: String(value / divisor), timescale: String(timescale / divisor) };
+}
+
+function greatestCommonDivisorBigInt(left: bigint, right: bigint): bigint {
+  let a = left;
+  let b = right;
+  while (b !== 0n) {
+    const remainder = a % b;
+    a = b;
+    b = remainder;
+  }
+  return a || 1n;
 }
 
 function secondsToRational(seconds: number): { value: string; timescale: string } {
@@ -869,19 +1457,94 @@ function selectFcpxmlMetadata(result: TimelineIrToFcpxmlResult): HeadlessRoughCu
   };
 }
 
-async function writeVerifiedFcpxml(path: string, xml: string, digest: string, overwrite: boolean): Promise<{ path: string; digest: string; bytes: number; verified: true }> {
-  await mkdir(dirname(path), { recursive: true });
-  if (!overwrite) {
-    try {
-      await readFile(path);
-      throw new Error(`HEADLESS_ROUGH_CUT_FCPXML_EXISTS: refusing to overwrite ${path}`);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+// Resolve symlinked ancestors even for a destination that does not exist yet.
+async function canonicalOutputPath(path: string): Promise<string> {
+  const absolute = resolve(path);
+  try {
+    return await realpath(absolute);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    const parent = dirname(absolute);
+    if (parent === absolute) throw error;
+    return join(await canonicalOutputPath(parent), basename(absolute));
+  }
+}
+
+async function sameExistingFile(left: string, right: string): Promise<boolean> {
+  try {
+    const [a, b] = await Promise.all([stat(left), stat(right)]);
+    return a.dev === b.dev && a.ino === b.ino;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+async function stateTree(directory: string): Promise<{ directories: string[]; files: string[] }> {
+  const directories: string[] = [];
+  const files: string[] = [];
+  const visited = new Set<string>();
+  async function visit(path: string, root = false): Promise<void> {
+    let canonical: string;
+    try { canonical = await realpath(path); }
+    catch (error) {
+      if (root && (error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
+    const info = await stat(canonical);
+    if (!info.isDirectory()) { files.push(canonical); return; }
+    directories.push(canonical);
+    if (visited.has(canonical)) return;
+    visited.add(canonical);
+    for (const entry of await readdir(canonical, { withFileTypes: true })) {
+      await visit(join(canonical, entry.name));
     }
   }
+  await visit(directory, true);
+  return { directories, files };
+}
+
+function isInside(directory: string, path: string): boolean {
+  const fromDirectory = relative(directory, path);
+  return !fromDirectory || (!isAbsolute(fromDirectory) && fromDirectory !== ".." && !fromDirectory.startsWith(`..${sep}`));
+}
+
+async function assertOutputSeparation(projects: FramekitProjectDocument[], stateDirectory: string, paths: string[]): Promise<void> {
+  const state = await canonicalOutputPath(stateDirectory);
+  const outputs = await Promise.all(paths.map(canonicalOutputPath));
+  const sources = await Promise.all(projects.flatMap((project) => project.timeline.resources)
+    .filter((resource) => resource.sourceKind === "local-file" && resource.source)
+    .map((resource) => canonicalOutputPath(resource.source!)));
+  const protectedState = await stateTree(state);
+  const lexicalState = resolve(stateDirectory);
+  const collides = async (a: string, b: string) => a === b || await sameExistingFile(a, b);
+  for (let index = 0; index < outputs.length; index++) {
+    const output = outputs[index]!;
+    if (isInside(lexicalState, resolve(paths[index]!)) || isInside(state, output)
+      || protectedState.directories.some((directory) => isInside(directory, output))) {
+      throw new Error("HEADLESS_OUTPUT_COLLISION: output is inside Framekit state");
+    }
+    for (const protectedFile of [...sources, ...protectedState.files]) {
+      if (await collides(output, protectedFile)) throw new Error("HEADLESS_OUTPUT_COLLISION: output aliases protected state or registered media");
+    }
+  }
+  for (let i = 0; i < outputs.length; i++) {
+    for (let j = i + 1; j < outputs.length; j++) {
+      if (await collides(outputs[i]!, outputs[j]!)) throw new Error("HEADLESS_OUTPUT_COLLISION: outputs alias each other");
+    }
+  }
+}
+
+async function writeVerifiedFcpxml(path: string, xml: string, digest: string, overwrite: boolean): Promise<{ path: string; digest: string; bytes: number; verified: true }> {
+  await mkdir(dirname(path), { recursive: true });
   const temporary = `${path}.${randomUUID()}.tmp`;
   await writeFile(temporary, xml, { encoding: "utf8", flag: "wx" });
-  await rename(temporary, path);
+  try {
+    if (overwrite) await rename(temporary, path);
+    else await link(temporary, path);
+  } finally {
+    if (!overwrite) await unlink(temporary).catch(() => {});
+  }
   const persisted = await readFile(path, "utf8");
   const persistedDigest = createHash("sha256").update(persisted).digest("hex");
   if (persistedDigest !== digest) throw new Error("HEADLESS_ROUGH_CUT_FCPXML_VERIFY_FAILED: persisted XML digest differs from the compiled artifact");

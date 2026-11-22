@@ -1,7 +1,7 @@
 import { join, resolve } from "node:path";
-import { renderReleaseGateReport, runReleaseGate } from "../../tests/release-gate/runner.js";
-import { writeReleaseGateArtifacts } from "../../tests/release-gate/artifacts.js";
-import { runRepositoryChecks } from "../../tests/release-gate/repository-checks.js";
+import { renderReleaseGateReport, runReleaseGate } from "./gate/runner.js";
+import { writeReleaseGateArtifacts } from "./gate/artifacts.js";
+import { runRepositoryChecks } from "./gate/repository-checks.js";
 import { parseReleaseGateArgs } from "./run-release-gate-args.js";
 
 const defaultRunId = `${new Date().toISOString().replace(/[^0-9]/g, "")}-${process.pid}`;
@@ -10,6 +10,7 @@ const options = parseReleaseGateArgs(process.argv.slice(2), defaultOutputDirecto
 const repositoryChecks = await runRepositoryChecks({ rootDirectory: process.cwd() });
 const report = await runReleaseGate({
   headedEvidenceDirectory: options.headedEvidenceDirectory,
+  headedCandidateCommit: options.headedCandidateCommit,
   repositoryChecks,
 });
 const outputDirectory = options.outputDirectory;
@@ -20,4 +21,5 @@ console.log(`output_directory=${resolve(artifacts.outputDirectory)}`);
 console.log(`report=${resolve(artifacts.reportPath)}`);
 console.log(`manifest=${resolve(artifacts.manifestPath)}`);
 
-if (!report.deterministic.passed || !report.repositoryChecks.passed) process.exitCode = 1;
+if (!report.deterministic.passed || !report.repositoryChecks.passed
+  || (options.headedEvidenceDirectory && report.evidenceTiers["headed-native"].status !== "verified")) process.exitCode = 1;

@@ -4,28 +4,15 @@ import { fileURLToPath } from "node:url";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const manifestPath = "scripts/test-suite-manifest.json";
-const excludedDirectories = new Set([".git", "coverage", "dist", "node_modules"]);
-const fastIntegrationTests = new Set([
-  "tests/integration/basic-editing-mvp.test.ts",
-  "tests/integration/canonical-provider-readiness.test.ts",
-  "tests/integration/codeql-workflow.test.ts",
-  "tests/integration/composite-transactions.test.ts",
-  "tests/integration/connection.test.ts",
-  "tests/integration/editing-intent.test.ts",
-  "tests/integration/editor-first-routing.test.ts",
-  "tests/integration/finalcut-routing.test.ts",
-  "tests/integration/project-transactions.test.ts",
-  "tests/integration/range-validation.test.ts",
-  "tests/integration/release-workflow.test.ts",
-  "tests/integration/runtime.test.ts",
-  "tests/integration/test-state-isolation.test.ts",
-]);
-
+const excludedDirectories = new Set([".git", ".codex", "coverage", "dist", "dist-package", "node_modules"]);
 export const TEST_SUITE_DEFINITIONS = Object.freeze({
+  golden: { tags: ["golden"], executables: [] },
+  "filler-removal": { tags: ["filler-removal"], executables: [] },
+  documentation: { tags: ["documentation"], executables: [] },
   all: { tags: [], executables: ["ffmpeg", "ffprobe", "npm"] },
   fast: {
     tags: ["unit", "contract", "fast-integration"],
-    exclude: ["tests/integration/finalcut-mcp.test.ts", "tests/integration/headless-project-mcp.test.ts"],
+    exclude: ["tests/workflows/basic-editing/finalcut-mcp.test.ts", "tests/workflows/rough-cut/headless-project-mcp.test.ts"],
     executables: [],
   },
   unit: { tags: ["unit"], executables: [] },
@@ -48,10 +35,43 @@ export async function discoverTestFiles(rootDir = repositoryRoot) {
 
 export async function loadTestSuiteManifest(rootDir = repositoryRoot) {
   const manifest = JSON.parse(await readFile(resolve(rootDir, manifestPath), "utf8"));
-  if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.tests)) {
-    throw new Error("TEST_SUITE_MANIFEST_INVALID: expected schemaVersion 1 and a tests array");
+  if (manifest.schemaVersion !== 2 || !Array.isArray(manifest.tests)) {
+    throw new Error("TEST_SUITE_MANIFEST_INVALID: expected schemaVersion 2 and a tests array");
+  }
+  const paths = new Set();
+  for (const entry of manifest.tests) {
+    if (!entry || typeof entry !== 'object') throw new Error('TEST_METADATA_INVALID: expected a test entry');
+    if (entry.reviewed === false || entry.reviewed === undefined) throw new Error(`TEST_METADATA_UNREVIEWED: ${entry.path}; review owner, evidence, dependencies and requirements`);
+    if (entry.reviewed !== true || !validTestPath(entry.path) || paths.has(entry.path)
+      || typeof entry.owner !== 'string' || !entry.owner.trim() || ['shared', 'unreviewed'].includes(entry.owner)
+      || !['unit', 'fixture', 'process', 'static', 'sdk'].includes(entry.evidence)
+      || !['none', 'registry'].includes(entry.network)
+      || !validStrings(entry.tags, true) || !validStrings(entry.requires)
+      || !validStrings(entry.dependsOn, true) || !validPlatforms(entry.platforms)
+      || (entry.conditionalRequires !== undefined && (!Array.isArray(entry.conditionalRequires)
+        || entry.conditionalRequires.some(rule => !rule || !['darwin', 'linux', 'win32'].includes(rule.platform) || !validStrings(rule.executables, true))))
+      || (entry.expectedSkips !== undefined && (!Array.isArray(entry.expectedSkips)
+        || entry.expectedSkips.some(rule => !rule || typeof rule.name !== 'string' || !rule.name.trim()
+          || typeof rule.reason !== 'string' || !rule.reason.trim() || !validPlatforms(rule.platforms)
+          || (rule.kind !== undefined && !['platform', 'opt-in'].includes(rule.kind)))))) {
+      throw new Error(`TEST_METADATA_INVALID: ${entry.path}`);
+    }
+    paths.add(entry.path);
   }
   return manifest;
+}
+
+function validStrings(values, required = false) {
+  return Array.isArray(values) && (!required || values.length > 0)
+    && values.every(value => typeof value === 'string' && value.trim()) && new Set(values).size === values.length;
+}
+function validPlatforms(values) {
+  return validStrings(values, true) && values.every(value => ['any', 'darwin', 'linux', 'win32'].includes(value))
+    && (!values.includes('any') || values.length === 1);
+}
+function validTestPath(file) {
+  return typeof file === 'string' && /^(tests|packages|apps|adapters)\//.test(file) && /\.test\.(ts|mjs)$/.test(file)
+    && !file.includes('\\') && !file.split('/').some(part => ['', '.', '..'].includes(part));
 }
 
 export function compareTestInventory(expectedFiles, discoveredFiles) {
@@ -78,14 +98,22 @@ export function evaluateSuitePrerequisites(suiteName, options = {}) {
   const definition = TEST_SUITE_DEFINITIONS[suiteName];
   if (!definition) throw new Error(`TEST_SUITE_UNKNOWN: ${suiteName}`);
   const available = options.availableExecutables ?? new Set();
-  const selectedPaths = options.manifest ? new Set(selectTestFiles(options.manifest, suiteName)) : new Set();
+  const selectedPaths = new Set(options.selectedFiles ?? (options.manifest ? selectTestFiles(options.manifest, suiteName) : []));
   const selected = options.manifest ? options.manifest.tests.filter((entry) => selectedPaths.has(entry.path)) : [];
   const executables = new Set([
-    ...definition.executables,
+    ...(options.manifest ? [] : definition.executables),
     ...selected.flatMap((entry) => entry.requires ?? []),
   ]);
+  for (const entry of selected) for (const requirement of entry.conditionalRequires ?? []) {
+    if (requirement.platform === (options.platform ?? process.platform)) for (const executable of requirement.executables) executables.add(executable);
+  }
   const nodeMajor = Number.parseInt((options.nodeVersion ?? process.versions.node).split(".")[0] ?? "0", 10);
   const missing = [...executables].filter((executable) => !available.has(executable));
+  for (const entry of selected) {
+    const platform = options.platform ?? process.platform;
+    if (!entry.platforms.includes('any') && !entry.platforms.includes(platform)) missing.push(`platform ${entry.platforms.join('/')} for ${entry.path} (current ${platform})`);
+    if (options.offline && entry.network !== 'none') missing.push(`network ${entry.network} for ${entry.path}`);
+  }
   if (!Number.isFinite(nodeMajor) || nodeMajor < 20) missing.unshift("Node.js 20 or newer");
   return {
     ready: missing.length === 0,
@@ -94,23 +122,17 @@ export function evaluateSuitePrerequisites(suiteName, options = {}) {
 }
 
 export async function updateTestSuiteManifest(rootDir = repositoryRoot) {
-  const tests = (await discoverTestFiles(rootDir)).map((path) => ({
-    path,
-    owner: ownerForTest(path),
-    tags: tagsForTest(path),
-    requires: prerequisitesForTest(path, tagsForTest(path)),
-  }));
-  const manifest = { schemaVersion: 1, tests };
+  let previous = { tests: [] };
+  try { previous = JSON.parse(await readFile(resolve(rootDir, manifestPath), 'utf8')); }
+  catch (error) { if (error.code !== 'ENOENT') throw error; }
+  const byPath = new Map(previous.tests.map(entry => [entry.path, entry]));
+  const tests = (await discoverTestFiles(rootDir)).map(path => byPath.get(path) ?? {
+    path, owner: 'unreviewed', reviewed: false, tags: tagsForTest(path),
+    evidence: 'fixture', dependsOn: [], requires: [], platforms: ['any'], network: 'none',
+  });
+  const manifest = { ...previous, schemaVersion: 2, tests };
   await writeFile(resolve(rootDir, manifestPath), `${JSON.stringify(manifest, null, 2)}\n`);
   return manifest;
-}
-
-function ownerForTest(file) {
-  const [root, packageName, ...rest] = file.split("/");
-  if (["packages", "apps", "adapters"].includes(root) && rest.some((part) => part === "test" || part === "tests")) {
-    return `${root}/${packageName}`;
-  }
-  return "shared";
 }
 
 if (process.argv.includes("--update-inventory")) {
@@ -127,41 +149,16 @@ async function walk(directory, rootDir, files) {
     throw error;
   }
   for (const entry of entries) {
+    if (relative(rootDir, join(directory, entry.name)).split(sep).join("/") === "apps/docs" || relative(rootDir, join(directory, entry.name)).split(sep).join("/") === "tests/research") continue;
     if (entry.isDirectory() && !excludedDirectories.has(entry.name)) {
       await walk(join(directory, entry.name), rootDir, files);
-    } else if (entry.isFile() && entry.name.endsWith(".test.ts")) {
+    } else if (entry.isFile() && (entry.name.endsWith(".test.ts") || entry.name.endsWith(".test.mjs"))) {
       files.push(relative(rootDir, join(directory, entry.name)).split(sep).join("/"));
     }
   }
 }
 
-function tagsForTest(file) {
-  const tags = new Set();
-  if (fastIntegrationTests.has(file)) tags.add("fast-integration");
-  if (file.startsWith("packages/") || file.startsWith("apps/") || file.startsWith("adapters/")) tags.add("unit");
-  if (file.startsWith("tests/integration/")) {
-    tags.add("integration");
-    tags.add("fixture-e2e");
-  }
-  if (file.startsWith("tests/evaluation/") || file.startsWith("tests/golden/")) tags.add("fixture-e2e");
-  if (file.startsWith("tests/speech/") || file.startsWith("tests/filler-removal/")) tags.add("unit");
-  if (file.startsWith("tests/filler-removal/")) tags.add("fixture-e2e");
-  if (file.startsWith("tests/release-gate/") || file.startsWith("tests/release-report/") || /release-gate/i.test(file)) tags.add("release-gate");
-  if (/(?:contract|schema|protocol|capabilities|(?:^|\/)mcp(?:[-.]|\/))/i.test(file)) tags.add("contract");
-  if (/(?:headless|rough-cut|render|semantic-media|local-media-registration)/i.test(file)) tags.add("headless");
-  if (/(?:native|headed)/i.test(file)) tags.add("native");
-  if (/(?:package-distribution|package-build-identity|clean-mcp-clients|codex-plugin)/i.test(file)) tags.add("package");
-  if (file === "tests/integration/test-suites.test.ts") tags.add("unit");
-  if (tags.size === 0) tags.add("unit");
-  return [...tags].sort();
-}
-
-function prerequisitesForTest(file, tags) {
-  const requirements = new Set();
-  if (tags.includes("headless")) {
-    requirements.add("ffmpeg");
-    requirements.add("ffprobe");
-  }
-  if (file === "tests/integration/package-distribution.test.ts") requirements.add("npm");
-  return [...requirements].sort();
+function tagsForTest() {
+  // New tests require a human review. Folder names do not establish evidence.
+  return ['unreviewed'];
 }

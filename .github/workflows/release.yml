@@ -29,6 +29,7 @@ jobs:
         runs-on: ubuntu-latest
         permissions:
             contents: write
+            issues: read
         outputs:
             release-tag: ${{ steps.requested-tag.outputs.tag || steps.existing-tag.outputs.tag || steps.run-tagpr.outputs.tag }}
             milestone-release: ${{ steps.classify.outputs.milestone }}
@@ -79,7 +80,7 @@ jobs:
             - id: run-tagpr
               name: Run tagpr
               if: steps.requested-tag.outputs.tag == '' && steps.existing-tag.outputs.tag == ''
-              uses: Songmu/tagpr@1fcd7292d1fe8ea9a8313eef46b8d80b7a15d227 # v1
+              uses: Songmu/tagpr@047aec4b6c0ce166f52958b5a97f5a3d927fd65b # v1
               env:
                   GITHUB_TOKEN: ${{ secrets.TAGPR_TOKEN }}
 
@@ -92,6 +93,7 @@ jobs:
                   GH_TOKEN: ${{ github.token }}
                   GITHUB_REPOSITORY: ${{ github.repository }}
                   RELEASE_TAG: ${{ steps.requested-tag.outputs.tag || steps.existing-tag.outputs.tag || steps.run-tagpr.outputs.tag }}
+                  RELEASE_VERSION: ${{ steps.requested-tag.outputs.tag || steps.existing-tag.outputs.tag || steps.run-tagpr.outputs.tag }}
               shell: bash
               run: |
                   set -euo pipefail
@@ -162,13 +164,13 @@ jobs:
 
             - name: Set up pnpm
               if: needs.tagpr.outputs.milestone-release == 'true'
-              uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+              uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
 
             - name: Set up Node.js
               if: needs.tagpr.outputs.milestone-release == 'true'
               uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
               with:
-                  node-version: 24.22.1
+                  node-version: 24.22.3
                   cache: pnpm
 
             - name: Install dependencies
@@ -293,12 +295,12 @@ jobs:
                   persist-credentials: false
 
             - name: Set up pnpm
-              uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+              uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
 
             - name: Set up Node.js
               uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
               with:
-                  node-version: 24.22.1
+                  node-version: 24.22.3
                   registry-url: https://registry.npmjs.org
                   cache: pnpm
 
@@ -322,6 +324,11 @@ jobs:
 
             - name: Validate MCP server version
               run: node scripts/validate-mcp-server-version.mjs
+
+            - name: Verify artifact-first headless workflows
+              env:
+                  FRAMEKIT_TEST_MCP_ENTRYPOINT: ${{ github.workspace }}/dist-package/apps/mcp-server/src/main.js
+              run: pnpm run test:headless
 
             - name: Run v0.1.6 native-editing release gate
               run: pnpm run release-gate --output-dir artifacts/release-gate/${{ github.run_id }}
@@ -468,7 +475,7 @@ jobs:
 
             - name: Upload clean MCP release candidate evidence
               if: always()
-              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
               with:
                   name: clean-mcp-clients-${{ needs.tagpr.outputs.release-tag }}
                   path: artifacts/release-candidate/clean-mcp-clients.json
@@ -488,12 +495,12 @@ jobs:
                   persist-credentials: false
 
             - name: Set up pnpm
-              uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+              uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
 
             - name: Set up Node.js
               uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
               with:
-                  node-version: 24.22.1
+                  node-version: 24.22.3
                   cache: pnpm
 
             - name: Install dependencies
@@ -513,6 +520,7 @@ jobs:
         runs-on: ubuntu-latest
         permissions:
             contents: read
+            issues: read
             pull-requests: write
         steps:
             - name: Check out repository
@@ -524,6 +532,7 @@ jobs:
               env:
                   GH_TOKEN: ${{ github.token }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
+                  PR_TITLE: ${{ github.event.pull_request.title }}
               shell: bash
               run: |
                   set -euo pipefail
@@ -531,6 +540,7 @@ jobs:
                   formatted="${RUNNER_TEMP}/release-pr-body-formatted.md"
                   payload="${RUNNER_TEMP}/release-pr-body.json"
 
+                  export RELEASE_VERSION="${PR_TITLE#Release for }"
                   gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '.body // ""' > "${original}"
                   node scripts/format-release-notes.mjs < "${original}" > "${formatted}"
 
@@ -552,6 +562,7 @@ jobs:
         runs-on: ubuntu-latest
         permissions:
             contents: write
+            issues: read
         steps:
             - name: Check out repository
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -562,6 +573,7 @@ jobs:
               env:
                   GH_TOKEN: ${{ github.token }}
                   RELEASE_ID: ${{ github.event.release.id }}
+                  RELEASE_VERSION: ${{ github.event.release.tag_name }}
               shell: bash
               run: |
                   set -euo pipefail
@@ -731,12 +743,12 @@ jobs:
                   persist-credentials: false
 
             - name: Set up pnpm
-              uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+              uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
 
             - name: Set up Node.js
               uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
               with:
-                  node-version: 24.22.1
+                  node-version: 24.22.3
                   registry-url: https://registry.npmjs.org
                   cache: pnpm
 

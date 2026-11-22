@@ -1,0 +1,6 @@
+.button { min-width: 44px; min-height: 44px; padding: 8px 16px; border: 1px solid transparent; border-radius: var(--radius-sm); font: inherit; font-weight: 650; cursor: pointer; }
+.primary { background: var(--accent); color: var(--on-accent); }
+.secondary { background: var(--surface); color: var(--text); border-color: var(--border); }
+.button:disabled { cursor: not-allowed; opacity: .6; }
+.button:not(:disabled):hover { filter: brightness(.94); }
+.loading { font-weight: 400; }

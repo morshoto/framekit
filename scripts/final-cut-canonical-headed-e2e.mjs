@@ -1,17 +1,32 @@
-import { createHash } from "node:crypto";
+import { execFile as execFileCallback } from "node:child_process";
+import { promisify } from "node:util";
+import { previewAndExecuteCanonicalRename } from "./final-cut-canonical-rename.mjs";
+import { selectCanonicalWriteTarget, readCanonicalWriteTarget } from "./final-cut-canonical-write-target.mjs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { evidenceEnvironment, sanitizeCanonicalEvidence } from "./final-cut-evidence.mjs";
+import { canonicalEvidenceDigest as canonicalDigest, evidenceEnvironment, hashCanonicalSourceMedia, sanitizeCanonicalEvidence } from "./final-cut-evidence.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const expectedProject = process.env.FRAMEKIT_FINAL_CUT_E2E_PROJECT;
 const clipId = process.env.FRAMEKIT_FINAL_CUT_E2E_CLIP_ID;
+const approvedTarget = { projectId: process.env.FRAMEKIT_FINAL_CUT_E2E_PROJECT_ID, projectName: expectedProject, sequenceId: process.env.FRAMEKIT_FINAL_CUT_E2E_SEQUENCE_ID };
+const approvedRevision = process.env.FRAMEKIT_FINAL_CUT_E2E_REVISION_ID;
+const candidateCommit = process.env.FRAMEKIT_FINAL_CUT_E2E_CANDIDATE_COMMIT;
 
 if (!expectedProject || !clipId) {
   throw new Error("Set FRAMEKIT_FINAL_CUT_E2E_PROJECT and FRAMEKIT_FINAL_CUT_E2E_CLIP_ID before running the canonical headed E2E");
 }
+
+if (!approvedTarget.projectId || !approvedTarget.sequenceId || !approvedRevision || !/^[a-f0-9]{40}$/.test(candidateCommit ?? "") || process.env.FRAMEKIT_FINAL_CUT_E2E_ALLOW_MUTATION !== "1") {
+  throw new Error("FINAL_CUT_E2E_AUTHORIZATION_REQUIRED: provide the approved project, sequence, revision, candidate commit, and mutation authorization");
+}
+const execFile = promisify(execFileCallback);
+const head = (await execFile("git", ["rev-parse", "HEAD"], { cwd: root })).stdout.trim();
+const dirty = (await execFile("git", ["status", "--porcelain"], { cwd: root })).stdout.trim();
+if (head !== candidateCommit || dirty) throw new Error("FINAL_CUT_E2E_CANDIDATE_MISMATCH: checkout must be clean and match the approved candidate");
+await execFile("bash", [join(root, ".agents/skills/verify-final-cut-native/scripts/run-headed-check.sh"), "canonical-write"], { cwd: root });
 
 const transport = new StdioClientTransport({
   command: process.execPath,
@@ -20,6 +35,7 @@ const transport = new StdioClientTransport({
     ...process.env,
     FRAMEKIT_EDITOR: "final-cut-live",
     FRAMEKIT_AUTO_CONNECT: "0",
+    FRAMEKIT_FINAL_CUT_EXISTING_SOCKET_ONLY: "1",
     FRAMEKIT_FCPXML_PATH: "",
     FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER: "native",
     FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "1",
@@ -28,38 +44,36 @@ const transport = new StdioClientTransport({
   stderr: "pipe",
 });
 const client = new Client({ name: "framekit-canonical-headed-e2e", version: "0.1.0" });
-let transactionId;
 
 try {
   await client.connect(transport);
-  const editor = await callJson("editor.inspect");
+  const preflight = await callJson("editor.inspect");
   const toolResults = [{ name: "editor.inspect", status: "passed" }];
-  if (editor.capabilities?.editor?.canonicalTimelineMode !== "canonical-write") {
-    throw new Error(`CAPABILITY_UNAVAILABLE: live bridge reported ${editor.capabilities?.editor?.canonicalTimelineMode ?? "unknown"}; canonical-write is required`);
+  if (preflight.preflight?.fingerprint?.commit !== candidateCommit
+    || preflight.preflight?.buildAlignment?.status !== "matched"
+    || preflight.preflight?.nativeHandoffReadiness?.status !== "ready") {
+    throw new Error("FINAL_CUT_E2E_PREFLIGHT_UNAVAILABLE: candidate, loaded extension, or native handoff readiness does not match");
   }
-
-  const catalog = await callJson("project.list");
-  toolResults.push({ name: "project.list", status: "passed" });
-  if (!catalog.activeProjectId || !catalog.activeSequenceId) {
-    throw new Error("TARGET_UNAVAILABLE: canonical live catalog must expose active project and sequence IDs");
-  }
-  const selected = await callJson("project.select", {
-    projectId: catalog.activeProjectId,
-    sequenceId: catalog.activeSequenceId,
-  });
-  toolResults.push({ name: "project.select", status: "passed" });
-  if (selected.activeProjectId !== catalog.activeProjectId || selected.activeSequenceId !== catalog.activeSequenceId) {
-    throw new Error("TARGET_MISMATCH: canonical live project selection did not confirm the active catalog target");
-  }
-
-  const before = await callJson("project.inspect");
+  const initial = await selectCanonicalWriteTarget(callJson, approvedTarget, approvedRevision);
+  toolResults.push({ name: "project.list", status: "passed" }, { name: "project.inspect", status: "passed" }, { name: "project.select", status: "passed" });
+  const before = await readCanonicalWriteTarget(callJson, approvedTarget);
   toolResults.push({ name: "project.inspect", status: "passed" });
-  if (before.projectName !== expectedProject) {
-    throw new Error(`FINAL_CUT_E2E_PROJECT_MISMATCH: expected ${expectedProject}, observed ${before.projectName ?? "unknown"}`);
+  if (!sameRevision(before.revision, initial.revision) || canonicalDigest(before) !== canonicalDigest(initial)) {
+    throw new Error("STALE_CONTEXT: canonical state changed during target selection");
+  }
+  const editor = await callJson("editor.inspect");
+  toolResults.push({ name: "editor.inspect", status: "passed" });
+  if (editor.capabilities?.editor?.canonicalTimelineMode !== "canonical-write"
+    || editor.capabilities?.editor?.semanticOperations?.["rename-clip"] !== true
+    || editor.preflight?.fingerprint?.commit !== candidateCommit
+    || editor.preflight?.buildAlignment?.status !== "matched"
+    || editor.preflight?.nativeHandoffReadiness?.status !== "ready") {
+    throw new Error("CAPABILITY_UNAVAILABLE: canonical rename and matching native preflight are required");
   }
   const target = before.timeline?.clips?.find((clip) => clip.id === clipId);
   if (!target) throw new Error(`FINAL_CUT_E2E_CLIP_MISMATCH: ${clipId} is not in the selected timeline`);
   const beforeDigest = canonicalDigest(before);
+  const sourceHashesBefore = await hashCanonicalSourceMedia(before);
 
   await expectToolError("editor.timeline.edit", {
     projectId: before.projectId,
@@ -70,7 +84,7 @@ try {
     baseRevision: { ...before.revision, id: `stale:${before.revision.id}` },
   }, "STALE_CONTEXT");
   toolResults.push({ name: "editor.timeline.edit", status: "rejected-stale-context" });
-  const afterStaleProbe = await callJson("project.inspect");
+  const afterStaleProbe = await readCanonicalWriteTarget(callJson, approvedTarget);
   if (canonicalDigest(afterStaleProbe) !== beforeDigest || !sameRevision(afterStaleProbe.revision, before.revision)) {
     throw new Error("FINAL_CUT_E2E_STALE_PROBE_MUTATED: stale revision rejection changed canonical state");
   }
@@ -85,33 +99,31 @@ try {
     baseRevision: before.revision,
   }, "TARGET_MISMATCH");
   toolResults.push({ name: "editor.timeline.edit", status: "rejected-target-mismatch" });
-  const afterTargetProbe = await callJson("project.inspect");
+  const afterTargetProbe = await readCanonicalWriteTarget(callJson, approvedTarget);
   if (canonicalDigest(afterTargetProbe) !== beforeDigest || !sameRevision(afterTargetProbe.revision, before.revision)) {
     throw new Error("FINAL_CUT_E2E_TARGET_PROBE_MUTATED: target rejection changed canonical state");
   }
   toolResults.push({ name: "project.inspect", status: "unchanged" });
 
-  const transaction = await callJson("editor.timeline.edit", {
-    projectId: before.projectId,
-    sequenceId: before.timeline.id,
-    type: "rename-clip",
-    clipId,
-    name: `${target.name} [Framekit E2E]`,
-    baseRevision: before.revision,
-  });
-  toolResults.push({ name: "editor.timeline.edit", status: transaction.status });
-  transactionId = transaction.id;
+  const transaction = await previewAndExecuteCanonicalRename(
+    callJson, () => readCanonicalWriteTarget(callJson, approvedTarget), before, clipId, `${target.name} [Framekit E2E]`,
+  );
+  toolResults.push(
+    { name: "editor.timeline.edit.preview", status: "passed" },
+    { name: "project.inspect", status: "unchanged" },
+    { name: "editor.timeline.edit.execute", status: transaction.status },
+  );
   if (transaction.status !== "VERIFIED" || transaction.diff?.modified?.[0]?.itemId !== clipId) {
     throw new Error("FINAL_CUT_E2E_EDIT_VERIFICATION_FAILED: live edit did not return the expected verified diff");
   }
 
-  const restored = await callJson("edit.undo", { transactionId });
+  const restored = await callJson("edit.undo", { transactionId: transaction.id });
   toolResults.push({ name: "edit.undo", status: "passed" });
-  transactionId = undefined;
   const restoredDigest = canonicalDigest(restored);
   if (restoredDigest !== beforeDigest) {
     throw new Error("FINAL_CUT_E2E_ROLLBACK_DIGEST_MISMATCH: undo did not restore the pre-edit canonical digest");
   }
+  const sourceHashesRestored = await hashCanonicalSourceMedia(restored);
 
   const evidence = sanitizeCanonicalEvidence({
     passed: true,
@@ -127,17 +139,9 @@ try {
     diff: transaction.diff,
     restored,
     digests: { before: beforeDigest, restored: restoredDigest },
+    sourceIntegrity: { before: sourceHashesBefore, restored: sourceHashesRestored },
   }, await evidenceEnvironment(root));
   process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`);
-} catch (error) {
-  if (transactionId) {
-    try {
-      await callJson("edit.undo", { transactionId });
-    } catch (rollbackError) {
-      throw new AggregateError([error, rollbackError], "Canonical headed E2E failed and compensating undo also failed");
-    }
-  }
-  throw error;
 } finally {
   await client.close().catch(() => {});
   await transport.close().catch(() => {});
@@ -161,28 +165,6 @@ async function expectToolError(name, arguments_, expectedCode) {
   if (!text.includes(expectedCode)) {
     throw new Error(`${name} returned the wrong failure code; expected ${expectedCode}`);
   }
-}
-
-function canonicalDigest(snapshot) {
-  return createHash("sha256").update(stableJson({
-    projectId: snapshot.projectId,
-    projectName: snapshot.projectName,
-    timeline: snapshot.timeline,
-    media: snapshot.media.map(({ mediaId, source }) => ({ mediaId, source })),
-  })).digest("hex");
-}
-
-function stableJson(value) {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  const entries = Object.entries(value)
-    .filter(([, child]) => child !== undefined)
-    .sort(([left], [right]) => compareText(left, right));
-  return `{${entries.map(([key, child]) => `${JSON.stringify(key)}:${stableJson(child)}`).join(",")}}`;
-}
-
-function compareText(left, right) {
-  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function sameRevision(left, right) {

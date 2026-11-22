@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { types as utilTypes } from "node:util";
 import {
   timelineIrDigest,
   validateTimelineIr,
@@ -11,6 +12,9 @@ import {
 } from "@framekit/runtime";
 import {
   compileTimelineIrToFcpxml,
+  FinalCutBackgroundMaterializationPublisher,
+  validateFinalCutBackgroundMaterializationRequest,
+  type FileCanonicalRecoveryGuard,
   type TimelineIrMaterializationCoverage,
   type TimelineIrMaterializationProvenance,
   type TimelineIrToFcpxmlResult,
@@ -72,6 +76,7 @@ export interface MaterializationVerification {
 }
 
 export interface SessionMaterializationPublisher {
+  trackNativeDispatch?<T>(operation: () => Promise<T>, onDispatch: () => void): Promise<T>;
   readCanonicalTarget?(request: {
     target: { libraryUid: string; eventUid: string; projectUid: string; sequenceUid: string };
   }): Promise<{
@@ -118,6 +123,9 @@ export interface SessionMaterializationJob {
   };
   sessionDigest: string;
   claim?: { id: string; claimedAt: string };
+  recoveryReservation?: { reservationId: string; reason: "native-quiescence-unproven" };
+  providerError?: { code: string; message: string; retryable: boolean };
+  providerRequestPhase?: "dispatch-intent" | "returned";
   evidence: {
     artifact: { verified: true; format: "fcpxml"; digest: string };
     providerRequested: boolean;
@@ -132,6 +140,7 @@ export class SessionMaterializationJobs {
     private readonly directory: string,
     private readonly sessions: MaterializationSessionRepositoryPort,
     private readonly publisher?: SessionMaterializationPublisher,
+    private readonly recoveryGuard?: Pick<FileCanonicalRecoveryGuard, "beginNative">,
   ) {}
 
   public async preview(sessionId: string, target: TimelineIrToFcpxmlTarget) {
@@ -291,11 +300,18 @@ export class SessionMaterializationJobs {
 
     const claim = await this.claim(job);
     if (!claim.owned) return claim.job;
-    const claimed = claim.job;
+    let claimed = claim.job;
+    let reservation: Awaited<ReturnType<FileCanonicalRecoveryGuard["beginNative"]>> | undefined;
+    let providerRequested = false;
+    // Do not evaluate provider properties before acquiring the reservation.
+    let dispatched = false;
     try {
       const finalFailure = await this.validateStagedJob(claimed);
       if (finalFailure) return this.fail(claimed, finalFailure);
-      const result = await this.publisher.publish({
+      if (claimed.destination.mode !== "versioned") return this.fail(claimed, {
+        code: "MATERIALIZATION_DESTINATION_INVALID", message: "Versioned destination required", retryable: false, providerRequested: false,
+      });
+      const request: SessionMaterializationPublishRequest = {
         jobId: claimed.jobId,
         artifactPath: claimed.artifactPath,
         artifactDigest: claimed.artifactDigest,
@@ -308,12 +324,82 @@ export class SessionMaterializationJobs {
         baseRevision: structuredClone(claimed.baseRevision),
         coverage: structuredClone(claimed.coverage!),
         provenance: structuredClone(claimed.provenance!),
-      });
+      };
+      try {
+        // The built-in adapter's pure request checks must run before the
+        // dispatch boundary, while the staged request is still inert data.
+        validateFinalCutBackgroundMaterializationRequest(request);
+      } catch (error) {
+        return this.fail(claimed, materializationFailure(error, false));
+      }
+      // This check invokes no provider operation and is limited to the exact
+      // built-in implementation. Custom providers remain untrusted.
+      if (hasInertUnavailableMaterializationOptions(this.publisher)) {
+        const blocked: SessionMaterializationJob = {
+          ...claimed, state: "blocked", nextAction: "retry", claim: undefined,
+          verification: { tier: "artifact", status: "blocked", artifactDigest: claimed.artifactDigest,
+            desiredDigest: claimed.desiredDigest, reason: "No non-UI materialization capability is configured; the provider was not called" },
+          error: { code: "FINAL_CUT_BACKGROUND_MATERIALIZATION_UNAVAILABLE", message: "No explicit non-UI Final Cut materialization capability is configured", retryable: true },
+        };
+        await this.save(blocked);
+        return blocked;
+      }
+      if (this.recoveryGuard) {
+        try {
+          const id = createHash("sha256").update(claimed.jobId).digest("hex");
+          reservation = await this.recoveryGuard.beginNative(`native.materialize.${id}`, {
+            kind: "materialization", jobId: claimed.jobId, dispatchId: randomUUID(),
+            requestedTarget: { libraryUid: claimed.target.libraryUid, eventUid: claimed.target.eventUid,
+              projectUid: claimed.target.projectUid, sequenceUid: claimed.target.sequenceUid },
+            artifactDigest: claimed.artifactDigest, desiredDigest: claimed.desiredDigest,
+            destination: { ...structuredClone(claimed.destination), mode: "versioned" },
+            executorIdentity: null, nativeQuiescence: "unproven",
+          });
+        } catch {
+          const blocked: SessionMaterializationJob = {
+            ...claimed, state: "blocked", nextAction: "retry", claim: undefined,
+            verification: {
+              tier: "artifact", status: "blocked", artifactDigest: claimed.artifactDigest, desiredDigest: claimed.desiredDigest,
+              reason: "An unresolved native reservation prevents materialization; the provider was not called",
+            },
+            error: { code: "FINAL_CUT_CANONICAL_RECOVERY_REQUIRED", message: "An unresolved native reservation prevents materialization; the provider was not called", retryable: true },
+          };
+          await this.save(blocked);
+          return blocked;
+        }
+        claimed = { ...claimed, recoveryReservation: { reservationId: reservation.reservationId, reason: "native-quiescence-unproven" } };
+        await this.save(claimed);
+      }
+      const invoke = async () => {
+        const intent: SessionMaterializationJob = {
+          ...claimed, providerRequestPhase: "dispatch-intent",
+          evidence: { ...claimed.evidence, providerRequested: true },
+        };
+        await this.save(intent);
+        claimed = intent;
+        providerRequested = true;
+        return this.publisher!.publish(request);
+      };
+      // A tracker is executable provider code. It may defer invoking the
+      // supplied operation even if it returns or throws first.
+      dispatched = true;
+      // Persist uncertainty before executing even the tracker: untrusted
+      // tracker code may invoke or defer the provider without acknowledgement.
+      if (reservation) await reservation.markDispatchPossible();
+      const result = this.publisher.trackNativeDispatch
+        ? await this.publisher.trackNativeDispatch(invoke, () => { dispatched = true; })
+        : await invoke();
+      claimed = { ...claimed, providerRequestPhase: "returned" };
+      if (reservation && !providerRequested && !dispatched) {
+        await reservation.release();
+        reservation = undefined;
+        claimed = { ...claimed, recoveryReservation: undefined };
+      }
       if (result.state === "blocked") {
         const blocked: SessionMaterializationJob = {
           ...claimed,
           state: "blocked",
-          nextAction: "retry",
+          nextAction: claimed.recoveryReservation ? "none" : "retry",
           claim: undefined,
           evidence: { ...claimed.evidence, providerRequested: true },
           verification: {
@@ -324,7 +410,10 @@ export class SessionMaterializationJobs {
             reason: result.message,
             ...(result.delivery ? { delivery: result.delivery } : { delivery: deliveryEvidenceForBlockedCode(result.code) }),
           },
-          error: { code: result.code, message: result.message, retryable: result.retryable },
+          ...(claimed.recoveryReservation ? { providerError: { code: result.code, message: result.message, retryable: result.retryable } } : {}),
+          error: claimed.recoveryReservation
+            ? { code: "FINAL_CUT_CANONICAL_RECOVERY_REQUIRED", message: "Materialization may have been dispatched; native quiescence is unproven and it must not be retried", retryable: false }
+            : { code: result.code, message: result.message, retryable: result.retryable },
         };
         await this.save(blocked);
         return blocked;
@@ -382,10 +471,21 @@ export class SessionMaterializationJobs {
           reason: "Canonical readback verified this handoff once. Re-read the materialized target before later edits to detect subsequent manual Final Cut changes.",
         },
       };
-      await this.save(completed);
-      return completed;
+      const outcome: SessionMaterializationJob = claimed.recoveryReservation
+        ? {
+            ...completed, state: "blocked", nextAction: "none",
+            error: { code: "FINAL_CUT_CANONICAL_RECOVERY_REQUIRED", message: "Canonical readback was verified but native quiescence is unproven; do not retry publication", retryable: false },
+            continuation: { state: "canonical-resync-required", reason: "Recovery is required before a fresh canonical session can be created from this verified readback." },
+          }
+        : completed;
+      await this.save(outcome);
+      return outcome;
     } catch (error) {
-      return this.fail(claimed, materializationFailure(error, true));
+      if (reservation && !providerRequested && !dispatched) {
+        await reservation.release();
+        claimed = { ...claimed, recoveryReservation: undefined };
+      }
+      return this.fail(claimed, materializationFailure(error, providerRequested || claimed.evidence.providerRequested));
     } finally {
       await this.release(claimed.jobId, claimed.claim!.id);
     }
@@ -681,6 +781,36 @@ function collectStructuralChanges(
     return;
   }
   changes.push({ path, ...(before !== undefined ? { before } : {}), ...(after !== undefined ? { after } : {}) });
+}
+
+// Only inspect own data properties on ordinary, non-proxy objects. Calling
+// isAvailable() here could execute a caller-supplied getter before a native
+// reservation exists, so every unfamiliar shape must take the guarded path.
+const builtinStringTrim = String.prototype.trim;
+const builtinMaterializationMethods = new Map<string, unknown>([
+  ["publish", FinalCutBackgroundMaterializationPublisher.prototype.publish],
+  ["trackNativeDispatch", FinalCutBackgroundMaterializationPublisher.prototype.trackNativeDispatch],
+  ["isAvailable", FinalCutBackgroundMaterializationPublisher.prototype.isAvailable],
+]);
+
+function hasInertUnavailableMaterializationOptions(publisher: SessionMaterializationPublisher): boolean {
+  if (utilTypes.isProxy(publisher) || Object.getPrototypeOf(publisher) !== FinalCutBackgroundMaterializationPublisher.prototype) return false;
+  for (const [name, method] of builtinMaterializationMethods) {
+    if (Object.getOwnPropertyDescriptor(publisher, name)
+      || Object.getOwnPropertyDescriptor(FinalCutBackgroundMaterializationPublisher.prototype, name)?.value !== method) return false;
+  }
+  const optionsProperty = Object.getOwnPropertyDescriptor(publisher, "options");
+  if (!optionsProperty || !("value" in optionsProperty)) return false;
+  const options: unknown = optionsProperty.value;
+  if (!options || typeof options !== "object" || utilTypes.isProxy(options)) return false;
+  const prototype = Object.getPrototypeOf(options);
+  if (prototype !== null && prototype !== Object.prototype) return false;
+  if (prototype && (Object.getOwnPropertyDescriptor(prototype, "executor") || Object.getOwnPropertyDescriptor(prototype, "command"))) return false;
+  const executor = Object.getOwnPropertyDescriptor(options, "executor");
+  const command = Object.getOwnPropertyDescriptor(options, "command");
+  if ((executor && (!("value" in executor) || executor.value !== undefined)) || (command && !("value" in command))) return false;
+  const value: unknown = command?.value;
+  return value === undefined || value === null || (typeof value === "string" && builtinStringTrim.call(value) === "");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

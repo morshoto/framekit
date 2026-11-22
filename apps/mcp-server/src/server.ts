@@ -1,9 +1,14 @@
+import type { SessionSqliteObservationProvider } from "./headless-sessions.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { resolve as resolvePath } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs";
+import { types as utilTypes } from "node:util";
+import { isAbsolute, resolve as resolvePath } from "node:path";
 import { z } from "zod/v3";
 import {
   AgentVideoRuntime,
+  canonicalSnapshotDigest,
   createCapabilityPreflight,
   resolveEditingIntent,
   serializeCapabilityUnavailableError,
@@ -27,14 +32,18 @@ import {
 import {
   type BackgroundRenderExportProvider,
   NATIVE_MEDIA_IMPORT_DIRECTORY_ERROR_CODE,
+  NativeFinalCutMediaImportError,
   serializeFinalCutLibraryInspectionError,
   serializeNativeFinalCutMediaImportError,
   nativeMediaSearchQueryError,
   type DisposableNativeEditWorkflow,
   type FinalCutProjectPublishJobState,
+  type FinalCutProjectPublishJob,
   type FinalCutProjectPublishReadiness,
-  type FinalCutProjectPublisher,
-  type FinalCutSqliteInspectionProvider,
+  FinalCutProjectPublisher,
+  FinalCutNativeAutomationAdapter,
+  disabledNativeFocusContext,
+  type FileCanonicalRecoveryGuard,
   type FinalCutVideoExporter,
   type NativeFinalCutEditor,
   type NativeFinalCutTransitionMatch,
@@ -63,18 +72,40 @@ import {
   JsonFileEditingSessionPersistence,
   type EditingSessionChangeSource,
   type EditingSessionRepositoryPort,
-  SessionMaterializationJobs,
-  type SessionMaterializationPublisher,
-  type SessionMaterializationServicePort,
+  externalEditOperations,
+  externalEditPlanDigest,
+  verifyExternalEditExportable,
   type HeadlessProjectWorkflow,
   type HeadlessRoughCutExecutionRequest,
   type HeadlessRoughCutRequest,
 } from "@framekit/headless-application";
+import { SessionMaterializationJobs, type SessionMaterializationPublisher, type SessionMaterializationServicePort } from "@framekit/headless-application/materialization";
 import { projectSnapshotFromTimelineIr } from "./headless-project-snapshot.js";
 import { chooseTimelineReadback } from "./readback-policy.js";
 import { registerSkillTools, skillPreviewResult } from "./tools/skills/register.js";
 
-export type { SessionMaterializationPublisher } from "@framekit/headless-application";
+export type { SessionMaterializationPublisher } from "@framekit/headless-application/materialization";
+
+const builtInPublishExecute = FinalCutProjectPublisher.prototype.executePublishJob;
+const builtInPublishGetJob = FinalCutProjectPublisher.prototype.getPublishJob;
+const builtInPublishTrack = FinalCutProjectPublisher.prototype.trackNativeDispatch;
+const builtInPublishPersist = Reflect.get(FinalCutProjectPublisher.prototype, "persistPublishJob");
+const builtInNativeMethods = new Map(Reflect.ownKeys(FinalCutNativeAutomationAdapter.prototype)
+  .map((key) => [key, Object.getOwnPropertyDescriptor(FinalCutNativeAutomationAdapter.prototype, key)?.value]));
+const builtInMapGet = Map.prototype.get;
+const builtInMapSet = Map.prototype.set;
+const builtInMapHas = Map.prototype.has;
+
+// Target identities are opaque: reject blank values without rewriting the
+// caller's approval before the adapter compares it with the observed target.
+const nativeImportTargetIdentity = z.string().min(1).refine((value) => value.trim().length > 0);
+const nativeImportTargetSchema = z.object({
+  libraryId: nativeImportTargetIdentity,
+  eventId: nativeImportTargetIdentity,
+  projectId: nativeImportTargetIdentity,
+  sequenceId: nativeImportTargetIdentity,
+  revision: nativeImportTargetIdentity,
+});
 
 const revisionValueSchema = z.object({
   id: z.string(),
@@ -961,6 +992,7 @@ export interface McpServerOptions {
   disposableNative?: Pick<DisposableNativeEditWorkflow, "preview" | "execute" | "undo">;
   nativeOperationSession?: Pick<NativeOperationSession, "submit" | "status" | "retry" | "cancel">;
   projectPublisher?: FinalCutProjectPublisher;
+  canonicalRecovery?: Pick<FileCanonicalRecoveryGuard, "inspectVersioned" | "inspectNativeReservation" | "assertClear" | "beginNative"> & Partial<Pick<FileCanonicalRecoveryGuard, "inspectNativeRecoveryEvidence">>;
   videoExporter?: FinalCutVideoExporter;
   backgroundRenderer?: BackgroundRenderExportProvider;
   buildFingerprint?: FramekitBuildFingerprint;
@@ -970,7 +1002,7 @@ export interface McpServerOptions {
   /** An injected repository owns its change source; sessionChangeSource applies only to sessionDirectory. */
   sessionRepository?: EditingSessionRepositoryPort;
   sessionChangeSource?: EditingSessionChangeSource;
-  sqliteObservationProvider?: Pick<FinalCutSqliteInspectionProvider, "inspect">;
+  sqliteObservationProvider?: SessionSqliteObservationProvider;
   materializationDirectory?: string;
   sessionMaterializationPublisher?: SessionMaterializationPublisher;
   materializationJobs?: SessionMaterializationServicePort;
@@ -979,6 +1011,9 @@ export interface McpServerOptions {
 }
 
 export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
+  // Inspect only inert descriptors before wrapping. Unknown providers remain
+  // guarded rather than being executed to determine whether dispatch is safe.
+  const builtinImportUnavailable = isBuiltinImportObservationUnavailable(options.nativeEditor);
   runtime.registerBuiltinSkills();
   if (options.requireBuildAlignment) {
     const assertAlignment = () => assertRequiredBuildAlignment(runtime, options);
@@ -998,12 +1033,46 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
             projectPublisher: withBuildAlignmentGuard(
               options.projectPublisher,
               assertAlignment,
-              ["isAvailable", "inspectReadiness", "executionMode", "getPublishJob"],
+              ["isAvailable", "inspectReadiness", "executionMode", "getPublishJob", "loadPublishJob"],
             ),
           }
         : {}),
       ...(options.videoExporter
         ? { videoExporter: withBuildAlignmentGuard(options.videoExporter, assertAlignment, ["isAvailable"]) }
+        : {}),
+    };
+  }
+  const publishRouteIsGuarded = Boolean(options.canonicalRecovery && options.projectPublisher);
+  if (options.canonicalRecovery) {
+    const recovery = options.canonicalRecovery;
+    options = {
+      ...options,
+      ...(options.nativeEditor
+        ? { nativeEditor: withRecoveryCheckpointGuard(options.nativeEditor, recovery, ["capabilities", "inspect"], [
+            "edit", "undo", "executeBlade", "executeMask", "executeTitleAdd", "executeTransitionAdd",
+            "executeAppendMedia", "executeAppendSelectedMedia", "executeInsertMedia", "executeDeleteRange",
+            "executeTrimToDuration", "executePictureInPicture", "importMedia", "executeImportMediaDirectory",
+            "focusTimeline", "selectMedia", "selectOccurrence", "selectCanonicalOccurrence", "targetMedia",
+            "searchMedia", "searchMediaForCanonicalTarget", "searchTitles", "searchTransitions", "locateOccurrence", "locateOccurrenceForCanonicalTarget",
+            "previewBlade", "previewMask", "previewDeleteRange", "previewTrimToDuration", "previewAppendMedia",
+            "previewAppendSelectedMedia", "previewInsertMedia", "previewTitleAdd", "previewPictureInPicture", "previewTransitionAdd",
+          ]) }
+        : {}),
+      ...(options.disposableNative
+        ? { disposableNative: withRecoveryCheckpointGuard(options.disposableNative, recovery, [], ["preview", "execute", "undo"], "disposable") }
+        : {}),
+      ...(options.nativeOperationSession
+        ? { nativeOperationSession: withRecoveryCheckpointGuard(options.nativeOperationSession, recovery, ["status", "cancel"]) }
+        : {}),
+      ...(options.projectPublisher
+        ? { projectPublisher: withPublishRecoveryGuard(options.projectPublisher, recovery, async (publisher, property) => {
+            if (property === "executePublishJob") {
+              if (publisher.isAvailable() && requiresHeadedPublishingRoute(publisher)) await requireEditingRoute(runtime, options, "timeline.publish.new-project");
+            } else {
+              if (!publisher.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
+              if (requiresHeadedPublishingRoute(publisher)) await requireEditingRoute(runtime, options, "timeline.publish.new-project");
+            }
+          }) }
         : {}),
     };
   }
@@ -1021,7 +1090,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       : undefined);
   const materializations = options.materializationJobs
     ?? (sessions && options.materializationDirectory
-      ? new SessionMaterializationJobs(options.materializationDirectory, sessions, options.sessionMaterializationPublisher)
+      ? new SessionMaterializationJobs(options.materializationDirectory, sessions, options.sessionMaterializationPublisher, options.canonicalRecovery)
       : undefined);
 
   const requireSessions = (): EditingSessionRepositoryPort => {
@@ -1157,7 +1226,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("session.materialize.execute", {
     description: "Confirm, stage, checkpoint, and request publication of a versioned FCPXML project.",
     inputSchema: { sessionId: z.string().min(1), target: sessionMaterializationTargetSchema, confirm: z.boolean() },
-  }, async ({ sessionId, target, confirm }) => sessionResult(async () => requireMaterializations().execute(sessionId, target, confirm)));
+  }, async ({ sessionId, target, confirm }) => sessionResult(async () => {
+    if (options.sessionMaterializationPublisher) await options.canonicalRecovery?.assertClear();
+    return requireMaterializations().execute(sessionId, target, confirm);
+  }));
 
   server.registerTool("session.materialize.status", {
     description: "Inspect a persisted materialization job after completion, blockage, or server restart.",
@@ -1167,7 +1239,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   server.registerTool("session.materialize.retry", {
     description: "Resume a retryable persisted materialization job with its verified immutable artifact.",
     inputSchema: { jobId: z.string().min(1) },
-  }, async ({ jobId }) => sessionResult(async () => requireMaterializations().retry(jobId)));
+  }, async ({ jobId }) => sessionResult(async () => {
+    if (options.sessionMaterializationPublisher) await options.canonicalRecovery?.assertClear();
+    return requireMaterializations().retry(jobId);
+  }));
 
   server.registerTool("session.materialize.resync", {
     description: "Read the completed versioned handoff target and create a fresh editing-session baseline for continuation.",
@@ -1185,6 +1260,92 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ publishJobId }) => jsonResult(
     await inspectNativeHandoffReadiness(runtime, options, publishJobId),
   ));
+
+  server.registerTool("editor.native.recovery.evidence.inspect", {
+    description: "Read point-in-time native reservation and sender evidence without changing state or proving receiver quiescence. Recovery eligibility is unavailable.",
+    inputSchema: {},
+  }, async () => sessionResult(async () => {
+    if (!options.canonicalRecovery?.inspectNativeRecoveryEvidence) throw new Error("CAPABILITY_UNAVAILABLE: native recovery evidence inspection is not configured");
+    return options.canonicalRecovery.inspectNativeRecoveryEvidence();
+  }));
+
+  server.registerTool("editor.native.recovery.inspect", {
+    description: "Inspect recovery checkpoint evidence in the configured state directory without contacting Final Cut or clearing the checkpoint.",
+    inputSchema: {},
+  }, async () => sessionResult(async () => {
+    if (!options.canonicalRecovery) throw new Error("CAPABILITY_UNAVAILABLE: canonical recovery checkpoint inspection is not configured");
+    let evidence: Awaited<ReturnType<FileCanonicalRecoveryGuard["inspectVersioned"]>>;
+    try {
+      evidence = await options.canonicalRecovery.inspectVersioned();
+    } catch (error) {
+      const nativeReservation = await options.canonicalRecovery.inspectNativeReservation();
+      if (!nativeReservation) throw error;
+      return { status: "recovery-required", scope: "configured-state-directory", nativeReservation };
+    }
+    return evidence
+      ? { status: "recovery-required", scope: "configured-state-directory", ...evidence }
+      : { status: "clear", scope: "configured-state-directory" };
+  }));
+
+  server.registerTool("editor.native.recovery.preview", {
+    description: "Compare a separately authorized headed canonical read with one target-bound checkpoint. Confirmation alone does not establish authorization. Never clears the checkpoint or proves native operation quiescence.",
+    inputSchema: {
+      confirmHeadedRead: z.boolean().optional(),
+      expectedTarget: contextTargetSchema.optional(),
+      expectedCheckpointId: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+    },
+  }, async ({ confirmHeadedRead, expectedTarget, expectedCheckpointId }) => {
+    const operation = "editor.native.recovery.preview";
+    if (!confirmHeadedRead || !expectedTarget || !expectedCheckpointId) {
+      return mcpReadErrorResult("HEADED_READ_CONFIRMATION_REQUIRED", "recovery preview requires confirmation, target IDs, and the inspected checkpoint ID", operation);
+    }
+    if (!options.canonicalRecovery) return mcpReadErrorResult("CAPABILITY_UNAVAILABLE", "canonical recovery checkpoint inspection is not configured", operation);
+    let evidence: Awaited<ReturnType<FileCanonicalRecoveryGuard["inspectVersioned"]>>;
+    try {
+      evidence = await options.canonicalRecovery.inspectVersioned();
+    } catch (error) {
+      return mcpReadErrorResult("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED", error instanceof Error ? error.message : String(error), operation);
+    }
+    if (!evidence || evidence.checkpointId !== expectedCheckpointId) return mcpReadErrorResult("CHECKPOINT_MISMATCH", "recovery checkpoint is missing or changed", operation);
+    if (evidence.checkpoint.projectId !== expectedTarget.projectId || evidence.checkpoint.sequenceId !== expectedTarget.sequenceId) {
+      return mcpReadErrorResult("TARGET_MISMATCH", "requested target differs from the checkpoint", operation);
+    }
+    const passive = await inspectMcpEditor(runtime, options);
+    if (passive.identity.backend !== "final-cut-native-canonical") {
+      return mcpReadErrorResult("CAPABILITY_UNAVAILABLE", "recovery preview requires the canonical native provider", operation);
+    }
+    try {
+      return await inspectCanonicalReadForMcp(runtime, options, operation, true, expectedTarget, async () => {
+        const beforeLive = await runtime.inspectLiveEditor();
+        if (!liveTargetMatches(beforeLive, expectedTarget) || !beforeLive.revision?.id || !Number.isSafeInteger(beforeLive.revision.sequence)) {
+          throw new Error("STALE_CONTEXT: live target or revision is unavailable before recovery read");
+        }
+        const snapshot = await runtime.inspectProject();
+        const afterLive = await runtime.inspectLiveEditor();
+        if (!liveTargetMatches(afterLive, expectedTarget) || afterLive.revision?.id !== beforeLive.revision.id
+          || afterLive.revision?.sequence !== beforeLive.revision.sequence) {
+          throw new Error("STALE_CONTEXT: live target or revision changed during recovery read");
+        }
+        if (snapshot.projectId !== expectedTarget.projectId || snapshot.timeline.id !== expectedTarget.sequenceId) {
+          throw new Error("TARGET_MISMATCH: canonical snapshot differs from the checkpoint target");
+        }
+        const after = await options.canonicalRecovery!.inspectVersioned();
+        if (!after || after.checkpointId !== expectedCheckpointId) throw new Error("CHECKPOINT_MISMATCH: checkpoint changed during canonical read");
+        const observedDigest = canonicalSnapshotDigest(snapshot);
+        const comparison = evidence!.checkpoint.expectedRestoreDigest === observedDigest
+          ? "matches-expected-restoration"
+          : evidence!.checkpoint.beforeDigest === observedDigest ? "matches-before" : "different";
+        return { checkpointId: expectedCheckpointId, target: expectedTarget, observedRevision: snapshot.revision, observedLiveRevision: afterLive.revision, observedDigest, comparison, pointInTime: true, quiescence: "unproven", checkpointCleared: false };
+      }, (result) => result.target);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.startsWith("STALE_CONTEXT:")) return mcpReadErrorResult("STALE_CONTEXT", message, operation);
+      if (message.startsWith("TARGET_MISMATCH:")) return mcpReadErrorResult("TARGET_MISMATCH", message, operation);
+      if (message.startsWith("CHECKPOINT_MISMATCH:")) return mcpReadErrorResult("CHECKPOINT_MISMATCH", message, operation);
+      if (message.startsWith("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED:")) return mcpReadErrorResult("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED", message, operation);
+      throw error;
+    }
+  });
 
   registerSkillTools(server, runtime);
 
@@ -1276,6 +1437,64 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     },
   }, async ({ projectId, sourcePath, expectedRevision }) => sessionResult(() => requireHeadlessProjects().registerMedia(projectId, sourcePath, expectedRevision)));
 
+  server.registerTool("headless.media.search", {
+    description: "Search one Framekit-owned project's registered media by ID, name, or source path without contacting Final Cut.",
+    inputSchema: { projectId: z.string().min(1), query: z.string() },
+  }, async ({ projectId, query }) => sessionResult(() => requireHeadlessProjects().searchMedia(projectId, query)));
+
+  const externalEditSchema = z.object({
+    schemaVersion: z.literal(1),
+    clips: z.array(z.object({
+      id: z.string().min(1), mediaId: z.string().min(1),
+      sourceStartTime: rationalTimeSchema, durationTime: rationalTimeSchema,
+      nativeAudioRole: z.string().regex(/^dialogue(?:\.[^.]+)?$/).refine((role) => !/[\t\r\n]/.test(role)).optional(),
+    }).strict()).min(1),
+    title: z.object({
+      id: z.string().min(1), text: z.string().min(1),
+      startTime: rationalTimeSchema, durationTime: rationalTimeSchema,
+    }).strict().optional(),
+    music: z.object({
+      id: z.string().min(1), mediaId: z.string().min(1), sourceStartTime: rationalTimeSchema,
+      startTime: rationalTimeSchema, durationTime: rationalTimeSchema, gainDb: z.number().finite(),
+    }).strict().optional(),
+  }).strict();
+  server.registerTool("headless.edit-json.preview", {
+    description: "Preview a versioned external edit against a Framekit project without mutation.",
+    inputSchema: { projectId: z.string().min(1), sequenceId: z.string().min(1), expectedRevision: revisionValueSchema, edit: externalEditSchema },
+  }, async ({ projectId, sequenceId, expectedRevision, edit }) => sessionResult(async () => {
+    const service = requireHeadlessProjects();
+    const project = await service.inspect(projectId);
+    let operations = externalEditOperations(edit, project.timeline, expectedRevision);
+    if (edit.title) {
+      const unbound = await service.previewEdit(projectId, { schemaVersion: 1, expectedRevision, operations }, sequenceId);
+      verifyExternalEditExportable(unbound.after.timeline);
+      const font = service.selectTitleFont([edit.title.text]);
+      operations = operations.map((operation) => operation.type === "add-title" ? { ...operation, title: { ...operation.title, font } } : operation);
+    }
+    const preview = await service.previewEdit(projectId, { schemaVersion: 1, expectedRevision, operations }, sequenceId);
+    verifyExternalEditExportable(preview.after.timeline);
+    return { ...preview, planDigest: externalEditPlanDigest(preview.command) };
+  }));
+
+  server.registerTool("headless.edit-json.execute", {
+    description: "Execute a versioned external edit against a Framekit project revision.",
+    inputSchema: { projectId: z.string().min(1), sequenceId: z.string().min(1), expectedRevision: revisionValueSchema, edit: externalEditSchema, approved: z.literal(true), planDigest: z.string().regex(/^[a-f0-9]{64}$/) },
+  }, async ({ projectId, sequenceId, expectedRevision, edit, planDigest }) => sessionResult(async () => {
+    const service = requireHeadlessProjects();
+    const project = await service.inspect(projectId);
+    let operations = externalEditOperations(edit, project.timeline, expectedRevision);
+    if (edit.title) {
+      const unbound = await service.previewEdit(projectId, { schemaVersion: 1, expectedRevision, operations }, sequenceId);
+      verifyExternalEditExportable(unbound.after.timeline);
+      const font = service.selectTitleFont([edit.title.text]);
+      operations = operations.map((operation) => operation.type === "add-title" ? { ...operation, title: { ...operation.title, font } } : operation);
+    }
+    const preview = await service.previewEdit(projectId, { schemaVersion: 1, expectedRevision, operations }, sequenceId);
+    verifyExternalEditExportable(preview.after.timeline);
+    if (externalEditPlanDigest(preview.command) !== planDigest) throw new Error("EXTERNAL_EDIT_STALE_PREVIEW: approved edit does not match preview");
+    return service.executeEdit(projectId, { schemaVersion: 1, expectedRevision, operations }, sequenceId);
+  }));
+
   server.registerTool("headless.edit.preview", {
     description: "Preview supported Framekit Timeline IR edits without persisting or mutating the project.",
     inputSchema: {
@@ -1290,6 +1509,30 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     operations: operations as TimelineIrEditOperation[],
   }, sequenceId)));
 
+  server.registerTool("headless.edit.approved-preview", {
+    description: "Preview a revision-bound headless edit and issue a single-use approval token.",
+    inputSchema: {
+      projectId: z.string().min(1),
+      sequenceId: z.string().min(1),
+      expectedRevision: revisionValueSchema,
+      operations: z.array(z.unknown()),
+    },
+  }, async ({ projectId, sequenceId, expectedRevision, operations }) => sessionResult(() => requireHeadlessProjects().previewApprovedEdit(projectId, {
+    schemaVersion: 1,
+    expectedRevision,
+    operations: operations as TimelineIrEditOperation[],
+  }, sequenceId)));
+
+  server.registerTool("headless.edit.approved-execute", {
+    description: "Execute exactly the previously previewed headless edit after explicit approval.",
+    inputSchema: {
+      projectId: z.string().min(1),
+      sequenceId: z.string().min(1),
+      previewToken: z.string().min(1),
+      approved: z.literal(true),
+    },
+  }, async ({ projectId, sequenceId, previewToken }) => sessionResult(() => requireHeadlessProjects().executeApprovedEdit(projectId, sequenceId, previewToken)));
+
   server.registerTool("headless.edit.execute", {
     description: "Execute supported Framekit Timeline IR edits against the expected canonical revision and persist exactly one revision.",
     inputSchema: {
@@ -1303,6 +1546,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     expectedRevision,
     operations: operations as TimelineIrEditOperation[],
   }, sequenceId)));
+
+  server.registerTool("headless.edit.undo", {
+    description: "Restore the prior Framekit-owned timeline at the expected revision and independently verify the persisted result.",
+    inputSchema: { projectId: z.string().min(1), sequenceId: z.string().min(1), undoId: z.string().min(1), expectedRevision: revisionValueSchema },
+  }, async ({ projectId, sequenceId, undoId, expectedRevision }) => sessionResult(() => requireHeadlessProjects().undoEdit(projectId, sequenceId, undoId, expectedRevision)));
 
   const headlessRenderParametersSchema = z.object({
     outputPath: z.string().min(1),
@@ -1362,6 +1610,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     eventName: z.string().min(1).optional(),
     materialization: z.enum(["versioned", "reuse-existing"]).optional(),
   }).strict();
+  server.registerTool("headless.fcpxml.export", {
+    description: "Compile an exact Framekit-owned project revision to a new FCPXML artifact without contacting Final Cut.",
+    inputSchema: { projectId: z.string().min(1), sequenceId: z.string().min(1), expectedRevision: revisionValueSchema, outputPath: z.string().min(1), target: headlessFcpxmlTargetSchema },
+  }, async ({ projectId, sequenceId, expectedRevision, outputPath, target }) => sessionResult(() => requireHeadlessProjects().exportFcpxml(projectId, sequenceId, expectedRevision, outputPath, target)));
   const headlessRoughCutRequestSchema = z.object({
     projectId: z.string().min(1),
     sequenceId: z.string().min(1),
@@ -1384,12 +1636,32 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       expectedRevision: revisionValueSchema.optional(),
       parameters: headlessRenderParametersSchema,
     },
-  }, async ({ projectId, sequenceId, expectedRevision, parameters }) => sessionResult(() => requireHeadlessProjects().render(projectId, sequenceId, parameters, expectedRevision)));
+  }, async ({ projectId, sequenceId, expectedRevision, parameters }) => {
+    try {
+      const record = await requireHeadlessProjects().render(projectId, sequenceId, parameters, expectedRevision);
+      return { ...jsonResult(record), ...(record.status === "failed" ? { isError: true } : {}) };
+    } catch (error) {
+      return sessionResult(async () => { throw error; });
+    }
+  });
 
   server.registerTool("headless.rough-cut.preview", {
-    description: "Preview a semantic rough-cut plan with optional Timeline IR operations; the digest binds both, and preview returns provenance and FCPXML output intent without mutation.",
+    description: "Preview a semantic rough-cut plan and a bounded storyboard; the digest binds the plan and operations without mutating the timeline.",
     inputSchema: headlessRoughCutRequestSchema.shape,
-  }, async (request) => sessionResult(() => requireHeadlessProjects().previewRoughCut(request as unknown as HeadlessRoughCutRequest)));
+  }, async (request, extra) => {
+    try {
+      const preview = await requireHeadlessProjects().previewRoughCut(request as unknown as HeadlessRoughCutRequest, extra.signal, true);
+      if (!preview.storyboard && preview.storyboardUnavailable) return jsonResult(preview);
+      if (!preview.storyboard) throw new Error("HEADLESS_STORYBOARD_UNAVAILABLE: storyboard renderer returned no image");
+      const { data, mimeType, ...metadata } = preview.storyboard;
+      return { content: [
+        { type: "text" as const, text: JSON.stringify({ ...preview, storyboard: { mimeType, ...metadata } }) },
+        { type: "image" as const, data, mimeType },
+      ] };
+    } catch (error) {
+      return sessionResult(async () => { throw error; });
+    }
+  });
 
   server.registerTool("headless.rough-cut.execute", {
     description: "Execute an explicitly approved semantic rough-cut plan and its digest-bound Timeline IR operations headlessly, verify MP4 output, and write equivalent editable FCPXML.",
@@ -1489,11 +1761,18 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
 
   server.registerTool("editor.native.media.import", {
     description: "Import one local video or audio file into the active Final Cut Browser and wait for a stable media handle.",
-    inputSchema: { path: z.string().min(1) },
-  }, async ({ path }, extra) => {
+    inputSchema: { path: z.string().min(1), expectedImportTarget: nativeImportTargetSchema.optional() },
+  }, async ({ path, expectedImportTarget }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media import is not configured");
+    if (builtinImportUnavailable) {
+      await options.canonicalRecovery?.assertClear();
+      return nativeMediaImportErrorResult(new NativeFinalCutMediaImportError(
+        "CAPABILITY_UNAVAILABLE", "native media import requires independently observed original source binding",
+        { stage: "pre-import-browser-discovery", elapsedMs: 0, stageElapsedMs: 0, partialImportPossible: false },
+      ));
+    }
     try {
-      return jsonResult(await options.nativeEditor.importMedia(path, { signal: extra.signal }));
+      return jsonResult(await options.nativeEditor.importMedia(path, { signal: extra.signal, ...(expectedImportTarget ? { expectedImportTarget } : {}) }));
     } catch (error) {
       return nativeMediaImportErrorResult(error);
     }
@@ -1501,10 +1780,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
 
   server.registerTool("editor.native.media.directory.preview", {
     description: "Enumerate supported top-level video files in a local directory without mutating Final Cut and return an expiring import preview.",
-    inputSchema: { path: z.string().trim().min(1) },
-  }, async ({ path }, extra) => {
+    inputSchema: { path: z.string().trim().min(1), expectedImportTarget: nativeImportTargetSchema.optional() },
+  }, async ({ path, expectedImportTarget }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media import is not configured");
-    return jsonResult(await options.nativeEditor.previewImportMediaDirectory(path, { signal: extra.signal }));
+    return jsonResult(await options.nativeEditor.previewImportMediaDirectory(path, { signal: extra.signal, ...(expectedImportTarget ? { expectedImportTarget } : {}) }));
   });
 
   server.registerTool("editor.native.media.directory.execute", {
@@ -1512,6 +1791,13 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { previewToken: z.string().min(1), confirm: z.literal(true) },
   }, async ({ previewToken, confirm }, extra) => {
     if (!options.nativeEditor) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native media import is not configured");
+    if (builtinImportUnavailable) {
+      await options.canonicalRecovery?.assertClear();
+      return nativeMediaImportErrorResult(new NativeFinalCutMediaImportError(
+        "CAPABILITY_UNAVAILABLE", "native media import requires independently observed original source binding",
+        { stage: "pre-import-browser-discovery", elapsedMs: 0, stageElapsedMs: 0, partialImportPossible: false },
+      ));
+    }
     return jsonResult(await options.nativeEditor.executeImportMediaDirectory(previewToken, confirm, { signal: extra.signal }));
   });
 
@@ -1861,7 +2147,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     },
   }, async ({ jobId, confirm, confirmVerification }) => {
     if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
-    if (options.projectPublisher.isAvailable() && requiresHeadedPublishingRoute(options.projectPublisher)) {
+    if (!publishRouteIsGuarded && options.projectPublisher.isAvailable() && requiresHeadedPublishingRoute(options.projectPublisher)) {
       await requireEditingRoute(runtime, options, "timeline.publish.new-project");
     }
     return jsonResult(await options.projectPublisher.executePublishJob(jobId, confirm, confirmVerification));
@@ -1872,16 +2158,17 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { jobId: z.string().trim().min(1) },
   }, async ({ jobId }) => {
     if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH and native writes");
-    return jsonResult(options.projectPublisher.getPublishJob(jobId));
+    return jsonResult(await options.projectPublisher.loadPublishJob(jobId));
   });
 
   server.registerTool("artifact.publish", {
     description: "Experimental direct import; explicitly confirm both creation and headed readback for this artifact. Dispatch alone does not prove project creation.",
     inputSchema: artifactPublishInputSchema,
   }, async ({ artifactPath, targetLibraryPath, transactionId, confirm, confirmVerification }) => {
-    if (!options.projectPublisher?.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
-    if (requiresHeadedPublishingRoute(options.projectPublisher)) {
-      await requireEditingRoute(runtime, options, "timeline.publish.new-project");
+    if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
+    if (!publishRouteIsGuarded) {
+      if (!options.projectPublisher.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
+      if (requiresHeadedPublishingRoute(options.projectPublisher)) await requireEditingRoute(runtime, options, "timeline.publish.new-project");
     }
     const transaction = runtime.getTransaction(transactionId);
     if (transaction.target?.kind !== "artifact" || transaction.target.artifactPath !== artifactPath) {
@@ -1911,9 +2198,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       confirmVerification: z.boolean().optional(),
     },
   }, async ({ transactionId, targetLibraryPath, confirm, confirmVerification }) => {
-    if (!options.projectPublisher?.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
-    if (requiresHeadedPublishingRoute(options.projectPublisher)) {
-      await requireEditingRoute(runtime, options, "timeline.publish.new-project");
+    if (!options.projectPublisher) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
+    if (!publishRouteIsGuarded) {
+      if (!options.projectPublisher.isAvailable()) throw new Error("CAPABILITY_UNAVAILABLE: Final Cut project publishing requires FRAMEKIT_FCPXML_PATH, native writes, live project verification, and a target-binding provider");
+      if (requiresHeadedPublishingRoute(options.projectPublisher)) await requireEditingRoute(runtime, options, "timeline.publish.new-project");
     }
     const transaction = runtime.getTransaction(transactionId);
     if (transaction.target?.kind !== "artifact") {
@@ -2652,24 +2940,26 @@ async function inspectCanonicalReadForMcp<T>(
     }
   }
 
-  const inspected = await inspectMcpEditor(runtime, options, true);
-  const capability = inspected.capabilities.families.canonicalDocument.read;
-  if (!capability.available) return capabilityErrorResult(operation, "canonicalDocument.read", capability);
-  try {
-    const result = await read();
-    if (headed && expectedTarget) {
-      const live = await runtime.inspectLiveEditor();
-      const returnedTarget = targetOf(result);
-      if (!liveTargetMatches(live, expectedTarget)
-        || (returnedTarget.projectId !== undefined && returnedTarget.projectId !== expectedTarget.projectId)
-        || (returnedTarget.sequenceId !== undefined && returnedTarget.sequenceId !== expectedTarget.sequenceId)) {
-        return mcpReadErrorResult("TARGET_MISMATCH", `${operation} result or active target changed during the headed read`, operation);
+  return runtime.withCanonicalReadScope(async () => {
+    const inspected = await inspectMcpEditor(runtime, options, true);
+    const capability = inspected.capabilities.families.canonicalDocument.read;
+    if (!capability.available) return capabilityErrorResult(operation, "canonicalDocument.read", capability);
+    try {
+      const result = await read();
+      if (headed && expectedTarget) {
+        const live = await runtime.inspectLiveEditor();
+        const returnedTarget = targetOf(result);
+        if (!liveTargetMatches(live, expectedTarget)
+          || (returnedTarget.projectId !== undefined && returnedTarget.projectId !== expectedTarget.projectId)
+          || (returnedTarget.sequenceId !== undefined && returnedTarget.sequenceId !== expectedTarget.sequenceId)) {
+          return mcpReadErrorResult("TARGET_MISMATCH", `${operation} result or active target changed during the headed read`, operation);
+        }
       }
+      return jsonResult(result);
+    } catch (error) {
+      return capabilityUnavailableErrorResult(error);
     }
-    return jsonResult(result);
-  } catch (error) {
-    return capabilityUnavailableErrorResult(error);
-  }
+  });
 }
 
 function liveTargetMatches(
@@ -2791,7 +3081,7 @@ async function inspectMcpEditor(runtime: AgentVideoRuntime, options: McpServerOp
       }),
       fingerprint,
       buildAlignment,
-      nativeHandoffReadiness: createNativeHandoffReadiness(options.projectPublisher, buildAlignment),
+      nativeHandoffReadiness: await createNativeHandoffReadiness(options.projectPublisher, buildAlignment),
     } satisfies McpCapabilityPreflight,
     ...(native ? { native } : {}),
   };
@@ -2818,11 +3108,11 @@ async function inspectNativeHandoffReadiness(
   return createNativeHandoffReadiness(options.projectPublisher, buildAlignment, publishJobId);
 }
 
-function createNativeHandoffReadiness(
+async function createNativeHandoffReadiness(
   publisher: FinalCutProjectPublisher | undefined,
   buildAlignment: BuildAlignmentReport,
   publishJobId?: string,
-): NativeHandoffReadiness {
+): Promise<NativeHandoffReadiness> {
   const publisherReadiness = inspectProjectPublisherReadiness(publisher);
   const reasons = [...publisherReadiness.reasons];
   if (buildAlignment.status !== "matched") {
@@ -2844,15 +3134,34 @@ function createNativeHandoffReadiness(
       });
     } else {
       try {
-        const job = publisher.getPublishJob(publishJobId);
+        const job = typeof publisher.loadPublishJob === "function"
+          ? await publisher.loadPublishJob(publishJobId)
+          : publisher.getPublishJob(publishJobId);
         publish = { jobId: job.jobId, state: job.state };
         const resultTarget = job.result?.createdTarget;
         const targetMatches = job.createdTarget
           && resultTarget
-          && job.createdTarget.projectId === resultTarget.projectId
-          && job.createdTarget.sequenceId === resultTarget.sequenceId;
+          && nativeTargetIdentityMatches(job.createdTarget, resultTarget);
         if (job.state === "verified" && job.result?.verified === true && targetMatches) {
-          verifiedTarget = resultTarget;
+          if (typeof publisher.verifyCreatedTarget === "function") {
+            try {
+              const reboundTarget = await publisher.verifyCreatedTarget(job.jobId);
+              if (!nativeTargetIdentityMatches(resultTarget, reboundTarget)) {
+                throw new Error("persisted target identity changed during live rebind");
+              }
+              verifiedTarget = reboundTarget;
+            } catch (error) {
+              reasons.push({
+                code: "FINAL_CUT_PUBLISH_TARGET_REBIND_FAILED",
+                message: `Publish job ${job.jobId} no longer matches the live native target: ${error instanceof Error ? error.message : String(error)}`,
+              });
+            }
+          } else {
+            reasons.push({
+              code: "FINAL_CUT_PUBLISH_TARGET_REBIND_UNAVAILABLE",
+              message: `Publish job ${job.jobId} cannot be rebound because the publisher cannot revalidate the native library and active target`,
+            });
+          }
         } else {
           reasons.push({
             code: "FINAL_CUT_PUBLISH_TARGET_UNVERIFIED",
@@ -2883,6 +3192,29 @@ function createNativeHandoffReadiness(
     ...(publish ? { publish } : {}),
     ...(ready && verifiedTarget ? { createdTarget: verifiedTarget } : {}),
   };
+}
+
+function nativeTargetIdentityMatches(
+  left: {
+    kind: "editor.project";
+    projectId: string;
+    sequenceId: string;
+    libraryId?: string;
+    eventId?: string;
+  },
+  right: {
+    kind: "editor.project";
+    projectId: string;
+    sequenceId: string;
+    libraryId?: string;
+    eventId?: string;
+  },
+): boolean {
+  return left.kind === right.kind
+    && left.projectId === right.projectId
+    && left.sequenceId === right.sequenceId
+    && left.libraryId === right.libraryId
+    && left.eventId === right.eventId;
 }
 
 function inspectProjectPublisherReadiness(
@@ -2923,6 +3255,399 @@ async function assertRequiredBuildAlignment(runtime: AgentVideoRuntime, options:
   if (alignment.status !== "matched") {
     throw new Error(`FRAMEKIT_BUILD_ALIGNMENT_MISMATCH: ${alignment.message}`);
   }
+}
+
+function withPublishRecoveryGuard<T extends object>(
+  provider: T,
+  recovery: Pick<FileCanonicalRecoveryGuard, "assertClear" | "beginNative" | "inspectNativeReservation">,
+  validateRoute: (provider: T, property: "executePublishJob" | "publishNewProject") => Promise<void>,
+): T {
+  const allowed = new Set<PropertyKey>(["isAvailable", "inspectReadiness", "executionMode", "getPublishJob", "loadPublishJob", "preparePublish"]);
+  let current: { jobId?: string; reservation: Awaited<ReturnType<FileCanonicalRecoveryGuard["beginNative"]>>; active: boolean; dispatched: boolean; needsBinding: boolean; requestedIntent?: { libraryPath: string; artifactDigest: string; state: string }; requestedConfiguration?: Array<PropertyDescriptor | undefined> } | undefined;
+  return new Proxy(provider, {
+    get(target, property) {
+      if (property !== "executePublishJob" && property !== "publishNewProject") {
+        const value = Reflect.get(target, property, target) as unknown;
+        if (typeof value !== "function") return value;
+        if (allowed.has(property)) return value.bind(target);
+        return async (...args: unknown[]) => {
+          await recovery.assertClear();
+          return Reflect.apply(value, target, args);
+        };
+      }
+      return async (...args: unknown[]) => {
+        const jobId = property === "executePublishJob" && typeof args[0] === "string" ? args[0] : undefined;
+        let provenDisabled = false;
+        let entry = current;
+        const acquiringReservation = !entry;
+        if (entry) {
+          if (entry.active || !jobId || entry.jobId !== jobId || args[1] !== true || args[2] !== true
+          ) {
+            throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish reservation only permits verification of its settled pending job");
+          }
+          entry.active = true;
+          try {
+            const observed = await recovery.inspectNativeReservation();
+            if (observed?.reservationId !== entry.reservation.reservationId) {
+              throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish reservation changed before verification");
+            }
+            const getJob = Reflect.get(target, "getPublishJob", target) as (id: string) => { jobId?: unknown; state?: string } | undefined;
+            const job = getJob.call(target, jobId);
+            if (job?.state !== "verification-pending" || (job.jobId !== undefined && job.jobId !== jobId)) {
+              throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish job changed before verification");
+            }
+          } catch (error) {
+            entry.active = false;
+            throw error;
+          }
+        } else {
+          // Never invoke caller-controlled job lookup before the reservation.
+          const job = jobId ? inertBuiltInPublishJob(target, jobId) : undefined;
+          if (job && job.jobId !== jobId) throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish job identity mismatch");
+          const pending = job?.state === "verification-pending";
+          const operation = jobId
+            ? `native.publish.${createHash("sha256").update(jobId).digest("hex")}`
+            : "native.publish.direct";
+          const path = job?.targetLibraryPath;
+          const digest = job?.artifactDigest;
+          const context = jobId && !pending && /^publish-job-[a-z0-9-]{1,80}$/.test(jobId)
+            && typeof path === "string" && path.length <= 4096 && isAbsolute(path) && path.endsWith(".fcpbundle")
+            && typeof digest === "string" && /^[a-f0-9]{64}$/.test(digest)
+            ? Object.freeze({ kind: "publish" as const, jobId, dispatchId: randomUUID(), requestedTarget: Object.freeze({ libraryPath: path }),
+              artifactDigest: digest, executorIdentity: null, nativeQuiescence: "unproven" as const })
+            : undefined;
+          // Capture primitives and data descriptors before awaiting the guard;
+          // its implementation must not rewrite the evidence used for rechecks.
+          const configurationKeys = ["enabled", "liveState", "readCanonicalSnapshot", "sourcePath", "publishJobsDirectory"];
+          const requestedConfiguration = job ? configurationKeys.map((key) => Object.getOwnPropertyDescriptor(target, key)) : undefined;
+          const requestedIntent = context && job ? { libraryPath: context.requestedTarget.libraryPath,
+            artifactDigest: context.artifactDigest, state: job.state } : undefined;
+          const reservation = await recovery.beginNative(operation, context);
+          entry = { jobId, reservation, active: true, dispatched: pending, needsBinding: !context,
+            ...(requestedIntent ? { requestedIntent } : {}), ...(requestedConfiguration ? { requestedConfiguration } : {}) };
+          current = entry;
+        }
+        try {
+          if (acquiringReservation && jobId && entry.requestedIntent) {
+            const currentJob = inertBuiltInPublishJob(target, jobId);
+            const expected = entry.requestedIntent;
+            if (!currentJob || currentJob.jobId !== jobId || currentJob.targetLibraryPath !== expected.libraryPath
+              || currentJob.artifactDigest !== expected.artifactDigest || currentJob.state !== expected.state) {
+              entry.dispatched = true;
+              await entry.reservation.markDispatchPossible();
+              throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish intent changed during reservation acquisition");
+            }
+          }
+          // Property getters on arbitrary providers may themselves dispatch.
+          const trustedShape = !utilTypes.isProxy(target) && property === "executePublishJob"
+            && Object.getPrototypeOf(target) === FinalCutProjectPublisher.prototype
+            && [["executePublishJob", builtInPublishExecute], ["getPublishJob", builtInPublishGetJob],
+              ["persistPublishJob", builtInPublishPersist], ["trackNativeDispatch", builtInPublishTrack]].every(([key, method]) =>
+              typeof key === "string" && !Object.getOwnPropertyDescriptor(target, key)
+              && Object.getOwnPropertyDescriptor(FinalCutProjectPublisher.prototype, key)?.value === method);
+          if (acquiringReservation && !trustedShape) {
+            entry.dispatched = true;
+            await entry.reservation.markDispatchPossible();
+            // A custom lookup may execute arbitrary provider code. Run it only
+            // after durable uncertainty, then bind any eligible requested intent.
+            if (jobId && entry.needsBinding) {
+              const lookup = Reflect.get(target, "getPublishJob", target) as unknown;
+              if (typeof lookup === "function") {
+                const requested = Reflect.apply(lookup, target, [jobId]) as { jobId?: unknown; state?: unknown; targetLibraryPath?: unknown; artifactDigest?: unknown } | undefined;
+                if (requested?.jobId !== undefined && requested.jobId !== jobId) {
+                  throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish job identity mismatch");
+                }
+                if (requested?.state === "verification-pending") {
+                  throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: unowned pending publish cannot be invoked again");
+                }
+                const path = requested?.targetLibraryPath;
+                const digest = requested?.artifactDigest;
+                if (requested?.state !== "verification-pending" && /^publish-job-[a-z0-9-]{1,80}$/.test(jobId)
+                  && typeof path === "string" && path.length <= 4096 && isAbsolute(path) && path.endsWith(".fcpbundle")
+                  && typeof digest === "string" && /^[a-f0-9]{64}$/.test(digest)) {
+                  await entry.reservation.bindRecoveryContext({ kind: "publish", jobId, dispatchId: randomUUID(),
+                    requestedTarget: { libraryPath: path }, artifactDigest: digest,
+                    executorIdentity: null, nativeQuiescence: "unproven" });
+                }
+              }
+            }
+          }
+          const value = trustedShape ? builtInPublishExecute : Reflect.get(target, property, target) as unknown;
+          const track = trustedShape ? builtInPublishTrack : Reflect.get(target, "trackNativeDispatch", target) as unknown;
+          if (typeof value !== "function") throw new Error("CAPABILITY_UNAVAILABLE: publisher operation is not available");
+          if (acquiringReservation && jobId && property === "executePublishJob"
+            && trustedShape) {
+            const stores = ["publishJobs", "publishJobRuntime"].map((key) => Object.getOwnPropertyDescriptor(target, key)?.value);
+            const ordinaryStores = stores.every((store: unknown) => !utilTypes.isProxy(store) && utilTypes.isMap(store)
+              && Object.getPrototypeOf(store) === Map.prototype
+              && !Object.getOwnPropertyDescriptor(store, "get") && !Object.getOwnPropertyDescriptor(store, "set") && !Object.getOwnPropertyDescriptor(store, "has")
+              && Object.getOwnPropertyDescriptor(Map.prototype, "get")?.value === builtInMapGet
+              && Object.getOwnPropertyDescriptor(Map.prototype, "set")?.value === builtInMapSet
+              && Object.getOwnPropertyDescriptor(Map.prototype, "has")?.value === builtInMapHas);
+            const job = ordinaryStores ? inertBuiltInPublishJob(target, jobId) : undefined;
+            if (!ordinaryStores || (!job && builtInMapHas.call(stores[0], jobId))) {
+              // A present but non-inert job may execute getters or identify a
+              // different operation. Do not invoke it even after the marker.
+              entry.dispatched = true;
+              await entry.reservation.markDispatchPossible();
+              throw new Error("FINAL_CUT_CANONICAL_RECOVERY_REQUIRED: publish job identity cannot be inspected safely");
+            }
+            if (job) {
+              const enabled = Object.getOwnPropertyDescriptor(target, "enabled");
+              const directory = Object.getOwnPropertyDescriptor(target, "publishJobsDirectory");
+              const configurationKeys = ["enabled", "liveState", "readCanonicalSnapshot", "sourcePath", "publishJobsDirectory"];
+              const configurationUnchanged = Boolean(entry.requestedConfiguration && configurationKeys.every((key, index) => {
+                const before = entry.requestedConfiguration?.[index];
+                const after = Object.getOwnPropertyDescriptor(target, key);
+                return before && after && "value" in before && "value" in after && Object.is(before.value, after.value);
+              }));
+              const safePersistence = Boolean(configurationUnchanged && directory && "value" in directory
+                && (directory.value === undefined
+                  || (typeof directory.value === "string" && !builtInMapHas.call(stores[1], jobId))));
+              provenDisabled = (job.state === "awaiting-confirmation" || job.state === "awaiting-final-cut")
+                && enabled?.value === false && safePersistence;
+              const liveState = Object.getOwnPropertyDescriptor(target, "liveState");
+              if (args[1] === true && enabled?.value === true && safePersistence
+                && (job.state === "awaiting-confirmation" || job.state === "awaiting-final-cut")
+                && liveState && "value" in liveState && liveState.value === undefined) {
+                // This preflight uses only inert data and never invokes the
+                // provider or its mutable dependencies.
+                const blocked = { ...job, state: "awaiting-final-cut" as const, nextAction: "retry" as const, retryable: true,
+                  error: { code: "FINAL_CUT_PUBLISH_VERIFICATION_UNAVAILABLE", message: "Final Cut project state verification is unavailable; retry this job when the live provider is ready" } };
+                builtInPublishPersist.call(target, blocked);
+                return blocked;
+              }
+              const readback = Object.getOwnPropertyDescriptor(target, "readCanonicalSnapshot");
+              if (args[1] === true && enabled?.value === true && safePersistence
+                && (job.state === "awaiting-confirmation" || job.state === "awaiting-final-cut")
+                && liveState && "value" in liveState && typeof liveState.value === "function"
+                && readback && "value" in readback && readback.value === undefined) {
+                const failed = { ...job, state: "failed" as const, nextAction: "none" as const, retryable: false,
+                  error: { code: "FINAL_CUT_PUBLISH_READBACK_UNAVAILABLE", message: "FINAL_CUT_PUBLISH_READBACK_UNAVAILABLE: headed canonical timeline readback is not configured; no import was attempted" } };
+                builtInPublishPersist.call(target, failed);
+                return failed;
+              }
+              // A mismatching managed artifact can be rejected without invoking
+              // the publisher or its tracker. Keep this synchronous so the
+              // trusted store and publisher checks cannot race an await.
+              const source = Object.getOwnPropertyDescriptor(target, "sourcePath");
+              if (args[1] === true && enabled?.value === true && !provenDisabled
+                && (job.state === "awaiting-confirmation" || job.state === "awaiting-final-cut")
+                && !job.sourceTransactionId.startsWith("headless-rough-cut:")
+                && typeof source?.value === "string" && source.value === job.sourcePath
+                && safePersistence
+                && managedArtifactChanged(job.sourcePath, job.artifactDigest)) {
+                const failed = { ...job, state: "failed" as const, nextAction: "none" as const, retryable: false,
+                  error: { code: "PUBLISH_SOURCE_CHANGED", message: "Managed FCPXML artifact changed after transaction verification" } };
+                builtInPublishPersist.call(target, failed);
+                return failed;
+              }
+            }
+          }
+          const invoke = async () => {
+            // Once the provider is invoked, a missing callback is not proof of non-dispatch.
+            if (!provenDisabled) entry!.dispatched = true;
+            return Reflect.apply(value, target, args) as Promise<unknown>;
+          };
+          // Custom tracking code can defer invocation and return or throw first.
+          if (!provenDisabled) entry.dispatched = true;
+          // Record uncertainty before entering any untrusted tracker or provider.
+          // Resumed verification reuses the already marked reservation.
+          if (acquiringReservation && trustedShape && !provenDisabled) await entry.reservation.markDispatchPossible();
+          if (!provenDisabled) await validateRoute(target, property as "executePublishJob" | "publishNewProject");
+          const result: unknown = typeof track === "function"
+            ? await Reflect.apply(track, target, [invoke, () => { entry!.dispatched = true; }])
+            : await invoke();
+          if (entry.dispatched && result && typeof result === "object" && !Array.isArray(result)) {
+            return { ...result, recoveryReservation: { status: "recovery-required", reservationId: entry.reservation.reservationId, reason: "native-quiescence-unproven" } };
+          }
+          return result;
+        } finally {
+          entry.active = false;
+          if (!entry.dispatched) {
+            await entry.reservation.release();
+            if (current === entry) current = undefined;
+          }
+        }
+      };
+    },
+  });
+}
+
+function inertBuiltInPublishJob(target: object, jobId: string): FinalCutProjectPublishJob | undefined {
+  if (utilTypes.isProxy(target) || Object.getPrototypeOf(target) !== FinalCutProjectPublisher.prototype
+    || Object.getOwnPropertyDescriptor(target, "getPublishJob")
+    || Object.getOwnPropertyDescriptor(FinalCutProjectPublisher.prototype, "getPublishJob")?.value !== builtInPublishGetJob) return undefined;
+  const store = Object.getOwnPropertyDescriptor(target, "publishJobs")?.value;
+  if (utilTypes.isProxy(store) || !utilTypes.isMap(store) || Object.getPrototypeOf(store) !== Map.prototype
+    || Object.getOwnPropertyDescriptor(Map.prototype, "get")?.value !== builtInMapGet) return undefined;
+  const job: unknown = builtInMapGet.call(store, jobId);
+  const seen = new Set<object>();
+  const inert = (value: unknown): boolean => {
+    if (value === null || ["string", "boolean", "number", "undefined"].includes(typeof value)) return true;
+    if (typeof value !== "object" || utilTypes.isProxy(value) || seen.has(value) || seen.size >= 10_000) return false;
+    seen.add(value);
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== Array.prototype && prototype !== null) return false;
+    return Reflect.ownKeys(value).every((key) => {
+      if (typeof key !== "string") return false;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      return Boolean(descriptor && "value" in descriptor && inert(descriptor.value));
+    });
+  };
+  return inert(job) && job && typeof job === "object" ? structuredClone(job) as FinalCutProjectPublishJob : undefined;
+}
+
+function managedArtifactChanged(path: string, digest: string): boolean {
+  let fd: number | undefined;
+  try {
+    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const info = fstatSync(fd);
+    if (!info.isFile() || info.size > 64 * 1024 * 1024) return false;
+    return createHash("sha256").update(readFileSync(fd, "utf8")).digest("hex") !== digest;
+  } catch {
+    return false;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+
+function isBuiltinImportObservationUnavailable(provider: NativeFinalCutEditor | undefined): boolean {
+  if (!provider || utilTypes.isProxy(provider) || Object.getPrototypeOf(provider) !== FinalCutNativeAutomationAdapter.prototype) return false;
+  const observer = Object.getOwnPropertyDescriptor(provider, "importSourceObserver");
+  if (!observer || !("value" in observer) || observer.value !== undefined) return false;
+  return ["importMedia", "executeImportMediaDirectory", "capabilities"].every((key) =>
+    !Object.getOwnPropertyDescriptor(provider, key)
+      && Object.getOwnPropertyDescriptor(FinalCutNativeAutomationAdapter.prototype, key)?.value === builtInNativeMethods.get(key));
+}
+
+function withRecoveryCheckpointGuard<T extends object>(
+  provider: T,
+  recovery: Pick<FileCanonicalRecoveryGuard, "assertClear" | "beginNative">,
+  allowedMethods: readonly PropertyKey[] = [],
+  reservedMethods: readonly PropertyKey[] = [],
+  reservationKind: "native" | "disposable" = "native",
+): T {
+  const allowed = new Set(allowedMethods);
+  const reserved = new Set(reservedMethods);
+  const contextMethods = new Set<PropertyKey>(["focusTimeline", "selectMedia", "selectOccurrence", "selectCanonicalOccurrence"]);
+  const searchMethods = new Set<PropertyKey>(["searchMedia", "searchMediaForCanonicalTarget", "searchTitles", "searchTransitions"]);
+  return new Proxy(provider, {
+    get(target, property) {
+      if (!reserved.has(property)) {
+        const value = Reflect.get(target, property, target) as unknown;
+        if (typeof value !== "function") return value;
+        if (allowed.has(property)) return value.bind(target);
+        return async (...args: unknown[]) => {
+          await recovery.assertClear();
+          return Reflect.apply(value, target, args);
+        };
+      }
+      // Inspect descriptors without invoking provider accessors while another
+      // native reservation may be held. Unknown proxy shapes stay guarded.
+      if (!utilTypes.isProxy(target)) {
+        let object: object | null = target;
+        while (object && !utilTypes.isProxy(object)) {
+          const descriptor = Object.getOwnPropertyDescriptor(object, property);
+          if (descriptor) {
+            if ("value" in descriptor && typeof descriptor.value !== "function") return descriptor.value;
+            break;
+          }
+          object = Object.getPrototypeOf(object);
+        }
+        if (!object) return undefined;
+      }
+      return async (...args: unknown[]) => {
+        if (reserved.has(property)) {
+          const reservation = await recovery.beginNative(`native.${reservationKind === "disposable" ? "disposable." : ""}${String(property).toLowerCase()}`);
+          // Reject a disabled operation without invoking any adapter code. For all
+          // other cases, callbacks and mutable internals may schedule dispatch.
+          const disabledPreflight = !utilTypes.isProxy(target)
+            && Object.getPrototypeOf(target) === FinalCutNativeAutomationAdapter.prototype
+            && Object.getOwnPropertyDescriptor(target, "enabled")?.value === false
+            && Reflect.ownKeys(target).every((key) => {
+              const descriptor = Object.getOwnPropertyDescriptor(target, key);
+              return Boolean(descriptor && "value" in descriptor);
+            })
+            && [...builtInNativeMethods].every(([key, method]) => key === "constructor" || typeof method !== "function"
+              || (!Object.getOwnPropertyDescriptor(target, key)
+                && Object.getOwnPropertyDescriptor(FinalCutNativeAutomationAdapter.prototype, key)?.value === method));
+          const untrustedProvider = !disabledPreflight;
+          let dispatched = untrustedProvider;
+          try {
+            if (untrustedProvider) await reservation.markDispatchPossible();
+            if (disabledPreflight) {
+              if (property === "focusTimeline") {
+                await reservation.release();
+                return disabledNativeFocusContext();
+              }
+              throw new Error("CAPABILITY_UNAVAILABLE: Final Cut native writes are disabled");
+            }
+            const value = Reflect.get(target, property, target) as unknown;
+            const track = Reflect.get(target, "trackNativeDispatch", target) as unknown;
+            if (typeof value !== "function") throw new Error("CAPABILITY_UNAVAILABLE: native operation is not available");
+            const invoke = async () => Reflect.apply(value, target, args) as Promise<unknown>;
+            const result: unknown = typeof track === "function"
+              ? await Reflect.apply(track, target, [invoke, () => { dispatched = true; }])
+              : await invoke();
+            const evidence = result as { status?: unknown; undone?: unknown; beforeDigest?: unknown; restoredDigest?: unknown; verification?: { verified?: unknown; passed?: unknown } } | null;
+            const restored = typeof evidence?.beforeDigest === "string" && /^[a-f0-9]{64}$/.test(evidence.beforeDigest)
+              && evidence.restoredDigest === evidence.beforeDigest;
+            const media = (value: unknown): boolean => {
+              if (!value || typeof value !== "object") return false;
+              const item = value as { mediaHandle?: unknown; verification?: { verified?: unknown; stage?: unknown } };
+              return typeof item.mediaHandle === "string" && item.mediaHandle.length > 0
+                && item.verification?.verified === true && item.verification.stage === "post-import-browser-discovery";
+            };
+            const directory = result as { status?: unknown; partial?: unknown; importedCount?: unknown; failedCount?: unknown; files?: unknown; results?: unknown } | null;
+            const verifiedDirectory = (): boolean => {
+              if (directory?.status !== "completed" || directory.partial !== false || directory.failedCount !== 0
+                || !Array.isArray(directory.files) || directory.files.length === 0
+                || directory.importedCount !== directory.files.length || !Array.isArray(directory.results)
+                || directory.results.length !== directory.files.length) return false;
+              const expected = new Set<string>();
+              for (const file of directory.files as Array<{ sourcePath?: unknown }>) {
+                if (!file || typeof file.sourcePath !== "string" || !file.sourcePath || expected.has(file.sourcePath)) return false;
+                expected.add(file.sourcePath);
+              }
+              const handles = new Set<string>();
+              for (const entry of directory.results as Array<{ status?: unknown; sourcePath?: unknown; media?: unknown }>) {
+                if (!entry || entry.status !== "imported" || typeof entry.sourcePath !== "string"
+                  || !expected.delete(entry.sourcePath) || !media(entry.media)) return false;
+                const item = entry.media as { sourcePath?: unknown; mediaHandle: string };
+                if (item.sourcePath !== entry.sourcePath || handles.has(item.mediaHandle)) return false;
+                handles.add(item.mediaHandle);
+              }
+              return expected.size === 0;
+            };
+            const preview = typeof property === "string" && property.startsWith("preview");
+            const prepared = result as { previewToken?: unknown; available?: unknown; status?: unknown; occurrences?: unknown; selected?: unknown } | null;
+            const verified = preview ? typeof prepared?.previewToken === "string" && prepared.previewToken.length > 0
+              : contextMethods.has(property) ? prepared?.available === true
+              : searchMethods.has(property) ? Array.isArray(result)
+              : property === "locateOccurrence" || property === "locateOccurrenceForCanonicalTarget" ? ["none", "unique", "ambiguous"].includes(String(prepared?.status)) && Array.isArray(prepared?.occurrences)
+              : property === "targetMedia" ? prepared?.status === "unique" && prepared.selected === true
+              : property === "importMedia" ? media(result)
+              : property === "executeImportMediaDirectory" ? verifiedDirectory()
+              : reservationKind === "disposable"
+              ? property === "undo"
+                ? evidence?.undone === true && evidence.verification?.passed === true && restored
+                : (evidence?.status === "VERIFIED" && evidence.verification?.passed === true)
+                  || (evidence?.status === "ROLLED_BACK" && restored)
+              : evidence?.verification?.verified === true && (property !== "undo" || evidence.undone === true);
+            if (!untrustedProvider && (verified || (!dispatched && contextMethods.has(property) && prepared?.available === false))) {
+              await reservation.release();
+            }
+            return result;
+          } catch (error) {
+            if (!dispatched) await reservation.release();
+            throw error;
+          }
+        }
+        throw new Error("CAPABILITY_UNAVAILABLE: native operation is not available");
+      };
+    },
+  });
 }
 
 function withBuildAlignmentGuard<T extends object>(

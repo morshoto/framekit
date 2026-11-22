@@ -6,6 +6,7 @@ import type {
 } from "./disposable-native.js";
 import type { NativeFinalCutEditor } from "./native.js";
 import type { NativeFinalCutReadiness } from "./native.js";
+import type { FileCanonicalRecoveryGuard } from "./canonical-recovery-guard.js";
 
 export type NativeOperationSessionState =
   | "planned"
@@ -402,7 +403,8 @@ export class NativeOperationSession {
 
 export interface DisposableNativeOperationSessionOptions {
   workflow: Pick<DisposableNativeEditWorkflow, "execute" | "getPreview">;
-  native: Pick<NativeFinalCutEditor, "inspect">;
+  native: Pick<NativeFinalCutEditor, "inspect" | "trackNativeDispatch">;
+  recoveryGuard?: Pick<FileCanonicalRecoveryGuard, "beginNative">;
   now?: () => number;
   jobTtlMs?: number;
   jobRetentionMs?: number;
@@ -438,14 +440,19 @@ export function createDisposableNativeOperationSession(
         }
       },
       execute: async (request, context) => {
-        const result = await options.workflow.execute(request.previewToken, {
+        const reservation = await options.recoveryGuard?.beginNative("native.job.disposable-rename");
+        // Trackers and workflows may defer work even after they return or fail.
+        // Persist uncertainty before invoking either and retain the reservation.
+        await reservation?.markDispatchPossible();
+        const invoke = () => options.workflow.execute(request.previewToken, {
           signal: context.signal,
-          onMutationStart: context.markMutationStarted,
+          onMutationStart: () => { context.markMutationStarted(); },
         });
-        return {
-          outcome: result.status === "VERIFIED" ? "completed" : "rolled_back",
-          evidence: disposableEvidence(result),
-        };
+        const result = options.native.trackNativeDispatch
+          ? await options.native.trackNativeDispatch(invoke, () => {})
+          : await invoke();
+        const evidence = disposableEvidence(result);
+        return { outcome: result.status === "VERIFIED" ? "completed" : "rolled_back", evidence };
       },
     },
   });

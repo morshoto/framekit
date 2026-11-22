@@ -9,4 +9,5 @@ export type {
   EditingSessionRepositoryPort,
   EditingSessionProviderChange,
   StoredEditingSession,
+  SessionSqliteObservationProvider,
 } from "@framekit/headless-application";

@@ -1,0 +1,1 @@
+.breadcrumbs { color: var(--text-muted); font-size: .875rem; ol { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; padding: 0; } li + li::before { content: '/'; margin-right: 8px; } li { overflow-wrap: anywhere; } }

@@ -1,3 +1,5 @@
+worktree/
+
 node_modules/
 dist/
 dist-package/
@@ -6,3 +8,9 @@ coverage/
 .DS_Store
 
 PLAN.md
+
+# Next.js docs output
+apps/docs/.next/
+apps/docs/out/
+apps/docs/*.tsbuildinfo
+apps/docs/storybook-static/

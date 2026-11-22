@@ -3,13 +3,14 @@ import { dirname, join, resolve } from "node:path";
 import {
   renderV0112AcceptanceReport,
   runV0112Acceptance,
-} from "../tests/release-gate/v0112-acceptance.js";
+} from "./release/acceptance/v0112-acceptance.js";
 
 const args = process.argv.slice(2);
 const outputDirectory = resolve(readOption("--output-dir"));
 const headedEvidenceDirectory = readOptionalOption("--headed-evidence-dir");
 const report = await runV0112Acceptance({
   headedEvidenceDirectory: headedEvidenceDirectory ? resolve(headedEvidenceDirectory) : undefined,
+  headedCandidateCommit: readOptionalOption("--headed-candidate-commit"),
 });
 
 await mkdir(dirname(outputDirectory), { recursive: true });
@@ -25,7 +26,7 @@ await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, { encoding: 
 console.log(renderV0112AcceptanceReport(report));
 console.log(`output_directory=${outputDirectory}`);
 console.log(`report=${reportPath}`);
-if (!report.deterministic.passed) process.exitCode = 1;
+if (!report.deterministic.passed || (headedEvidenceDirectory && report.headedNative.status !== "verified")) process.exitCode = 1;
 
 function readOption(name: string): string {
   const value = readOptionalOption(name);
