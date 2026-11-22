@@ -127,3 +127,14 @@ test('rejects a server whose embedded version or commit differs from the candida
     await assert.doesNotReject(requireServer(server));
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test('rejects media whose registered digest differs from the verified sample', async () => {
+  const client = fakeClient();
+  const originalCall = client.callTool;
+  client.callTool = async request => {
+    if (request.name === 'headless.media.register') return { content: [{ type: 'text', text: JSON.stringify({ resource: { id: 'media-1', sourceDigest: 'changed' }, project: { timeline: { revision: registered } } }) }] };
+    return originalCall.call(client, request);
+  };
+  await assert.rejects(runFirstVideo({ client, sourcePath: '/source.webm', outputPath: '/output.mp4', confirm: async () => true }), /registered.*digest/i);
+  assert.equal(client.calls.some(call => call.name === 'headless.edit.preview'), false);
+});
