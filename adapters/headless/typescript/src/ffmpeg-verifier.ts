@@ -116,7 +116,7 @@ export class FfmpegRenderVerifier implements FramekitRenderArtifactVerifier {
     checks.push({ name: "playable", passed: true, detail: "ffprobe read the output streams and duration" });
     checks.push({ name: "format", passed: formatPassed, detail: "output container matches the explicit request", expected: plan.parameters.format, observed: probe.format.format_name });
     checks.push({ name: "dimensions", passed: video.width === plan.parameters.width && video.height === plan.parameters.height, detail: "output dimensions match the explicit request", expected: { width: plan.parameters.width, height: plan.parameters.height }, observed: { width: video.width, height: video.height } });
-    checks.push({ name: "frame-rate", passed: frameRatePassed, detail: "nominal and average output frame rates match the explicit request within one frame", expected: expectedFrameRate, observed: { nominal: observedFrameRate, average: averageFrameRate } });
+    checks.push({ name: "frame-rate", passed: frameRatePassed, detail: "nominal and average output frame rates match the explicit request within one frame", expected: expectedFrameRate, observed: averageFrameRate });
     const audioPassed = expectedAudio === undefined || (
       audio !== undefined
       && (expectedAudio.sampleRate === undefined || Number(audio.sample_rate) === expectedAudio.sampleRate)
