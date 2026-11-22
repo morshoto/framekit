@@ -27,3 +27,8 @@ test('explains native permission symptoms without implying safe retries', async 
   assert.match(guide, /Accessibility and Automation/);
   assert.match(guide, /permission[^\n]*uncertain/i);
 });
+
+test('media-search diagnostic supplies all required tool inputs', async () => {
+  const guide = await read('../content/docs/en/troubleshooting.mdx');
+  assert.match(guide, /headless\.media\.search[^\n]*projectId[^\n]*query/);
+});
