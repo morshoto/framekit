@@ -30,7 +30,7 @@ test("edit preview and execution warn when primary clips overlap or leave a gap"
     const sequenceId = created.timeline.sequence.id;
     const placed = await service.executeEdit(projectId, { schemaVersion: 1, expectedRevision: registered.project.timeline.revision, operations: [
       { type: "insert-occurrence", placement: "append", occurrence: occurrence("a", registered.resource.id) },
-      { type: "insert-occurrence", placement: "append", occurrence: occurrence("b", registered.resource.id) },
+      { type: "insert-occurrence", placement: "append", occurrence: { ...occurrence("b", registered.resource.id), role: undefined } },
     ] }, sequenceId);
     const revision = placed.after.timeline.revision;
     const gap = { schemaVersion: 1 as const, expectedRevision: revision, operations: [{ type: "trim-occurrence" as const, occurrenceId: "a", sourceStartTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "2" } }] };
