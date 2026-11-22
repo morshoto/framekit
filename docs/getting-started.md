@@ -92,6 +92,11 @@ ffprobe to register local sources. Start the MCP server in headless mode, then:
    `headless.fcpxml.export`; provide a new output path and an explicit Final Cut
    target with `materialization: "versioned"`.
 
+Headless edit previews and executions include warnings when a primary storyline
+gap or overlap prevents rendering, or when a dissolve does not meet FCPXML
+export requirements. Review these consequences before committing; warnings do
+not prevent the edit and do not replace render or export verification.
+
 For later Timeline IR revisions that require explicit approval, call
 `headless.edit.approved-preview` with the project, sequence, current revision
 and operations. Review the result, then call `headless.edit.approved-execute`

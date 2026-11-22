@@ -3114,6 +3114,8 @@
       "\"a legacy writer removing an initializing lock can bypass upgraded writer exclusion\""
     ],
     "tests/integration/headless-project-mcp.test.ts": [
+      "\"production MCP reports downstream edit warnings on preview and execute\"",
+      "\"edit preview and execution warn when primary clips overlap or leave a gap\"",
       "\"approved headless edit tokens expire without mutation\"",
       "\"approved headless edit rejects a changed base with the same revision\"",
       "\"approved headless edits execute only a matching issued preview\"",

@@ -45,9 +45,43 @@ test("edit preview and execution warn when primary clips overlap or leave a gap"
     assert.deepEqual((approved as any).warnings, (gapPreview as any).warnings);
     const overlapPreview = await service.previewEdit(projectId, overlap, sequenceId);
     assert.match(JSON.stringify((overlapPreview as any).warnings), /overlap.*render/i);
-    const executed = await service.executeEdit(projectId, gap, sequenceId);
+    const executed = await service.executeApprovedEdit(projectId, sequenceId, approved.previewToken);
     assert.deepEqual((executed as any).warnings, (gapPreview as any).warnings);
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("production MCP reports downstream edit warnings on preview and execute", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-edit-warnings-mcp-"));
+  const environment: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1",
+    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0", FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"),
+    FRAMEKIT_STATE_DIR: join(directory, "state"),
+  };
+  let client: Client | undefined;
+  let transport: StdioClientTransport | undefined;
+  try {
+    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory]);
+    ({ client, transport } = await connectProductionClient(dirname(fileURLToPath(import.meta.url)), environment));
+    const created = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: emptyTimeline() } }));
+    const projectId = created.timeline.project.id, sequenceId = created.timeline.sequence.id;
+    const registered = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: join(directory, "fixture-red-440hz.mp4"), expectedRevision: created.timeline.revision } }));
+    const placed = payload(await client.callTool({ name: "headless.edit.execute", arguments: { projectId, sequenceId, expectedRevision: registered.project.timeline.revision, operations: [
+      { type: "insert-occurrence", placement: "append", occurrence: occurrence("a", registered.resource.id) },
+      { type: "insert-occurrence", placement: "append", occurrence: occurrence("b", registered.resource.id) },
+    ] } }));
+    const request = { projectId, sequenceId, expectedRevision: placed.after.timeline.revision, operations: [{ type: "move-occurrence", occurrenceId: "b", startTime: { value: "0", timescale: "1" } }] };
+    const preview = payload(await client.callTool({ name: "headless.edit.preview", arguments: request }));
+    assert.match(JSON.stringify(preview.warnings), /overlap.*render/i);
+    const before = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
+    assert.deepEqual(before.timeline.revision, placed.after.timeline.revision);
+    const executed = payload(await client.callTool({ name: "headless.edit.execute", arguments: request }));
+    assert.deepEqual(executed.warnings, preview.warnings);
+  } finally {
+    await client?.close();
+    await transport?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("production MCP preserves approval for an unsampled dissolve", async () => {
