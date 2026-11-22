@@ -77,3 +77,9 @@ test('explains that the sample audio is silent', async () => {
   const guide = await read('../content/docs/en/your-first-video.mdx');
   assert.match(guide, /sample[^\n]*audio[^\n]*silent/i);
 });
+
+test('describes candidate identity and missing-package diagnostics', async () => {
+  const guide = await read('../content/docs/en/your-first-video.mdx');
+  assert.match(guide, /embedded[^\n]*version[^\n]*commit/i);
+  assert.match(guide, /server not found[^\n]*install/i);
+});
