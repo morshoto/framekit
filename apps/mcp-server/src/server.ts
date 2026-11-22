@@ -1137,7 +1137,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
 
   const sessionOperationSchema = z.array(z.unknown());
 
-  server.registerTool("session.create", {
+  registerValidatedTool(server, "session.create", {
     description: "Create and atomically persist a provider-neutral editing session without mutating Final Cut.",
     inputSchema: {
       sessionId: z.string().min(1).optional(),
@@ -1150,12 +1150,12 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     base: base as TimelineIr,
   })));
 
-  server.registerTool("session.inspect", {
+  registerValidatedTool(server, "session.inspect", {
     description: "Inspect a persisted editing session and its exact base and desired Timeline IR.",
     inputSchema: { sessionId: z.string().min(1) },
   }, async ({ sessionId }) => sessionResult(async () => requireSessions().inspect(sessionId)));
 
-  server.registerTool("session.edit.preview", {
+  registerValidatedTool(server, "session.edit.preview", {
     description: "Preview provider-neutral session edits without persisting or mutating Final Cut.",
     inputSchema: {
       sessionId: z.string().min(1),
@@ -1168,7 +1168,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     expectedRevision,
   )));
 
-  server.registerTool("session.edit.execute", {
+  registerValidatedTool(server, "session.edit.execute", {
     description: "Apply edits only to a persisted session's desired Timeline IR.",
     inputSchema: {
       sessionId: z.string().min(1),
@@ -1181,12 +1181,12 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     expectedRevision,
   )));
 
-  server.registerTool("session.status", {
+  registerValidatedTool(server, "session.status", {
     description: "Read editing-session readiness, provider binding, and revisions.",
     inputSchema: { sessionId: z.string().min(1) },
   }, async ({ sessionId }) => sessionResult(async () => requireSessions().status(sessionId)));
 
-  server.registerTool("session.reconcile", {
+  registerValidatedTool(server, "session.reconcile", {
     description: "Reconcile a fresh provider Timeline IR with the session base and desired state.",
     inputSchema: {
       sessionId: z.string().min(1),
@@ -1199,7 +1199,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     providerState as TimelineIr,
   )));
 
-  server.registerTool("session.observe", {
+  registerValidatedTool(server, "session.observe", {
     description: "Bind read-only non-canonical Final Cut SQLite evidence to session freshness.",
     inputSchema: { sessionId: z.string().min(1), sourcePath: z.string().min(1) },
   }, async ({ sessionId, sourcePath }) => sessionResult(async () => {
@@ -1219,12 +1219,12 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     materialization: z.literal("versioned").optional(),
   }).strict();
 
-  server.registerTool("session.materialize.preview", {
+  registerValidatedTool(server, "session.materialize.preview", {
     description: "Preview deterministic versioned FCPXML materialization without staging or publishing it.",
     inputSchema: { sessionId: z.string().min(1), target: sessionMaterializationTargetSchema },
   }, async ({ sessionId, target }) => sessionResult(async () => requireMaterializations().preview(sessionId, target)));
 
-  server.registerTool("session.materialize.execute", {
+  registerValidatedTool(server, "session.materialize.execute", {
     description: "Confirm, stage, checkpoint, and request publication of a versioned FCPXML project.",
     inputSchema: { sessionId: z.string().min(1), target: sessionMaterializationTargetSchema, confirm: z.boolean() },
   }, async ({ sessionId, target, confirm }) => sessionResult(async () => {
@@ -1232,12 +1232,12 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return requireMaterializations().execute(sessionId, target, confirm);
   }));
 
-  server.registerTool("session.materialize.status", {
+  registerValidatedTool(server, "session.materialize.status", {
     description: "Inspect a persisted materialization job after completion, blockage, or server restart.",
     inputSchema: { jobId: z.string().min(1) },
   }, async ({ jobId }) => sessionResult(async () => requireMaterializations().status(jobId)));
 
-  server.registerTool("session.materialize.retry", {
+  registerValidatedTool(server, "session.materialize.retry", {
     description: "Resume a retryable persisted materialization job with its verified immutable artifact.",
     inputSchema: { jobId: z.string().min(1) },
   }, async ({ jobId }) => sessionResult(async () => {
@@ -1245,7 +1245,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return requireMaterializations().retry(jobId);
   }));
 
-  server.registerTool("session.materialize.resync", {
+  registerValidatedTool(server, "session.materialize.resync", {
     description: "Read the completed versioned handoff target and create a fresh editing-session baseline for continuation.",
     inputSchema: { jobId: z.string().min(1), sessionId: z.string().min(1) },
   }, async ({ jobId, sessionId }) => sessionResult(async () => requireMaterializations().resync(jobId, sessionId)));
