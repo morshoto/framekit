@@ -52,3 +52,17 @@ test('does not report success when independent render verification fails', async
     : originalCall.call(client, request);
   await assert.rejects(runFirstVideo({ client, sourcePath: '/source.webm', outputPath: '/output.mp4', confirm: async () => true }), /verification did not pass/i);
 });
+
+test('rejects a changed sample before creating a project directory', async () => {
+  const { mkdtemp, readdir, rm, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const dir = await mkdtemp(join(tmpdir(), 'framekit-first-video-test-'));
+  try {
+    await writeFile(join(dir, 'sample.webm'), 'not the sample');
+    await assert.rejects(promisify(execFile)(process.execPath, [new URL('../public/examples/first-video.mjs', import.meta.url).pathname, 'sample.webm'], { cwd: dir }), /Sample SHA-256 mismatch/);
+    assert.deepEqual(await readdir(dir), ['sample.webm']);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
