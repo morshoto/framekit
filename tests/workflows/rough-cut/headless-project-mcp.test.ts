@@ -57,6 +57,12 @@ test("production MCP preserves approval for an unsampled dissolve", async () => 
       render: { outputPath: join(directory, "render.mp4"), format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } },
       fcpxml: { path: join(directory, "edit.fcpxml"), target: { provider: "final-cut", libraryUid: "test-library", eventUid: "test-event", projectUid: "test-project", sequenceUid: "test-sequence" } },
     };
+    const { fcpxml: _fcpxml, ...renderOnly } = request;
+    const renderOnlyResult = await client.callTool({ name: "headless.rough-cut.preview", arguments: renderOnly });
+    assert.notEqual(renderOnlyResult.isError, true, toolErrorText(renderOnlyResult));
+    const renderOnlyPreview = payload(renderOnlyResult);
+    assert.equal(renderOnlyPreview.fcpxml, null);
+    assert.equal(renderOnlyPreview.outputIntent.fcpxml, null);
     const result = await client.callTool({ name: "headless.rough-cut.preview", arguments: request });
     assert.notEqual(result.isError, true, toolErrorText(result));
     const preview = payload(result);
