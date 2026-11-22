@@ -54,7 +54,7 @@ Independently probe the output:
 ffprobe -v error -show_entries stream=codec_type,width,height,r_frame_rate -show_entries format=duration -of json first-video.mp4
 ```
 
-The observed output contained 400 × 290 video at 12 fps, an audio stream, and a duration of `2.000000` seconds. Metadata alone does not prove visual or audio correctness; inspect playback as well.
+The observed output contained 400 × 290 video at 12 fps, an audio stream, and a duration of `2.000000` seconds. The sample has an audio stream but its first two seconds are silent; silence in this example is expected and does not verify audible audio handling. Metadata alone does not prove visual or audio correctness; inspect playback as well.
 
 To compare the first two seconds of the downloaded source with the rendered video, run this from the output directory printed by the program (the source remains in its parent directory):
 
