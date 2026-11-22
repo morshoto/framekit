@@ -31,6 +31,19 @@ The assistant should use the running server's tool schemas, keep each returned r
 
 ## Inspect and verify
 
+Inspect the saved before and after timelines:
+
+```sh
+node --input-type=module <<'NODE'
+import { readFileSync } from 'node:fs';
+const evidence = JSON.parse(readFileSync('first-video-output/headless-release-gate-evidence.json', 'utf8'));
+console.log('Before:', JSON.stringify(evidence.project.created.timeline.sequence, null, 2));
+console.log('After:', JSON.stringify(evidence.project.finalAfterEdits.timeline.sequence, null, 2));
+NODE
+```
+
+The observed starting sequence has no occurrences. After editing, it contains `occurrence-red` at 0–1 seconds and `occurrence-blue` at 1–2 seconds, plus two titles and a quarter-second cross-dissolve. Revision IDs and source digests can vary between runs. These records describe the Framekit-owned timeline; they do not show a Final Cut timeline.
+
 Open `first-video-output/verified-final.mp4` in a player. This frame is from the candidate run's actual output:
 
 ![Red frame from the rendered sample video](/images/first-video-output.png)
