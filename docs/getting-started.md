@@ -118,6 +118,15 @@ a nearby source frame. Unsupported visual compositions or sample limits return
 JSON and a plan digest without an image; `storyboardUnavailable` explains why.
 FFmpeg and its drawtext support are required for storyboard rendering.
 
+To preview a rough cut for rendering without a Final Cut destination, provide
+the project, sequence, plan and `render` parameters to
+`headless.rough-cut.preview` and omit `fcpxml`. The returned `fcpxml` and
+`outputIntent.fcpxml` are `null`, meaning no FCPXML coverage was requested.
+After reviewing the preview, pass the same request, `approved: true`, and its
+`planDigest` to `headless.rough-cut.execute`. It renders and commits the cut;
+`fcpxmlArtifact: null` confirms that no FCPXML was produced. Adding or removing
+an FCPXML target requires a new preview and digest.
+
 Publishing an approved rough cut requires its verified video and FCPXML to
 remain as regular files at their approved paths with unchanged contents;
 symbolic links are not accepted. The publish preview's
