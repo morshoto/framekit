@@ -1,1 +1,19 @@
-内容は準備中です。
+## 始める前に
+
+[インストール](/ja/docs/installation/)の手順で Framekit プラグインを追加し、新しい Codex セッションを開始してください。
+
+## 1. 接続を確認する
+
+Codex に次のように入力します。
+
+```text
+Framekit で接続状態を確認して、使えるエディタと機能を教えてください。編集は行わないでください。
+```
+
+Codex は `connection.status` と `editor.inspect` で接続状態と利用可能な機能を確認できます。Final Cut Pro に接続できない場合や必要な機能が使えない場合は、応答に含まれる理由を読み、[Final Cut Pro](/ja/docs/final-cut-pro/) の設定を確認してください。接続が確立していても、対応する編集操作はプロバイダーによって異なります。
+
+## 2. 用途を選ぶ
+
+動作確認には[フィクスチャのセットアップ](/ja/docs/getting-started/)を使えます。Final Cut Pro は不要です。テストサーバーが正常に応答すると `Fixture MCP stdio smoke passed: connection.status ready.` と表示されます。
+
+手元のメディアを編集する場合は、[ヘッドレス編集](/ja/docs/headless-editing/)の手順でリビジョンを確認し、変更をプレビューしてから実行してください。この操作で Final Cut Pro が起動することはありません。Final Cut Pro の画面を操作する編集には別途承認が必要です。[リビジョンと安全性](/ja/docs/revisions-and-safety/)を参照してください。

@@ -142,15 +142,18 @@ test('mobile drawer closes by button, backdrop, and navigation', async ({ page, 
 });
 
 test('search results open the correct localized articles', async ({ page, site }) => {
-  for (const [locale, query] of [['en', 'local-first']]) {
+  for (const [locale, query, title, slug] of [
+    ['en', 'local-first', 'Introduction', 'introduction'],
+    ['ja', 'HEADLESS_UNDO_UNVERIFIED', 'エラーリファレンス', 'error-reference'],
+  ]) {
     await page.goto(`${site}/${locale}/`);
     const trigger = page.getByRole('button', { name: /^Search docs/ });
     await trigger.click();
     const dialog = page.getByRole('dialog', { name: 'Search documentation' });
     await dialog.getByRole('combobox').fill(query);
     await expect(dialog.getByRole('option').first()).toBeVisible();
-    await dialog.getByRole('option').filter({ hasText: locale === 'en' ? 'Introduction' : 'はじめに' }).first().click();
-    await expect(page).toHaveURL(new RegExp(`/${locale}/docs/introduction/`));
+    await dialog.getByRole('option').filter({ hasText: title }).first().click();
+    await expect(page).toHaveURL(new RegExp(`/${locale}/docs/${slug}/`));
     await page.reload(); await expect(page.locator('html')).toHaveAttribute('lang', locale);
   }
 });
@@ -192,17 +195,16 @@ test('keyboard search traps focus and returns it to the trigger', async ({ page,
   await expect(trigger).toBeFocused();
 });
 
-test('landing offers distinct paths and unfinished Japanese pages offer English', async ({ page, site }) => {
+test('landing offers distinct paths and Japanese pages show translated content', async ({ page, site }) => {
   await page.goto(`${site}/`);
   await expect(page.getByRole('link', { name: 'Get started' })).toHaveAttribute('href', /\/en\/docs\/installation\/$/);
   for (const text of ['Work with a Framekit project', 'Set up the integration', 'Contributor guide']) await expect(page.getByRole('link', { name: new RegExp(text) })).toBeVisible();
   await page.goto(`${site}/en/docs/quick-start/`);
   await expect(page.getByText('Use Framekit to check the connection status', { exact: false })).toBeVisible();
   await page.getByRole('link', { name: '日本語' }).click();
-  await expect(page.getByRole('link', { name: '英語版を読む' })).toHaveAttribute('href', /\/en\/docs\/quick-start\/$/);
-  await expect(page.getByRole('navigation', { name: 'On this page' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '1. 接続を確認する' })).toBeVisible();
   await page.goto(`${site}/ja/`);
-  await expect(page.getByRole('link', { name: '英語版のドキュメントを読む' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'インストール手順' })).toBeVisible();
 });
 
 test('landing paths remain readable on narrow screens', async ({ page, site }) => {
