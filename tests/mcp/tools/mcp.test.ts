@@ -18,6 +18,29 @@ function textFrom(result: unknown): string {
   return first.text as string;
 }
 
+test("all tools with required root inputs reject empty arguments", async () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const stateDirectory = await mkdtemp(join(os.tmpdir(), "framekit-mcp-required-input-"));
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: ["--import", "tsx", join(here, "../../../apps/mcp-server/src/main.ts")],
+    env: { ...process.env, FRAMEKIT_STATE_DIR: stateDirectory, FRAMEKIT_EDITOR: "fixture", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0" },
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "required-input-test", version: "1" });
+  try {
+    await client.connect(transport);
+    const tools = (await client.listTools()).tools.filter((tool) => (tool.inputSchema.required?.length ?? 0) > 0);
+    assert.ok(tools.length > 50, `expected broad catalog coverage, got ${tools.length}`);
+    for (const tool of tools) {
+      const result = await client.callTool({ name: tool.name, arguments: {} });
+      assert.equal(result.isError, true, tool.name);
+      const error = JSON.parse(textFrom(result));
+      assert.equal(error.code, "INPUT_INVALID", tool.name);
+    }
+  } finally { await client.close(); await transport.close(); await rm(stateDirectory, { recursive: true, force: true }); }
+});
+
 test("MCP stdio restarts after clean shutdown", async () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const stateDirectory = await mkdtemp(join(os.tmpdir(), "framekit-mcp-restart-"));
