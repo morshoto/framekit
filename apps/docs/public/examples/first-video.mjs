@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 const sampleDigest = 'e96efec0c3bf57836b54cbead8d195564ee4e1303a320b343b4fda6642ce5904';
 
 export function exampleEnvironment(base, stateDir) {
-  const environment = { ...base, FRAMEKIT_STATE_DIR: stateDir, FRAMEKIT_AUTO_CONNECT: '0' };
+  const environment = { ...base, FRAMEKIT_STATE_DIR: stateDir, FRAMEKIT_EDITOR: 'final-cut-live', FRAMEKIT_FINAL_CUT_HEADLESS: '1', FRAMEKIT_FINAL_CUT_NATIVE_WRITES: '0', FRAMEKIT_AUTO_CONNECT: '0' };
   delete environment.FRAMEKIT_FCPXML_PATH;
   delete environment.FRAMEKIT_FINAL_CUT_SOCKET;
   return environment;
@@ -53,10 +53,10 @@ async function main() {
   const stateDir = join(outputDir, 'state');
   await mkdir(stateDir);
   const outputPath = join(outputDir, 'first-video.mp4');
-  const server = resolve('node_modules/@morshoto/framekit/bin/framekit.mjs');
+  const server = resolve('node_modules/@morshoto/framekit/dist-package/apps/mcp-server/src/main.js');
   const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
   const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js');
-  const transport = new StdioClientTransport({ command: process.execPath, args: [server, 'mcp', '--editor', 'final-cut-live', '--headless'], env: exampleEnvironment(process.env, stateDir), stderr: 'pipe' });
+  const transport = new StdioClientTransport({ command: process.execPath, args: [server], env: exampleEnvironment(process.env, stateDir), stderr: 'pipe' });
   const client = new Client({ name: 'framekit-first-video', version: '1.0.0' });
   try {
     await client.connect(transport);
