@@ -7,12 +7,38 @@ import { AgentVideoRuntime, type SkillDefinition } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { createMcpServer } from "../../../apps/mcp-server/src/server.js";
 import { registerSkillTools } from "../../../apps/mcp-server/src/tools/skills/register.js";
+import { registerValidatedTool } from "../../../apps/mcp-server/src/tools/validated-tool.js";
+import { z } from "zod/v4";
 
 function textFrom(value: unknown): string {
   const content = (value as { content?: Array<{ type?: string; text?: string }> }).content;
   assert.equal(content?.[0]?.type, "text");
   return content?.[0]?.text ?? "";
 }
+
+test("public v2 registration rejects invalid input before invoking the handler", async () => {
+  const server = new V2McpServer({ name: "validation", version: "1" });
+  let calls = 0;
+  registerValidatedTool(server, "fixture.validated", { inputSchema: z.object({ name: z.string().min(1) }) }, async ({ name }) => {
+    calls++;
+    return { content: [{ type: "text", text: name }] };
+  });
+  const client = new Client({ name: "test", version: "1" });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  try {
+    await server.connect(b);
+    await client.connect(a);
+    const schema = (await client.listTools()).tools.find((tool) => tool.name === "fixture.validated")?.inputSchema;
+    assert.deepEqual(schema?.required, ["name"]);
+    const invalid = await client.callTool({ name: "fixture.validated", arguments: {} });
+    assert.equal(invalid.isError, true);
+    assert.equal(JSON.parse(textFrom(invalid)).code, "INPUT_INVALID");
+    assert.equal(calls, 0);
+    const valid = await client.callTool({ name: "fixture.validated", arguments: { name: "ready" } });
+    assert.equal(textFrom(valid), "ready");
+    assert.equal(calls, 1);
+  } finally { await client.close(); await server.close(); }
+});
 
 function markerSkill(): SkillDefinition {
   return {
