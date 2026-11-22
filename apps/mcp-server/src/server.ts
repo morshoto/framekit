@@ -1,4 +1,5 @@
 import { formatInputError } from "./tools/input-error.js";
+import { registerValidatedTool } from "./tools/validated-tool.js";
 import type { SessionSqliteObservationProvider } from "./headless-sessions.js";
 import { McpServer } from "@modelcontextprotocol/server";
 import { createHash, randomUUID } from "node:crypto";
@@ -1408,22 +1409,22 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     }
   });
 
-  server.registerTool("headless.project.create", {
+  registerValidatedTool(server, "headless.project.create", {
     description: "Create and persist a Framekit-owned canonical project without contacting Final Cut Pro.",
     inputSchema: { timeline: z.unknown() },
   }, async ({ timeline }) => sessionResult(async () => requireHeadlessProjects().create(timeline as TimelineIr)));
 
-  server.registerTool("headless.project.list", {
+  registerValidatedTool(server, "headless.project.list", {
     description: "List persisted Framekit-owned projects and their stable canonical revisions.",
     inputSchema: {},
   }, async () => sessionResult(() => requireHeadlessProjects().list()));
 
-  server.registerTool("headless.project.open", {
+  registerValidatedTool(server, "headless.project.open", {
     description: "Open a persisted Framekit-owned project and fail closed if registered media changed or is missing.",
     inputSchema: { projectId: z.string().min(1) },
   }, async ({ projectId }) => sessionResult(() => requireHeadlessProjects().open(projectId)));
 
-  server.registerTool("headless.project.inspect", {
+  registerValidatedTool(server, "headless.project.inspect", {
     description: "Inspect the current persisted Framekit Timeline IR and exact revision.",
     inputSchema: { projectId: z.string().min(1) },
   }, async ({ projectId }) => sessionResult(() => requireHeadlessProjects().inspect(projectId)));
