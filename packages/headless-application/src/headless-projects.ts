@@ -83,6 +83,30 @@ export type HeadlessProjectEditCommand = Omit<ProjectEditCommand, "target"> & {
   target?: ProjectEditCommand["target"];
 };
 
+function editConsequences(timeline: TimelineIr): string[] {
+  const warnings: string[] = [];
+  const seconds = (time: { value: string; timescale: string }) => Number(time.value) / Number(time.timescale);
+  const primary = timeline.sequence.occurrences.filter((item) => item.track === 0 && (item.role === undefined || item.role === "video"))
+    .sort((a, b) => seconds(a.startTime) - seconds(b.startTime));
+  let end = 0;
+  for (const item of primary) {
+    const start = seconds(item.startTime);
+    if (Math.abs(start - end) > 1e-7) {
+      warnings.push(`HEADLESS_RENDER_UNSUPPORTED: primary lane ${start > end ? "gap" : "overlap"} at ${item.id}; render requires contiguous primary occurrences`);
+    }
+    end = start + seconds(item.durationTime);
+  }
+  if (timeline.sequence.transitions?.length) {
+    try {
+      compileTimelineIrToFcpxml(timeline, { target: { provider: "final-cut", libraryUid: "preflight", eventUid: "preflight", projectUid: "preflight", sequenceUid: "preflight" } });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/^FCPXML_(DISSOLVE|UNSUPPORTED_TIMELINE_FEATURE)/.test(message)) warnings.push(`FCPXML export may be unavailable: ${message}`);
+    }
+  }
+  return warnings;
+}
+
 export interface HeadlessProjectWorkflow {
   create(timeline: TimelineIr): Promise<FramekitProjectDocument>;
   list(): Promise<HeadlessProjectSummary[]>;
@@ -99,14 +123,14 @@ export interface HeadlessProjectWorkflow {
     projectId: string,
     command: HeadlessProjectEditCommand,
     sequenceId: string,
-  ): ReturnType<ProjectTransactionService["preview"]>;
+  ): Promise<Awaited<ReturnType<ProjectTransactionService["preview"]>> & { warnings: string[] }>;
   executeEdit(
     projectId: string,
     command: HeadlessProjectEditCommand,
     sequenceId: string,
-  ): Promise<ProjectEditResult & { undoId: string }>;
-  previewApprovedEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string): Promise<Awaited<ReturnType<ProjectTransactionService["preview"]>> & { previewToken: string }>;
-  executeApprovedEdit(projectId: string, sequenceId: string, previewToken: string): Promise<ProjectEditResult & { undoId: string }>;
+  ): Promise<ProjectEditResult & { undoId: string; warnings: string[] }>;
+  previewApprovedEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string): Promise<Awaited<ReturnType<ProjectTransactionService["preview"]>> & { previewToken: string; warnings: string[] }>;
+  executeApprovedEdit(projectId: string, sequenceId: string, previewToken: string): Promise<ProjectEditResult & { undoId: string; warnings: string[] }>;
   undoEdit(projectId: string, sequenceId: string, undoId: string, expectedRevision: ContextRevision): Promise<HeadlessUndoResult>;
   exportFcpxml(projectId: string, sequenceId: string, expectedRevision: ContextRevision, outputPath: string, target: TimelineIrToFcpxmlTarget): Promise<{ artifact: { path: string; digest: string; bytes: number; verified: true }; provenance: TimelineIrToFcpxmlResult["provenance"]; coverage: TimelineIrToFcpxmlResult["coverage"] }>;
   previewRoughCut(request: HeadlessRoughCutRequest, signal?: AbortSignal, requireStoryboard?: boolean): Promise<HeadlessRoughCutPreview>;
@@ -428,7 +452,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       target: command.target ?? { projectId, sequenceId },
     });
     await this.verifyConnectedAudioMetadata(projectId, preview.after.timeline, preview.before.timeline);
-    return preview;
+    return { ...preview, warnings: editConsequences(preview.after.timeline) };
   }
 
   public async previewApprovedEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string) {
@@ -484,7 +508,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     if (!sameRevision(result.after.timeline.revision, record.afterRevision) || timelineIrDigest(result.after.timeline) !== afterDigest) {
       throw new Error("HEADLESS_EDIT_UNCERTAIN: committed edit differs from the recorded Undo state");
     }
-    return { ...result, undoId };
+    return { ...result, undoId, warnings: editConsequences(result.after.timeline) };
   }
 
   public async undoEdit(projectId: string, sequenceId: string, undoId: string, expectedRevision: ContextRevision): Promise<HeadlessUndoResult> {
