@@ -34,3 +34,10 @@ test('shows how to inspect before and after timeline evidence', async () => {
   assert.match(guide, /project\.created\.timeline\.sequence/);
   assert.match(guide, /project\.finalAfterEdits\.timeline\.sequence/);
 });
+
+test('attributes the independently licensed sample and pins its bytes', async () => {
+  const guide = await read('../content/docs/en/your-first-video.mdx');
+  assert.match(guide, /Sample_Flash_Animation\.webm/);
+  assert.match(guide, /CC0 1\.0/);
+  assert.match(guide, /e96efec0c3bf57836b54cbead8d195564ee4e1303a320b343b4fda6642ce5904/);
+});
