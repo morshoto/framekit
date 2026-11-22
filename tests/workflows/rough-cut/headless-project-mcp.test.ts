@@ -34,6 +34,20 @@ test("headless edit reports primary gaps in preview and execution", async () => 
     assert.deepEqual((await service.open(timeline.project.id)).timeline, initial.timeline);
     const executed = await service.executeEdit(timeline.project.id, command, timeline.sequence.id);
     assert.deepEqual((executed as any).warnings, (preview as any).warnings);
+    const here = dirname(fileURLToPath(import.meta.url));
+    const environment = { ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+      FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1", FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
+      FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"), FRAMEKIT_STATE_DIR: join(directory, "state") };
+    const { client, transport } = await connectProductionClient(here, environment);
+    try {
+      const created = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline } }));
+      const args = { projectId: timeline.project.id, sequenceId: timeline.sequence.id, expectedRevision: created.timeline.revision, operations: command.operations };
+      const mcpPreview = payload(await client.callTool({ name: "headless.edit.preview", arguments: args }));
+      assert.deepEqual(mcpPreview.warnings, preview.warnings);
+      assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId: timeline.project.id } })).timeline, created.timeline);
+      const mcpExecution = payload(await client.callTool({ name: "headless.edit.execute", arguments: args }));
+      assert.deepEqual(mcpExecution.warnings, mcpPreview.warnings);
+    } finally { await client.close(); await transport.close(); }
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
