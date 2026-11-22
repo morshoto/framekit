@@ -1725,6 +1725,14 @@ test("headless rough-cut preview and execution preserve provenance and produce v
         },
       },
     };
+    // A render-only preview must not require invented Final Cut identifiers.
+    const { fcpxml: omittedTarget, ...renderOnly } = request;
+    const withoutExport = await service.previewRoughCut(renderOnly as any);
+    assert.deepEqual(withoutExport.fcpxml, { status: "not-requested" });
+    assert.equal(withoutExport.outputIntent.render.outputPath, request.render.outputPath);
+    const withExport = await service.previewRoughCut(request);
+    await assert.rejects(service.executeRoughCut({ ...renderOnly, approved: true, planDigest: withExport.planDigest } as any), /PLAN_MISMATCH/);
+    await assert.rejects(service.executeRoughCut({ ...request, approved: true, planDigest: withoutExport.planDigest }), /PLAN_MISMATCH/);
     const reservation = join(directory, "projects", "canonical-recovery", "pending.json");
     await mkdir(dirname(reservation), { recursive: true });
     const reservationBytes = "synthetic retained reservation";
