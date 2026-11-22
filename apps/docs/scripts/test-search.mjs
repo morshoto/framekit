@@ -49,6 +49,13 @@ try {
     const page = await browser.newPage({ viewport: { width: 320, height: 800 } });
     await page.goto(`${origin}${base}/en/docs/editing-capabilities/`, { waitUntil:'networkidle' });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'capability guide overflows mobile viewport');
+    const matrix = page.getByRole('region', { name: 'Editing capability comparison' });
+    assert.equal(await matrix.getAttribute('tabindex'), '0');
+    assert.equal(await matrix.evaluate(el => el.scrollWidth > el.clientWidth), true, 'matrix should scroll on mobile');
+    assert.ok(await page.locator('table th').first().evaluate(el => el.getBoundingClientRect().width >= 120), 'matrix columns must remain readable');
+    await matrix.focus();
+    await page.keyboard.press('End');
+    assert.ok(await matrix.evaluate(el => el.scrollLeft > 0), 'matrix must support keyboard scrolling');
     await page.close();
   }
   {
