@@ -428,7 +428,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       target: command.target ?? { projectId, sequenceId },
     });
     await this.verifyConnectedAudioMetadata(projectId, preview.after.timeline, preview.before.timeline);
-    return preview;
+    return { ...preview, warnings: editSupportWarnings(preview.after.timeline) };
   }
 
   public async previewApprovedEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string) {
@@ -484,7 +484,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     if (!sameRevision(result.after.timeline.revision, record.afterRevision) || timelineIrDigest(result.after.timeline) !== afterDigest) {
       throw new Error("HEADLESS_EDIT_UNCERTAIN: committed edit differs from the recorded Undo state");
     }
-    return { ...result, undoId };
+    return { ...result, undoId, warnings: editSupportWarnings(preview.after.timeline) };
   }
 
   public async undoEdit(projectId: string, sequenceId: string, undoId: string, expectedRevision: ContextRevision): Promise<HeadlessUndoResult> {
@@ -1441,6 +1441,22 @@ function greatestCommonDivisor(left: number, right: number): number {
     right = remainder;
   }
   return left || 1;
+}
+
+function editSupportWarnings(timeline: TimelineIr): string[] {
+  const primary = timeline.sequence.occurrences
+    .filter((item) => item.track === 0 && item.role === "video")
+    .sort((a, b) => rationalSeconds(a.startTime) - rationalSeconds(b.startTime));
+  const warnings: string[] = [];
+  let end = 0;
+  for (const item of primary) {
+    const start = rationalSeconds(item.startTime);
+    if (Math.abs(start - end) > 1e-7) {
+      warnings.push(`Primary storyline ${start > end ? "gap" : "overlap"} before ${item.id}; headless render will be unavailable.`);
+    }
+    end = start + rationalSeconds(item.durationTime);
+  }
+  return warnings;
 }
 
 function sameRevision(left: TimelineIr["revision"], right: TimelineIr["revision"]): boolean {
