@@ -15,11 +15,11 @@ mkdir framekit-first-video
 cd framekit-first-video
 npm install --no-save --no-package-lock @morshoto/framekit@0.2.6 @modelcontextprotocol/sdk@1.32.2
 curl -fL -o sample.webm 'https://commons.wikimedia.org/wiki/Special:FilePath/Sample_Flash_Animation.webm'
-curl -fL -o first-video.mjs https://raw.githubusercontent.com/morshoto/framekit/f0ff8fc0fbbddaa7d78c491e03a2960c26e92f52/apps/docs/public/examples/first-video.mjs
+curl -fL -o first-video.mjs https://raw.githubusercontent.com/morshoto/framekit/37c637315a39987f26f6a4990823cf3474263aef/apps/docs/public/examples/first-video.mjs
 shasum -a 256 sample.webm
 ```
 
-The source SHA-256 must be `e96efec0c3bf57836b54cbead8d195564ee4e1303a320b343b4fda6642ce5904`. Stop if it differs. The client also checks that digest before creating a project. The npm command and downloads write only within the new example directory and normal npm cache.
+The source SHA-256 must be `e96efec0c3bf57836b54cbead8d195564ee4e1303a320b343b4fda6642ce5904`. Stop if it differs. The client also checks that digest and the installed server’s embedded version and commit before creating a project. The npm command and downloads write only within the new example directory and normal npm cache.
 
 ## Preview and render
 
@@ -74,4 +74,4 @@ Use the downloaded sample.webm in this directory with Framekit and a new disposa
 
 ## If something fails
 
-Check the first failing message and installed versions. Missing FFmpeg, an encoder, or a renderer capability can prevent rendering. Use [Troubleshooting](/en/docs/troubleshooting/) for symptom-based checks and the [Error Reference](/en/docs/error-reference/) for coded errors. The MP4 is a headless output; FCPXML is a separate handoff artifact, and neither proves import, playback, or an edit in Final Cut Pro.
+Check the first failing message and installed versions. If the client reports “Framekit server not found”, run the pinned install command above from the example directory and try the setup again. Missing FFmpeg, an encoder, or a renderer capability can prevent rendering. Use [Troubleshooting](/en/docs/troubleshooting/) for symptom-based checks and the [Error Reference](/en/docs/error-reference/) for coded errors. The MP4 is a headless output; FCPXML is a separate handoff artifact, and neither proves import, playback, or an edit in Final Cut Pro.
