@@ -22,7 +22,7 @@ const pages: Page[] = [
   { slug: 'cli', section: 'reference', order: 0, status: 'draft', englishStatus: 'ready', titles: { en: 'CLI Reference', ja: 'CLI リファレンス' } },
   { slug: 'mcp-tools', section: 'reference', order: 1, status: 'draft', englishStatus: 'ready', titles: { en: 'MCP Tools', ja: 'MCP ツール' } },
   { slug: 'configuration', section: 'reference', order: 2, status: 'draft', englishStatus: 'ready', titles: { en: 'Configuration', ja: '設定' } },
-  { slug: 'your-first-video', section: 'guides', order: 4, status: 'draft', englishStatus: 'ready', titles: { en: 'Your First Video' } },
+  { slug: 'your-first-video', section: 'guides', order: 4, status: 'draft', englishStatus: 'draft', titles: { en: 'Your First Video' } },
   { slug: 'error-reference', section: 'reference', order: 3, status: 'draft', englishStatus: 'ready', titles: { en: 'Error Reference' } },
   { slug: 'development', section: 'contributing', order: 0, status: 'draft', englishStatus: 'ready', titles: { en: 'Development', ja: '開発' } },
   { slug: 'testing', section: 'contributing', order: 1, status: 'draft', englishStatus: 'ready', titles: { en: 'Testing', ja: 'テスト' } },
