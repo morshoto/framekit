@@ -2558,7 +2558,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }) => jsonResult(await runtime.executeEdit(previewToken)));
 
-  server.registerTool("timeline.edit.preview", {
+  registerValidatedTool(server, "timeline.edit.preview", {
     description: "Validate and preview one ordered, atomic Basic Editing MVP workflow after editing.route confirms capabilities; do not mutate the project.",
     inputSchema: {
       baseRevision: revisionValueSchema,
@@ -2572,7 +2572,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await runtime.previewEdit(editRequest));
   });
 
-  server.registerTool("timeline.mask.add.preview", {
+  registerValidatedTool(server, "timeline.mask.add.preview", {
     description: "Preview a bounded or supplied-alpha mask against an explicit project, sequence, revision, and occurrence without mutation.",
     inputSchema: timelineMaskInputSchema,
   }, async ({ projectId, sequenceId, baseRevision, occurrenceId, mask, verification }) => {
@@ -2587,7 +2587,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     ));
   });
 
-  server.registerTool("artifact.edit.preview", {
+  registerValidatedTool(server, "artifact.edit.preview", {
     description: "Validate and preview an ordered background FCPXML artifact edit without mutating it or the open Final Cut timeline.",
     inputSchema: {
       artifactPath: z.string().trim().min(1),
@@ -2603,7 +2603,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     ).then(withArtifactPreviewProvenance));
   });
 
-  server.registerTool("editor.timeline.edit.preview", {
+  registerValidatedTool(server, "editor.timeline.edit.preview", {
     description: "Validate and preview an ordered live timeline edit against the identified active project and sequence without mutating it.",
     inputSchema: {
       projectId: z.string().trim().min(1),
@@ -2621,7 +2621,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     ));
   });
 
-  server.registerTool("artifact.edit.execute", {
+  registerValidatedTool(server, "artifact.edit.execute", {
     description: "Execute one short-lived background artifact edit preview token exactly once and verify the FCPXML artifact transaction.",
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }) => {
@@ -2630,7 +2630,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult({ ...transaction, ...withTransactionProvenance(transaction) });
   });
 
-  server.registerTool("artifact.edit.diff", {
+  registerValidatedTool(server, "artifact.edit.diff", {
     description: "Read the deterministic diff for a background FCPXML artifact transaction.",
     inputSchema: artifactTransactionInputSchema,
   }, async ({ artifactPath, transactionId }) => {
@@ -2638,7 +2638,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult({ ...runtime.getDiff(transactionId), ...withTransactionProvenance(transaction) });
   });
 
-  server.registerTool("artifact.edit.verify", {
+  registerValidatedTool(server, "artifact.edit.verify", {
     description: "Read verification checks for a background FCPXML artifact transaction.",
     inputSchema: artifactTransactionInputSchema,
   }, async ({ artifactPath, transactionId }) => {
@@ -2646,7 +2646,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult({ ...(await runtime.verifyTransaction(transactionId)), ...withTransactionProvenance(transaction) });
   });
 
-  server.registerTool("artifact.edit.undo", {
+  registerValidatedTool(server, "artifact.edit.undo", {
     description: "Restore a background FCPXML artifact transaction without changing the open Final Cut timeline.",
     inputSchema: artifactTransactionInputSchema,
   }, async ({ artifactPath, transactionId }) => {
@@ -2659,7 +2659,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     });
   });
 
-  server.registerTool("editor.timeline.edit.execute", {
+  registerValidatedTool(server, "editor.timeline.edit.execute", {
     description: "Execute one short-lived live timeline edit preview token exactly once and verify the timeline transaction.",
     inputSchema: { previewToken: z.string().min(1), path: editingPathSchema },
   }, async ({ previewToken, path }) => {
@@ -2667,7 +2667,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await runtime.executeEdit(previewToken));
   });
 
-  server.registerTool("timeline.edit.execute", {
+  registerValidatedTool(server, "timeline.edit.execute", {
     description: "Execute one short-lived composite edit preview token exactly once after editing.route capability checks, then verify the transaction.",
     inputSchema: { previewToken: z.string().min(1), path: editingPathSchema },
   }, async ({ previewToken, path }) => {
@@ -2675,7 +2675,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await runtime.executeEdit(previewToken));
   });
 
-  server.registerTool("timeline.mask.add.execute", {
+  registerValidatedTool(server, "timeline.mask.add.execute", {
     description: "Execute one short-lived mask preview token after capability and revision checks, then verify the mask state.",
     inputSchema: { previewToken: z.string().trim().min(1) },
   }, async ({ previewToken }) => {
@@ -2742,7 +2742,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }) => jsonResult(await runtime.executeSkill(previewToken)));
 
-  server.registerTool("edit.diff", {
+  registerValidatedTool(server, "edit.diff", {
     description: "Read the deterministic diff for a completed edit transaction.",
     inputSchema: { transactionId: z.string().min(1) },
   }, async ({ transactionId }) => {
@@ -2750,7 +2750,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult({ ...runtime.getDiff(transactionId), ...withTransactionProvenance(transaction) });
   });
 
-  server.registerTool("edit.verify", {
+  registerValidatedTool(server, "edit.verify", {
     description: "Read verification checks for a completed transaction.",
     inputSchema: { transactionId: z.string().min(1) },
   }, async ({ transactionId }) => {
@@ -2758,7 +2758,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult({ ...(await runtime.verifyTransaction(transactionId)), ...withTransactionProvenance(transaction) });
   });
 
-  server.registerTool("edit.undo", {
+  registerValidatedTool(server, "edit.undo", {
     description: "Restore the pre-edit snapshot for a completed transaction.",
     inputSchema: { transactionId: z.string().min(1) },
   }, async ({ transactionId }) => {
