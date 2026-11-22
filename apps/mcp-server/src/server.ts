@@ -481,6 +481,7 @@ function installInputErrorFormatting(server: McpServer): void {
         if (issue.code === "invalid_literal") return `${field} must be ${JSON.stringify(issue.expected)}`;
         if (issue.code === "unrecognized_keys") return `${field} contains unsupported fields: ${issue.keys.join(", ")}`;
         if (issue.code === "invalid_enum_value") return `${field} must be one of ${issue.options.map(String).join(", ")}`;
+        if (issue.code === "custom" && issue.message !== "Invalid input") return `${field}: ${issue.message}`;
         return `${field} is invalid; check the tool's input requirements`;
       });
       const message = `INPUT_INVALID: ${messages.join("; ")}`;
