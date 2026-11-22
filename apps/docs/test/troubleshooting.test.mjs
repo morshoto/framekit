@@ -21,3 +21,9 @@ test('distinguishes doctor downloads from read-only diagnostics', async () => {
   assert.match(guide, /npx[^\n]*download[^\n]*cache/i);
   assert.match(guide, /ffprobe[^\n]*regular file/i);
 });
+
+test('explains native permission symptoms without implying safe retries', async () => {
+  const guide = await read('../content/docs/en/troubleshooting.mdx');
+  assert.match(guide, /Accessibility and Automation/);
+  assert.match(guide, /permission[^\n]*uncertain/i);
+});
