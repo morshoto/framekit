@@ -19,6 +19,17 @@ FRAMEKIT_HEADLESS_RELEASE_GATE_EVIDENCE_DIR="$PWD/first-video-output" pnpm exec 
 
 The test should report `ok 1` and `# fail 0`. It starts the production stdio MCP server, creates an empty timeline, registers generated sources, previews and executes an insertion, and adds a second source, titles and a transition. It reopens the project and renders the current revision. The test includes additional safety checks; its recorded tool transcript and observations are in `first-video-output/headless-release-gate-evidence.json`. Paths in that file may reveal local information; sanitize it before sharing. It also saves `verified-final.mp4` and `fixture-manifest.json`.
 
+## Alternative: a freely distributable source
+
+[Sample Flash Animation](https://commons.wikimedia.org/wiki/File:Sample_Flash_Animation.webm) by H0iadfpwijdf is an original work dedicated to the public domain under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/). It is a separate input from the generated release-gate media above. Download and check the 14,384-byte source:
+
+```sh
+curl -fL -o sample.webm 'https://commons.wikimedia.org/wiki/Special:FilePath/Sample_Flash_Animation.webm'
+shasum -a 256 sample.webm
+```
+
+The observed SHA-256 is `e96efec0c3bf57836b54cbead8d195564ee4e1303a320b343b4fda6642ce5904`. Stop if it differs. In a separate manual MCP run against the published v0.2.6 server, registering this file, previewing and inserting its first two seconds into a new Framekit-owned sequence, and rendering MP4 succeeded with verification passed. Independent `ffprobe` reported a 400 × 290 video at 12 fps, with audio and a two-second duration. That scripted tool run does not verify an assistant prompt, and it does not make claims about Final Cut.
+
 ## Prompt for an MCP-capable assistant
 
 The following prompt describes the same disposable task, but its end-to-end execution through Codex has **not yet been verified** for this candidate. The tested checkout command above is currently the reproducible path.
