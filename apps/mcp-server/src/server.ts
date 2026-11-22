@@ -1746,21 +1746,21 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: durationPolicyInputSchema,
   }, async (request) => jsonResult(runtime.planDuration(request)));
 
-  server.registerTool("editor.native.inspect", {
+  registerValidatedTool(server, "editor.native.inspect", {
     description: "Inspect the active Final Cut selection/playhead before a native UI edit.",
     inputSchema: {},
   }, async (_args, extra) => jsonResult(options.nativeEditor
     ? await options.nativeEditor.inspect({ signal: extra.mcpReq.signal })
     : { available: false, error: { code: "CAPABILITY_UNAVAILABLE", message: "Final Cut native writes are not configured" } }));
 
-  server.registerTool("editor.native.focus", {
+  registerValidatedTool(server, "editor.native.focus", {
     description: "Activate Final Cut Pro and focus its timeline without changing project or timeline content.",
     inputSchema: {},
   }, async (_args, extra) => jsonResult(options.nativeEditor
     ? await options.nativeEditor.focusTimeline({ signal: extra.mcpReq.signal })
     : { available: false, error: { code: "CAPABILITY_UNAVAILABLE", message: "Final Cut native writes are not configured" } }));
 
-  server.registerTool("editor.native.media.import", {
+  registerValidatedTool(server, "editor.native.media.import", {
     description: "Import one local video or audio file into the active Final Cut Browser and wait for a stable media handle.",
     inputSchema: { path: z.string().min(1), expectedImportTarget: nativeImportTargetSchema.optional() },
   }, async ({ path, expectedImportTarget }, extra) => {
@@ -1779,7 +1779,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     }
   });
 
-  server.registerTool("editor.native.media.directory.preview", {
+  registerValidatedTool(server, "editor.native.media.directory.preview", {
     description: "Enumerate supported top-level video files in a local directory without mutating Final Cut and return an expiring import preview.",
     inputSchema: { path: z.string().trim().min(1), expectedImportTarget: nativeImportTargetSchema.optional() },
   }, async ({ path, expectedImportTarget }, extra) => {
@@ -1787,7 +1787,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.nativeEditor.previewImportMediaDirectory(path, { signal: extra.mcpReq.signal, ...(expectedImportTarget ? { expectedImportTarget } : {}) }));
   });
 
-  server.registerTool("editor.native.media.directory.execute", {
+  registerValidatedTool(server, "editor.native.media.directory.execute", {
     description: "Import every file from a directory preview after explicit confirmation and return per-file stable media handles or failures.",
     inputSchema: { previewToken: z.string().min(1), confirm: z.literal(true) },
   }, async ({ previewToken, confirm }, extra) => {
@@ -1802,7 +1802,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.nativeEditor.executeImportMediaDirectory(previewToken, confirm, { signal: extra.mcpReq.signal }));
   });
 
-  server.registerTool("editor.native.edit", {
+  registerValidatedTool(server, "editor.native.edit", {
     description: "Apply a guarded native Final Cut UI edit to the active selection or playhead.",
     inputSchema: nativeEditToolInputSchema,
   }, async (input, extra) => {
@@ -1811,7 +1811,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return nativeMutationResult(() => options.nativeEditor!.edit(operation, { signal: extra.mcpReq.signal }));
   });
 
-  server.registerTool("editor.native.disposable.preview", {
+  registerValidatedTool(server, "editor.native.disposable.preview", {
     description: "Preview a disposable native Final Cut rename after canonical target, revision, and native preflight checks.",
     inputSchema: disposableNativePreviewSchema,
   }, async ({ clipId, name, baseRevision }) => {
@@ -1819,7 +1819,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.disposableNative.preview({ clipId, name, baseRevision }));
   });
 
-  server.registerTool("editor.native.disposable.execute", {
+  registerValidatedTool(server, "editor.native.disposable.execute", {
     description: "Execute a disposable native Final Cut edit and return canonical diff, verification, and rollback state.",
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }, extra) => {
@@ -1827,7 +1827,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.disposableNative.execute(previewToken));
   });
 
-  server.registerTool("editor.native.disposable.undo", {
+  registerValidatedTool(server, "editor.native.disposable.undo", {
     description: "Undo a verified disposable native Final Cut edit and verify canonical restoration.",
     inputSchema: { operationId: z.string().min(1) },
   }, async ({ operationId }) => {
@@ -1835,7 +1835,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.disposableNative.undo(operationId));
   });
 
-  server.registerTool("editor.native.operation.submit", {
+  registerValidatedTool(server, "editor.native.operation.submit", {
     description: "Accept a previewed native Final Cut operation as a resumable job without waiting for headed readiness.",
     inputSchema: nativeOperationSessionSubmitSchema,
   }, async (request) => {
@@ -1843,7 +1843,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.nativeOperationSession.submit(request));
   });
 
-  server.registerTool("editor.native.operation.status", {
+  registerValidatedTool(server, "editor.native.operation.status", {
     description: "Poll a resumable native Final Cut operation for readiness, completion, verification, and restoration evidence.",
     inputSchema: nativeOperationSessionJobSchema,
   }, async ({ jobId }) => {
@@ -1851,7 +1851,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.nativeOperationSession.status(jobId));
   });
 
-  server.registerTool("editor.native.operation.retry", {
+  registerValidatedTool(server, "editor.native.operation.retry", {
     description: "Retry a waiting native Final Cut operation after the required headed session becomes ready.",
     inputSchema: nativeOperationSessionJobSchema,
   }, async ({ jobId }) => {
@@ -1859,7 +1859,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.nativeOperationSession.retry(jobId));
   });
 
-  server.registerTool("editor.native.operation.cancel", {
+  registerValidatedTool(server, "editor.native.operation.cancel", {
     description: "Cancel a pending native Final Cut operation or report recovery when mutation has already started.",
     inputSchema: nativeOperationSessionJobSchema,
   }, async ({ jobId }) => {
