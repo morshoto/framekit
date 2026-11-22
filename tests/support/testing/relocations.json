@@ -1578,6 +1578,7 @@
     "tests/integration/edit-tool-schema.test.ts": [
       "\"single-edit tools advertise operation-specific required fields\"",
       "\"published root schema validates non-last edit operations\"",
+      "\"music add discovery permits both placement variants\"",
       "\"editor.timeline.edit validates trim duration before its handler\"",
       "\"single-edit tools reject fields from another operation\""
     ],

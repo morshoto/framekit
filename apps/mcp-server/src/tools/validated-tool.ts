@@ -16,11 +16,20 @@ export function registerValidatedTool<Schema extends ToolSchema>(
   const generated = z.toJSONSchema(schema, { io: "input" });
   const { oneOf, ...rest } = generated;
   const branches = oneOf ?? generated.anyOf;
-  const properties: Record<string, unknown> = {};
+  const variants = new Map<string, Map<string, unknown>>();
   for (const branch of branches ?? []) {
     if (typeof branch !== "object" || !branch || !("properties" in branch)) continue;
-    for (const [key, value] of Object.entries(branch.properties ?? {})) if (key !== "type") properties[key] = value;
+    for (const [key, value] of Object.entries(branch.properties ?? {})) {
+      if (key === "type") continue;
+      const schemas = variants.get(key) ?? new Map<string, unknown>();
+      schemas.set(JSON.stringify(value), value);
+      variants.set(key, schemas);
+    }
   }
+  const properties = Object.fromEntries([...variants].map(([key, schemas]) => {
+    const alternatives = [...schemas.values()];
+    return [key, alternatives.length === 1 ? alternatives[0] : { anyOf: alternatives }];
+  }));
   const jsonSchema = branches ? { ...rest, type: "object" as const, properties, anyOf: branches } : generated;
   const passthrough: jsonSchemaValidator = {
     getValidator: (() => (data: unknown) => ({ valid: true, data, errorMessage: undefined })) as jsonSchemaValidator["getValidator"],
