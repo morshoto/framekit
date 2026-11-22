@@ -10,7 +10,8 @@ type ToolInput<Schema extends ToolSchema> = Schema extends z.ZodType ? z.output<
 function preserveObjectConstraints(value: unknown): void {
   if (!value || typeof value !== "object" || Array.isArray(value)) return;
   const schema = value as Record<string, unknown>;
-  if (schema.type === "object" && schema.properties && typeof schema.properties === "object") {
+  if (schema.type === "object" && schema.properties && typeof schema.properties === "object"
+    && Object.keys(schema.properties).length > 0) {
     if (schema.additionalProperties === undefined) schema.additionalProperties = false;
     else if (schema.additionalProperties && typeof schema.additionalProperties === "object"
       && !Array.isArray(schema.additionalProperties) && Object.keys(schema.additionalProperties).length === 0) {
