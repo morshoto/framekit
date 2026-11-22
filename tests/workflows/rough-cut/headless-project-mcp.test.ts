@@ -19,6 +19,55 @@ import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer,
 
 const execFileAsync = promisify(execFile);
 
+test("production rough-cut renders without FCPXML and rejects changed export intent", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-render-only-mcp-"));
+  const here = dirname(fileURLToPath(import.meta.url));
+  const environment: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1",
+    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0", FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"),
+    FRAMEKIT_STATE_DIR: join(directory, "state"),
+  };
+  let client: Client | undefined;
+  let transport: StdioClientTransport | undefined;
+  try {
+    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory]);
+    ({ client, transport } = await connectProductionClient(here, environment));
+    const created = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: emptyTimeline() } }));
+    const projectId = created.timeline.project.id;
+    const sequenceId = created.timeline.sequence.id;
+    const registered = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: join(directory, "fixture-red-440hz.mp4"), expectedRevision: created.timeline.revision } }));
+    const source = registered.resource;
+    const request = {
+      projectId, sequenceId,
+      plan: { planner: { id: "framekit.rough-cut", version: 1 }, revision: registered.project.timeline.revision, query: { query: "clip" }, shots: [{ order: 1, sourceIdentity: { mediaId: source.id, source: source.source, sourceDigest: source.sourceDigest, mediaKind: "video", duration: 2 }, range: { start: 0.25, end: 1.25 }, confidence: 1, matchedProperties: ["selected"], rationale: "selected" }], warnings: [] },
+      render: { outputPath: join(directory, "render.mp4"), format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } },
+    };
+    const target = { path: join(directory, "edit.fcpxml"), target: { provider: "final-cut", libraryUid: "library", eventUid: "event", projectUid: "project", sequenceUid: "sequence" } };
+    const noExport = payload(await client.callTool({ name: "headless.rough-cut.preview", arguments: request }));
+    const withExport = payload(await client.callTool({ name: "headless.rough-cut.preview", arguments: { ...request, fcpxml: target } }));
+    assert.deepEqual(noExport.fcpxml, { status: "not-requested" });
+    for (const [args, digest] of [[request, withExport.planDigest], [{ ...request, fcpxml: target }, noExport.planDigest]] as const) {
+      const rejected = await client.callTool({ name: "headless.rough-cut.execute", arguments: { ...args, approved: true, planDigest: digest } });
+      assert.equal(rejected.isError, true);
+      assert.match(toolErrorText(rejected), /PLAN_MISMATCH/);
+    }
+    const result = await client.callTool({ name: "headless.rough-cut.execute", arguments: { ...request, approved: true, planDigest: noExport.planDigest } });
+    assert.notEqual(result.isError, true, toolErrorText(result));
+    const executed = payload(result);
+    assert.equal(executed.committed, true);
+    assert.equal(executed.render.status, "passed");
+    assert.deepEqual(executed.fcpxmlArtifact, { status: "not-requested" });
+    assert.equal(existsSync(target.path), false);
+    const inspected = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
+    assert.deepEqual(inspected.timeline.revision, executed.after.timeline.revision);
+  } finally {
+    await client?.close();
+    await transport?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("production MCP preserves approval for an unsampled dissolve", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-788-dissolve-mcp-"));
   const here = dirname(fileURLToPath(import.meta.url));
