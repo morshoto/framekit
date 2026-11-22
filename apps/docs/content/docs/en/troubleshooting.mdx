@@ -12,7 +12,7 @@ Start with the symptom below. These checks are **read-only** unless explicitly m
 
 **Symptoms:** the bridge is disconnected, or a connected editor lacks an expected capability. The extension may not be running or may not match the installed version.
 
-**Read-only:** Run `npx -y @morshoto/framekit doctor finalcut`, then inspect `connection.status` and `editor.inspect`. A ready metadata connection alone does not prove a canonical timeline or write capability. Follow [Final Cut Pro](/en/docs/final-cut-pro/) for extension setup. Stop if the required capability is unavailable.
+**Read-only:** Run `npx -y @morshoto/framekit doctor finalcut`, then inspect `connection.status` and `editor.inspect`. A ready metadata connection alone does not prove a canonical timeline or write capability. Inspect build alignment (`preflight.buildAlignment`) and native handoff readiness when reported: a runtime and extension version mismatch can block native handoff even while the connection is ready. Install matching release components and recheck; do not proceed with a blocked handoff. Follow [Final Cut Pro](/en/docs/final-cut-pro/) for extension setup. Stop if the required capability is unavailable.
 
 ## Media not found or unsupported
 
