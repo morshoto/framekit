@@ -72,6 +72,11 @@ project. `FRAMEKIT_FINAL_CUT_SOCKET` selects the local Workflow Extension
 socket. Inspect the reported capabilities before choosing an operation. A
 ready metadata-only bridge does not imply canonical timeline read or write.
 
+Invalid MCP tool arguments return an error result with a JSON text payload
+containing `code: "INPUT_INVALID"` and an actionable `message`. Correct the
+named arguments using the tool's published input schema before retrying. Execute
+operations requiring approval still require a preview and `approved: true`.
+
 ### Create an edit from JSON
 
 An MCP client can turn an AI-authored edit into a Framekit-owned project and a

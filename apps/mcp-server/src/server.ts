@@ -450,6 +450,54 @@ function installMcpSchemaCompatibility(server: McpServer): void {
   });
 }
 
+// The SDK validates before invoking a tool handler. Retain its validation and
+// schema discovery, but translate its structured Zod issues at that boundary.
+function installInputErrorFormatting(server: McpServer): void {
+  type Tool = { inputSchema?: z.ZodTypeAny | z.ZodRawShape };
+  type Validator = (tool: Tool, args: unknown, name: string) => Promise<unknown>;
+  const sdk = server as unknown as { validateToolInput: Validator };
+  const validate = sdk.validateToolInput.bind(server);
+  sdk.validateToolInput = async (tool, args, name) => {
+    try {
+      return await validate(tool, args, name);
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes("Input validation error:") || !tool.inputSchema) throw error;
+      const schema = tool.inputSchema instanceof z.ZodType ? tool.inputSchema : z.object(tool.inputSchema);
+      const result = await schema.safeParseAsync(args ?? {});
+      if (result.success) throw error;
+      const formatIssue = (issue: z.ZodIssue): string => {
+        const field = issue.path.length ? issue.path.map(String).join(" ") : "arguments";
+        if (issue.code === "invalid_union") {
+          const alternatives = issue.unionErrors.map((branch) => branch.issues.map(formatIssue).join("; "));
+          return `${field} must satisfy one of: ${[...new Set(alternatives)].map((alternative) => `(${alternative})`).join(" or ")}`;
+        }
+        if (issue.path.at(-1) === "approved" && issue.code === "invalid_literal") {
+          return "execute requires approved: true after a preview";
+        }
+        if (issue.path.at(-1) === "planDigest" && issue.code === "invalid_string") {
+          return "planDigest must be a 64-character lowercase hexadecimal digest";
+        }
+        if (issue.code === "invalid_type" && issue.received === "undefined") return `${field} is required`;
+        if (issue.code === "too_small" && issue.type === "number") {
+          return `${field} must be ${issue.inclusive ? "at least" : "greater than"} ${issue.minimum}`;
+        }
+        if (issue.code === "too_small" && (issue.type === "string" || issue.type === "array")) {
+          return `${field} must contain at least ${issue.minimum} ${issue.type === "string" ? "character(s)" : "item(s)"}`;
+        }
+        if (issue.code === "invalid_type") return `${field} must be ${issue.expected}`;
+        if (issue.code === "invalid_literal") return `${field} must be ${JSON.stringify(issue.expected)}`;
+        if (issue.code === "unrecognized_keys") return `${field} contains unsupported fields: ${issue.keys.join(", ")}`;
+        if (issue.code === "invalid_enum_value") return `${field} must be one of ${issue.options.map(String).join(", ")}`;
+        if (issue.code === "custom" && issue.message !== "Invalid input") return `${field}: ${issue.message}`;
+        return `${field} is invalid; check the tool's input requirements`;
+      };
+      const messages = result.error.issues.map(formatIssue);
+      const message = `INPUT_INVALID: ${messages.join("; ")}`;
+      throw new Error(JSON.stringify({ code: "INPUT_INVALID", message }));
+    }
+  };
+}
+
 const artifactPublishInputSchema = z.object({
   artifactPath: z.string().trim().min(1),
   targetLibraryPath: z.string().trim().min(1),
@@ -2762,6 +2810,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   installMcpSchemaCompatibility(server);
+  installInputErrorFormatting(server);
   return server;
 }
 

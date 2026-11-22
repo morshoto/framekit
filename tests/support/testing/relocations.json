@@ -2090,6 +2090,7 @@
       "\"invalid provenance is checked before the unavailable-provider shortcut\""
     ],
     "tests/integration/mcp.test.ts": [
+      "\"MCP presents invalid tool arguments as actionable coded errors\"",
       "\"Phase 0 exposes read/write/diff through MCP stdio\""
     ],
     "tests/integration/media-role-preservation.test.ts": [

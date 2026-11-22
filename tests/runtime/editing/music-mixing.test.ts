@@ -217,7 +217,9 @@ test("music.add publishes source and placement constraints", async () => {
     ]) {
       const result = await client.callTool({ name: "music.add", arguments: arguments_ });
       assert.equal(result.isError, true);
-      assert.match(textFrom(result), /Input validation error/);
+      const error = JSON.parse(textFrom(result));
+      assert.equal(error.code, "INPUT_INVALID");
+      if (arguments_.placement === "insert") assert.match(error.message, /start is required/);
     }
   } finally {
     await client.close();

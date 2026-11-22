@@ -18,6 +18,40 @@ function textFrom(result: unknown): string {
   return first.text as string;
 }
 
+test("MCP presents invalid tool arguments as actionable coded errors", async () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const stateDirectory = await mkdtemp(join(os.tmpdir(), "framekit-mcp-validation-"));
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: ["--import", "tsx", join(here, "../../../apps/mcp-server/src/main.ts")],
+    env: { ...process.env, FRAMEKIT_STATE_DIR: stateDirectory, FRAMEKIT_EDITOR: "fixture", FRAMEKIT_AUTO_CONNECT: "0" },
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "validation-test", version: "1" });
+  try {
+    await client.connect(transport);
+    const cases = [
+      { name: "headless.project.inspect", arguments: {}, expected: /projectId.*required/i },
+      { name: "headless.project.inspect", arguments: { projectId: "" }, expected: /projectId.*at least 1 character/i },
+      { name: "headless.edit-json.execute", arguments: { approved: false }, expected: /approved: true.*preview/i },
+      { name: "headless.render", arguments: { projectId: "p", sequenceId: "s", parameters: { outputPath: "out.mp4", format: "mp4", width: 0, height: 10, frameRate: { numerator: 24, denominator: 1 } } }, expected: /width.*greater than 0/i },
+      { name: "headless.edit-json.execute", arguments: { planDigest: "bad" }, expected: /planDigest.*64.*hexadecimal/i },
+    ];
+    for (const example of cases) {
+      const result = await client.callTool({ name: example.name, arguments: example.arguments });
+      assert.equal(result.isError, true);
+      const error = JSON.parse(textFrom(result));
+      assert.equal(error.code, "INPUT_INVALID");
+      assert.match(error.message, /^INPUT_INVALID: /);
+      assert.match(error.message, example.expected);
+      assert.doesNotMatch(error.message, /-32602|Invalid literal|Input validation error/);
+    }
+  } finally {
+    await client.close();
+    await rm(stateDirectory, { recursive: true, force: true });
+  }
+});
+
 test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const stateDirectory = await mkdtemp(join(os.tmpdir(), "framekit-mcp-stdio-state-"));
