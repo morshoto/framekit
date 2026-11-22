@@ -1445,7 +1445,7 @@ function greatestCommonDivisor(left: number, right: number): number {
 
 function editSupportWarnings(timeline: TimelineIr): string[] {
   const primary = timeline.sequence.occurrences
-    .filter((item) => item.track === 0 && item.role === "video")
+    .filter((item) => item.track === 0 && (item.role === undefined || item.role === "video"))
     .sort((a, b) => rationalSeconds(a.startTime) - rationalSeconds(b.startTime));
   const warnings: string[] = [];
   let end = 0;
