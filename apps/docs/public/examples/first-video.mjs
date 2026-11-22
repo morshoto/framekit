@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -20,7 +20,7 @@ async function call(client, name, args) {
   return JSON.parse(text);
 }
 
-export async function runFirstVideo({ client, sourcePath, outputPath, confirm }) {
+export async function runFirstVideo({ client, sourcePath, outputPath, confirm, checkpoint = async () => {} }) {
   const projectId = `first-video-${randomUUID()}`;
   const sequenceId = 'first-video-sequence';
   const timeline = {
@@ -37,11 +37,23 @@ export async function runFirstVideo({ client, sourcePath, outputPath, confirm })
     operations: [{ type: 'insert-occurrence', placement: 'append', occurrence: { id: 'sample-shot', name: 'CC0 sample', startTime: { value: '0', timescale: '1' }, sourceStartTime: { value: '0', timescale: '1' }, durationTime: { value: '2', timescale: '1' }, track: 0, role: 'video', mediaId: media.resource.id } }],
   };
   const preview = await call(client, 'headless.edit.preview', args);
+  await checkpoint({ status: 'previewed', projectId, outputPath, before: created.timeline.sequence, preview });
   if (!await confirm(preview)) return { status: 'declined', projectId, before: created.timeline.sequence, preview };
   const executed = await call(client, 'headless.edit.execute', args);
+  await checkpoint({ status: 'edited', projectId, outputPath, before: created.timeline.sequence, preview, after: executed.after.timeline.sequence, revision: executed.after.timeline.revision });
   const render = await call(client, 'headless.render', { projectId, sequenceId, expectedRevision: executed.after.timeline.revision, parameters: { outputPath, format: 'mp4', width: 400, height: 290, frameRate: { value: '12', timescale: '1' } } });
   if (render.status !== 'passed' || render.outcome?.verification?.status !== 'passed') throw new Error('Render or verification did not pass; inspect the saved project and output before retrying.');
-  return { status: 'passed', projectId, before: created.timeline.sequence, preview, after: executed.after.timeline.sequence, render };
+  return { status: 'passed', projectId, outputPath, before: created.timeline.sequence, preview, after: executed.after.timeline.sequence, revision: executed.after.timeline.revision, render };
+}
+
+async function writeCheckpoint(outputDir, evidence) {
+  const temporary = join(outputDir, `evidence-${randomUUID()}.tmp`);
+  try {
+    await writeFile(temporary, JSON.stringify(evidence, null, 2));
+    await rename(temporary, join(outputDir, 'evidence.json'));
+  } finally {
+    await rm(temporary, { force: true });
+  }
 }
 
 async function main() {
@@ -53,6 +65,7 @@ async function main() {
   const stateDir = join(outputDir, 'state');
   await mkdir(stateDir);
   const outputPath = join(outputDir, 'first-video.mp4');
+  console.log(`Example files: ${outputDir}`);
   const server = resolve('node_modules/@morshoto/framekit/dist-package/apps/mcp-server/src/main.js');
   const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
   const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js');
@@ -60,14 +73,17 @@ async function main() {
   const client = new Client({ name: 'framekit-first-video', version: '1.0.0' });
   try {
     await client.connect(transport);
-    const evidence = await runFirstVideo({ client, sourcePath, outputPath, confirm: async preview => {
+    const evidence = await runFirstVideo({ client, sourcePath, outputPath, checkpoint: async value => {
+      if (value.status === 'edited') console.log('Committed project and revision:', value.projectId, JSON.stringify(value.revision));
+      await writeCheckpoint(outputDir, value);
+    }, confirm: async preview => {
       console.log('Proposed timeline:', JSON.stringify(preview.after.timeline.sequence, null, 2));
       console.log(`Output: ${outputPath}`);
       const input = createInterface({ input: process.stdin, output: process.stdout });
       try { return (await input.question('Execute this preview and render? Type yes to continue: ')).trim() === 'yes'; }
       finally { input.close(); }
     }});
-    await writeFile(join(outputDir, 'evidence.json'), JSON.stringify(evidence, null, 2));
+    await writeCheckpoint(outputDir, evidence);
     console.log(`Result: ${evidence.status}; files: ${outputDir}`);
   } finally {
     await client.close();
