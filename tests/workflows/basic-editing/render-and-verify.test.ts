@@ -336,7 +336,9 @@ test("ffprobe verifier rejects a sparse video despite its nominal frame rate", a
     const plan = createFramekitRenderPlan(request, { renderer: { id: "ffmpeg-headless", version: "1" }, features: { "local-media": "supported", "structural-edits": "supported" } });
     const result = createFramekitRenderResult(plan, { path: outputPath, format: "mp4" });
     const verification = await new FfmpegRenderVerifier({ ffprobePath }).verify(plan, result);
-    assert.equal(verification.checks.find((check) => check.name === "frame-rate")?.passed, false);
+    const frameRateCheck = verification.checks.find((check) => check.name === "frame-rate");
+    assert.equal(frameRateCheck?.passed, false);
+    assert.deepEqual(frameRateCheck?.observed, { value: "1", timescale: "1" });
     assert.equal(verification.status, "failed");
   } finally {
     await rm(directory, { recursive: true, force: true });
