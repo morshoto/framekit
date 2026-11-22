@@ -59,6 +59,19 @@ try {
     await page.close();
   }
   {
+    const page = await browser.newPage({ viewport: { width: 375, height: 800 } });
+    await page.goto(`${origin}${base}/en/docs/troubleshooting/`, { waitUntil:'networkidle' });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    for (const query of ['cannot connect', 'bridge', 'media not found', 'preview rejected', 'render export', 'timed out', 'undo recovery']) {
+      await page.getByRole('button', { name:'Search docs' }).click();
+      await page.getByRole('combobox').fill(query);
+      const result = page.locator('[role=option][href*="/en/docs/troubleshooting/"]').first();
+      await result.waitFor();
+      await page.keyboard.press('Escape');
+    }
+    await page.close();
+  }
+  {
     const page = await browser.newPage();
     await page.goto(`${origin}${base}/`);
     await page.waitForURL(`${origin}${base}/en/`);

@@ -22,7 +22,9 @@ const pages: Page[] = [
   { slug: 'cli', section: 'reference', order: 0, status: 'draft', englishStatus: 'ready', titles: { en: 'CLI Reference', ja: 'CLI リファレンス' } },
   { slug: 'mcp-tools', section: 'reference', order: 1, status: 'draft', englishStatus: 'ready', titles: { en: 'MCP Tools', ja: 'MCP ツール' } },
   { slug: 'configuration', section: 'reference', order: 2, status: 'draft', englishStatus: 'ready', titles: { en: 'Configuration', ja: '設定' } },
-  { slug: 'editing-capabilities', section: 'guides', order: 4, status: 'draft', englishStatus: 'ready', titles: { en: 'Editing Capabilities' } },
+  { slug: 'editing-capabilities', section: 'guides', order: 5, status: 'draft', englishStatus: 'ready', titles: { en: 'Editing Capabilities' } },
+
+  { slug: 'troubleshooting', section: 'guides', order: 4, status: 'draft', englishStatus: 'ready', titles: { en: 'Troubleshooting' } },
   { slug: 'error-reference', section: 'reference', order: 3, status: 'draft', englishStatus: 'ready', titles: { en: 'Error Reference' } },
   { slug: 'development', section: 'contributing', order: 0, status: 'draft', englishStatus: 'ready', titles: { en: 'Development', ja: '開発' } },
   { slug: 'testing', section: 'contributing', order: 1, status: 'draft', englishStatus: 'ready', titles: { en: 'Testing', ja: 'テスト' } },
@@ -68,6 +70,8 @@ const englishDescriptions: Record<string, string> = {
   'mcp-tools': 'Discover MCP tools, capabilities, and operation lifecycles.',
   configuration: 'Configure the editor, connection, and optional analyzers.',
   'editing-capabilities': 'Compare editing workflows and their limits.',
+
+  troubleshooting: 'Diagnose symptoms and recover safely.',
   'error-reference': 'Find error meanings, project state, and recovery steps.',
   development: 'Set up the repository and contribute changes.',
   testing: 'Run checks and interpret evidence levels.',
