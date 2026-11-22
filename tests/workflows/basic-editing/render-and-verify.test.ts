@@ -319,6 +319,32 @@ test("render verification measures decoded mix true peak", async () => {
   }
 });
 
+test("ffprobe verifier rejects a sparse video despite its nominal frame rate", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-sparse-video-"));
+  try {
+    const outputPath = join(directory, "sparse.mp4");
+    await writeFile(outputPath, "fixture output");
+    const ffprobePath = join(directory, "ffprobe.mjs");
+    const probe = {
+      streams: [{ codec_type: "video", codec_name: "h264", width: 320, height: 180, r_frame_rate: "30/1", avg_frame_rate: "1/1" }],
+      format: { format_name: "mp4", duration: "2" },
+    };
+    await writeFile(ffprobePath, `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(JSON.stringify(probe))});\n`);
+    await chmod(ffprobePath, 0o755);
+    const timeline = minimalTimeline();
+    const request = createFramekitRenderRequest({ timeline, target: { projectId: timeline.project.id, sequenceId: timeline.sequence.id }, parameters: renderParameters(outputPath) });
+    const plan = createFramekitRenderPlan(request, { renderer: { id: "ffmpeg-headless", version: "1" }, features: { "local-media": "supported", "structural-edits": "supported" } });
+    const result = createFramekitRenderResult(plan, { path: outputPath, format: "mp4" });
+    const verification = await new FfmpegRenderVerifier({ ffprobePath }).verify(plan, result);
+    const frameRateCheck = verification.checks.find((check) => check.name === "frame-rate");
+    assert.equal(frameRateCheck?.passed, false);
+    assert.deepEqual(frameRateCheck?.observed, { value: "1", timescale: "1" });
+    assert.equal(verification.status, "failed");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("ffprobe verifier requires AAC for FFmpeg headless renders", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-render-verifier-codec-"));
   try {
