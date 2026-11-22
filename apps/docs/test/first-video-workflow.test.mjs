@@ -81,3 +81,23 @@ test('isolates the headless example from inherited Final Cut settings', () => {
   assert.equal(environment.FRAMEKIT_FINAL_CUT_SOCKET, undefined);
   assert.equal(original.FRAMEKIT_AUTO_CONNECT, '1');
 });
+
+test('persists the committed revision before a render transport failure', async () => {
+  const client = fakeClient();
+  const originalCall = client.callTool;
+  client.callTool = async request => {
+    if (request.name === 'headless.render') throw new Error('connection lost');
+    return originalCall.call(client, request);
+  };
+  const checkpoints = [];
+  await assert.rejects(runFirstVideo({ client, sourcePath: '/source.webm', outputPath: '/output.mp4', confirm: async () => true, checkpoint: async value => checkpoints.push(structuredClone(value)) }), /connection lost/);
+  assert.deepEqual(checkpoints.map(value => value.status), ['previewed', 'edited']);
+  assert.deepEqual(checkpoints[1].revision, edited);
+  assert.equal(checkpoints[1].after.occurrences[0].id, 'sample-shot');
+});
+
+test('stops before execution when its preview checkpoint cannot be saved', async () => {
+  const client = fakeClient();
+  await assert.rejects(runFirstVideo({ client, sourcePath: '/source.webm', outputPath: '/output.mp4', confirm: async () => true, checkpoint: async () => { throw new Error('disk full'); } }), /disk full/);
+  assert.equal(client.calls.some(call => call.name === 'headless.edit.execute'), false);
+});
