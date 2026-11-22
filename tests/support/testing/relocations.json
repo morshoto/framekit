@@ -3082,6 +3082,7 @@
     ],
     "tests/integration/skill-mcp-contract.test.ts": [
       "\"public v2 registration rejects invalid input before invoking the handler\"",
+      "\"public v2 registration skips handlers cancelled during validation\"",
       "\"production server is built with the v2 SDK\""
     ],
     "tests/integration/editing-session.test.ts": [

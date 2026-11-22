@@ -16,6 +16,7 @@ export function registerValidatedTool<Schema extends z.ZodType>(
   const advertised = fromJsonSchema<unknown>(jsonSchema as Parameters<typeof fromJsonSchema>[0], passthrough);
   server.registerTool(name, { ...config, inputSchema: advertised }, async (input, context) => {
     const result = await config.inputSchema.safeParseAsync(input);
+    context.mcpReq.signal.throwIfAborted();
     if (!result.success) {
       const message = formatInputError(result.error.issues, input);
       return { isError: true, content: [{ type: "text", text: JSON.stringify({ code: "INPUT_INVALID", message }) }] };
