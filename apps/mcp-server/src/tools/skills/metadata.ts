@@ -8,7 +8,7 @@ export type SkillToolOutputContract = "SkillInspection[]" | "SkillInspection" | 
 export interface SkillToolMetadata {
   name: SkillToolName;
   description: string;
-  inputSchema: z.ZodRawShape;
+  inputSchema: Record<string, z.ZodType>;
   outputContract: SkillToolOutputContract;
   capabilityModes: readonly SkillToolMode[];
   capabilities: readonly string[];
@@ -60,7 +60,7 @@ export const SKILL_TOOL_METADATA: readonly SkillToolMetadata[] = [
     inputSchema: {
       skill: z.string().min(1),
       version: z.string().min(1).optional(),
-      arguments: z.record(z.unknown()),
+      arguments: z.record(z.string(), z.unknown()),
     },
     outputContract: "SkillPreview",
     capabilityModes: allSkillToolModes,

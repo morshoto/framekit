@@ -369,21 +369,12 @@ function mcpObjectSchema<Schema extends z.ZodTypeAny>(schema: Schema): Schema {
   return schema;
 }
 
-function mcpDiscriminatedUnion<const Options extends readonly [z.AnyZodObject, ...z.AnyZodObject[]]>(
-  options: Options,
-): z.ZodType<z.output<Options[number]>, z.ZodTypeDef, z.input<Options[number]>> {
-  const schema = z.discriminatedUnion("type", options as unknown as [
-    z.ZodDiscriminatedUnionOption<"type">,
-    ...z.ZodDiscriminatedUnionOption<"type">[],
-  ]);
-  return mcpObjectSchema(schema);
+function mcpDiscriminatedUnion<const Options extends readonly [z.ZodObject, ...z.ZodObject[]]>(options: Options) {
+  return mcpObjectSchema(z.discriminatedUnion("type", options));
 }
 
-function mcpUnion<const Options extends readonly [z.AnyZodObject, ...z.AnyZodObject[]]>(
-  options: Options,
-): z.ZodType<z.output<Options[number]>, z.ZodTypeDef, z.input<Options[number]>> {
-  const schema = z.union(options as unknown as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]);
-  return mcpObjectSchema(schema);
+function mcpUnion<const Options extends readonly [z.ZodObject, z.ZodObject, ...z.ZodObject[]]>(options: Options) {
+  return mcpObjectSchema(z.union(options));
 }
 
 function createEditToolInputSchema<Target extends z.ZodRawShape = {}>(
@@ -1554,7 +1545,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   const roughCutExecutionPlanSchema = z.object({
     planner: z.object({ id: z.string().min(1), version: z.number().int().nonnegative() }).strict(),
     revision: revisionValueSchema,
-    query: z.record(z.unknown()),
+    query: z.record(z.string(), z.unknown()),
     shots: z.array(z.object({
       order: z.number().int().positive(),
       sourceIdentity: z.object({
