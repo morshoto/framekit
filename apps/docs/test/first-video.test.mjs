@@ -8,3 +8,7 @@ test('first video guide is discoverable and describes independent verification',
   assert.match(await read('../content/docs/en/quick-start.mdx'), /\/en\/docs\/your-first-video\//);
   assert.match(await read('../src/lib/docs/source.ts'), /slug: 'your-first-video'/);
 });
+
+test('first video routes failures to the symptom guide', async () => {
+  assert.match(await read('../content/docs/en/your-first-video.mdx'), /\/en\/docs\/troubleshooting\//);
+});
