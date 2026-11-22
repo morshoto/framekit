@@ -60,3 +60,9 @@ test('gives a pinned, reproducible direct MCP path', async () => {
   assert.match(guide, /first-video\.mjs sample\.webm/);
   assert.match(guide, /Type `yes`/);
 });
+
+test('explains how to interpret an interrupted render checkpoint', async () => {
+  const guide = await read('../content/docs/en/your-first-video.mdx');
+  assert.match(guide, /`edited`[^\n]*revision/i);
+  assert.match(guide, /`previewed`[^\n]*does not prove/i);
+});
