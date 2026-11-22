@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { runFirstVideo } from '../public/examples/first-video.mjs';
+import { exampleEnvironment, runFirstVideo } from '../public/examples/first-video.mjs';
 
 const initial = { id: 'initial', sequence: 0, timestamp: '2026-01-01T00:00:00.000Z' };
 const registered = { id: 'registered', sequence: 1, timestamp: '2026-01-01T00:00:01.000Z' };
@@ -66,4 +66,15 @@ test('rejects a changed sample before creating a project directory', async () =>
     await assert.rejects(promisify(execFile)(process.execPath, [fileURLToPath(new URL('../public/examples/first-video.mjs', import.meta.url)), 'sample.webm'], { cwd: dir }), /Sample SHA-256 mismatch/);
     assert.deepEqual(await readdir(dir), ['sample.webm']);
   } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+
+test('isolates the headless example from inherited Final Cut settings', () => {
+  const original = { FRAMEKIT_FCPXML_PATH: '/existing.fcpxml', FRAMEKIT_FINAL_CUT_SOCKET: '/existing.sock', FRAMEKIT_AUTO_CONNECT: '1', PATH: '/bin' };
+  const environment = exampleEnvironment(original, '/new-state');
+  assert.equal(environment.FRAMEKIT_STATE_DIR, '/new-state');
+  assert.equal(environment.FRAMEKIT_AUTO_CONNECT, '0');
+  assert.equal(environment.FRAMEKIT_FCPXML_PATH, undefined);
+  assert.equal(environment.FRAMEKIT_FINAL_CUT_SOCKET, undefined);
+  assert.equal(original.FRAMEKIT_AUTO_CONNECT, '1');
 });
