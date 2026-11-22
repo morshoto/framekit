@@ -30,9 +30,9 @@ import { FixtureAudioAnalyzer, FixtureMetadataAnalyzer, FixtureSpeechAnalyzer, F
 import { AgentVideoRuntime, JsonSemanticMediaIndexStore } from "@framekit/runtime";
 import { HeadlessProjectService } from "@framekit/headless-application";
 import { createMcpServer } from "./server.js";
-import { createCanonicalSessionChangeSource } from "./headless-sessions.js";
-import { createCanonicalNativeSnapshotReader } from "./canonical-native-snapshot.js";
+import { createCanonicalSessionChangeSource } from "@framekit/headless-application";
 import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer, FfmpegStoryboardRenderer } from "@framekit/headless-renderer";
+import { createCanonicalNativeSnapshotReader } from "./canonical-native-snapshot.js";
 import { shouldConfigureFinalCutProjectPublisher } from "./final-cut-runtime-config.js";
 
 const fixture = new InMemoryEditorAdapter({

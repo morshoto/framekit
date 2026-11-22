@@ -67,12 +67,11 @@ import {
   FRAMEKIT_VERSION,
   type FramekitBuildFingerprint,
 } from "./version.js";
-import { EditingSessionRepository, type EditingSessionChangeSource } from "./headless-sessions.js";
 import {
-  SessionMaterializationJobs,
-  type SessionMaterializationPublisher,
-} from "./materialization-jobs.js";
-import {
+  EditingSessionRepository,
+  JsonFileEditingSessionPersistence,
+  type EditingSessionChangeSource,
+  type EditingSessionRepositoryPort,
   externalEditOperations,
   externalEditPlanDigest,
   verifyExternalEditExportable,
@@ -80,11 +79,12 @@ import {
   type HeadlessRoughCutExecutionRequest,
   type HeadlessRoughCutRequest,
 } from "@framekit/headless-application";
+import { SessionMaterializationJobs, type SessionMaterializationPublisher, type SessionMaterializationServicePort } from "@framekit/headless-application/materialization";
 import { projectSnapshotFromTimelineIr } from "./headless-project-snapshot.js";
 import { chooseTimelineReadback } from "./readback-policy.js";
 import { registerSkillTools, skillPreviewResult } from "./tools/skills/register.js";
 
-export type { SessionMaterializationPublisher } from "./materialization-jobs.js";
+export type { SessionMaterializationPublisher } from "@framekit/headless-application/materialization";
 
 const builtInPublishExecute = FinalCutProjectPublisher.prototype.executePublishJob;
 const builtInPublishGetJob = FinalCutProjectPublisher.prototype.getPublishJob;
@@ -999,10 +999,14 @@ export interface McpServerOptions {
   requireBuildAlignment?: boolean;
   validationCommit?: string;
   sessionDirectory?: string;
+  /** An injected repository owns its change source; sessionChangeSource applies only to sessionDirectory. */
+  sessionRepository?: EditingSessionRepositoryPort;
   sessionChangeSource?: EditingSessionChangeSource;
   sqliteObservationProvider?: SessionSqliteObservationProvider;
   materializationDirectory?: string;
   sessionMaterializationPublisher?: SessionMaterializationPublisher;
+  materializationJobs?: SessionMaterializationServicePort;
+
   headlessProjects?: HeadlessProjectWorkflow;
 }
 
@@ -1077,18 +1081,23 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     { instructions: options.headlessProjects ? HEADLESS_FIRST_MCP_INSTRUCTIONS : EDITOR_FIRST_MCP_INSTRUCTIONS },
   );
   const nativeTransitionAssets = new Map<string, NativeFinalCutTransitionMatch>();
-  const sessions = options.sessionDirectory
-    ? new EditingSessionRepository(options.sessionDirectory, options.sessionChangeSource)
-    : undefined;
-  const materializations = sessions && options.materializationDirectory
-    ? new SessionMaterializationJobs(options.materializationDirectory, sessions, options.sessionMaterializationPublisher, options.canonicalRecovery)
-    : undefined;
+  const sessions = options.sessionRepository
+    ?? (options.sessionDirectory
+      ? new EditingSessionRepository(
+          new JsonFileEditingSessionPersistence(options.sessionDirectory),
+          options.sessionChangeSource,
+        )
+      : undefined);
+  const materializations = options.materializationJobs
+    ?? (sessions && options.materializationDirectory
+      ? new SessionMaterializationJobs(options.materializationDirectory, sessions, options.sessionMaterializationPublisher, options.canonicalRecovery)
+      : undefined);
 
-  const requireSessions = (): EditingSessionRepository => {
+  const requireSessions = (): EditingSessionRepositoryPort => {
     if (!sessions) throw new Error("SESSION_STORAGE_UNAVAILABLE: configure a session directory");
     return sessions;
   };
-  const requireMaterializations = (): SessionMaterializationJobs => {
+  const requireMaterializations = (): SessionMaterializationServicePort => {
     if (!materializations) throw new Error("MATERIALIZATION_STORAGE_UNAVAILABLE: configure a materialization directory");
     return materializations;
   };

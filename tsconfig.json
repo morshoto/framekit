@@ -11,7 +11,8 @@
       "@framekit/final-cut/fcpxml": ["./adapters/final-cut/typescript/src/documents.ts"],
       "@framekit/final-cut/experimental": ["./adapters/final-cut/typescript/src/experimental.ts"],
       "@framekit/headless-renderer": ["./adapters/headless/typescript/src/index.ts"],
-      "@framekit/headless-application": ["./packages/headless-application/src/index.ts"]
+      "@framekit/headless-application": ["./packages/headless-application/src/index.ts"],
+      "@framekit/headless-application/materialization": ["./packages/headless-application/src/materialization-jobs.ts"]
     }
   },
   "include": ["apps/**/*.ts", "packages/**/*.ts", "adapters/**/*.ts", "tests/**/*.ts"],

@@ -1045,6 +1045,17 @@
       "network": "none"
     },
     {
+      "path": "tests/adapters/final-cut/session-persistence-port.test.ts",
+      "owner": "packages/headless-application",
+      "reviewed": true,
+      "tags": ["fixture-e2e", "integration"],
+      "evidence": "fixture",
+      "dependsOn": ["apps/mcp-server", "packages/headless-application", "packages/runtime", "packages/testkit"],
+      "requires": [],
+      "platforms": ["any"],
+      "network": "none"
+    },
+    {
       "path": "tests/adapters/final-cut/timeline-ir-fcpxml.test.ts",
       "owner": "adapters/final-cut/typescript",
       "tags": [
