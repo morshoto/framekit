@@ -2716,28 +2716,38 @@ function rationalSeconds(time: { value: string; timescale: string }): number {
 test("same-session and fresh-session renders retain all frames after JSON and gain edits", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-session-render-"));
   const here = dirname(fileURLToPath(import.meta.url));
+  const fontPath = join(directory, "font.otf");
+  await writeFile(fontPath, Buffer.from(await readFile(join(process.cwd(), "tests/fixtures/fonts/noto-sans-jp-test.otf.base64"), "utf8"), "base64"));
   const environment: Record<string, string> = {
     ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
     FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1",
     FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0", FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"),
-    FRAMEKIT_STATE_DIR: join(directory, "state"),
+    FRAMEKIT_STATE_DIR: join(directory, "state"), FRAMEKIT_RENDER_FONT: fontPath,
   };
   let client: Client | undefined;
   let transport: StdioClientTransport | undefined;
   try {
-    const video = join(directory, "source.mp4");
-    await generateSegmentedSource(video, [{ color: "red", duration: 4 }], 440);
+    const videos = Array.from({ length: 13 }, (_, index) => join(directory, `source-${index}.mp4`));
+    for (const [index, video] of videos.entries()) await generateSegmentedSource(video, [{ color: index % 2 ? "blue" : "red", duration: 4 }], 440 + index * 10);
     ({ client, transport } = await connectProductionClient(here, environment));
     const initial = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: emptyTimeline() } }));
     const projectId = initial.timeline.project.id;
     const sequenceId = initial.timeline.sequence.id;
-    const source = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: video, expectedRevision: initial.timeline.revision } }));
-    const clips = Array.from({ length: 13 }, (_, index) => ({ id: `clip-${index}`, mediaId: source.resource.id, sourceStartTime: { value: "0", timescale: "1" }, durationTime: { value: index === 12 ? "81" : "78", timescale: "30" } }));
-    const args = { projectId, sequenceId, expectedRevision: source.project.timeline.revision, edit: { schemaVersion: 1, clips } };
-    const preview = payload(await client.callTool({ name: "headless.edit-json.preview", arguments: args }));
+    let revision = initial.timeline.revision;
+    const mediaIds: string[] = [];
+    for (const video of videos) {
+      const source = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: video, expectedRevision: revision } }));
+      revision = source.project.timeline.revision;
+      mediaIds.push(source.resource.id);
+    }
+    const clips = mediaIds.map((mediaId, index) => ({ id: `clip-${index}`, mediaId, sourceStartTime: { value: "0", timescale: "1" }, durationTime: { value: index === 12 ? "81" : "78", timescale: "30" } }));
+    const args = { projectId, sequenceId, expectedRevision: revision, edit: { schemaVersion: 1, clips, title: { id: "title", text: "A", startTime: { value: "1", timescale: "1" }, durationTime: { value: "1", timescale: "1" } } } };
+    const previewResult = await client.callTool({ name: "headless.edit-json.preview", arguments: args });
+    assert.notEqual(previewResult.isError, true, toolErrorText(previewResult));
+    const preview = payload(previewResult);
     const executed = payload(await client.callTool({ name: "headless.edit-json.execute", arguments: { ...args, approved: true, planDigest: preview.planDigest } }));
     const edited = payload(await client.callTool({ name: "headless.edit.execute", arguments: { projectId, sequenceId, expectedRevision: executed.after.timeline.revision, operations: clips.map(({ id }) => ({ type: "set-gain", occurrenceId: id, gainDb: -6 })) } }));
-    const revision = edited.after.timeline.revision;
+    revision = edited.after.timeline.revision;
     for (const label of ["same", "fresh"]) {
       if (label === "fresh") {
         await client.close();
