@@ -43,6 +43,28 @@ test("public v2 registration rejects invalid input before invoking the handler",
   } finally { await client.close(); await server.close(); }
 });
 
+test("public v2 registration validates raw tool schemas", async () => {
+  const server = new V2McpServer({ name: "raw-validation", version: "1" });
+  let calls = 0;
+  registerValidatedTool(server, "fixture.raw", { inputSchema: { count: z.number().positive() } }, async ({ count }) => {
+    calls++;
+    return { content: [{ type: "text", text: String(count) }] };
+  });
+  const client = new Client({ name: "raw-test", version: "1" });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  try {
+    await server.connect(b);
+    await client.connect(a);
+    const invalid = await client.callTool({ name: "fixture.raw", arguments: { count: 0 } });
+    assert.equal(invalid.isError, true);
+    assert.match(JSON.parse(textFrom(invalid)).message, /count must be greater than 0/);
+    assert.equal(calls, 0);
+    const valid = await client.callTool({ name: "fixture.raw", arguments: { count: 2 } });
+    assert.equal(textFrom(valid), "2");
+    assert.equal(calls, 1);
+  } finally { await client.close(); await server.close(); }
+});
+
 test("public v2 registration skips handlers cancelled during validation", async () => {
   const server = new V2McpServer({ name: "validation-cancel", version: "1" });
   let begin!: () => void;
