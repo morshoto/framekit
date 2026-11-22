@@ -30,6 +30,10 @@ shasum -a 256 sample.webm
 
 The observed SHA-256 is `e96efec0c3bf57836b54cbead8d195564ee4e1303a320b343b4fda6642ce5904`. Stop if it differs. In a separate manual MCP run against the published v0.2.6 server, registering this file, previewing and inserting its first two seconds into a new Framekit-owned sequence, and rendering MP4 succeeded with verification passed. Independent `ffprobe` reported a 400 × 290 video at 12 fps, with audio and a two-second duration. That scripted tool run does not verify an assistant prompt, and it does not make claims about Final Cut.
 
+This frame was extracted from that actual headless MP4. It depicts the CC0 animation above; it is not a Final Cut screenshot.
+
+![A stick figure from the rendered CC0 animation](/images/first-video-cc0-output.png)
+
 ## Prompt for an MCP-capable assistant
 
 The following prompt uses the CC0 source above, but its end-to-end execution through Codex has **not yet been verified** for this candidate. The tested checkout command above remains a separate reproducible path.
