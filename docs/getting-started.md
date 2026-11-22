@@ -103,6 +103,11 @@ if it expires, the server restarts, or execution fails. The existing
 `headless.edit.execute` remains available for direct revision-bound edits and
 does not require an approved preview.
 
+Headless edit previews and executions include `warnings` for primary-lane gaps
+or overlaps that prevent rendering, and for unsupported-timeline or dissolve
+FCPXML preflight failures on timelines with transitions. Review these before
+committing; an empty list does not guarantee every render or export will succeed.
+
 For render-only rough cuts, call `headless.rough-cut.preview` with the project,
 sequence, semantic plan, and `render` parameters, omitting `fcpxml`. The preview
 reports FCPXML as `not-requested`. Execute the same request with `approved: true`
