@@ -2765,6 +2765,7 @@
       "\"the public Skill contract exposes the editor-independent lifecycle\""
     ],
     "tests/integration/skill-mcp-contract.test.ts": [
+      "\"public v2 registration preserves union discovery and branch validation\"",
       "\"skill tools register independently with the same names, schemas, and error mapping\"",
       "\"generic MCP Skill tools delegate discovery, inspection, preview, and token-only execution\"",
       "\"generic MCP maps unavailable Skill requirements to structured errors\""
