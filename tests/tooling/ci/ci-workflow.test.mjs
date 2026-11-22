@@ -125,3 +125,39 @@ test('milestone warnings create, update, resolve and avoid duplicate comments', 
   await syncWarning(api, issue, []);
   assert.equal(writes.length, 2);
 });
+
+test('milestone warning reconciliation checks both sides and skips other repositories', async () => {
+  const { reconcile } = await import('../../../scripts/warn-future-blockers.mjs');
+  const seen = [];
+  const api = {
+    async issue(number) { return { number }; },
+    async blocking() { return [{ number: 2, state: 'OPEN', repository: { nameWithOwner: 'a/b' } }, { number: 3, state: 'OPEN', repository: { nameWithOwner: 'c/d' } }]; },
+    async blockers(number) { seen.push(number); return []; },
+    async listComments() { return []; },
+  };
+  await reconcile(api, 'a/b', 'issues', { issue: { number: 1 } });
+  assert.deepEqual(seen, [1, 2]);
+});
+
+test('milestone warning API paginates dependencies and fails on GraphQL errors', async () => {
+  const { createApi } = await import('../../../scripts/warn-future-blockers.mjs');
+  let count = 0;
+  const api = createApi({ repository: 'a/b', token: 'token', fetchImpl: async (_url, options) => {
+    const request = JSON.parse(options.body);
+    count++;
+    assert.equal(request.variables.cursor, count === 1 ? null : 'next');
+    return new Response(JSON.stringify({ data: { repository: { issue: { blockedBy: { nodes: [{ number: count }], pageInfo: { hasNextPage: count === 1, endCursor: 'next' } } } } } }));
+  } });
+  assert.deepEqual((await api.blockers(1)).map(item => item.number), [1, 2]);
+  const broken = createApi({ repository: 'a/b', token: 'token', fetchImpl: async () => new Response(JSON.stringify({ errors: [{ message: 'denied' }] })) });
+  await assert.rejects(broken.blockers(1), /denied/);
+});
+
+test('assign workflow schedules and serializes milestone warnings', () => {
+  const assign = config('.github/workflows/assign.yml');
+  assert.ok(assign.on.schedule.length);
+  assert.ok(assign.on.issues.types.includes('milestoned'));
+  assert.ok(assign.on.issues.types.includes('demilestoned'));
+  assert.equal(assign.jobs['warn-future-blockers'].permissions.issues, 'write');
+  assert.equal(assign.jobs['warn-future-blockers'].concurrency['cancel-in-progress'], false);
+});
