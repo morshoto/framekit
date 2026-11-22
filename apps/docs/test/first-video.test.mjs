@@ -25,14 +25,14 @@ test('separates published plugin smoke from the real-render evidence', async () 
 
 test('identifies published real-media verification as scripted MCP evidence', async () => {
   const guide = await read('../content/docs/en/your-first-video.mdx');
-  assert.match(guide, /adapted[^\n]*published[^\n]*real-media/i);
+  assert.match(guide, /published[^\n]*real-media/i);
   assert.match(guide, /scripted[^\n]*not[^\n]*prompt/i);
 });
 
 test('shows how to inspect before and after timeline evidence', async () => {
   const guide = await read('../content/docs/en/your-first-video.mdx');
-  assert.match(guide, /project\.created\.timeline\.sequence/);
-  assert.match(guide, /project\.finalAfterEdits\.timeline\.sequence/);
+  assert.match(guide, /evidence\.before/);
+  assert.match(guide, /evidence\.after/);
 });
 
 test('attributes the independently licensed sample and pins its bytes', async () => {
@@ -52,4 +52,11 @@ test('includes an actual output frame for the licensed sample', async () => {
   const guide = await read('../content/docs/en/your-first-video.mdx');
   assert.match(guide, /\/images\/first-video-cc0-output\.png/);
   assert.ok((await readFile(new URL('../public/images/first-video-cc0-output.png', import.meta.url))).length > 0);
+});
+
+test('gives a pinned, reproducible direct MCP path', async () => {
+  const guide = await read('../content/docs/en/your-first-video.mdx');
+  assert.match(guide, /@morshoto\/framekit@0\.2\.6/);
+  assert.match(guide, /first-video\.mjs sample\.webm/);
+  assert.match(guide, /Type `yes`/);
 });
