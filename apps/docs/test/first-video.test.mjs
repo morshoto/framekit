@@ -72,3 +72,8 @@ test('provides an independent source-to-output frame check', async () => {
   assert.match(guide, /\[source\]\[render\]ssim/);
   assert.match(guide, /SSIM[^\n]*audio/i);
 });
+
+test('explains that the sample audio is silent', async () => {
+  const guide = await read('../content/docs/en/your-first-video.mdx');
+  assert.match(guide, /sample[^\n]*audio[^\n]*silent/i);
+});
