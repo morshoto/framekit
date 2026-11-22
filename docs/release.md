@@ -86,7 +86,7 @@ client compatibility differences in the release notes. Validate clean Codex and
 Claude Code startup and representative calls against the exact candidate; a
 published-package run at a different commit is not candidate evidence.
 
-Before a release pull request is merged, run the standard checks in
+Before a release pull request is merged, the release owner must audit the [Editing Capabilities guide](../apps/docs/content/docs/en/editing-capabilities.mdx) against the exact candidate, update its verified version, commit and evidence links, and retain any unverified native limitations. Run the standard checks in
 [Testing](./testing.md), then validate package and release metadata:
 
 ```sh
