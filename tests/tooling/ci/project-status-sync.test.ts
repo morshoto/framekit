@@ -578,7 +578,7 @@ test('workflow uses the dedicated project token and supports event sync plus bac
 	assert.match(workflow, /^\s*workflow_dispatch:\s*$/m);
 	assert.match(
 		workflow,
-		/types:\s*\[opened, reopened, closed, labeled, unlabeled\]/,
+		/types:\s*\[opened, reopened, closed, labeled, unlabeled(?:, [a-z]+)*\]/,
 	);
 	assert.match(workflow, /sync-project-status:/);
 	assert.match(
