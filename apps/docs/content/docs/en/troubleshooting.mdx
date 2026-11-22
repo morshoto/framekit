@@ -14,6 +14,8 @@ Start with the symptom below. Project and editor diagnostics are **read-only** u
 
 **Diagnostic:** Run `npx -y @morshoto/framekit doctor finalcut` (npx may download the published package into its cache), then inspect `connection.status` and `editor.inspect`. A ready metadata connection alone does not prove a canonical timeline or write capability. Inspect build alignment (`preflight.buildAlignment`) and native handoff readiness when reported: a runtime and extension version mismatch can block native handoff even while the connection is ready. Install matching release components and recheck; do not proceed with a blocked handoff. Follow [Final Cut Pro](/en/docs/final-cut-pro/) for extension setup. Stop if the required capability is unavailable.
 
+If the native path reports `FINAL_CUT_NATIVE_PERMISSION_REQUIRED`, inspect the MCP host's Accessibility and Automation permissions for Final Cut Pro in macOS Privacy & Security settings. The candidate maps authorization errors to this symptom; a permission change is a system setting change and should be made only for a host you trust. Changing permissions does not resolve an already dispatched, uncertain native edit: stop and preserve its evidence as described below. See the [candidate native error mapping](https://github.com/morshoto/framekit/blob/2f6f03b6a0cba5b5cb5d4a3ea0f44c3ffa9cdf6c/adapters/final-cut/typescript/src/native.ts).
+
 ## Media not found or unsupported
 
 **Symptoms:** a source is missing from search or an operation reports unsupported media. The path, registration, format, or source bytes may differ from the intended input.
