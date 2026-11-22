@@ -108,6 +108,18 @@ if it expires, the server restarts, or execution fails. The existing
 `headless.edit.execute` remains available for direct revision-bound edits and
 does not require an approved preview.
 
+Headless edit previews and executions include `warnings` for primary-lane gaps
+or overlaps that prevent rendering, and for unsupported-timeline or dissolve
+FCPXML preflight failures on timelines with transitions. Review these before
+committing; an empty list does not guarantee every render or export will succeed.
+
+For render-only rough cuts, call `headless.rough-cut.preview` with the project,
+sequence, semantic plan, and `render` parameters, omitting `fcpxml`. The preview
+reports FCPXML as `not-requested`. Execute the same request with `approved: true`
+and its `planDigest` to commit and render without an FCPXML artifact. To export,
+include `fcpxml` with a path and explicit target in both calls; adding or removing
+the target requires a new preview because the digest binds the output intent.
+
 For a semantic rough-cut plan, `headless.rough-cut.preview` also returns an MCP
 PNG image and storyboard metadata alongside the existing JSON preview. The
 sheet samples each primary shot start and each title midpoint in chronological
