@@ -43,3 +43,12 @@ test('approval executes exactly the previewed operation and renders its returned
   assert.deepEqual(execute.arguments, preview.arguments);
   assert.deepEqual(client.calls.find(x => x.name === 'headless.render').arguments.expectedRevision, edited);
 });
+
+test('does not report success when independent render verification fails', async () => {
+  const client = fakeClient();
+  const originalCall = client.callTool;
+  client.callTool = async request => request.name === 'headless.render'
+    ? { content: [{ type: 'text', text: JSON.stringify({ status: 'failed', outcome: { verification: { status: 'failed' } } }) }] }
+    : originalCall.call(client, request);
+  await assert.rejects(runFirstVideo({ client, sourcePath: '/source.webm', outputPath: '/output.mp4', confirm: async () => true }), /verification did not pass/i);
+});
