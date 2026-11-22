@@ -10,6 +10,10 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { AgentVideoRuntime } from "@framekit/runtime";
+import { InMemoryEditorAdapter } from "@framekit/testkit";
+import { createMcpServer } from "../../../apps/mcp-server/src/server.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
 import { compileTimelineIrToFcpxml } from "../../../adapters/final-cut/typescript/src/timeline-ir-fcpxml.js";
@@ -1257,6 +1261,52 @@ test("production stdio MCP persists and reopens the headless project and render 
   } finally {
     await client?.close();
     await transport?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("concurrent MCP edit reports a spaced stale-project error", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-mcp-stale-"));
+  let release!: () => void;
+  let signal!: () => void;
+  const started = new Promise<void>((resolve) => { signal = resolve; });
+  const resumed = new Promise<void>((resolve) => { release = resolve; });
+  class PausedService extends HeadlessProjectService {
+    override async open(projectId: string) {
+      const project = await super.open(projectId);
+      signal();
+      await resumed;
+      return project;
+    }
+  }
+  const service = new PausedService({ directory });
+  const other = new HeadlessProjectService({ directory });
+  const timeline = emptyTimeline();
+  timeline.sequence.durationTime = { value: "10", timescale: "1" };
+  const created = await service.create(timeline);
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({ projectId: "fixture", projectName: "Fixture", timelineId: "sequence", timelineName: "Master", clips: [] }));
+  const server = createMcpServer(runtime, { headlessProjects: service });
+  const client = new Client({ name: "stale-project-test", version: "1.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const title = (id: string) => ({ type: "add-title" as const, title: { id, text: id, startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" }, lane: 1 } });
+    const args = { projectId: timeline.project.id, sequenceId: timeline.sequence.id, expectedRevision: created.timeline.revision, operations: [title("pending")] };
+    const pending = client.callTool({ name: "headless.edit.execute", arguments: args });
+    await started;
+    const committed = await other.executeEdit(timeline.project.id, { schemaVersion: 1, expectedRevision: created.timeline.revision, operations: [title("concurrent")] }, timeline.sequence.id);
+    release();
+    const result = await pending;
+    assert.equal(result.isError, true);
+    const error = JSON.parse(toolErrorText(result));
+    assert.equal(error.code, "HEADLESS_PROJECT_STALE");
+    assert.match(error.message, /project changed after media validation/);
+    assert.deepEqual((await other.open(timeline.project.id)).timeline, committed.after.timeline);
+  } finally {
+    release();
+    await client.close();
+    await server.close();
     await rm(directory, { recursive: true, force: true });
   }
 });
