@@ -43,6 +43,36 @@ test("public v2 registration rejects invalid input before invoking the handler",
   } finally { await client.close(); await server.close(); }
 });
 
+test("public v2 registration skips handlers cancelled during validation", async () => {
+  const server = new V2McpServer({ name: "validation-cancel", version: "1" });
+  let begin!: () => void;
+  let release!: () => void;
+  const started = new Promise<void>((resolve) => { begin = resolve; });
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let calls = 0;
+  const schema = z.object({ name: z.string().refine(async () => { begin(); await gate; return true; }) });
+  registerValidatedTool(server, "fixture.cancel", { inputSchema: schema }, async () => {
+    calls++;
+    return { content: [{ type: "text", text: "called" }] };
+  });
+  const client = new Client({ name: "cancel-test", version: "1" });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  try {
+    await server.connect(b);
+    await client.connect(a);
+    const controller = new AbortController();
+    const call = client.callTool({ name: "fixture.cancel", arguments: { name: "ready" } }, undefined, { signal: controller.signal });
+    const rejection = assert.rejects(call);
+    await started;
+    controller.abort();
+    await rejection;
+    await new Promise((resolve) => setImmediate(resolve));
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(calls, 0);
+  } finally { release(); await client.close(); await server.close(); }
+});
+
 function markerSkill(): SkillDefinition {
   return {
     manifest: {
