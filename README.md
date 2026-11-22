@@ -50,6 +50,9 @@ pnpm run check:boundaries
 The local MCP server uses a deterministic in-memory fixture and communicates over
 stdio. Start it from the repository root and connect it to an MCP client:
 
+The server uses the official MCP TypeScript SDK v2; client connections remain
+stdio-based. See the setup guide for Codex and Claude Code configuration.
+
 ```sh
 pnpm run mcp
 ```

@@ -18,6 +18,100 @@ function textFrom(result: unknown): string {
   return first.text as string;
 }
 
+test("MCP preserves omitted opaque input behavior across SDK migration", async () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const stateDirectory = await mkdtemp(join(os.tmpdir(), "framekit-mcp-opaque-input-"));
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: ["--import", "tsx", join(here, "../../../apps/mcp-server/src/main.ts")],
+    env: { ...process.env, FRAMEKIT_STATE_DIR: stateDirectory, FRAMEKIT_EDITOR: "fixture", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0" },
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "opaque-input-compatibility", version: "1" });
+  try {
+    await client.connect(transport);
+    const cases = [
+      { name: "session.create", field: "base", args: {}, code: "TIMELINE_IR_INVALID" },
+      { name: "session.reconcile", field: "providerState", args: { sessionId: "missing", provider: { id: "test" } }, code: "SESSION_NOT_FOUND" },
+      { name: "headless.project.create", field: "timeline", args: {}, code: undefined },
+    ];
+    const tools = (await client.listTools()).tools;
+    assert.equal(tools.find((tool) => tool.name === "headless.project.list")?.inputSchema.additionalProperties, undefined);
+    const inspectSchema = tools.find((tool) => tool.name === "session.inspect")?.inputSchema;
+    assert.equal(inspectSchema?.additionalProperties, false);
+    const editSchema = tools.find((tool) => tool.name === "session.edit.preview")?.inputSchema;
+    assert.equal(editSchema?.additionalProperties, false);
+    assert.equal((editSchema?.properties?.expectedRevision as Record<string, unknown>)?.additionalProperties, false);
+    for (const item of cases) {
+      assert.ok(!tools.find((tool) => tool.name === item.name)?.inputSchema.required?.includes(item.field), item.name);
+      const result = await client.callTool({ name: item.name, arguments: item.args });
+      assert.equal(result.isError, true, item.name);
+      const error = JSON.parse(textFrom(result));
+      if (item.code) assert.equal(error.code, item.code, item.name);
+      else assert.notEqual(error.code, "INPUT_INVALID", item.name);
+    }
+  } finally { await client.close(); await transport.close(); await rm(stateDirectory, { recursive: true, force: true }); }
+});
+
+test("all tools with required root inputs reject empty arguments", async () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const stateDirectory = await mkdtemp(join(os.tmpdir(), "framekit-mcp-required-input-"));
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: ["--import", "tsx", join(here, "../../../apps/mcp-server/src/main.ts")],
+    env: { ...process.env, FRAMEKIT_STATE_DIR: stateDirectory, FRAMEKIT_EDITOR: "fixture", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0" },
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "required-input-test", version: "1" });
+  try {
+    await client.connect(transport);
+    const tools = (await client.listTools()).tools.filter((tool) => (tool.inputSchema.required?.length ?? 0) > 0);
+    assert.ok(tools.length > 50, `expected broad catalog coverage, got ${tools.length}`);
+    for (const tool of tools) {
+      const result = await client.callTool({ name: tool.name, arguments: {} });
+      assert.equal(result.isError, true, tool.name);
+      const error = JSON.parse(textFrom(result));
+      assert.equal(error.code, "INPUT_INVALID", tool.name);
+    }
+  } finally { await client.close(); await transport.close(); await rm(stateDirectory, { recursive: true, force: true }); }
+});
+
+test("MCP stdio restarts after clean shutdown", async () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const stateDirectory = await mkdtemp(join(os.tmpdir(), "framekit-mcp-restart-"));
+  const pids: number[] = [];
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const transport = new StdioClientTransport({
+        command: process.execPath,
+        args: ["--import", "tsx", join(here, "../../../apps/mcp-server/src/main.ts")],
+        env: { ...process.env, FRAMEKIT_STATE_DIR: stateDirectory, FRAMEKIT_EDITOR: "fixture", FRAMEKIT_AUTO_CONNECT: "0" },
+        stderr: "pipe",
+      });
+      const client = new Client({ name: "restart-test", version: "1" });
+      try {
+        await client.connect(transport);
+        assert.ok(transport.pid);
+        pids.push(transport.pid);
+        const tools = (await client.listTools()).tools;
+        assert.ok(tools.some((tool) => tool.name === "connection.status"));
+        const edit = tools.find((tool) => tool.name === "editor.timeline.edit");
+        assert.ok(edit);
+        const schema = edit.inputSchema as { anyOf?: Array<{ properties?: { type?: { const?: string } }; required?: string[] }> };
+        const trim = schema.anyOf?.find((branch) => branch.properties?.type?.const === "trim-clip");
+        assert.ok(trim?.required?.includes("duration"));
+        const status = await client.callTool({ name: "connection.status", arguments: {} });
+        assert.notEqual(status.isError, true);
+      } finally {
+        await client.close();
+        await transport.close();
+      }
+      assert.throws(() => process.kill(pids.at(-1)!, 0), /ESRCH/);
+    }
+    assert.notEqual(pids[0], pids[1]);
+  } finally { await rm(stateDirectory, { recursive: true, force: true }); }
+});
+
 test("MCP presents invalid tool arguments as actionable coded errors", async () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const stateDirectory = await mkdtemp(join(os.tmpdir(), "framekit-mcp-validation-"));

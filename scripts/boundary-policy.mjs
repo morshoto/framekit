@@ -34,7 +34,7 @@ export const FRAMEKIT_BOUNDARY_POLICY = {
     testkit: [],
     "final-cut": ["fast-xml-parser"],
     "headless-renderer": ["fontkit"],
-    "mcp-server": ["@modelcontextprotocol/sdk", "zod"],
+    "mcp-server": ["@modelcontextprotocol/server", "zod"],
     cli: [],
   },
   productionEntrypoints: ["apps/mcp-server/src/main.ts", "apps/cli/src/main.ts"],

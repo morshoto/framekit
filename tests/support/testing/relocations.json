@@ -1578,6 +1578,7 @@
     "tests/integration/edit-tool-schema.test.ts": [
       "\"single-edit tools advertise operation-specific required fields\"",
       "\"published root schema validates non-last edit operations\"",
+      "\"music add discovery permits both placement variants\"",
       "\"editor.timeline.edit validates trim duration before its handler\"",
       "\"single-edit tools reject fields from another operation\""
     ],
@@ -2765,6 +2766,7 @@
       "\"the public Skill contract exposes the editor-independent lifecycle\""
     ],
     "tests/integration/skill-mcp-contract.test.ts": [
+      "\"public v2 registration preserves union discovery and branch validation\"",
       "\"skill tools register independently with the same names, schemas, and error mapping\"",
       "\"generic MCP Skill tools delegate discovery, inspection, preview, and token-only execution\"",
       "\"generic MCP maps unavailable Skill requirements to structured errors\""
@@ -3073,6 +3075,22 @@
   },
   "recordedAtCommit": "37a92fa1",
   "addedTestNames": {
+    "tests/integration/mcp.test.ts": [
+      "\"MCP preserves omitted opaque input behavior across SDK migration\"",
+      "\"all tools with required root inputs reject empty arguments\"",
+      "\"MCP stdio restarts after clean shutdown\""
+    ],
+    "tests/integration/clean-mcp-clients.test.ts": [
+      "\"clean client diagnostics can select the packed candidate\"",
+      "\"MCP server uses the stable v2 server dependency\""
+    ],
+    "tests/integration/skill-mcp-contract.test.ts": [
+      "\"public v2 registration validates raw tool schemas\"",
+      "\"v2 discovery preserves v1 object constraints\"",
+      "\"public v2 registration rejects invalid input before invoking the handler\"",
+      "\"public v2 registration skips handlers cancelled during validation\"",
+      "\"production server is built with the v2 SDK\""
+    ],
     "tests/integration/editing-session.test.ts": [
       "\"title font identity persists and rejects incomplete assets\""
     ],

@@ -32,7 +32,7 @@ runs:
       run: |
         mkdir "$RUNNER_TEMP/consumer"
         cd "$RUNNER_TEMP/consumer"
-        npm install --ignore-scripts --no-audit --no-fund "$RUNNER_TEMP"/morshoto-framekit-*.tgz
+        npm install --ignore-scripts --no-audit --no-fund "$RUNNER_TEMP"/morshoto-framekit-*.tgz @modelcontextprotocol/sdk@1.32.2
         cp "$GITHUB_WORKSPACE/scripts/consumer-runtime-smoke.mjs" .
         node consumer-runtime-smoke.mjs 2>&1 | tee "$RUNNER_TEMP/consumer-runtime.log"
         echo "Consumer smoke passed on Node $(node --version)." >> "$GITHUB_STEP_SUMMARY"

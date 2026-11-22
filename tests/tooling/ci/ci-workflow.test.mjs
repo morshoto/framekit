@@ -73,6 +73,7 @@ test('Docs and package smoke retain failure diagnostics', () => {
   assert.ok(exports.some(step => step.if?.includes('failure()') && step.uses?.startsWith('actions/upload-artifact@')));
   for (const file of ['docs-build.log', 'docs-export.log']) assert.ok(exports.some(step => step.shell === 'bash' && step.run?.includes('tee') && step.run.includes(file)));
   const consumer = action('consumer-runtime');
+  assert.ok(consumer.some(step => step.run?.includes('@modelcontextprotocol/sdk@1.32.2')), 'consumer smoke installs its own independent MCP client');
   assert.ok(consumer.some(step => step.run?.includes('tee') && step.run.includes('consumer-runtime.log')));
   assert.ok(consumer.some(step => step.if?.includes('always()') && step.uses?.startsWith('actions/upload-artifact@')));
 });
