@@ -19,6 +19,24 @@ import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer,
 
 const execFileAsync = promisify(execFile);
 
+test("headless edit reports primary gaps in preview and execution", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-edit-consequences-"));
+  try {
+    const service = new HeadlessProjectService({ directory });
+    const timeline = emptyTimeline();
+    timeline.resources.push({ id: "media", name: "media", mediaKind: "video" });
+    timeline.sequence.occurrences = [occurrence("a", "media"), { ...occurrence("b", "media"), startTime: { value: "1", timescale: "1" } }];
+    timeline.sequence.durationTime = { value: "2", timescale: "1" };
+    const initial = await service.create(timeline);
+    const command = { schemaVersion: 1 as const, expectedRevision: initial.timeline.revision, operations: [{ type: "trim-occurrence" as const, occurrenceId: "a", durationTime: { value: "1", timescale: "2" }, sourceStartTime: { value: "0", timescale: "1" } }] };
+    const preview = await service.previewEdit(timeline.project.id, command, timeline.sequence.id);
+    assert.match(JSON.stringify((preview as any).warnings), /HEADLESS_RENDER_UNSUPPORTED.*gap/i);
+    assert.deepEqual((await service.open(timeline.project.id)).timeline, initial.timeline);
+    const executed = await service.executeEdit(timeline.project.id, command, timeline.sequence.id);
+    assert.deepEqual((executed as any).warnings, (preview as any).warnings);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("production MCP preserves approval for an unsampled dissolve", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-788-dissolve-mcp-"));
   const here = dirname(fileURLToPath(import.meta.url));
