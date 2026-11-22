@@ -3,12 +3,14 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer, McpServer as V2McpServer } from "@modelcontextprotocol/server";
+import { McpServer as V1McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { AgentVideoRuntime, type SkillDefinition } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { createMcpServer } from "../../../apps/mcp-server/src/server.js";
 import { registerSkillTools } from "../../../apps/mcp-server/src/tools/skills/register.js";
 import { registerValidatedTool } from "../../../apps/mcp-server/src/tools/validated-tool.js";
 import { z } from "zod/v4";
+import { z as z3 } from "zod/v3";
 
 function textFrom(value: unknown): string {
   const content = (value as { content?: Array<{ type?: string; text?: string }> }).content;
@@ -56,7 +58,7 @@ test("public v2 registration validates raw tool schemas", async () => {
     await server.connect(b);
     await client.connect(a);
     const advertised = (await client.listTools()).tools.find((tool) => tool.name === "fixture.raw")?.inputSchema;
-    assert.notEqual(advertised?.additionalProperties, false);
+    assert.equal(advertised?.additionalProperties, false);
     const invalid = await client.callTool({ name: "fixture.raw", arguments: { count: 0 } });
     assert.equal(invalid.isError, true);
     assert.match(JSON.parse(textFrom(invalid)).message, /count must be greater than 0/);
@@ -65,6 +67,41 @@ test("public v2 registration validates raw tool schemas", async () => {
     assert.equal(textFrom(valid), "2");
     assert.equal(calls, 1);
   } finally { await client.close(); await server.close(); }
+});
+
+test("v2 discovery preserves v1 object constraints", async () => {
+  const v1 = new V1McpServer({ name: "v1-schema", version: "1" });
+  const v2 = new V2McpServer({ name: "v2-schema", version: "1" });
+  v1.registerTool("fixture.schema", { inputSchema: {
+    nested: z3.object({ value: z3.string() }),
+    loose: z3.object({ value: z3.string() }).passthrough(),
+    dictionary: z3.record(z3.string()),
+  } }, async () => ({ content: [] }));
+  registerValidatedTool(v2, "fixture.schema", { inputSchema: {
+    nested: z.object({ value: z.string() }),
+    loose: z.object({ value: z.string() }).passthrough(),
+    dictionary: z.record(z.string(), z.string()),
+  } }, async () => ({ content: [] }));
+  const clients = [new Client({ name: "v1-test", version: "1" }), new Client({ name: "v2-test", version: "1" })];
+  try {
+    for (const [index, server] of [v1, v2].entries()) {
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      await server.connect(serverTransport);
+      await clients[index]!.connect(clientTransport);
+    }
+    const schemas = await Promise.all(clients.map(async (client) => (await client.listTools()).tools[0]!.inputSchema));
+    const constraints = (schema: typeof schemas[number]) => ({
+      root: schema.additionalProperties,
+      nested: (schema.properties?.nested as Record<string, unknown>).additionalProperties,
+      loose: (schema.properties?.loose as Record<string, unknown>).additionalProperties,
+      dictionary: (schema.properties?.dictionary as Record<string, unknown>).additionalProperties,
+    });
+    assert.deepEqual(constraints(schemas[1]!), constraints(schemas[0]!));
+  } finally {
+    await Promise.all(clients.map((client) => client.close()));
+    await v1.close();
+    await v2.close();
+  }
 });
 
 test("public v2 registration preserves union discovery and branch validation", async () => {

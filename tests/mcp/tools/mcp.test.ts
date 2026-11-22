@@ -36,6 +36,11 @@ test("MCP preserves omitted opaque input behavior across SDK migration", async (
       { name: "headless.project.create", field: "timeline", args: {}, code: undefined },
     ];
     const tools = (await client.listTools()).tools;
+    const inspectSchema = tools.find((tool) => tool.name === "session.inspect")?.inputSchema;
+    assert.equal(inspectSchema?.additionalProperties, false);
+    const editSchema = tools.find((tool) => tool.name === "session.edit.preview")?.inputSchema;
+    assert.equal(editSchema?.additionalProperties, false);
+    assert.equal((editSchema?.properties?.expectedRevision as Record<string, unknown>)?.additionalProperties, false);
     for (const item of cases) {
       assert.ok(!tools.find((tool) => tool.name === item.name)?.inputSchema.required?.includes(item.field), item.name);
       const result = await client.callTool({ name: item.name, arguments: item.args });

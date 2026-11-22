@@ -6,6 +6,31 @@ import { formatInputError } from "./input-error.js";
 type ToolSchema = z.ZodType | z.ZodRawShape;
 type ToolInput<Schema extends ToolSchema> = Schema extends z.ZodType ? z.output<Schema> : Schema extends z.ZodRawShape ? z.output<z.ZodObject<Schema>> : never;
 
+/** Preserve the object discovery constraints emitted by the v1 SDK. */
+function preserveObjectConstraints(value: unknown): void {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return;
+  const schema = value as Record<string, unknown>;
+  if (schema.type === "object" && schema.properties && typeof schema.properties === "object") {
+    if (schema.additionalProperties === undefined) schema.additionalProperties = false;
+    else if (schema.additionalProperties && typeof schema.additionalProperties === "object"
+      && !Array.isArray(schema.additionalProperties) && Object.keys(schema.additionalProperties).length === 0) {
+      schema.additionalProperties = true;
+    }
+  }
+  for (const key of ["properties", "patternProperties", "$defs", "definitions", "dependentSchemas"]) {
+    const map = schema[key];
+    if (map && typeof map === "object" && !Array.isArray(map)) {
+      for (const child of Object.values(map)) preserveObjectConstraints(child);
+    }
+  }
+  for (const key of ["items", "additionalProperties", "propertyNames", "not", "if", "then", "else", "contains"]) {
+    preserveObjectConstraints(schema[key]);
+  }
+  for (const key of ["anyOf", "oneOf", "allOf", "prefixItems"]) {
+    if (Array.isArray(schema[key])) for (const child of schema[key]) preserveObjectConstraints(child);
+  }
+}
+
 export function registerValidatedTool<Schema extends ToolSchema>(
   server: McpServer,
   name: string,
@@ -14,6 +39,7 @@ export function registerValidatedTool<Schema extends ToolSchema>(
 ): void {
   const schema = config.inputSchema instanceof z.ZodType ? config.inputSchema : z.object(config.inputSchema);
   const generated = z.toJSONSchema(schema, { io: "input" });
+  preserveObjectConstraints(generated);
   const { oneOf, ...rest } = generated;
   const branches = oneOf ?? generated.anyOf;
   const variants = new Map<string, Map<string, unknown>>();
