@@ -15,3 +15,9 @@ test('troubleshooting is discoverable and warns about uncertain native edits', a
   }
   assert.match(await read('../src/lib/docs/source.ts'), /slug: 'troubleshooting'/);
 });
+
+test('distinguishes doctor downloads from read-only diagnostics', async () => {
+  const guide = await read('../content/docs/en/troubleshooting.mdx');
+  assert.match(guide, /npx[^\n]*download[^\n]*cache/i);
+  assert.match(guide, /ffprobe[^\n]*regular file/i);
+});
