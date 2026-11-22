@@ -66,7 +66,7 @@ The observed run compared 24 frames and reported `SSIM ... All:0.996139`; result
 
 ## Optional Codex prompt
 
-The following prompt uses the same downloaded source, but its end-to-end execution through Codex has **not yet been verified**. The scripted direct MCP run above is not evidence that an assistant followed this prompt.
+The following prompt uses the same downloaded source, but its end-to-end execution through the installed Codex plugin has **not yet been verified**. An agent manually exercised the prompt with direct MCP calls and simulated approval in an isolated v0.2.6 server session: after correcting an initially stale render revision, the render passed and an independent probe reported 400 × 290 at 12 fps for two seconds. This manual check does not verify that the installed Codex plugin will autonomously follow the prompt.
 
 ```text
 Use the downloaded sample.webm in this directory with Framekit and a new disposable headless project. Register it, inspect its media ID and current project revision, then preview inserting the first two seconds at the beginning of a 12 fps timeline. Show me the proposed timeline and wait for approval before executing. After approval, execute the reviewed edit, render a 400 × 290 MP4 at 12 fps to a new path, and inspect it with ffprobe. Report the revision, output path, and verification results. Do not open or modify Final Cut Pro.
