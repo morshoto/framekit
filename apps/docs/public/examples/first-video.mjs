@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -11,6 +11,14 @@ export function exampleEnvironment(base, stateDir) {
   delete environment.FRAMEKIT_FCPXML_PATH;
   delete environment.FRAMEKIT_FINAL_CUT_SOCKET;
   return environment;
+}
+
+export async function requireServer(serverPath) {
+  try { await access(serverPath); }
+  catch (error) {
+    if (error?.code === 'ENOENT') throw new Error('Framekit server not found; install @morshoto/framekit@0.2.6 in this directory.');
+    throw error;
+  }
 }
 
 async function call(client, name, args) {
@@ -61,15 +69,17 @@ async function main() {
   const sourcePath = resolve(process.argv[2]);
   const digest = createHash('sha256').update(await readFile(sourcePath)).digest('hex');
   if (digest !== sampleDigest) throw new Error('Sample SHA-256 mismatch; stop and check the download.');
+  const server = resolve('node_modules/@morshoto/framekit/dist-package/apps/mcp-server/src/main.js');
+  await requireServer(server);
   const outputDir = await mkdtemp(join(process.cwd(), 'framekit-first-video-'));
   const stateDir = join(outputDir, 'state');
   await mkdir(stateDir);
   const outputPath = join(outputDir, 'first-video.mp4');
   console.log(`Example files: ${outputDir}`);
-  const server = resolve('node_modules/@morshoto/framekit/dist-package/apps/mcp-server/src/main.js');
   const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
   const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js');
   const transport = new StdioClientTransport({ command: process.execPath, args: [server], env: exampleEnvironment(process.env, stateDir), stderr: 'pipe' });
+  transport.stderr?.on('data', chunk => process.stderr.write(chunk));
   const client = new Client({ name: 'framekit-first-video', version: '1.0.0' });
   try {
     await client.connect(transport);
