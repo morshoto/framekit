@@ -32,6 +32,7 @@ test("MCP presents invalid tool arguments as actionable coded errors", async () 
     await client.connect(transport);
     const cases = [
       { name: "headless.project.inspect", arguments: {}, expected: /projectId.*required/i },
+      { name: "headless.project.inspect", arguments: { projectId: "" }, expected: /projectId.*at least 1 character/i },
       { name: "headless.edit-json.execute", arguments: { approved: false }, expected: /approved: true.*preview/i },
       { name: "headless.render", arguments: { projectId: "p", sequenceId: "s", parameters: { outputPath: "out.mp4", format: "mp4", width: 0, height: 10, frameRate: { numerator: 24, denominator: 1 } } }, expected: /width.*greater than 0/i },
       { name: "headless.edit-json.execute", arguments: { planDigest: "bad" }, expected: /planDigest.*64.*hexadecimal/i },
