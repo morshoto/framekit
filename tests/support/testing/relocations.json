@@ -3118,6 +3118,7 @@
       "\"a legacy writer removing an initializing lock can bypass upgraded writer exclusion\""
     ],
     "tests/integration/headless-project-mcp.test.ts": [
+      "\"production rough-cut renders without FCPXML and rejects changed export intent\"",
       "\"approved headless edit tokens expire without mutation\"",
       "\"headless edit reports primary gaps in preview and execution\"",
       "\"approved headless edits report overlap and unsupported dissolve consequences\"",

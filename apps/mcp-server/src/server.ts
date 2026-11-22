@@ -1664,7 +1664,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       path: z.string().min(1),
       target: headlessFcpxmlTargetSchema,
       overwrite: z.boolean().optional(),
-    }).strict(),
+    }).strict().optional(),
   }).strict();
 
   server.registerTool("headless.render", {
@@ -1703,7 +1703,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   server.registerTool("headless.rough-cut.execute", {
-    description: "Execute an explicitly approved semantic rough-cut plan and its digest-bound Timeline IR operations headlessly, verify MP4 output, and write equivalent editable FCPXML.",
+    description: "Execute an explicitly approved semantic rough-cut plan and its digest-bound Timeline IR operations headlessly, verify MP4 output, and optionally write equivalent editable FCPXML.",
     inputSchema: {
       ...headlessRoughCutRequestSchema.shape,
       approved: z.boolean(),
