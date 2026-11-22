@@ -1,0 +1,27 @@
+This guide distinguishes Framekit-owned projects, FCPXML handoff, and live Final Cut operations. **Last audited candidate:** v0.2.6, commit [`2f6f03b6a0cba5b5cb5d4a3ea0f44c3ffa9cdf6c`](https://github.com/morshoto/framekit/tree/2f6f03b6a0cba5b5cb5d4a3ea0f44c3ffa9cdf6c). A contract or deterministic test is not proof of a live native edit. Inspect the running server's capabilities and use `editing.route` for the actual operation.
+
+**Status labels:** Supported means the documented workflow is available with its stated prerequisites. Limited means it is conditional or rejects some inputs. Unverified means native acceptance for the general case is not established. Unsupported means that mode does not perform that operation.
+
+## Choose a workflow
+
+### Headless: Framekit-owned projects
+
+**Limited.** Framekit owns the project and timeline; Final Cut need not be running. The published package requires Node.js 20 or newer. Create or open a project, register local media against the current revision, then use `headless.media.search` to find registered sources. Search is limited to registered sources and same-name results are distinct. See [Headless Editing](/en/docs/headless-editing/) and the [tool registrations at the candidate](https://github.com/morshoto/framekit/blob/2f6f03b6a0cba5b5cb5d4a3ea0f44c3ffa9cdf6c/apps/mcp-server/src/server.ts).
+
+Rough-cut assembly and trim, split, remove, and move operations use revision-bound previews and execution. Splits involving fades, attachments, or story-element references are rejected. Titles, music and transitions have asset and timeline restrictions; inspect the proposed result and capability response rather than assuming every effect is supported. Rendering requires a configured renderer and verifier, and verification of the actual output remains necessary. [Headless Editing](/en/docs/headless-editing/) and the [Error Reference](/en/docs/error-reference/) describe the failure boundaries.
+
+Undo is conditional: retain the `undoId` and supply the exact current revision. It writes a new revision and verifies readback; later edits, altered records, or changed media can prevent it. An unverified Undo is not proof of restoration. See [Revisions & Safety](/en/docs/revisions-and-safety/).
+
+### FCPXML handoff
+
+**Limited.** `headless.fcpxml.export` compiles a specific Framekit project and sequence revision to a new file. It rejects unsupported timeline features and refuses to overwrite an existing destination. It does not search a Final Cut library, execute an edit in Final Cut, or prove import, playback, or editability. Import into Final Cut is a separate manual action requiring its own evidence. See [Headless Editing](/en/docs/headless-editing/).
+
+### Live Final Cut
+
+**Experimental / unverified for general editing.** The optional Workflow Extension requires macOS and a matching extension release. Use `connection.status` and `editor.inspect` to inspect its actual connection and capabilities. A metadata-only connection does not establish canonical timeline readback or write support. Native media search, assembly, trim, split, rearrangement, titles, music, transitions, export and Undo must not be assumed available merely because headless or FCPXML supports them. Some paths have bounded acceptance work; that is not general native proof. See [Final Cut Pro](/en/docs/final-cut-pro/), [native composite capability issue #622](https://github.com/morshoto/framekit/issues/622), and [finishing acceptance issue #633](https://github.com/morshoto/framekit/issues/633).
+
+Native editing requires an explicitly selected and authorized headed path, exact target and revision binding, preview, target-bound readback, and verified Undo or rollback. A timeout or disconnect can leave the outcome **uncertain**: do not blindly retry or assume rollback. Recovery inspection is read-only and does not clear reservations; [issue #670](https://github.com/morshoto/framekit/issues/670) tracks the retained-reservation limitation.
+
+## Before execution
+
+Inspect capabilities and the exact project, sequence and revision. Preview the intended operation; execute only the matching plan, then verify the resulting state. Reinspect and prepare a new preview after a stale revision. An unavailable capability is a stop, not evidence that another mode can safely substitute. See [MCP Tools](/en/docs/mcp-tools/) for discovery and [Revisions & Safety](/en/docs/revisions-and-safety/) for recovery limits.

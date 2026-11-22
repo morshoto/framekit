@@ -25,3 +25,5 @@ Splitting an occurrence with fades, attachments, or story-element references is 
 Project writes do not automatically remove an existing project lock, even if its recorded process has exited. This protection requires every writer using the project state to include this behavior. Before sharing state with upgraded writers, stop and drain older writers: they may remove an initializing or replaced lock and allow concurrent writes. An interrupted writer can leave later writes blocked. Before an operator clears such a lock, they must independently establish that no writer can still use it; elapsed time, an empty file, or a PID alone does not prove that.
 
 See [Projects & Timeline IR](/en/docs/projects-and-timeline/) and [Revisions & Safety](/en/docs/revisions-and-safety/).
+
+Compare workflows and their evidence limits in [Editing Capabilities](/en/docs/editing-capabilities/).
