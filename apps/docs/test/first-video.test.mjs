@@ -83,3 +83,8 @@ test('describes candidate identity and missing-package diagnostics', async () =>
   assert.match(guide, /embedded[^\n]*version[^\n]*commit/i);
   assert.match(guide, /server not found[^\n]*install/i);
 });
+
+test('explains that registered media is checked before preview', async () => {
+  const guide = await read('../content/docs/en/your-first-video.mdx');
+  assert.match(guide, /registered[^\n]*digest[^\n]*before preview/i);
+});
