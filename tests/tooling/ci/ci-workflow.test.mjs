@@ -99,3 +99,29 @@ test('deterministic PR coverage reports package branches even when tests fail', 
   assert.equal(report.if, "${{ always() && inputs.validation-level != 'fast' }}");
   assert.ok(report.env.FRAMEKIT_COVERAGE_TEST_OUTCOME.includes('steps.deterministic-tests.outcome'));
 });
+
+test('milestone warnings compare releases numerically and ignore unknown milestones', async () => {
+  const { futureBlockers } = await import('../../../scripts/warn-future-blockers.mjs');
+  const issue = { milestone: { title: 'Release for v0.2.6' } };
+  const blocker = (number, title) => ({ number, url: `https://github.com/a/b/issues/${number}`, milestone: title && { title } });
+  assert.deepEqual(futureBlockers(issue, [blocker(1, 'Release for v0.2.10'), blocker(2, 'Release for v0.2.6'), blocker(3, 'Release for v0.1.99'), blocker(4, 'Other'), blocker(5, null)]).map(x => x.number), [1]);
+  assert.deepEqual(futureBlockers({ milestone: null }, [blocker(1, 'Release for v0.3.0')]), []);
+});
+
+test('milestone warnings create, update, resolve and avoid duplicate comments', async () => {
+  const { syncWarning } = await import('../../../scripts/warn-future-blockers.mjs');
+  const issue = { number: 1, milestone: { title: 'Release for v0.2.6' } };
+  const blocker = { number: 2, url: 'https://github.com/a/b/issues/2', milestone: { title: 'Release for v0.3.3' } };
+  const writes = [];
+  const api = { comments: [], async listComments() { return this.comments; }, async createComment(_, body) { writes.push(body); }, async updateComment(id, body) { writes.push([id, body]); } };
+  await syncWarning(api, issue, [blocker]);
+  assert.match(writes[0], /v0\.3\.3/);
+  api.comments = [{ id: 9, user: { login: 'github-actions[bot]' }, body: writes[0] }];
+  await syncWarning(api, issue, [blocker]);
+  assert.equal(writes.length, 1);
+  await syncWarning(api, issue, []);
+  assert.match(writes[1][1], /resolved/i);
+  api.comments[0].body = writes[1][1];
+  await syncWarning(api, issue, []);
+  assert.equal(writes.length, 2);
+});
