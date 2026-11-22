@@ -37,6 +37,31 @@ test("media probe retains declared video color metadata", async () => {
 after(() => mediaFixtures.dispose());
 const repositoryRoot = process.cwd();
 
+test("FFmpeg renders differently scaled occurrences across cuts and dissolves", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-transform-sar-"));
+  try {
+    await mediaFixtures.copyTo(directory);
+    const source = await timeline(join(directory, "fixture-red-440hz.mp4"), join(directory, "fixture-blue-880hz.mp4"));
+    source.sequence.titles = [];
+    source.sequence.occurrences[0]!.transform = { scaleX: 1.331, scaleY: 1.331 };
+    source.sequence.occurrences[1]!.transform = { scaleX: 1.67, scaleY: 1.67, positionX: -10, positionY: -10 };
+    const renderer = new FfmpegTimelineRenderer();
+    for (const transition of [false, true]) {
+      const edited = structuredClone(source);
+      if (!transition) edited.sequence.transitions = [];
+      const output = join(directory, `${transition ? "dissolve" : "cut"}.mp4`);
+      const request = createFramekitRenderRequest({ timeline: edited, target: { projectId: edited.project.id, sequenceId: edited.sequence.id }, parameters: parameters(output) });
+      await renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request)));
+      const first = ppmPixel(await frameAt(output, 0.3, directory, `first-${transition}`), 160, 150);
+      const second = ppmPixel(await frameAt(output, 1.5, directory, `second-${transition}`), 160, 150);
+      assert.ok(first.r > first.b + 50, `first occurrence: ${JSON.stringify(first)}`);
+      assert.ok(second.b > second.r + 50, `second occurrence: ${JSON.stringify(second)}`);
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("FFmpeg renderer refuses an unimplemented nonzero source origin", async () => {
   const source = timelineWithoutMedia();
   source.resources[0]!.metadata!.durationTime = { value: "20", timescale: "1" };
