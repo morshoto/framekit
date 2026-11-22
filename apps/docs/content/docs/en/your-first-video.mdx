@@ -32,10 +32,10 @@ The observed SHA-256 is `e96efec0c3bf57836b54cbead8d195564ee4e1303a320b343b4fda6
 
 ## Prompt for an MCP-capable assistant
 
-The following prompt describes the same disposable task, but its end-to-end execution through Codex has **not yet been verified** for this candidate. The tested checkout command above is currently the reproducible path.
+The following prompt uses the CC0 source above, but its end-to-end execution through Codex has **not yet been verified** for this candidate. The tested checkout command above remains a separate reproducible path.
 
 ```text
-Use Framekit with a new disposable headless project. Generate the repository's synthetic red and blue sample sources, inspect their registered IDs and the current project revision, and preview a two-shot edit. Show me the proposed timeline and wait for approval before executing. After approval, execute the reviewed edit, render an MP4 to a new path, and inspect the result with ffprobe. Report the revision, output path, and verification results. Do not open or modify Final Cut Pro.
+Use the downloaded sample.webm in this directory with Framekit and a new disposable headless project. Register it, inspect its media ID and current project revision, then preview inserting the first two seconds at the beginning of a 12 fps timeline. Show me the proposed timeline and wait for approval before executing. After approval, execute the reviewed edit, render a 400 × 290 MP4 at 12 fps to a new path, and inspect it with ffprobe. Report the revision, output path, and verification results. Do not open or modify Final Cut Pro.
 ```
 
 The assistant should use the running server's tool schemas, keep each returned revision, and stop if the selected renderer or any required capability is unavailable. The prompt does not by itself establish that an assistant performed the requested calls.
