@@ -79,6 +79,7 @@ test("production MCP preserves approval for an unsampled dissolve", async () => 
     assert.match(toolErrorText(rejected), /PLAN_MISMATCH/);
     const dropped = await client.callTool({ name: "headless.rough-cut.execute", arguments: { ...renderOnly, approved: true, planDigest: preview.planDigest } });
     assert.equal(dropped.isError, true);
+    assert.match(toolErrorText(dropped), /PLAN_MISMATCH/);
     const added = await client.callTool({ name: "headless.rough-cut.execute", arguments: { ...request, approved: true, planDigest: renderOnlyPreview.planDigest } });
     assert.equal(added.isError, true);
     assert.match(toolErrorText(added), /PLAN_MISMATCH/);
@@ -88,6 +89,8 @@ test("production MCP preserves approval for an unsampled dissolve", async () => 
     assert.equal(executed.fcpxmlArtifact, null);
     assert.deepEqual(executed.after.timeline.revision, renderOnlyPreview.after.timeline.revision);
     assert.equal(existsSync(request.fcpxml.path), false);
+    const resumed = new HeadlessProjectService({ directory: join(directory, "state", "projects") });
+    await assert.rejects(resumed.verifyPublishableRoughCut(executed.executionId, request.fcpxml.path), /HEADLESS_ROUGH_CUT_NO_FCPXML/);
   } finally {
     await client?.close();
     await transport?.close();
@@ -218,13 +221,13 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     assert.match(preview.storyboardUnavailable!, /HEADLESS_STORYBOARD_UNSUPPORTED/);
     assert.match(preview.planDigest, /^[a-f0-9]{64}$/);
     assert.equal(preview.after.timeline.sequence.transitions?.[0]?.id, "fade");
-    assert.ok(preview.fcpxml.coverage.degraded.includes("native-title-font-availability-unverified"));
+    assert.ok(preview.fcpxml!.coverage.degraded.includes("native-title-font-availability-unverified"));
     const changed = { ...request, operations: [{ ...request.operations[0]!, transition: { ...request.operations[0]!.transition!, durationTime: { value: "1", timescale: "10" } } }, ...request.operations.slice(1)] };
     await assert.rejects(service.executeRoughCut({ ...changed, approved: true, planDigest: preview.planDigest }), /PLAN_MISMATCH/);
     const executed = await service.executeRoughCut({ ...request, approved: true, planDigest: preview.planDigest });
     assert.equal(executed.committed, true);
     assert.equal(executed.render.status, "passed");
-    assert.equal(executed.fcpxmlArtifact.verified, true);
+    assert.equal(executed.fcpxmlArtifact!.verified, true);
     assert.deepEqual(executed.after.timeline.revision, preview.after.timeline.revision);
     const proof = await service.verifyPublishableRoughCut(executed.executionId, request.fcpxml.path);
     assert.deepEqual(proof.titleFont, preview.titleFont);
@@ -306,7 +309,7 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     assert.equal(v2Render.status, "passed");
     assert.deepEqual(v2Render.requestedRevision, v2Revision);
     assert.deepEqual(v2Xml.provenance.revision, v2Revision);
-    assert.notEqual(v2Xml.provenance.destination.projectUid, executed.fcpxml.provenance.destination.projectUid);
+    assert.notEqual(v2Xml.provenance.destination.projectUid, executed.fcpxml!.provenance.destination.projectUid);
     const revisedXml = await readFile(v2XmlPath, "utf8");
     assert.match(revisedXml, /<text><text-style ref="title-style-1">FADE 2<\/text-style><\/text>/);
     assert.match(revisedXml, /<adjust-volume amount="-9dB"/);
@@ -1199,7 +1202,7 @@ test("headless project media can be understood and planned without a Final Cut c
     } }));
     assert.equal(executed.committed, true);
     assert.deepEqual(executed.render.outcome.render.projectRevision, executed.after.timeline.revision);
-    assert.deepEqual(executed.fcpxml.provenance.revision, executed.after.timeline.revision);
+    assert.deepEqual(executed.fcpxml!.provenance.revision, executed.after.timeline.revision);
     const projects = payload(await client.callTool({ name: "headless.project.list", arguments: {} }));
     assert.ok(projects.some((project: any) => project.projectId === projectId));
   } finally {
@@ -1385,9 +1388,9 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
     assert.equal(musicOccurrence.gainDb, -12);
     assert.equal(preview.outputIntent.sourceAudioPolicy, "preserve-and-mix");
     assert.deepEqual(preview.diff.operations, preview.command.operations);
-    assert.ok(preview.fcpxml.coverage.exact.includes("editable-titles"));
-    assert.ok(preview.fcpxml.coverage.exact.includes("connected-elements"));
-    assert.ok(preview.fcpxml.coverage.exact.includes("gain"));
+    assert.ok(preview.fcpxml!.coverage.exact.includes("editable-titles"));
+    assert.ok(preview.fcpxml!.coverage.exact.includes("connected-elements"));
+    assert.ok(preview.fcpxml!.coverage.exact.includes("gain"));
     assert.equal(preview.fcpxml.provenance.revision.id, preview.after.timeline.revision.id);
     await assert.rejects(stat(outputPath), { code: "ENOENT" });
     await assert.rejects(stat(fcpxmlPath), { code: "ENOENT" });
@@ -1437,7 +1440,7 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
     } }));
     assert.equal(executed.committed, true);
     assert.equal(executed.render.status, "passed");
-    assert.equal(executed.fcpxmlArtifact.verified, true);
+    assert.equal(executed.fcpxmlArtifact!.verified, true);
     const nativeReadiness = payload(await client.callTool({
       name: "editor.native.handoff.readiness",
       arguments: {},
@@ -1446,7 +1449,7 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
     assert.ok(nativeReadiness.reasons.length > 0, "the readiness blocker is retained in the #517 acceptance evidence");
     assert.equal(nativeReadiness.createdTarget, undefined, "FCPXML UIDs are not native target identities");
     assert.equal(executed.render.outcome.render.projectRevision.id, executed.after.timeline.revision.id);
-    assert.equal(executed.fcpxml.provenance.revision.id, executed.after.timeline.revision.id);
+    assert.equal(executed.fcpxml!.provenance.revision.id, executed.after.timeline.revision.id);
     assert.equal((await stat(outputPath)).isFile(), true);
     assert.equal((await stat(fcpxmlPath)).isFile(), true);
 
@@ -1465,8 +1468,8 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
     assert.deepEqual(publishPreview.sourceProof.renderArtifact, {
       path: outputPath, digest: createHash("sha256").update(renderBytes).digest("hex"), bytes: renderBytes.length,
     });
-    assert.equal(publishPreview.sourceProof.destination.projectUid, executed.fcpxml.destination.projectUid);
-    assert.equal(publishPreview.sourceProof.destination.sequenceUid, executed.fcpxml.destination.sequenceUid);
+    assert.equal(publishPreview.sourceProof.destination.projectUid, executed.fcpxml!.destination.projectUid);
+    assert.equal(publishPreview.sourceProof.destination.sequenceUid, executed.fcpxml!.destination.sequenceUid);
     const approvedMediaDigests = Object.values(registrations)
       .map((resource: any) => ({ source: resource.source, sha256: resource.sourceDigest }))
       .sort((left: any, right: any) => left.source.localeCompare(right.source));
@@ -1812,7 +1815,7 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     assert.deepEqual(preview.provenance[0]?.sourceRange.startTime, { value: "4", timescale: "15" });
     assert.deepEqual(preview.provenance[0]?.sourceRange.durationTime, { value: "1", timescale: "1" });
     assert.equal(preview.provenance[0]?.rationale, "contains the approved speech highlight");
-    assert.equal(preview.outputIntent.fcpxml.target.projectUid, "project-v017");
+    assert.equal(preview.outputIntent.fcpxml!.target.projectUid, "project-v017");
     await assert.rejects(
       service.executeRoughCut({ ...request, approved: false, planDigest: preview.planDigest }),
       /HEADLESS_ROUGH_CUT_APPROVAL_REQUIRED:/,
@@ -1851,10 +1854,10 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     const executed = await resumedAfterPreview.executeRoughCut({ ...request, approved: true, planDigest: fallbackPreview.planDigest });
     assert.equal(executed.committed, true);
     assert.equal(executed.render.status, "passed");
-    assert.equal(executed.fcpxmlArtifact.verified, true);
+    assert.equal(executed.fcpxmlArtifact!.verified, true);
     assert.deepEqual(executed.after.timeline.revision, executed.transaction.after.timeline.revision);
     assert.deepEqual((executed.render.outcome as any).render.projectRevision, executed.transaction.after.timeline.revision);
-    assert.deepEqual(executed.fcpxml.provenance.revision, executed.transaction.after.timeline.revision);
+    assert.deepEqual(executed.fcpxml!.provenance.revision, executed.transaction.after.timeline.revision);
     assert.equal(typeof (executed as any).executionId, "string");
     assert.equal(typeof (resumedAfterPreview as any).verifyPublishableRoughCut, "function");
     const executionId = (executed as any).executionId as string;
@@ -1883,8 +1886,8 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     assert.equal(proof.canonicalRevision.id, executed.after.timeline.revision.id);
     assert.equal(proof.planDigest, preview.planDigest);
     assert.deepEqual(proof.renderer, (executed.render.outcome as any).plan.renderer);
-    assert.equal(proof.destination.projectUid, executed.fcpxml.destination.projectUid);
-    assert.equal(proof.destination.sequenceUid, executed.fcpxml.destination.sequenceUid);
+    assert.equal(proof.destination.projectUid, executed.fcpxml!.destination.projectUid);
+    assert.equal(proof.destination.sequenceUid, executed.fcpxml!.destination.sequenceUid);
     assert.deepEqual(proof.sourceMediaDigests, [{ source: source.source, sha256: source.sourceDigest }]);
     const renderedBytes = await readFile(request.render.outputPath);
     assert.deepEqual(proof.renderArtifact, {
@@ -2079,7 +2082,7 @@ test("headless rough-cut preview and execution preserve provenance and produce v
     const secondExecuted = await resumedAfterPreview.executeRoughCut({ ...secondRequest, approved: true, planDigest: secondPreview.planDigest });
     assert.equal(secondExecuted.committed, true);
     assert.equal(secondExecuted.render.status, "passed");
-    assert.equal(secondExecuted.fcpxmlArtifact.verified, true);
+    assert.equal(secondExecuted.fcpxmlArtifact!.verified, true);
     assert.equal((await service.open(created.timeline.project.id)).timeline.revision.sequence, registered.project.timeline.revision.sequence + 2);
   } finally {
     await rm(directory, { recursive: true, force: true });
