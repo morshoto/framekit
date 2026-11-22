@@ -10,6 +10,10 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { AgentVideoRuntime } from "@framekit/runtime";
+import { InMemoryEditorAdapter } from "@framekit/testkit";
+import { createMcpServer } from "../../../apps/mcp-server/src/server.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { FcpxmlDocumentAdapter } from "@framekit/final-cut";
 import { compileTimelineIrToFcpxml } from "../../../adapters/final-cut/typescript/src/timeline-ir-fcpxml.js";
@@ -751,6 +755,25 @@ test("production MCP exports an edited headless project as FCPXML without a roug
     const created = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: emptyTimeline() } }));
     const projectId = created.timeline.project.id;
     const sequenceId = created.timeline.sequence.id;
+    const corrupt = join(directory, "corrupt.mp4");
+    await writeFile(corrupt, "truncated media");
+    const corruptResult = await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: corrupt, expectedRevision: created.timeline.revision } });
+    const corruptError = JSON.parse(toolErrorText(corruptResult));
+    assert.equal(corruptError.code, "MEDIA_PROBE_FAILED");
+    assert.doesNotMatch(corruptError.message, /Command failed|ffprobe -v/);
+    const missingEnvironment = { ...environment, FRAMEKIT_STATE_DIR: join(directory, "missing-probe-state"), FFPROBE_BIN: join(directory, "missing-ffprobe") };
+    const missingClient = await connectProductionClient(here, missingEnvironment);
+    try {
+      const missingProject = payload(await missingClient.client.callTool({ name: "headless.project.create", arguments: { timeline: emptyTimeline() } }));
+      const missingResult = await missingClient.client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: corrupt, expectedRevision: missingProject.timeline.revision } });
+      const missingError = JSON.parse(toolErrorText(missingResult));
+      assert.equal(missingError.code, "DEPENDENCY_MISSING");
+      assert.match(missingError.message, /ffprobe.*install/i);
+      assert.doesNotMatch(missingError.message, /ENOENT|spawn/);
+    } finally {
+      await missingClient.client.close();
+      await missingClient.transport.close();
+    }
     const media = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath, expectedRevision: created.timeline.revision } }));
     const edit = payload(await client.callTool({ name: "headless.edit.execute", arguments: {
       projectId, sequenceId, expectedRevision: media.project.timeline.revision,
@@ -777,7 +800,8 @@ test("production MCP exports an edited headless project as FCPXML without a roug
     assert.equal(await readFile(pending, "utf8"), "synthetic reservation");
     const originalXml = await readFile(outputPath, "utf8");
     const duplicate = await client.callTool({ name: "headless.fcpxml.export", arguments: { ...args, expectedRevision: edit.after.timeline.revision } });
-    assert.match(toolErrorText(duplicate), /EXIST|OVERWRITE/);
+    assert.match(toolErrorText(duplicate), /FCPXML_OUTPUT_EXISTS: /);
+    assert.doesNotMatch(toolErrorText(duplicate), /EEXIST|\.tmp|link '/);
     assert.equal(await readFile(outputPath, "utf8"), originalXml);
     const fifo = join(directory, "existing.fifo");
     await execFileAsync("mkfifo", [fifo]);
@@ -1713,6 +1737,66 @@ test("production stdio MCP persists and reopens the headless project and render 
   }
 });
 
+test("concurrent MCP edit reports a spaced stale-project error", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-mcp-stale-"));
+  let release!: () => void;
+  let signal!: () => void;
+  const started = new Promise<void>((resolve) => { signal = resolve; });
+  const resumed = new Promise<void>((resolve) => { release = resolve; });
+  class PausedService extends HeadlessProjectService {
+    override async open(projectId: string) {
+      const project = await super.open(projectId);
+      signal();
+      await resumed;
+      return project;
+    }
+  }
+  const service = new PausedService({ directory });
+  const other = new HeadlessProjectService({ directory });
+  const timeline = emptyTimeline();
+  timeline.sequence.durationTime = { value: "10", timescale: "1" };
+  const created = await service.create(timeline);
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({ projectId: "fixture", projectName: "Fixture", timelineId: "sequence", timelineName: "Master", clips: [] }));
+  const server = createMcpServer(runtime, { headlessProjects: service });
+  const client = new Client({ name: "stale-project-test", version: "1.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const title = (id: string) => ({ type: "add-title" as const, title: { id, text: id, startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" }, lane: 1 } });
+    const args = { projectId: timeline.project.id, sequenceId: timeline.sequence.id, expectedRevision: created.timeline.revision, operations: [title("pending")] };
+    const pending = client.callTool({ name: "headless.edit.execute", arguments: args });
+    await started;
+    const committed = await other.executeEdit(timeline.project.id, { schemaVersion: 1, expectedRevision: created.timeline.revision, operations: [title("concurrent")] }, timeline.sequence.id);
+    release();
+    const result = await pending;
+    assert.equal(result.isError, true);
+    const error = JSON.parse(toolErrorText(result));
+    assert.equal(error.code, "HEADLESS_PROJECT_STALE");
+    assert.match(error.message, /project changed after media validation/);
+    assert.deepEqual((await other.open(timeline.project.id)).timeline, committed.after.timeline);
+  } finally {
+    release();
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("media probing reports actionable coded failures", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-probe-errors-"));
+  try {
+    const corrupt = join(directory, "corrupt.mp4");
+    await writeFile(corrupt, "truncated media");
+    await assert.rejects(new FfmpegMediaMetadataProbe().probe(corrupt), (error: unknown) =>
+      error instanceof Error && /^MEDIA_PROBE_FAILED: /.test(error.message) && !/Command failed|ffprobe -v/.test(error.message));
+    await assert.rejects(new FfmpegMediaMetadataProbe({ ffprobePath: join(directory, "missing-ffprobe") }).probe(corrupt), (error: unknown) =>
+      error instanceof Error && /^DEPENDENCY_MISSING: /.test(error.message) && /ffprobe/.test(error.message) && !/ENOENT|spawn/.test(error.message));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("headless project open fails closed when local media has no metadata probe", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-headless-no-probe-"));
   try {
@@ -2238,6 +2322,7 @@ test("storyboard rejects stale media and cleans up after cancellation", async ()
     const oversized = structuredClone(timeline);
     oversized.sequence.occurrences = Array.from({ length: 13 }, (_, index) => ({ ...occurrence(`shot-${index}`, "media"), startTime: { value: String(index), timescale: "1" } }));
     await assert.rejects(renderer.render(oversized, { width: 320, height: 180 }), /HEADLESS_STORYBOARD_LIMIT/);
+    await assert.rejects(new FfmpegStoryboardRenderer({ temporaryDirectory: directory, ffmpegPath: join(directory, "missing-ffmpeg") }).render(timeline, { width: 320, height: 180 }), (error: unknown) => error instanceof Error && /^DEPENDENCY_MISSING:.*ffmpeg/.test(error.message) && !/ENOENT|spawn/.test(error.message));
     const failing = join(directory, "failing-ffmpeg");
     await writeFile(failing, "#!/usr/bin/env node\nprocess.exit(2);\n");
     await chmod(failing, 0o755);
@@ -2931,13 +3016,13 @@ test("external edit JSON previews registered clips, a title and music without mu
       const audio = resource.metadata.streams.find((item: any) => item.kind === "audio");
       resource.metadata.streams = resource.metadata.streams.filter((item: any) => item.kind !== "audio");
       for (let index = 0; index < count; index++) resource.metadata.streams.push(structuredClone(audio));
-      assert.throws(() => externalEditOperations(edit, ambiguous, ambiguous.revision), /requires one audio stream/);
+      assert.throws(() => externalEditOperations(edit, ambiguous, ambiguous.revision), /requires exactly one audio stream$/);
     }
-    assert.throws(() => externalEditOperations({ ...edit, clips: [{ ...edit.clips[0]!, nativeAudioRole: "music" }] }, b.project.timeline, b.project.timeline.revision), /supported dialogue role/);
+    assert.throws(() => externalEditOperations({ ...edit, clips: [{ ...edit.clips[0]!, nativeAudioRole: "music" }] }, b.project.timeline, b.project.timeline.revision), /requires a supported dialogue role$/);
     assert.doesNotThrow(() => externalEditOperations({ ...edit, clips: [{ ...edit.clips[0]!, nativeAudioRole: "dialogue.alternate" }] }, b.project.timeline, b.project.timeline.revision));
     for (const nativeAudioRole of ["dialogue.inter\nview", "dialogue.inter\rview", "dialogue.inter\tview", "dialogue\n"]) {
       const invalidRole = { ...edit, clips: [{ ...edit.clips[0]!, nativeAudioRole }] };
-      assert.throws(() => externalEditOperations(invalidRole, b.project.timeline, b.project.timeline.revision), /supported dialogue role/);
+      assert.throws(() => externalEditOperations(invalidRole, b.project.timeline, b.project.timeline.revision), /requires a supported dialogue role$/);
       const result = await client.callTool({ name: "headless.edit-json.preview", arguments: { projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit: invalidRole } });
       assert.equal(result.isError, true, nativeAudioRole);
     }

@@ -1560,16 +1560,21 @@ async function assertOutputSeparation(projects: FramekitProjectDocument[], state
 }
 
 async function writeVerifiedFcpxml(path: string, xml: string, digest: string, overwrite: boolean): Promise<{ path: string; digest: string; bytes: number; verified: true }> {
-  await mkdir(dirname(path), { recursive: true });
   const temporary = `${path}.${randomUUID()}.tmp`;
-  await writeFile(temporary, xml, { encoding: "utf8", flag: "wx" });
+  let persisted: string;
   try {
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(temporary, xml, { encoding: "utf8", flag: "wx" });
     if (overwrite) await rename(temporary, path);
     else await link(temporary, path);
+    persisted = await readFile(path, "utf8");
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EEXIST") throw new Error(`FCPXML_OUTPUT_EXISTS: destination already exists: ${path}; choose a new path or explicitly allow overwrite`, { cause: error });
+    throw new Error(`FCPXML_OUTPUT_FAILED: could not write or verify ${path}; check the destination and permissions`, { cause: error });
   } finally {
-    if (!overwrite) await unlink(temporary).catch(() => {});
+    await unlink(temporary).catch(() => {});
   }
-  const persisted = await readFile(path, "utf8");
   const persistedDigest = createHash("sha256").update(persisted).digest("hex");
   if (persistedDigest !== digest) throw new Error("HEADLESS_ROUGH_CUT_FCPXML_VERIFY_FAILED: persisted XML digest differs from the compiled artifact");
   return { path, digest, bytes: Buffer.byteLength(persisted), verified: true };
