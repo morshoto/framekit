@@ -47,3 +47,9 @@ test('the proposed prompt uses the separately licensed sample', async () => {
   assert.match(guide, /Use the downloaded sample\.webm/);
   assert.match(guide, /400 × 290[^\n]*12 fps/);
 });
+
+test('includes an actual output frame for the licensed sample', async () => {
+  const guide = await read('../content/docs/en/your-first-video.mdx');
+  assert.match(guide, /\/images\/first-video-cc0-output\.png/);
+  assert.ok((await readFile(new URL('../public/images/first-video-cc0-output.png', import.meta.url))).length > 0);
+});
