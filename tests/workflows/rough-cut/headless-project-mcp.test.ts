@@ -2740,7 +2740,7 @@ test("same-session and fresh-session renders retain all frames after JSON and ga
       revision = source.project.timeline.revision;
       mediaIds.push(source.resource.id);
     }
-    const clips = mediaIds.map((mediaId, index) => ({ id: `clip-${index}`, mediaId, sourceStartTime: { value: "0", timescale: "1" }, durationTime: { value: index === 12 ? "81" : "78", timescale: "30" } }));
+    const clips = mediaIds.map((mediaId, index) => ({ id: `clip-${index}`, mediaId, sourceStartTime: { value: String(index % 9), timescale: "30" }, durationTime: { value: String(index === 12 ? 93 : 66 + index * 2), timescale: "30" } }));
     const args = { projectId, sequenceId, expectedRevision: revision, edit: { schemaVersion: 1, clips, title: { id: "title", text: "A", startTime: { value: "1", timescale: "1" }, durationTime: { value: "1", timescale: "1" } } } };
     const previewResult = await client.callTool({ name: "headless.edit-json.preview", arguments: args });
     assert.notEqual(previewResult.isError, true, toolErrorText(previewResult));
