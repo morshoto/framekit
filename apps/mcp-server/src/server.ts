@@ -1611,7 +1611,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     eventName: z.string().min(1).optional(),
     materialization: z.enum(["versioned", "reuse-existing"]).optional(),
   }).strict();
-  server.registerTool("headless.fcpxml.export", {
+  registerValidatedTool(server, "headless.fcpxml.export", {
     description: "Compile an exact Framekit-owned project revision to a new FCPXML artifact without contacting Final Cut.",
     inputSchema: { projectId: z.string().min(1), sequenceId: z.string().min(1), expectedRevision: revisionValueSchema, outputPath: z.string().min(1), target: headlessFcpxmlTargetSchema },
   }, async ({ projectId, sequenceId, expectedRevision, outputPath, target }) => sessionResult(() => requireHeadlessProjects().exportFcpxml(projectId, sequenceId, expectedRevision, outputPath, target)));
@@ -1629,7 +1629,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     }).strict(),
   }).strict();
 
-  server.registerTool("headless.render", {
+  registerValidatedTool(server, "headless.render", {
     description: "Render and independently verify one immutable Framekit revision without launching an NLE.",
     inputSchema: {
       projectId: z.string().min(1),
@@ -1646,7 +1646,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     }
   });
 
-  server.registerTool("headless.rough-cut.preview", {
+  registerValidatedTool(server, "headless.rough-cut.preview", {
     description: "Preview a semantic rough-cut plan and a bounded storyboard; the digest binds the plan and operations without mutating the timeline.",
     inputSchema: headlessRoughCutRequestSchema.shape,
   }, async (request, extra) => {
@@ -1664,7 +1664,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     }
   });
 
-  server.registerTool("headless.rough-cut.execute", {
+  registerValidatedTool(server, "headless.rough-cut.execute", {
     description: "Execute an explicitly approved semantic rough-cut plan and its digest-bound Timeline IR operations headlessly, verify MP4 output, and write equivalent editable FCPXML.",
     inputSchema: {
       ...headlessRoughCutRequestSchema.shape,
@@ -1673,7 +1673,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     },
   }, async (request) => sessionResult(() => requireHeadlessProjects().executeRoughCut(request as unknown as HeadlessRoughCutExecutionRequest)));
 
-  server.registerTool("headless.render.inspect", {
+  registerValidatedTool(server, "headless.render.inspect", {
     description: "Inspect a persisted headless render record, provenance, and independent verification evidence.",
     inputSchema: { renderId: z.string().min(1) },
   }, async ({ renderId }) => sessionResult(() => requireHeadlessProjects().inspectRender(renderId)));
