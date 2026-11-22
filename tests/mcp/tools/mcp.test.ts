@@ -35,7 +35,13 @@ test("MCP stdio restarts after clean shutdown", async () => {
         await client.connect(transport);
         assert.ok(transport.pid);
         pids.push(transport.pid);
-        assert.ok((await client.listTools()).tools.some((tool) => tool.name === "connection.status"));
+        const tools = (await client.listTools()).tools;
+        assert.ok(tools.some((tool) => tool.name === "connection.status"));
+        const edit = tools.find((tool) => tool.name === "editor.timeline.edit");
+        assert.ok(edit);
+        const schema = edit.inputSchema as { anyOf?: Array<{ properties?: { type?: { const?: string } }; required?: string[] }> };
+        const trim = schema.anyOf?.find((branch) => branch.properties?.type?.const === "trim-clip");
+        assert.ok(trim?.required?.includes("duration"));
         const status = await client.callTool({ name: "connection.status", arguments: {} });
         assert.notEqual(status.isError, true);
       } finally {
