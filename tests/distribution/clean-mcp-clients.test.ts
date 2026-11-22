@@ -11,8 +11,16 @@ import {
 } from "../../scripts/codex-plugin-identity.mjs";
 import { assertMcpServerVersion } from "../../scripts/mcp-version.mjs";
 import { assessReleaseCandidate } from "../../scripts/release-candidate-evidence.mjs";
+import { selectPackageSource } from "../../scripts/clean-mcp-client-smoke.mjs";
 
 const repository = resolve(process.cwd());
+
+test("clean client diagnostics can select the packed candidate", () => {
+  assert.equal(selectPackageSource({ available: true }, "packed-source"), "packed-source");
+  assert.equal(selectPackageSource({ available: true }), "published-package");
+  assert.equal(selectPackageSource({ available: false }), "packed-source");
+  assert.throws(() => selectPackageSource({ available: true }, "invalid"), /FRAMEKIT_CLEAN_PACKAGE_SOURCE/);
+});
 
 test("MCP server uses the stable v2 server dependency", async () => {
   const manifest = JSON.parse(await readFile(resolve(repository, "apps/mcp-server/package.json"), "utf8"));
