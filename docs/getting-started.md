@@ -104,8 +104,8 @@ if it expires, the server restarts, or execution fails. The existing
 does not require an approved preview.
 
 Headless edit previews and executions include `warnings` for primary-lane gaps
-or overlaps that prevent rendering, and for FCPXML preflight failures on
-timelines with transitions. Review these consequences before committing; an
+or overlaps that prevent rendering, and for unsupported-timeline or dissolve
+FCPXML preflight failures on timelines with transitions. Review these before committing; an
 empty list is not a guarantee that every render or export will succeed.
 
 For a semantic rough-cut plan, `headless.rough-cut.preview` also returns an MCP
