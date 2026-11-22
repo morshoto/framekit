@@ -74,6 +74,9 @@ test('isolates the headless example from inherited Final Cut settings', () => {
   const environment = exampleEnvironment(original, '/new-state');
   assert.equal(environment.FRAMEKIT_STATE_DIR, '/new-state');
   assert.equal(environment.FRAMEKIT_AUTO_CONNECT, '0');
+  assert.equal(environment.FRAMEKIT_EDITOR, 'final-cut-live');
+  assert.equal(environment.FRAMEKIT_FINAL_CUT_HEADLESS, '1');
+  assert.equal(environment.FRAMEKIT_FINAL_CUT_NATIVE_WRITES, '0');
   assert.equal(environment.FRAMEKIT_FCPXML_PATH, undefined);
   assert.equal(environment.FRAMEKIT_FINAL_CUT_SOCKET, undefined);
   assert.equal(original.FRAMEKIT_AUTO_CONNECT, '1');
