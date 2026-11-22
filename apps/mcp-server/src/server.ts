@@ -364,37 +364,12 @@ const verificationPolicySchema = z.object({
   loudnessToleranceDb: z.number().finite().nonnegative().optional(),
   assertions: z.array(verificationAssertionSchema).optional(),
 }).strict();
-const mcpOriginalSchemas = new WeakMap<object, z.ZodType>();
-function originalToolSchema<Schema extends z.ZodType>(schema: Schema): Schema {
-  return (mcpOriginalSchemas.get(schema) ?? schema) as Schema;
-}
-function mcpObjectSchema<Schema extends z.ZodTypeAny>(schema: Schema): Schema {
-  const standard = schema["~standard"];
-  const wrapper = {
-    "~standard": {
-      ...standard,
-      jsonSchema: {
-        input: (options: { target: "draft-2020-12" }) => {
-          const json = standard.jsonSchema!.input(options) as Record<string, unknown>;
-          const branches = json.oneOf;
-          if (!Array.isArray(branches)) return exposeObjectRoot(json);
-          const { oneOf: _oneOf, ...rest } = json;
-          return exposeObjectRoot({ ...rest, anyOf: branches });
-        },
-        output: standard.jsonSchema!.output,
-      },
-    },
-  };
-  mcpOriginalSchemas.set(wrapper, schema);
-  return wrapper as unknown as Schema;
-}
-
 function mcpDiscriminatedUnion<const Options extends readonly [z.ZodObject, ...z.ZodObject[]]>(options: Options) {
-  return mcpObjectSchema(z.discriminatedUnion("type", options));
+  return z.discriminatedUnion("type", options);
 }
 
 function mcpUnion<const Options extends readonly [z.ZodObject, z.ZodObject, ...z.ZodObject[]]>(options: Options) {
-  return mcpObjectSchema(z.union(options));
+  return z.union(options);
 }
 
 function createEditToolInputSchema<Target extends z.ZodRawShape = {}>(
@@ -422,23 +397,6 @@ const editorTimelineEditToolInputSchema = createEditToolInputSchema({
   sequenceId: z.string().trim().min(1),
   path: editingPathSchema,
 }, revisionValueSchema);
-
-type JsonSchema = {
-  anyOf?: JsonSchema[];
-  properties?: Record<string, unknown>;
-  [key: string]: unknown;
-};
-
-function exposeObjectRoot(schema: unknown): unknown {
-  if (!isRecord(schema) || !Array.isArray(schema.anyOf)) return schema;
-  const properties: Record<string, unknown> = {};
-  for (const branch of schema.anyOf as JsonSchema[]) {
-    for (const [key, value] of Object.entries(branch.properties ?? {})) {
-      if (key !== "type") properties[key] = value;
-    }
-  }
-  return { ...schema, type: "object", properties };
-}
 
 const artifactPublishInputSchema = z.object({
   artifactPath: z.string().trim().min(1),
@@ -2481,7 +2439,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
 
   registerValidatedTool(server, "timeline.edit", {
     description: "Apply one supported edit after editing.route confirms the required capabilities; return read-after-write plus its diff.",
-    inputSchema: originalToolSchema(editToolInputSchema),
+    inputSchema: editToolInputSchema,
   }, async (input) => {
     const { path, verification, ...operation } = input;
     const parsedOperation = editOperationSchema.parse(operation);
@@ -2501,7 +2459,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
 
   registerValidatedTool(server, "artifact.edit", {
     description: "Edit the identified managed FCPXML artifact in the background and return its artifact target, new revision, read-after-write, and diff.",
-    inputSchema: originalToolSchema(artifactEditToolInputSchema),
+    inputSchema: artifactEditToolInputSchema,
   }, async (input) => {
     await requireEditingRoute(runtime, options, "artifact.edit");
     const { artifactPath, verification, ...operation } = input;
@@ -2511,7 +2469,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
 
   registerValidatedTool(server, "editor.timeline.edit", {
     description: "Edit the active Final Cut project and sequence identified by IDs and base revision; return the live timeline target, read-after-write, and diff.",
-    inputSchema: originalToolSchema(editorTimelineEditToolInputSchema),
+    inputSchema: editorTimelineEditToolInputSchema,
   }, async (input) => {
     const { path, projectId, sequenceId, verification, ...operation } = input;
     const parsedOperation = editOperationSchema.parse(operation);
@@ -2525,12 +2483,12 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
 
   registerValidatedTool(server, "music.add", {
     description: "Preview adding a searched or imported music bed with placement, gain, and fades; execute the returned token with music.add.execute.",
-    inputSchema: originalToolSchema(musicAddInputSchema),
+    inputSchema: musicAddInputSchema,
   }, async (request) => jsonResult(await runtime.previewMusic(request)));
 
   registerValidatedTool(server, "music.add.preview", {
     description: "Preview adding a searched or imported music bed without mutating the timeline.",
-    inputSchema: originalToolSchema(musicAddInputSchema),
+    inputSchema: musicAddInputSchema,
   }, async (request) => jsonResult(await runtime.previewMusic(request)));
 
   registerValidatedTool(server, "music.add.execute", {
