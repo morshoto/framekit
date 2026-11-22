@@ -55,6 +55,8 @@ test("public v2 registration validates raw tool schemas", async () => {
   try {
     await server.connect(b);
     await client.connect(a);
+    const advertised = (await client.listTools()).tools.find((tool) => tool.name === "fixture.raw")?.inputSchema;
+    assert.notEqual(advertised?.additionalProperties, false);
     const invalid = await client.callTool({ name: "fixture.raw", arguments: { count: 0 } });
     assert.equal(invalid.isError, true);
     assert.match(JSON.parse(textFrom(invalid)).message, /count must be greater than 0/);
