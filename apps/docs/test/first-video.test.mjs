@@ -41,3 +41,9 @@ test('attributes the independently licensed sample and pins its bytes', async ()
   assert.match(guide, /CC0 1\.0/);
   assert.match(guide, /e96efec0c3bf57836b54cbead8d195564ee4e1303a320b343b4fda6642ce5904/);
 });
+
+test('the proposed prompt uses the separately licensed sample', async () => {
+  const guide = await read('../content/docs/en/your-first-video.mdx');
+  assert.match(guide, /Use the downloaded sample\.webm/);
+  assert.match(guide, /400 × 290[^\n]*12 fps/);
+});
