@@ -2897,13 +2897,13 @@ test("external edit JSON previews registered clips, a title and music without mu
       const audio = resource.metadata.streams.find((item: any) => item.kind === "audio");
       resource.metadata.streams = resource.metadata.streams.filter((item: any) => item.kind !== "audio");
       for (let index = 0; index < count; index++) resource.metadata.streams.push(structuredClone(audio));
-      assert.throws(() => externalEditOperations(edit, ambiguous, ambiguous.revision), /requires one audio stream/);
+      assert.throws(() => externalEditOperations(edit, ambiguous, ambiguous.revision), /requires exactly one audio stream$/);
     }
-    assert.throws(() => externalEditOperations({ ...edit, clips: [{ ...edit.clips[0]!, nativeAudioRole: "music" }] }, b.project.timeline, b.project.timeline.revision), /supported dialogue role/);
+    assert.throws(() => externalEditOperations({ ...edit, clips: [{ ...edit.clips[0]!, nativeAudioRole: "music" }] }, b.project.timeline, b.project.timeline.revision), /requires a supported dialogue role$/);
     assert.doesNotThrow(() => externalEditOperations({ ...edit, clips: [{ ...edit.clips[0]!, nativeAudioRole: "dialogue.alternate" }] }, b.project.timeline, b.project.timeline.revision));
     for (const nativeAudioRole of ["dialogue.inter\nview", "dialogue.inter\rview", "dialogue.inter\tview", "dialogue\n"]) {
       const invalidRole = { ...edit, clips: [{ ...edit.clips[0]!, nativeAudioRole }] };
-      assert.throws(() => externalEditOperations(invalidRole, b.project.timeline, b.project.timeline.revision), /supported dialogue role/);
+      assert.throws(() => externalEditOperations(invalidRole, b.project.timeline, b.project.timeline.revision), /requires a supported dialogue role$/);
       const result = await client.callTool({ name: "headless.edit-json.preview", arguments: { projectId, sequenceId: timeline.sequence.id, expectedRevision: b.project.timeline.revision, edit: invalidRole } });
       assert.equal(result.isError, true, nativeAudioRole);
     }
