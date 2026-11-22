@@ -6,10 +6,33 @@ on:
     # pull_request_target:
     #     types: [opened, synchronize, reopened, edited]
     issues:
-        types: [opened, reopened, closed, labeled, unlabeled]
+        types: [opened, reopened, closed, labeled, unlabeled, milestoned, demilestoned]
     workflow_dispatch:
+    schedule:
+        - cron: "17 * * * *"
 
 jobs:
+    warn-future-blockers:
+        if: >-
+            github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+            (github.event_name == 'issues' && contains(fromJson('["opened", "reopened", "milestoned", "demilestoned"]'), github.event.action))
+        permissions:
+            contents: read
+            issues: write
+        concurrency:
+            group: future-blocker-warnings
+            cancel-in-progress: false
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  persist-credentials: false
+            - name: Warn about later release blockers
+              run: node scripts/warn-future-blockers.mjs
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     assign-label:
         needs: sync-labels
         if: ${{ github.event_name == 'pull_request' }}
