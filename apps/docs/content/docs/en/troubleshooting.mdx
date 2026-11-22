@@ -1,0 +1,57 @@
+Start with the symptom below. Project and editor diagnostics are **read-only** unless marked otherwise; commands can still write local caches as noted below. Messages can describe one step of a longer workflow; inspect the current project and artifacts before deciding what happened. For exact coded meanings, use the [Error Reference](/en/docs/error-reference/).
+
+## Codex or MCP cannot connect
+
+**Symptoms:** Framekit tools are missing or the connection is unavailable. Possible causes include an uninstalled plugin, an old Codex session, or an unavailable server.
+
+**Read-only:** Ask Codex to call `connection.status` and `editor.inspect` without editing. A successful response identifies the editor and available capabilities; an unavailable capability includes a reason. Check `node --version`: the published package requires Node.js 20 or newer.
+
+**Resolution:** Follow [Installation](/en/docs/installation/) to install the plugin and start a new Codex session. If the tools still do not appear, capture the error and report it below.
+
+## Final Cut bridge not ready
+
+**Symptoms:** the bridge is disconnected, or a connected editor lacks an expected capability. The extension may not be running or may not match the installed version.
+
+**Diagnostic:** Run `npx -y @morshoto/framekit doctor finalcut` (npx may download the published package into its cache), then inspect `connection.status` and `editor.inspect`. A ready metadata connection alone does not prove a canonical timeline or write capability. Inspect build alignment (`preflight.buildAlignment`) and native handoff readiness when reported: a runtime and extension version mismatch can block native handoff even while the connection is ready. Install matching release components and recheck; do not proceed with a blocked handoff. Follow [Final Cut Pro](/en/docs/final-cut-pro/) for extension setup. Stop if the required capability is unavailable.
+
+## Media not found or unsupported
+
+**Symptoms:** a source is missing from search or an operation reports unsupported media. The path, registration, format, or source bytes may differ from the intended input.
+
+**Read-only:** Inspect the project and call `headless.media.search` with its project ID. Results identify registered sources; matching names can identify different sources. Check that the intended source is a regular file and that `ffprobe` can inspect the regular file; the candidate media probe rejects symbolic links, unreadable files, and incomplete metadata. For a read-only check, run `ffprobe -v error -show_entries format=duration -of default=nw=1 YOUR_MEDIA_FILE`; a readable source reports a duration, but this does not establish that every edit or render is supported. Inspect the exact source and error details. For `ANALYZER_SOURCE_CHANGED`, follow the [coded reference](/en/docs/error-reference/#analyzer-source-changed). Correct the input only after identifying it; registering media changes Framekit-owned state and requires the expected revision.
+
+## Preview or approval rejected
+
+**Symptoms:** validation fails, approval is rejected, or the revision is stale. Inputs or the project revision may have changed.
+
+**Read-only:** Inspect the project, sequence, current revision and reported field. A preview does not write the project. Correct the inputs and request a new preview for the current revision; review and approve that exact plan before executing. Execution changes Framekit-owned state or, on a separately authorized native path, the editor. See [Revisions & Safety](/en/docs/revisions-and-safety/).
+
+## Render or export fails, or output differs
+
+**Symptoms:** no output appears, verification fails, or output differs from the intended timeline. A renderer may be unavailable, a timeline feature unsupported, or an earlier step may have committed.
+
+**Read-only:** Inspect the exact project revision, render record, output and error details. For example, `HEADLESS_RENDER_UNAVAILABLE` means the renderer and verifier are not configured; `HEADLESS_ROUGH_CUT_RENDER_FAILED` identifies a saved render record and may leave output. See the [Error Reference](/en/docs/error-reference/). Independently inspect the output before deciding on another operation. FCPXML export is a handoff artifact, not proof of an import into Final Cut.
+
+## Native edit timed out or disconnected
+
+**Stop: do not blindly retry.** A timeout or disconnect does not prove that native execution failed. The operation may have completed, may still be running, or its outcome may be unknown. Preserve the target identity, revision, timestamps, correlation IDs and sanitized logs. Read-only recovery inspection does not clear a reservation or prove execution has stopped. Do not restart to claim recovery, release a reservation, or invoke Undo on an assumption. The retained-reservation recovery limitation is tracked in [issue #670](https://github.com/morshoto/framekit/issues/670).
+
+## Undo or recovery cannot be verified
+
+**Symptoms:** Undo reports an unverified result, or recovery cannot establish the target state. Do not repeat Undo blindly or assume rollback succeeded. Inspect the exact target, revision and timeline without mutation; compare them with the intended state. `HEADLESS_UNDO_UNVERIFIED` can mean a restored revision was saved without successful independent readback. See its [reference](/en/docs/error-reference/#headless-undo-unverified). For uncertain native results, stop and preserve evidence as above; an automatic native recovery path is not established.
+
+## Still stuck?
+
+Open an issue with the following, after removing tokens, private media, personal paths and other sensitive information from logs and screenshots:
+
+```text
+Framekit version and commit (if known):
+OS, Node version, Codex and extension versions:
+Workflow and exact action requested:
+Symptom and sanitized error/log excerpt:
+Time and timezone; correlation or execution ID if available:
+Expected result and observed project/artifact state:
+Read-only checks already performed:
+```
+
+Do not include private media or credentials. If an edit may still be running or its outcome is unknown, say so and keep the evidence intact.
