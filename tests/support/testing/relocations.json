@@ -3123,7 +3123,12 @@
       "'package branch baselines retain unmeasured packages and reject invalid counters'"
     ],
     "tests/documentation/ci-workflow.test.mjs": [
-      "'deterministic PR coverage reports package branches even when tests fail'"
+      "'deterministic PR coverage reports package branches even when tests fail'",
+      "'milestone warnings compare releases numerically and ignore unknown milestones'",
+      "'milestone warnings create, update, resolve and avoid duplicate comments'",
+      "'milestone warning reconciliation checks both sides and skips other repositories'",
+      "'milestone warning API paginates dependencies and fails on GraphQL errors'",
+      "'assign workflow schedules and serializes milestone warnings'"
     ],
     "tests/integration/final-cut-library-inspection.test.ts": [
       "\"read-only library inspection preserves frontmost application\""

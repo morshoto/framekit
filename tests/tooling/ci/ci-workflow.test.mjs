@@ -99,3 +99,67 @@ test('deterministic PR coverage reports package branches even when tests fail', 
   assert.equal(report.if, "${{ always() && inputs.validation-level != 'fast' }}");
   assert.ok(report.env.FRAMEKIT_COVERAGE_TEST_OUTCOME.includes('steps.deterministic-tests.outcome'));
 });
+
+test('milestone warnings compare releases numerically and ignore unknown milestones', async () => {
+  const { futureBlockers } = await import('../../../scripts/warn-future-blockers.mjs');
+  const issue = { milestone: { title: 'Release for v0.2.6' } };
+  const blocker = (number, title) => ({ number, url: `https://github.com/a/b/issues/${number}`, milestone: title && { title } });
+  assert.deepEqual(futureBlockers(issue, [blocker(1, 'Release for v0.2.10'), blocker(2, 'Release for v0.2.6'), blocker(3, 'Release for v0.1.99'), blocker(4, 'Other'), blocker(5, null)]).map(x => x.number), [1]);
+  assert.deepEqual(futureBlockers({ milestone: null }, [blocker(1, 'Release for v0.3.0')]), []);
+});
+
+test('milestone warnings create, update, resolve and avoid duplicate comments', async () => {
+  const { syncWarning } = await import('../../../scripts/warn-future-blockers.mjs');
+  const issue = { number: 1, milestone: { title: 'Release for v0.2.6' } };
+  const blocker = { number: 2, url: 'https://github.com/a/b/issues/2', milestone: { title: 'Release for v0.3.3' } };
+  const writes = [];
+  const api = { comments: [], async listComments() { return this.comments; }, async createComment(_, body) { writes.push(body); }, async updateComment(id, body) { writes.push([id, body]); } };
+  await syncWarning(api, issue, [blocker]);
+  assert.match(writes[0], /v0\.3\.3/);
+  api.comments = [{ id: 9, user: { login: 'github-actions[bot]' }, body: writes[0] }];
+  await syncWarning(api, issue, [blocker]);
+  assert.equal(writes.length, 1);
+  await syncWarning(api, issue, []);
+  assert.match(writes[1][1], /resolved/i);
+  api.comments[0].body = writes[1][1];
+  await syncWarning(api, issue, []);
+  assert.equal(writes.length, 2);
+});
+
+test('milestone warning reconciliation checks both sides and skips other repositories', async () => {
+  const { reconcile } = await import('../../../scripts/warn-future-blockers.mjs');
+  const seen = [];
+  const api = {
+    async issue(number) { return { number }; },
+    async blocking() { return [{ number: 2, state: 'OPEN', repository: { nameWithOwner: 'a/b' } }, { number: 3, state: 'OPEN', repository: { nameWithOwner: 'c/d' } }]; },
+    async blockers(number) { seen.push(number); return []; },
+    async listComments() { return []; },
+  };
+  await reconcile(api, 'a/b', 'issues', { issue: { number: 1 } });
+  assert.deepEqual(seen, [1, 2]);
+  await reconcile(api, 'a/b', 'issues', { issue: { number: 99, pull_request: { url: 'https://api.github.com/repos/a/b/pulls/99' } } });
+  assert.deepEqual(seen, [1, 2]);
+});
+
+test('milestone warning API paginates dependencies and fails on GraphQL errors', async () => {
+  const { createApi } = await import('../../../scripts/warn-future-blockers.mjs');
+  let count = 0;
+  const api = createApi({ repository: 'a/b', token: 'token', fetchImpl: async (_url, options) => {
+    const request = JSON.parse(options.body);
+    count++;
+    assert.equal(request.variables.cursor, count === 1 ? null : 'next');
+    return new Response(JSON.stringify({ data: { repository: { issue: { blockedBy: { nodes: [{ number: count }], pageInfo: { hasNextPage: count === 1, endCursor: 'next' } } } } } }));
+  } });
+  assert.deepEqual((await api.blockers(1)).map(item => item.number), [1, 2]);
+  const broken = createApi({ repository: 'a/b', token: 'token', fetchImpl: async () => new Response(JSON.stringify({ errors: [{ message: 'denied' }] })) });
+  await assert.rejects(broken.blockers(1), /denied/);
+});
+
+test('assign workflow schedules and serializes milestone warnings', () => {
+  const assign = config('.github/workflows/assign.yml');
+  assert.ok(assign.on.schedule.length);
+  assert.ok(assign.on.issues.types.includes('milestoned'));
+  assert.ok(assign.on.issues.types.includes('demilestoned'));
+  assert.equal(assign.jobs['warn-future-blockers'].permissions.issues, 'write');
+  assert.equal(assign.jobs['warn-future-blockers'].concurrency['cancel-in-progress'], false);
+});
