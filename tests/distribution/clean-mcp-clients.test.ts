@@ -14,6 +14,12 @@ import { assessReleaseCandidate } from "../../scripts/release-candidate-evidence
 
 const repository = resolve(process.cwd());
 
+test("MCP server uses the stable v2 server dependency", async () => {
+  const manifest = JSON.parse(await readFile(resolve(repository, "apps/mcp-server/package.json"), "utf8"));
+  assert.match(manifest.dependencies["@modelcontextprotocol/server"] ?? "", /^\^?2\./);
+  assert.equal(manifest.dependencies["@modelcontextprotocol/sdk"], undefined);
+});
+
 test("MCP version validation requires exact package provenance", () => {
   assert.doesNotThrow(() => assertMcpServerVersion("0.1.4", "0.1.4", "clean client"));
   assert.throws(
