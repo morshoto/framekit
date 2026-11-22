@@ -131,6 +131,9 @@ test("skill tools register independently with the same names, schemas, and error
   try {
     await server.connect(serverTransport);
     await client.connect(clientTransport);
+    const invalid = await client.callTool({ name: "skill.inspect", arguments: {} });
+    assert.equal(invalid.isError, true);
+    assert.match(JSON.parse(textFrom(invalid)).message, /skill is required/);
     const tools = (await client.listTools()).tools;
     const byName = new Map(tools.map((tool) => [tool.name, tool]));
     assert.deepEqual([...byName.keys()].filter((name) => name.startsWith("skill.")).sort(), [
