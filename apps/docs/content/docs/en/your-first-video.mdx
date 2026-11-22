@@ -15,7 +15,7 @@ mkdir framekit-first-video
 cd framekit-first-video
 npm install --no-save --no-package-lock @morshoto/framekit@0.2.6 @modelcontextprotocol/sdk@1.32.2
 curl -fL -o sample.webm 'https://commons.wikimedia.org/wiki/Special:FilePath/Sample_Flash_Animation.webm'
-curl -fL -o first-video.mjs https://raw.githubusercontent.com/morshoto/framekit/1ab670f52470a503c91754d2f52316be5825e640/apps/docs/public/examples/first-video.mjs
+curl -fL -o first-video.mjs https://raw.githubusercontent.com/morshoto/framekit/f0ff8fc0fbbddaa7d78c491e03a2960c26e92f52/apps/docs/public/examples/first-video.mjs
 shasum -a 256 sample.webm
 ```
 
@@ -29,7 +29,7 @@ node first-video.mjs sample.webm
 
 The client starts the pinned package in headless mode with automatic connection disabled, ignores inherited Final Cut socket and FCPXML settings, creates a disposable project, registers the source, and prints the proposed timeline and a new output path. It then asks for confirmation. Review the one `sample-shot` occurrence, starting at zero and lasting two seconds. Type `yes` to execute that same revision-bound edit and render; any other answer stops before edit execution and rendering. Project creation and media registration already write to the new Framekit-owned state directory. A successful run prints `Result: passed` and the directory containing `first-video.mp4` and `evidence.json`.
 
-The observed tool sequence was `headless.project.create`, `headless.media.register`, `headless.edit.preview`, `headless.edit.execute`, and `headless.render`. The render response and its verification both reported `passed`. If execution or verification fails, inspect the error and retained state before deciding what to do; do not blindly repeat an uncertain operation.
+The observed tool sequence was `headless.project.create`, `headless.media.register`, `headless.edit.preview`, `headless.edit.execute`, and `headless.render`. The render response and its verification both reported `passed`. If execution or verification fails, inspect the error and retained state before deciding what to do; do not blindly repeat an uncertain operation. The client prints its example directory before editing and saves `evidence.json` at each checkpoint. A status of `edited` records the committed project revision and timeline but does not prove rendering succeeded. A status of `previewed` does not prove a later dispatched edit failed; inspect the exact project state before deciding on another action.
 
 ## Inspect and verify
 
