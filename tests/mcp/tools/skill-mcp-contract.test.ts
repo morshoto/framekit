@@ -19,8 +19,9 @@ function textFrom(value: unknown): string {
 test("public v2 registration rejects invalid input before invoking the handler", async () => {
   const server = new V2McpServer({ name: "validation", version: "1" });
   let calls = 0;
-  registerValidatedTool(server, "fixture.validated", { inputSchema: z.object({ name: z.string().min(1) }) }, async ({ name }) => {
+  registerValidatedTool(server, "fixture.validated", { inputSchema: z.object({ name: z.string().min(1) }) }, async ({ name }, context) => {
     calls++;
+    assert.ok(context.mcpReq.signal instanceof AbortSignal);
     return { content: [{ type: "text", text: name }] };
   });
   const client = new Client({ name: "test", version: "1" });
@@ -32,7 +33,9 @@ test("public v2 registration rejects invalid input before invoking the handler",
     assert.deepEqual(schema?.required, ["name"]);
     const invalid = await client.callTool({ name: "fixture.validated", arguments: {} });
     assert.equal(invalid.isError, true);
-    assert.equal(JSON.parse(textFrom(invalid)).code, "INPUT_INVALID");
+    const error = JSON.parse(textFrom(invalid));
+    assert.equal(error.code, "INPUT_INVALID");
+    assert.match(error.message, /name is required/);
     assert.equal(calls, 0);
     const valid = await client.callTool({ name: "fixture.validated", arguments: { name: "ready" } });
     assert.equal(textFrom(valid), "ready");
