@@ -37,10 +37,13 @@ export function externalEditOperations(edit: ExternalEdit, timeline: TimelineIr,
   };
   for (const clip of edit.clips) {
     const resource = assertSource(clip.mediaId, "video");
-    if (clip.nativeAudioRole !== undefined && (!/^dialogue(?:\.[^.]+)?$/.test(clip.nativeAudioRole)
-      || /[\t\r\n]/.test(clip.nativeAudioRole)
-      || resource.metadata?.streams.filter((item) => item.kind === "audio").length !== 1)) {
-      throw new Error(`EXTERNAL_EDIT_INVALID: ${clip.mediaId} requires one audio stream and a supported dialogue role`);
+    if (clip.nativeAudioRole !== undefined) {
+      if (!/^dialogue(?:\.[^.]+)?$/.test(clip.nativeAudioRole) || /[\t\r\n]/.test(clip.nativeAudioRole)) {
+        throw new Error(`EXTERNAL_EDIT_INVALID: ${clip.mediaId} requires a supported dialogue role`);
+      }
+      if (resource.metadata?.streams.filter((item) => item.kind === "audio").length !== 1) {
+        throw new Error(`EXTERNAL_EDIT_INVALID: ${clip.mediaId} requires exactly one audio stream`);
+      }
     }
     const stream = resource.metadata?.streams.find((item) => item.kind === "video");
     const rate = stream?.frameRate;
