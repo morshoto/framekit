@@ -37,7 +37,7 @@ codex plugin marketplace add morshoto/framekit
 
 Codex の `/plugins` で **Framekit** をインストールし、新しいセッションを開始します。公開パッケージを利用するため、チェックアウトや手動の `codex mcp add` は不要です。
 
-ヘッドレスモードでは、ローカルメディアの登録、ラフカットの承認、MP4 のレンダリング、編集可能な FCPXML の作成ができます。生成物の検証だけでは、Final Cut への読み込み、再生、編集や書き出しの成功は証明されません。ライブ機能は既存の Workflow Extension ブリッジに接続し、対応していない操作は利用できません。ネイティブ公開は実験的です。詳細は [Getting started](./docs/getting-started.md) と [Architecture](./docs/architecture.md) を参照してください。
+ヘッドレスモードでは、ローカルメディアの登録、ラフカットの承認、MP4 のレンダリング、編集可能な FCPXML の作成ができます。生成物の検証だけでは、Final Cut への読み込み、再生、編集や書き出しの成功は証明されません。ライブ機能は既存の Workflow Extension ブリッジにのみ接続し、macOS の UI 自動化による Final Cut の起動、アクティブ化、フォーカス、編集は行いません。対応していない操作は利用できません。ネイティブ公開は実験的です。詳細は [Getting started](./docs/getting-started.md) と [Architecture](./docs/architecture.md) を参照してください。
 
 ローカルでネイティブ開発を行う場合は、リポジトリのルートから次を実行します。
 
