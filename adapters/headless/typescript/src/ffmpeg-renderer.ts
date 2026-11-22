@@ -446,7 +446,7 @@ function buildFfmpegArguments(
     }
     const videoInput = `[${index}:v]`;
     const videoLabel = `clipv${index}`;
-    filters.push(`${videoInput}trim=start=${formatNumber(sourceStart)}:duration=${formatNumber(duration)},setpts=PTS-STARTPTS,settb=AVTB,fps=${fps},${transformFilter(occurrence, resource!, model.width, model.height)}[${videoLabel}]`);
+    filters.push(`${videoInput}trim=start=${formatNumber(sourceStart)}:duration=${formatNumber(duration)},setpts=PTS-STARTPTS,settb=AVTB,fps=${fps},${transformFilter(occurrence, resource!, model.width, model.height)},setsar=1[${videoLabel}]`);
     videoLabels.push(`[${videoLabel}]`);
     const hasAudio = resource!.metadata?.streams.some((stream) => stream.kind === "audio") ?? false;
     if (hasAudio) {
