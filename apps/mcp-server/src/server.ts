@@ -364,9 +364,22 @@ const verificationPolicySchema = z.object({
   assertions: z.array(verificationAssertionSchema).optional(),
 }).strict();
 function mcpObjectSchema<Schema extends z.ZodTypeAny>(schema: Schema): Schema {
-  // The MCP SDK only serializes schemas it recognizes as object-shaped.
-  Object.defineProperty(schema, "shape", { value: {}, enumerable: false });
-  return schema;
+  const standard = schema["~standard"];
+  return {
+    "~standard": {
+      ...standard,
+      jsonSchema: {
+        input: (options: { target: "draft-2020-12" }) => {
+          const json = standard.jsonSchema!.input(options) as Record<string, unknown>;
+          const branches = json.oneOf;
+          if (!Array.isArray(branches)) return exposeObjectRoot(json);
+          const { oneOf: _oneOf, ...rest } = json;
+          return exposeObjectRoot({ ...rest, anyOf: branches });
+        },
+        output: standard.jsonSchema!.output,
+      },
+    },
+  } as unknown as Schema;
 }
 
 function mcpDiscriminatedUnion<const Options extends readonly [z.ZodObject, ...z.ZodObject[]]>(options: Options) {
@@ -418,26 +431,6 @@ function exposeObjectRoot(schema: unknown): unknown {
     }
   }
   return { ...schema, type: "object", properties };
-}
-
-function installMcpSchemaCompatibility(server: McpServer): void {
-  type RequestHandler = (request: unknown, extra: unknown) => Promise<unknown>;
-  type ToolListResponse = { tools?: Array<Record<string, unknown>>; [key: string]: unknown };
-  const handlers = (server.server as unknown as { _requestHandlers?: Map<string, RequestHandler> })._requestHandlers;
-  const listToolsHandler = handlers?.get("tools/list");
-  if (!listToolsHandler) throw new Error("MCP tools/list handler was not initialized");
-
-  server.server.removeRequestHandler("tools/list");
-  server.server.setRequestHandler("tools/list", async (request, extra) => {
-    const response = await listToolsHandler(request, extra) as ToolListResponse;
-    return {
-      ...response,
-      tools: response.tools?.map((tool) => ({
-        ...tool,
-        inputSchema: exposeObjectRoot(tool.inputSchema),
-      })) ?? [],
-    };
-  });
 }
 
 const artifactPublishInputSchema = z.object({
@@ -2751,7 +2744,6 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     });
   });
 
-  installMcpSchemaCompatibility(server);
   return server;
 }
 
