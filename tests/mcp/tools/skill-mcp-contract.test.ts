@@ -3,6 +3,7 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer as V2McpServer } from "@modelcontextprotocol/server";
 import { AgentVideoRuntime, type SkillDefinition } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { createMcpServer } from "../../../apps/mcp-server/src/server.js";
@@ -54,6 +55,12 @@ function adapter(projectId: string): InMemoryEditorAdapter {
     clips: [],
   });
 }
+
+test("production server is built with the v2 SDK", async () => {
+  const server = createMcpServer(new AgentVideoRuntime(adapter("sdk-v2")));
+  assert.ok(server instanceof V2McpServer);
+  await server.close();
+});
 
 test("skill tools register independently with the same names, schemas, and error mapping", async () => {
   const runtime = new AgentVideoRuntime(adapter("mcp-skill-family-project"));
