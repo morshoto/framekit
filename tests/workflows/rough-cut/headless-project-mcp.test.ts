@@ -35,6 +35,9 @@ test("edit preview and execution warn when primary clips overlap or leave a gap"
     const revision = placed.after.timeline.revision;
     const gap = { schemaVersion: 1 as const, expectedRevision: revision, operations: [{ type: "trim-occurrence" as const, occurrenceId: "a", sourceStartTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "2" } }] };
     const overlap = { schemaVersion: 1 as const, expectedRevision: revision, operations: [{ type: "move-occurrence" as const, occurrenceId: "b", startTime: { value: "0", timescale: "1" } }] };
+    const dissolve = { schemaVersion: 1 as const, expectedRevision: revision, operations: [{ type: "add-transition" as const, transition: { id: "fade", kind: "cross-dissolve" as const, beforeOccurrenceId: "a", afterOccurrenceId: "b", durationTime: { value: "1", timescale: "5" } } }] };
+    const dissolvePreview = await service.previewEdit(projectId, dissolve, sequenceId);
+    assert.match(JSON.stringify((dissolvePreview as any).warnings), /FCPXML.*unavailable/i);
     const gapPreview = await service.previewEdit(projectId, gap, sequenceId);
     assert.match(JSON.stringify((gapPreview as any).warnings), /gap.*render/i);
     const overlapPreview = await service.previewEdit(projectId, overlap, sequenceId);
