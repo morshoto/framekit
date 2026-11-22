@@ -1429,7 +1429,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { projectId: z.string().min(1) },
   }, async ({ projectId }) => sessionResult(() => requireHeadlessProjects().inspect(projectId)));
 
-  server.registerTool("headless.media.register", {
+  registerValidatedTool(server, "headless.media.register", {
     description: "Register one local source file in the canonical Framekit project with digest and ffprobe metadata.",
     inputSchema: {
       projectId: z.string().min(1),
@@ -1438,7 +1438,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     },
   }, async ({ projectId, sourcePath, expectedRevision }) => sessionResult(() => requireHeadlessProjects().registerMedia(projectId, sourcePath, expectedRevision)));
 
-  server.registerTool("headless.media.search", {
+  registerValidatedTool(server, "headless.media.search", {
     description: "Search one Framekit-owned project's registered media by ID, name, or source path without contacting Final Cut.",
     inputSchema: { projectId: z.string().min(1), query: z.string() },
   }, async ({ projectId, query }) => sessionResult(() => requireHeadlessProjects().searchMedia(projectId, query)));
@@ -1459,7 +1459,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       startTime: rationalTimeSchema, durationTime: rationalTimeSchema, gainDb: z.number().finite(),
     }).strict().optional(),
   }).strict();
-  server.registerTool("headless.edit-json.preview", {
+  registerValidatedTool(server, "headless.edit-json.preview", {
     description: "Preview a versioned external edit against a Framekit project without mutation.",
     inputSchema: { projectId: z.string().min(1), sequenceId: z.string().min(1), expectedRevision: revisionValueSchema, edit: externalEditSchema },
   }, async ({ projectId, sequenceId, expectedRevision, edit }) => sessionResult(async () => {
@@ -1477,7 +1477,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return { ...preview, planDigest: externalEditPlanDigest(preview.command) };
   }));
 
-  server.registerTool("headless.edit-json.execute", {
+  registerValidatedTool(server, "headless.edit-json.execute", {
     description: "Execute a versioned external edit against a Framekit project revision.",
     inputSchema: { projectId: z.string().min(1), sequenceId: z.string().min(1), expectedRevision: revisionValueSchema, edit: externalEditSchema, approved: z.literal(true), planDigest: z.string().regex(/^[a-f0-9]{64}$/) },
   }, async ({ projectId, sequenceId, expectedRevision, edit, planDigest }) => sessionResult(async () => {
@@ -1496,7 +1496,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return service.executeEdit(projectId, { schemaVersion: 1, expectedRevision, operations }, sequenceId);
   }));
 
-  server.registerTool("headless.edit.preview", {
+  registerValidatedTool(server, "headless.edit.preview", {
     description: "Preview supported Framekit Timeline IR edits without persisting or mutating the project.",
     inputSchema: {
       projectId: z.string().min(1),
@@ -1510,7 +1510,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     operations: operations as TimelineIrEditOperation[],
   }, sequenceId)));
 
-  server.registerTool("headless.edit.approved-preview", {
+  registerValidatedTool(server, "headless.edit.approved-preview", {
     description: "Preview a revision-bound headless edit and issue a single-use approval token.",
     inputSchema: {
       projectId: z.string().min(1),
@@ -1524,7 +1524,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     operations: operations as TimelineIrEditOperation[],
   }, sequenceId)));
 
-  server.registerTool("headless.edit.approved-execute", {
+  registerValidatedTool(server, "headless.edit.approved-execute", {
     description: "Execute exactly the previously previewed headless edit after explicit approval.",
     inputSchema: {
       projectId: z.string().min(1),
@@ -1534,7 +1534,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     },
   }, async ({ projectId, sequenceId, previewToken }) => sessionResult(() => requireHeadlessProjects().executeApprovedEdit(projectId, sequenceId, previewToken)));
 
-  server.registerTool("headless.edit.execute", {
+  registerValidatedTool(server, "headless.edit.execute", {
     description: "Execute supported Framekit Timeline IR edits against the expected canonical revision and persist exactly one revision.",
     inputSchema: {
       projectId: z.string().min(1),
@@ -1548,7 +1548,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     operations: operations as TimelineIrEditOperation[],
   }, sequenceId)));
 
-  server.registerTool("headless.edit.undo", {
+  registerValidatedTool(server, "headless.edit.undo", {
     description: "Restore the prior Framekit-owned timeline at the expected revision and independently verify the persisted result.",
     inputSchema: { projectId: z.string().min(1), sequenceId: z.string().min(1), undoId: z.string().min(1), expectedRevision: revisionValueSchema },
   }, async ({ projectId, sequenceId, undoId, expectedRevision }) => sessionResult(() => requireHeadlessProjects().undoEdit(projectId, sequenceId, undoId, expectedRevision)));
