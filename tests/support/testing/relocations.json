@@ -3074,6 +3074,7 @@
   "recordedAtCommit": "37a92fa1",
   "addedTestNames": {
     "tests/integration/clean-mcp-clients.test.ts": [
+      "\"clean client diagnostics can select the packed candidate\"",
       "\"MCP server uses the stable v2 server dependency\""
     ],
     "tests/integration/skill-mcp-contract.test.ts": [
