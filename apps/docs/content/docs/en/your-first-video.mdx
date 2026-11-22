@@ -54,7 +54,15 @@ Independently probe the output:
 ffprobe -v error -show_entries stream=codec_type,width,height,r_frame_rate -show_entries format=duration -of json first-video.mp4
 ```
 
-The observed output contained 400 × 290 video at 12 fps, an audio stream, and a duration of `2.000000` seconds. Metadata alone does not prove visual or audio correctness; inspect playback as well. `evidence.json` can contain local paths: remove personal information before sharing it.
+The observed output contained 400 × 290 video at 12 fps, an audio stream, and a duration of `2.000000` seconds. Metadata alone does not prove visual or audio correctness; inspect playback as well.
+
+To compare the first two seconds of the downloaded source with the rendered video, run this from the output directory printed by the program (the source remains in its parent directory):
+
+```sh
+ffmpeg -hide_banner -nostdin -i ../sample.webm -i first-video.mp4 -filter_complex '[0:v]trim=duration=2,setpts=PTS-STARTPTS[source];[1:v]setpts=PTS-STARTPTS[render];[source][render]ssim' -an -f null -
+```
+
+The observed run compared 24 frames and reported `SSIM ... All:0.996139`; results can vary with FFmpeg and encoding versions. A high SSIM indicates similar video frames, not correct audio or a native Final Cut edit. Inspect playback as well. `evidence.json` can contain local paths: remove personal information before sharing it.
 
 ## Optional Codex prompt
 
