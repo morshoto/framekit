@@ -416,6 +416,28 @@ test("video exporter refuses a pre-existing output unless overwrite is explicit"
   assert.equal(called, false);
 });
 
+test("video exporter sanitizes probe failures and preserves existing output", async () => {
+  for (const missing of [false, true]) {
+    const directory = await mkdtemp(join(os.tmpdir(), "framekit-export-probe-failure-"));
+    const outputPath = join(directory, "final.mp4");
+    await writeFile(outputPath, "previous video");
+    const failure = Object.assign(new Error("Command failed: ffprobe /secret/staging.tmp ENOENT"), missing ? { code: "ENOENT" } : {});
+    const exporter = new FinalCutVideoExporter({
+      enabled: true, probeAvailable: true,
+      executor: async (script) => { await writeFile(stagingPathFromScript(script), "new video"); return "started"; },
+      probe: async () => { throw failure; },
+      waitMs: 0, stablePolls: 1, sleep: async () => undefined,
+    });
+    await assert.rejects(exporter.exportVideo({ outputPath, preset: "master", overwrite: true }), (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, missing ? /^DEPENDENCY_MISSING:.*ffprobe.*install/i : /^FINAL_CUT_EXPORT_METADATA_FAILED:.*check/i);
+      assert.doesNotMatch(error.message, /Command failed|ENOENT|staging|\.tmp/);
+      return true;
+    });
+    assert.equal(await readFile(outputPath, "utf8"), "previous video");
+  }
+});
+
 test("video exporter detects completion before probing metadata", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-export-timeout-"));
   const outputPath = join(directory, "missing.mp4");

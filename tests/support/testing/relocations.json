@@ -1667,6 +1667,7 @@
       "\"video exporter preserves the existing output until a replacement is verified\"",
       "\"video exporter replaces an existing output only after verification\"",
       "\"video exporter refuses a pre-existing output unless overwrite is explicit\"",
+      "\"video exporter sanitizes probe failures and preserves existing output\"",
       "\"video exporter detects completion before probing metadata\"",
       "\"video exporter rejects unsupported presets before automation\"",
       "\"video exporter verifies every requested media property\"",
@@ -1970,6 +1971,8 @@
       "\"rough-cut dissolve preview binds render and FCPXML output\"",
       "\"production stdio MCP persists and reopens the headless project and render record\"",
       "\"headless project open fails closed when local media has no metadata probe\"",
+      "\"concurrent MCP edit reports a spaced stale-project error\"",
+      "\"media probing reports actionable coded failures\"",
       "\"headless rough-cut preview and execution preserve provenance and produce verified artifacts\"",
       "\"rough cut binds appended titles to an existing selected font\"",
       "\"inferred rough-cut ranges align duration to the sequence frame grid\""
