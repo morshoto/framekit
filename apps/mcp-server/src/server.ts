@@ -1122,7 +1122,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: {
       sessionId: z.string().min(1).optional(),
       provider: z.object({ id: z.string().min(1), version: z.string().min(1).optional() }).optional(),
-      base: z.unknown(),
+      base: z.unknown().optional(),
     },
   }, async ({ sessionId, provider, base }) => sessionResult(async () => requireSessions().create({
     ...(sessionId ? { sessionId } : {}),
@@ -1171,7 +1171,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: {
       sessionId: z.string().min(1),
       provider: z.object({ id: z.string().min(1), version: z.string().min(1).optional() }),
-      providerState: z.unknown(),
+      providerState: z.unknown().optional(),
     },
   }, async ({ sessionId, provider, providerState }) => sessionResult(async () => requireSessions().reconcile(
     sessionId,
@@ -1391,7 +1391,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
 
   registerValidatedTool(server, "headless.project.create", {
     description: "Create and persist a Framekit-owned canonical project without contacting Final Cut Pro.",
-    inputSchema: { timeline: z.unknown() },
+    inputSchema: { timeline: z.unknown().optional() },
   }, async ({ timeline }) => sessionResult(async () => requireHeadlessProjects().create(timeline as TimelineIr)));
 
   registerValidatedTool(server, "headless.project.list", {
