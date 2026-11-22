@@ -19,6 +19,31 @@ import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer,
 
 const execFileAsync = promisify(execFile);
 
+test("edit preview and execution warn when primary clips overlap or leave a gap", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-edit-support-"));
+  try {
+    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory]);
+    const service = new HeadlessProjectService({ directory: join(directory, "projects"), mediaProbe: new FfmpegMediaMetadataProbe() });
+    const created = await service.create(emptyTimeline());
+    const registered = await service.registerMedia(created.timeline.project.id, join(directory, "fixture-red-440hz.mp4"), created.timeline.revision);
+    const projectId = created.timeline.project.id;
+    const sequenceId = created.timeline.sequence.id;
+    const placed = await service.executeEdit(projectId, { schemaVersion: 1, expectedRevision: registered.project.timeline.revision, operations: [
+      { type: "insert-occurrence", placement: "append", occurrence: occurrence("a", registered.resource.id) },
+      { type: "insert-occurrence", placement: "append", occurrence: occurrence("b", registered.resource.id) },
+    ] }, sequenceId);
+    const revision = placed.after.timeline.revision;
+    const gap = { schemaVersion: 1 as const, expectedRevision: revision, operations: [{ type: "trim-occurrence" as const, occurrenceId: "a", sourceStartTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "2" } }] };
+    const overlap = { schemaVersion: 1 as const, expectedRevision: revision, operations: [{ type: "move-occurrence" as const, occurrenceId: "b", startTime: { value: "0", timescale: "1" } }] };
+    const gapPreview = await service.previewEdit(projectId, gap, sequenceId);
+    assert.match(JSON.stringify((gapPreview as any).warnings), /gap.*render/i);
+    const overlapPreview = await service.previewEdit(projectId, overlap, sequenceId);
+    assert.match(JSON.stringify((overlapPreview as any).warnings), /overlap.*render/i);
+    const executed = await service.executeEdit(projectId, gap, sequenceId);
+    assert.deepEqual((executed as any).warnings, (gapPreview as any).warnings);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("production MCP preserves approval for an unsampled dissolve", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-788-dissolve-mcp-"));
   const here = dirname(fileURLToPath(import.meta.url));
