@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { access, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
-import { resolve, join } from 'node:path';
+import { dirname, resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const sampleDigest = 'e96efec0c3bf57836b54cbead8d195564ee4e1303a320b343b4fda6642ce5904';
@@ -18,6 +18,12 @@ export async function requireServer(serverPath) {
   catch (error) {
     if (error?.code === 'ENOENT') throw new Error('Framekit server not found; install @morshoto/framekit@0.2.6 in this directory.');
     throw error;
+  }
+  let identity;
+  try { identity = JSON.parse(await readFile(join(dirname(serverPath), 'build-identity.json'), 'utf8')); }
+  catch { throw new Error('Framekit build identity unavailable; reinstall @morshoto/framekit@0.2.6.'); }
+  if (identity.schemaVersion !== 1 || identity.version !== '0.2.6' || identity.commit !== '2f6f03b6a0cba5b5cb5d4a3ea0f44c3ffa9cdf6c') {
+    throw new Error('Framekit build identity does not match the verified 0.2.6 candidate; reinstall @morshoto/framekit@0.2.6.');
   }
 }
 
