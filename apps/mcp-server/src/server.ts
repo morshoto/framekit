@@ -1,4 +1,3 @@
-import { formatInputError } from "./tools/input-error.js";
 import { registerValidatedTool } from "./tools/validated-tool.js";
 import type { SessionSqliteObservationProvider } from "./headless-sessions.js";
 import { McpServer } from "@modelcontextprotocol/server";
@@ -440,28 +439,6 @@ function exposeObjectRoot(schema: unknown): unknown {
   }
   return { ...schema, type: "object", properties };
 }
-
-// The SDK validates before invoking a tool handler. Retain its validation and
-// schema discovery, but translate its structured Zod issues at that boundary.
-function installInputErrorFormatting(server: McpServer): void {
-  type Tool = { inputSchema?: z.ZodTypeAny | z.ZodRawShape };
-  type Validator = (tool: Tool, args: unknown, name: string) => Promise<unknown>;
-  const sdk = server as unknown as { validateToolInput: Validator };
-  const validate = sdk.validateToolInput.bind(server);
-  sdk.validateToolInput = async (tool, args, name) => {
-    try {
-      return await validate(tool, args, name);
-    } catch (error) {
-      if (!(error instanceof Error) || !error.message.includes("Input validation error:") || !tool.inputSchema) throw error;
-      const schema = mcpOriginalSchemas.get(tool.inputSchema) ?? (tool.inputSchema instanceof z.ZodType ? tool.inputSchema : z.object(tool.inputSchema));
-      const result = await schema.safeParseAsync(args ?? {});
-      if (result.success) throw error;
-      const message = formatInputError(result.error.issues, args);
-      throw new Error(JSON.stringify({ code: "INPUT_INVALID", message }));
-    }
-  };
-}
-
 
 const artifactPublishInputSchema = z.object({
   artifactPath: z.string().trim().min(1),
@@ -1253,19 +1230,19 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { jobId: z.string().min(1), sessionId: z.string().min(1) },
   }, async ({ jobId, sessionId }) => sessionResult(async () => requireMaterializations().resync(jobId, sessionId)));
 
-  server.registerTool("connection.status", {
+  registerValidatedTool(server, "connection.status", {
     description: "Read Framekit's Final Cut connection state before editor-first capability discovery.",
     inputSchema: {},
   }, async () => jsonResult(await effectiveConnectionStatus(runtime, options)));
 
-  server.registerTool("editor.native.handoff.readiness", {
+  registerValidatedTool(server, "editor.native.handoff.readiness", {
     description: "Read native Final Cut handoff readiness without launching, activating, importing, or mutating Final Cut.",
     inputSchema: { publishJobId: z.string().trim().min(1).optional() },
   }, async ({ publishJobId }) => jsonResult(
     await inspectNativeHandoffReadiness(runtime, options, publishJobId),
   ));
 
-  server.registerTool("editor.native.recovery.evidence.inspect", {
+  registerValidatedTool(server, "editor.native.recovery.evidence.inspect", {
     description: "Read point-in-time native reservation and sender evidence without changing state or proving receiver quiescence. Recovery eligibility is unavailable.",
     inputSchema: {},
   }, async () => sessionResult(async () => {
@@ -1273,7 +1250,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return options.canonicalRecovery.inspectNativeRecoveryEvidence();
   }));
 
-  server.registerTool("editor.native.recovery.inspect", {
+  registerValidatedTool(server, "editor.native.recovery.inspect", {
     description: "Inspect recovery checkpoint evidence in the configured state directory without contacting Final Cut or clearing the checkpoint.",
     inputSchema: {},
   }, async () => sessionResult(async () => {
@@ -1291,7 +1268,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       : { status: "clear", scope: "configured-state-directory" };
   }));
 
-  server.registerTool("editor.native.recovery.preview", {
+  registerValidatedTool(server, "editor.native.recovery.preview", {
     description: "Compare a separately authorized headed canonical read with one target-bound checkpoint. Confirmation alone does not establish authorization. Never clears the checkpoint or proves native operation quiescence.",
     inputSchema: {
       confirmHeadedRead: z.boolean().optional(),
@@ -1353,7 +1330,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
 
   registerSkillTools(server, runtime);
 
-  server.registerTool("project.inspect", {
+  registerValidatedTool(server, "project.inspect", {
     description: "Read a bound session baseline or perform an explicit canonical project resync before editing.route selects a capability-checked path.",
     inputSchema: timelineReadbackSchema,
   }, async ({ sessionId, requestedCanonical, finalVerification, confirmHeadedRead, expectedTarget }) => {
@@ -1375,12 +1352,12 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       () => runtime.inspectProject(), (result) => ({ projectId: result.projectId, sequenceId: result.timeline.id }));
   });
 
-  server.registerTool("artifact.inspect", {
+  registerValidatedTool(server, "artifact.inspect", {
     description: "Identify the managed FCPXML artifact used by the background artifact.edit and artifact.publish workflows.",
     inputSchema: {},
   }, async () => jsonResult(await runtime.inspectArtifact()));
 
-  server.registerTool("project.list", {
+  registerValidatedTool(server, "project.list", {
     description: "List projects and their stable Final Cut sequence identities, including the active target.",
     inputSchema: {},
   }, async () => {
@@ -1398,7 +1375,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     }
   });
 
-  server.registerTool("project.select", {
+  registerValidatedTool(server, "project.select", {
     description: "Select one project and, when it has multiple sequences, one explicit sequence; ambiguous targets fail closed.",
     inputSchema: {
       projectId: z.string().min(1),
@@ -1702,14 +1679,14 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     });
   });
 
-  server.registerTool("editing.intent.resolve", {
+  registerValidatedTool(server, "editing.intent.resolve", {
     description: "Map a supported natural-language editing request to one explicit operation without executing it.",
     inputSchema: { request: z.string().trim().min(1) },
   }, async ({ request }) => jsonResult(resolveEditingIntent(request, {
     availableCapabilities: nativeMediaIntentCapabilities(options.nativeEditor),
   })));
 
-  server.registerTool("editing.route", {
+  registerValidatedTool(server, "editing.route", {
     description: "Resolve the default headless SSoT path or an explicitly requested headed path after capability checks; never fall back to native UI implicitly, and require explicit external-renderer fallback selection.",
     inputSchema: {
       operation: z.enum([
@@ -1744,7 +1721,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     }, context));
   });
 
-  server.registerTool("editing.duration.plan", {
+  registerValidatedTool(server, "editing.duration.plan", {
     description: "Plan requested duration against unique footage and return explicit quality-preserving alternatives without editing.",
     inputSchema: durationPolicyInputSchema,
   }, async (request) => jsonResult(runtime.planDuration(request)));
@@ -2099,7 +2076,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return nativeMutationResult(() => options.nativeEditor!.executeTrimToDuration(previewToken, { signal: extra.mcpReq.signal }));
   });
 
-  server.registerTool("artifact.publish.preview", {
+  registerValidatedTool(server, "artifact.publish.preview", {
     description: "Prepare an experimental, opt-in native handoff from a verified artifact without opening Final Cut.",
     inputSchema: {
       artifactPath: z.string().trim().min(1),
@@ -2142,7 +2119,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult({ ...job, ...(sourceProof ? { sourceProof } : {}) });
   });
 
-  server.registerTool("artifact.publish.execute", {
+  registerValidatedTool(server, "artifact.publish.execute", {
     description: "Dispatch a prepared native handoff with confirm=true; for a pending job separately authorize headed readback with confirmVerification=true. Dispatch does not prove project creation.",
     inputSchema: {
       jobId: z.string().trim().min(1),
@@ -2157,7 +2134,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.projectPublisher.executePublishJob(jobId, confirm, confirmVerification));
   });
 
-  server.registerTool("artifact.publish.status", {
+  registerValidatedTool(server, "artifact.publish.status", {
     description: "Read the current state of a prepared artifact publish job without opening Final Cut or retrying it.",
     inputSchema: { jobId: z.string().trim().min(1) },
   }, async ({ jobId }) => {
@@ -2165,7 +2142,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.projectPublisher.loadPublishJob(jobId));
   });
 
-  server.registerTool("artifact.publish", {
+  registerValidatedTool(server, "artifact.publish", {
     description: "Experimental direct import; explicitly confirm both creation and headed readback for this artifact. Dispatch alone does not prove project creation.",
     inputSchema: artifactPublishInputSchema,
   }, async ({ artifactPath, targetLibraryPath, transactionId, confirm, confirmVerification }) => {
@@ -2193,7 +2170,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     }));
   });
 
-  server.registerTool("timeline.publish.new-project", {
+  registerValidatedTool(server, "timeline.publish.new-project", {
     description: "Experimental direct import of a verified artifact; explicitly confirm creation and headed readback before verified delivery.",
     inputSchema: {
       transactionId: z.string().min(1),
@@ -2226,7 +2203,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     }));
   });
 
-  server.registerTool("timeline.export", {
+  registerValidatedTool(server, "timeline.export", {
     description: "Export the active Final Cut timeline to a local video file, wait for completion, verify its media metadata, and optionally bind the result to a verified edit transaction.",
     inputSchema: {
       outputPath: z.string().trim().min(1),
@@ -2285,7 +2262,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     });
   });
 
-  server.registerTool("context.inspect", {
+  registerValidatedTool(server, "context.inspect", {
     description: "Read editing context passively, or explicitly confirm a headed read for the expected project and sequence.",
     inputSchema: {
       confirmHeadedRead: z.boolean().optional(),
@@ -2306,7 +2283,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return context;
   }));
 
-  server.registerTool("context.changes", {
+  registerValidatedTool(server, "context.changes", {
     description: "Read incremental timeline, live-state, and native-asset changes after a context revision.",
     inputSchema: {
       cursor: contextCursorSchema.optional(),
@@ -2324,7 +2301,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await runtime.contextChangesSince(after, waitMs ?? 0));
   });
 
-  server.registerTool("editor.live.inspect", {
+  registerValidatedTool(server, "editor.live.inspect", {
     description: "Read observed live Final Cut state without requiring canonical timeline snapshot capability.",
     inputSchema: {},
   }, async () => {
@@ -2340,7 +2317,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     }
   });
 
-  server.registerTool("editor.live.changes", {
+  registerValidatedTool(server, "editor.live.changes", {
     description: "Read live Final Cut timeline change events after a revision; optionally wait for new events.",
     inputSchema: {
       sequence: z.number().int().nonnegative(),
@@ -2352,7 +2329,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     timestamp: new Date(sequence).toISOString(),
   }, waitMs ?? 0)));
 
-  server.registerTool("timeline.inspect", {
+  registerValidatedTool(server, "timeline.inspect", {
     description: "Read a bound session baseline or perform an explicit canonical timeline resync after canonical capability checks.",
     inputSchema: timelineReadbackSchema,
   }, async ({ sessionId, requestedCanonical, finalVerification, confirmHeadedRead, expectedTarget }) => {
@@ -2377,7 +2354,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       () => runtime.inspectTimeline(), (result) => ({ sequenceId: result.id }));
   });
 
-  server.registerTool("timeline.semantic.inspect", {
+  registerValidatedTool(server, "timeline.semantic.inspect", {
     description: "Enrich timeline occurrences with source-range-bound semantic speech, visual, and metadata context without mutating the timeline.",
     inputSchema: timelineSemanticContextQuerySchema.shape,
   }, async (query) => {
@@ -2386,7 +2363,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       () => runtime.inspectTimelineSemanticContext(contextQuery), (result) => ({ sequenceId: result.timelineId }));
   });
 
-  server.registerTool("timeline.frame.capture", {
+  registerValidatedTool(server, "timeline.frame.capture", {
     description: "Capture an image at an exact timeline position with project, sequence, clip, and optional visual-analysis metadata.",
     inputSchema: {
       position: rationalTimeSchema,
@@ -2394,12 +2371,12 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     },
   }, async ({ position, analyze }) => frameResult(await runtime.captureFrame(position, { analyze })));
 
-  server.registerTool("media.inspect", {
+  registerValidatedTool(server, "media.inspect", {
     description: "Read normalized context and available analysis for one media item.",
     inputSchema: { mediaId: z.string().min(1) },
   }, async ({ mediaId }) => jsonResult(await runtime.inspectMedia(mediaId)));
 
-  server.registerTool("media.search", {
+  registerValidatedTool(server, "media.search", {
     description: "Search normalized media references by id or source path.",
     inputSchema: { query: z.string() },
   }, async ({ query }) => {
@@ -2415,12 +2392,12 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     }
   });
 
-  server.registerTool("media.index", {
+  registerValidatedTool(server, "media.index", {
     description: "Query analyzed media by semantic properties, source identity, capabilities, and usable ranges.",
     inputSchema: mediaIndexQuerySchema.shape,
   }, async (query) => jsonResult(await runtime.indexMedia(query)));
 
-  server.registerTool("visual.analyze", {
+  registerValidatedTool(server, "visual.analyze", {
     description: "Analyze scenes, subjects, motion, and keyframes for one media item.",
     inputSchema: {
       mediaId: z.string().min(1),
@@ -2428,7 +2405,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     },
   }, async ({ mediaId, range }) => jsonResult(await runtime.analyzeVisual(mediaId, range)));
 
-  server.registerTool("media.understand", {
+  registerValidatedTool(server, "media.understand", {
     description: "Return combined speech, audio, and visual understanding for one media item in the selected editor project or a named headless project.",
     inputSchema: { mediaId: z.string().min(1), projectId: z.string().min(1).optional() },
   }, async ({ mediaId, projectId }) => {
@@ -2439,7 +2416,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     });
   });
 
-  server.registerTool("rough-cut.plan", {
+  registerValidatedTool(server, "rough-cut.plan", {
     description: "Create a deterministic, explainable, read-only shot plan from analyzed editor or named headless project media; does not mutate the timeline.",
     inputSchema: roughCutPlanSchema.shape,
   }, async (request) => {
@@ -2451,7 +2428,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     });
   });
 
-  server.registerTool("editor.assets", {
+  registerValidatedTool(server, "editor.assets", {
     description: "Search installed transitions, effects, titles, generators, and templates; filesystem discovery is the default and native Browser discovery is explicit.",
     inputSchema: {
       query: z.string().optional(),
@@ -2461,7 +2438,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     },
   }, async (query) => jsonResult(await runtime.listAssets(query)));
 
-  server.registerTool("timeline.changes", {
+  registerValidatedTool(server, "timeline.changes", {
     description: "Return ordered canonical timeline changes for one selected project and sequence.",
     inputSchema: {
       projectId: z.string().min(1).optional(),
@@ -2512,12 +2489,12 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await runtime.edit(parsedOperation, verification ?? {}));
   });
 
-  server.registerTool("rough-cut.construction.plan", {
+  registerValidatedTool(server, "rough-cut.construction.plan", {
     description: "Build a deterministic ordered rough-cut construction plan without changing the active project.",
     inputSchema: roughCutConstructionPlanInputSchema,
   }, async (request) => jsonResult(await runtime.planRoughCutConstruction(request)));
 
-  server.registerTool("rough-cut.construction.preview", {
+  registerValidatedTool(server, "rough-cut.construction.preview", {
     description: "Preview a deterministic rough cut with capability and revision checks before execution.",
     inputSchema: roughCutConstructionPlanInputSchema,
   }, async (request) => jsonResult(await runtime.previewRoughCutConstruction(request)));
@@ -2686,32 +2663,32 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await runtime.executeEdit(previewToken));
   });
 
-  server.registerTool("speech.analyze", {
+  registerValidatedTool(server, "speech.analyze", {
     description: "Analyze speech words, filler markers, and optional VAD for one media item or source range.",
     inputSchema: { mediaId: z.string().min(1), range: rangeSchema.optional() },
   }, async ({ mediaId, range }) => jsonResult(await runtime.analyzeSpeech(mediaId, range)));
 
-  server.registerTool("speech.filler.remove.preview", {
+  registerValidatedTool(server, "speech.filler.remove.preview", {
     description: "Analyze a selected canonical timeline range and preview removal of high-confidence filler words with safe rational delete ranges.",
     inputSchema: fillerRemovalInputSchema,
   }, async (request) => jsonResult(await runtime.previewFillerRemoval(request)));
 
-  server.registerTool("speech.filler.remove.execute", {
+  registerValidatedTool(server, "speech.filler.remove.execute", {
     description: "Execute a previously previewed filler removal, re-analyze adjacent speech, and return the verified or rolled-back transaction.",
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }) => jsonResult(await runtime.executeFillerRemoval(previewToken)));
 
-  server.registerTool("audio.analyze", {
+  registerValidatedTool(server, "audio.analyze", {
     description: "Analyze loudness, true peak, and silence for one media item or source range.",
     inputSchema: { mediaId: z.string().min(1), range: rangeSchema.optional() },
   }, async ({ mediaId, range }) => jsonResult(await runtime.analyzeAudio(mediaId, range)));
 
-  server.registerTool("audio.noise.analyze", {
+  registerValidatedTool(server, "audio.noise.analyze", {
     description: "Analyze unwanted background noise for one media item when a noise analyzer is configured.",
     inputSchema: { mediaId: z.string().min(1), range: rangeSchema.optional() },
   }, async ({ mediaId, range }) => jsonResult(await runtime.analyzeNoise(mediaId, range)));
 
-  server.registerTool("audio.noise.reduce.preview", {
+  registerValidatedTool(server, "audio.noise.reduce.preview", {
     description: "Preview a bounded noise-reduction adjustment and its affected ranges without mutating the editor.",
     inputSchema: noiseReductionInputSchema,
   }, async (request) => {
@@ -2723,12 +2700,12 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     }));
   });
 
-  server.registerTool("audio.noise.reduce.execute", {
+  registerValidatedTool(server, "audio.noise.reduce.execute", {
     description: "Execute one previewed noise-reduction adjustment and return post-write measurement verification and rollback state.",
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }) => jsonResult(await runtime.executeSkill(previewToken)));
 
-  server.registerTool("color.correction.preview", {
+  registerValidatedTool(server, "color.correction.preview", {
     description: "Preview a clip-scoped basic color correction with before/after values without mutating the editor.",
     inputSchema: colorCorrectionInputSchema,
   }, async (request) => {
@@ -2740,7 +2717,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     }));
   });
 
-  server.registerTool("color.correction.execute", {
+  registerValidatedTool(server, "color.correction.execute", {
     description: "Execute one previewed basic color correction and return the target verification, diff, and rollback state.",
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }) => jsonResult(await runtime.executeSkill(previewToken)));
@@ -2774,7 +2751,6 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     });
   });
 
-  installInputErrorFormatting(server);
   return server;
 }
 
