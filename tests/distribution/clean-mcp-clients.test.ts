@@ -18,6 +18,8 @@ test("MCP server uses the stable v2 server dependency", async () => {
   const manifest = JSON.parse(await readFile(resolve(repository, "apps/mcp-server/package.json"), "utf8"));
   assert.match(manifest.dependencies["@modelcontextprotocol/server"] ?? "", /^\^?2\./);
   assert.equal(manifest.dependencies["@modelcontextprotocol/sdk"], undefined);
+  const root = JSON.parse(await readFile(resolve(repository, "package.json"), "utf8"));
+  assert.equal(root.dependencies["@modelcontextprotocol/sdk"], undefined);
 });
 
 test("MCP version validation requires exact package provenance", () => {
