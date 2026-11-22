@@ -32,6 +32,7 @@ test("edit preview and execution warn when primary clips overlap or leave a gap"
       { type: "insert-occurrence", placement: "append", occurrence: occurrence("a", registered.resource.id) },
       { type: "insert-occurrence", placement: "append", occurrence: { ...occurrence("b", registered.resource.id), role: undefined } },
     ] }, sequenceId);
+    assert.deepEqual((placed as any).warnings, []);
     const revision = placed.after.timeline.revision;
     const gap = { schemaVersion: 1 as const, expectedRevision: revision, operations: [{ type: "trim-occurrence" as const, occurrenceId: "a", sourceStartTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "2" } }] };
     const overlap = { schemaVersion: 1 as const, expectedRevision: revision, operations: [{ type: "move-occurrence" as const, occurrenceId: "b", startTime: { value: "0", timescale: "1" } }] };
@@ -40,6 +41,8 @@ test("edit preview and execution warn when primary clips overlap or leave a gap"
     assert.match(JSON.stringify((dissolvePreview as any).warnings), /FCPXML.*unavailable/i);
     const gapPreview = await service.previewEdit(projectId, gap, sequenceId);
     assert.match(JSON.stringify((gapPreview as any).warnings), /gap.*render/i);
+    const approved = await service.previewApprovedEdit(projectId, gap, sequenceId);
+    assert.deepEqual((approved as any).warnings, (gapPreview as any).warnings);
     const overlapPreview = await service.previewEdit(projectId, overlap, sequenceId);
     assert.match(JSON.stringify((overlapPreview as any).warnings), /overlap.*render/i);
     const executed = await service.executeEdit(projectId, gap, sequenceId);
@@ -230,6 +233,9 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     ];
     directTimeline.sequence.transitions = [{ id: "fade", kind: "cross-dissolve", beforeOccurrenceId: "a", afterOccurrenceId: "b", durationTime: { value: "1", timescale: "5" } }];
     const direct = await service.create(directTimeline);
+    const supported = await service.previewEdit(direct.timeline.project.id, { schemaVersion: 1, expectedRevision: direct.timeline.revision, operations: [{ type: "move-occurrence", occurrenceId: "a", startTime: { value: "0", timescale: "1" } }] }, direct.timeline.sequence.id);
+    assert.deepEqual((supported as any).warnings, []);
+
     await assert.rejects(mismatched.exportFcpxml(direct.timeline.project.id, direct.timeline.sequence.id, direct.timeline.revision, join(directory, "direct.fcpxml"), request.fcpxml.target), /MEDIA_METADATA_CHANGED/);
     const preview = await service.previewRoughCut(request, undefined, true);
     assert.match(preview.storyboardUnavailable!, /HEADLESS_STORYBOARD_UNSUPPORTED/);
