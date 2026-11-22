@@ -67,6 +67,31 @@ test("public v2 registration validates raw tool schemas", async () => {
   } finally { await client.close(); await server.close(); }
 });
 
+test("public v2 registration preserves union discovery and branch validation", async () => {
+  const server = new V2McpServer({ name: "union-validation", version: "1" });
+  let calls = 0;
+  const schema = z.discriminatedUnion("type", [z.object({ type: z.literal("a"), name: z.string() }).strict(), z.object({ type: z.literal("b"), count: z.number() }).strict()]);
+  registerValidatedTool(server, "fixture.union", { inputSchema: schema }, async () => {
+    calls++;
+    return { content: [{ type: "text", text: "ok" }] };
+  });
+  const client = new Client({ name: "union-test", version: "1" });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  try {
+    await server.connect(b);
+    await client.connect(a);
+    const published = (await client.listTools()).tools.find((tool) => tool.name === "fixture.union")?.inputSchema as { anyOf?: Array<{ required?: string[] }> };
+    assert.equal(published.anyOf?.length, 2);
+    assert.ok(published.anyOf?.some((branch) => branch.required?.includes("name")));
+    const invalid = await client.callTool({ name: "fixture.union", arguments: { type: "a", count: 1 } });
+    assert.equal(invalid.isError, true);
+    assert.equal(calls, 0);
+    const valid = await client.callTool({ name: "fixture.union", arguments: { type: "b", count: 1 } });
+    assert.equal(textFrom(valid), "ok");
+    assert.equal(calls, 1);
+  } finally { await client.close(); await server.close(); }
+});
+
 test("public v2 registration skips handlers cancelled during validation", async () => {
   const server = new V2McpServer({ name: "validation-cancel", version: "1" });
   let begin!: () => void;
