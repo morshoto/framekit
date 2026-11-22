@@ -70,6 +70,7 @@ test("production rough-cut renders without FCPXML and rejects changed export int
     await transport?.close();
     await rm(directory, { recursive: true, force: true });
   }
+
 });
 
 test("production MCP preserves approval for an unsampled dissolve", async () => {
@@ -256,6 +257,17 @@ test("rough-cut dissolve preview binds render and FCPXML output", async () => {
     directTimeline.sequence.transitions = [{ id: "fade", kind: "cross-dissolve", beforeOccurrenceId: "a", afterOccurrenceId: "b", durationTime: { value: "1", timescale: "5" } }];
     const direct = await service.create(directTimeline);
     await assert.rejects(mismatched.exportFcpxml(direct.timeline.project.id, direct.timeline.sequence.id, direct.timeline.revision, join(directory, "direct.fcpxml"), request.fcpxml.target), /MEDIA_METADATA_CHANGED/);
+    const supportedTimeline = structuredClone(directTimeline);
+    supportedTimeline.project.id = "supported-dissolve-warning-check";
+    supportedTimeline.sequence.transitions = [];
+    const supported = await service.create(supportedTimeline);
+    const dissolveEdit = { schemaVersion: 1 as const, expectedRevision: supported.timeline.revision, operations: [{ type: "add-transition" as const, transition: directTimeline.sequence.transitions[0]! }] };
+    const dissolvePreview = await service.previewEdit(supported.timeline.project.id, dissolveEdit, supported.timeline.sequence.id);
+    assert.deepEqual(dissolvePreview.warnings, []);
+    const dissolveResult = await service.executeEdit(supported.timeline.project.id, dissolveEdit, supported.timeline.sequence.id);
+    assert.deepEqual(dissolveResult.warnings, []);
+    const dissolveExport = await service.exportFcpxml(supported.timeline.project.id, supported.timeline.sequence.id, dissolveResult.after.timeline.revision, join(directory, "supported-dissolve.fcpxml"), request.fcpxml.target);
+    assert.equal(dissolveExport.artifact.verified, true);
     const preview = await service.previewRoughCut(request, undefined, true);
     assert.match(preview.storyboardUnavailable!, /HEADLESS_STORYBOARD_UNSUPPORTED/);
     assert.match(preview.planDigest, /^[a-f0-9]{64}$/);
