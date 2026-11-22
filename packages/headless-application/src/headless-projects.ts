@@ -30,6 +30,7 @@ import {
 import {
   FcpxmlDocumentAdapter,
   compileTimelineIrToFcpxml,
+  planFcpxmlDissolve,
   resolveMediaSource,
   type TimelineIrToFcpxmlResult,
   type TimelineIrToFcpxmlTarget,
@@ -1455,6 +1456,14 @@ function editSupportWarnings(timeline: TimelineIr): string[] {
       warnings.push(`Primary storyline ${start > end ? "gap" : "overlap"} before ${item.id}; headless render will be unavailable.`);
     }
     end = start + rationalSeconds(item.durationTime);
+  }
+  if (timeline.sequence.transitions?.length) {
+    try {
+      planFcpxmlDissolve(timeline);
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.startsWith("FCPXML_DISSOLVE_")) throw error;
+      warnings.push(`FCPXML export will be unavailable: ${error.message}`);
+    }
   }
   return warnings;
 }
