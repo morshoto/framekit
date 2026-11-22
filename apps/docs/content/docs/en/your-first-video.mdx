@@ -19,6 +19,16 @@ FRAMEKIT_HEADLESS_RELEASE_GATE_EVIDENCE_DIR="$PWD/first-video-output" pnpm exec 
 
 The test should report `ok 1` and `# fail 0`. It starts the production stdio MCP server, creates an empty timeline, registers generated sources, previews and executes an insertion, and adds a second source, titles and a transition. It reopens the project and renders the current revision. The test includes additional safety checks; its recorded tool transcript and observations are in `first-video-output/headless-release-gate-evidence.json`. Paths in that file may reveal local information; sanitize it before sharing. It also saves `verified-final.mp4` and `fixture-manifest.json`.
 
+## Prompt for an MCP-capable assistant
+
+The following prompt describes the same disposable task, but its end-to-end execution through Codex has **not yet been verified** for this candidate. The tested checkout command above is currently the reproducible path.
+
+```text
+Use Framekit with a new disposable headless project. Generate the repository's synthetic red and blue sample sources, inspect their registered IDs and the current project revision, and preview a two-shot edit. Show me the proposed timeline and wait for approval before executing. After approval, execute the reviewed edit, render an MP4 to a new path, and inspect the result with ffprobe. Report the revision, output path, and verification results. Do not open or modify Final Cut Pro.
+```
+
+The assistant should use the running server's tool schemas, keep each returned revision, and stop if the selected renderer or any required capability is unavailable. The prompt does not by itself establish that an assistant performed the requested calls.
+
 ## Inspect and verify
 
 Open `first-video-output/verified-final.mp4` in a player. This frame is from the candidate run's actual output:
