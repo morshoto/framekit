@@ -12,3 +12,7 @@ test('first video guide is discoverable and describes independent verification',
 test('first video routes failures to the symptom guide', async () => {
   assert.match(await read('../content/docs/en/your-first-video.mdx'), /\/en\/docs\/troubleshooting\//);
 });
+
+test('does not assert an unspecified repository license', async () => {
+  assert.doesNotMatch(await read('../content/docs/en/your-first-video.mdx'), /under its license/i);
+});
