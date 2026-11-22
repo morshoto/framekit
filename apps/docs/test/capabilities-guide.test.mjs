@@ -8,3 +8,10 @@ test('capabilities guide distinguishes workflows and is discoverable', async () 
   for (const slug of ['introduction', 'quick-start', 'headless-editing', 'final-cut-pro', 'mcp-tools']) assert.match(await read(`../content/docs/en/${slug}.mdx`), /\/en\/docs\/editing-capabilities\//);
   assert.match(await read('../src/lib/docs/source.ts'), /slug: 'editing-capabilities'/);
 });
+
+test('headless guidance states actionable media, effect, and output constraints', async () => {
+  const guide = await read('../content/docs/en/editing-capabilities.mdx');
+  for (const phrase of ['regular file', 'ffprobe', 'pre-roll', 'glyph', 'mp4', 'mov']) {
+    assert.match(guide, new RegExp(phrase, 'i'));
+  }
+});
