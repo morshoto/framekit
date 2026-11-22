@@ -18,6 +18,35 @@ function textFrom(result: unknown): string {
   return first.text as string;
 }
 
+test("MCP preserves omitted opaque input behavior across SDK migration", async () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const stateDirectory = await mkdtemp(join(os.tmpdir(), "framekit-mcp-opaque-input-"));
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: ["--import", "tsx", join(here, "../../../apps/mcp-server/src/main.ts")],
+    env: { ...process.env, FRAMEKIT_STATE_DIR: stateDirectory, FRAMEKIT_EDITOR: "fixture", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0" },
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "opaque-input-compatibility", version: "1" });
+  try {
+    await client.connect(transport);
+    const cases = [
+      { name: "session.create", field: "base", args: {}, code: "TIMELINE_IR_INVALID" },
+      { name: "session.reconcile", field: "providerState", args: { sessionId: "missing", provider: { id: "test" } }, code: "SESSION_NOT_FOUND" },
+      { name: "headless.project.create", field: "timeline", args: {}, code: undefined },
+    ];
+    const tools = (await client.listTools()).tools;
+    for (const item of cases) {
+      assert.ok(!tools.find((tool) => tool.name === item.name)?.inputSchema.required?.includes(item.field), item.name);
+      const result = await client.callTool({ name: item.name, arguments: item.args });
+      assert.equal(result.isError, true, item.name);
+      const error = JSON.parse(textFrom(result));
+      if (item.code) assert.equal(error.code, item.code, item.name);
+      else assert.notEqual(error.code, "INPUT_INVALID", item.name);
+    }
+  } finally { await client.close(); await transport.close(); await rm(stateDirectory, { recursive: true, force: true }); }
+});
+
 test("all tools with required root inputs reject empty arguments", async () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const stateDirectory = await mkdtemp(join(os.tmpdir(), "framekit-mcp-required-input-"));

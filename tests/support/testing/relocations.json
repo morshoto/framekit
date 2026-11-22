@@ -3075,6 +3075,7 @@
   "recordedAtCommit": "37a92fa1",
   "addedTestNames": {
     "tests/integration/mcp.test.ts": [
+      "\"MCP preserves omitted opaque input behavior across SDK migration\"",
       "\"all tools with required root inputs reject empty arguments\"",
       "\"MCP stdio restarts after clean shutdown\""
     ],
