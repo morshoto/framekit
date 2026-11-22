@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { exampleEnvironment, runFirstVideo } from '../public/examples/first-video.mjs';
+import { exampleEnvironment, requireServer, runFirstVideo } from '../public/examples/first-video.mjs';
 
 const initial = { id: 'initial', sequence: 0, timestamp: '2026-01-01T00:00:00.000Z' };
 const registered = { id: 'registered', sequence: 1, timestamp: '2026-01-01T00:00:01.000Z' };
@@ -100,4 +100,15 @@ test('stops before execution when its preview checkpoint cannot be saved', async
   const client = fakeClient();
   await assert.rejects(runFirstVideo({ client, sourcePath: '/source.webm', outputPath: '/output.mp4', confirm: async () => true, checkpoint: async () => { throw new Error('disk full'); } }), /disk full/);
   assert.equal(client.calls.some(call => call.name === 'headless.edit.execute'), false);
+});
+
+
+test('reports the missing Framekit package with an actionable install hint', async () => {
+  const { mkdtemp, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = await mkdtemp(join(tmpdir(), 'framekit-missing-server-'));
+  try {
+    await assert.rejects(requireServer(join(dir, 'missing-server.js')), /install.*@morshoto\/framekit@0\.2\.6/i);
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });
