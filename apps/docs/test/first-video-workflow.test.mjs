@@ -112,3 +112,18 @@ test('reports the missing Framekit package with an actionable install hint', asy
     await assert.rejects(requireServer(join(dir, 'missing-server.js')), /install.*@morshoto\/framekit@0\.2\.6/i);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test('rejects a server whose embedded version or commit differs from the candidate', async () => {
+  const { mkdtemp, rm, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = await mkdtemp(join(tmpdir(), 'framekit-wrong-build-'));
+  try {
+    const server = join(dir, 'main.js');
+    await writeFile(server, '');
+    await writeFile(join(dir, 'build-identity.json'), JSON.stringify({ schemaVersion: 1, version: '0.2.5', commit: 'different' }));
+    await assert.rejects(requireServer(server), /build identity.*0\.2\.6/i);
+    await writeFile(join(dir, 'build-identity.json'), JSON.stringify({ schemaVersion: 1, version: '0.2.6', commit: '2f6f03b6a0cba5b5cb5d4a3ea0f44c3ffa9cdf6c' }));
+    await assert.doesNotReject(requireServer(server));
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
