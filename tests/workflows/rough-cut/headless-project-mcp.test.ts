@@ -37,6 +37,31 @@ test("headless edit reports primary gaps in preview and execution", async () => 
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
+test("approved headless edits report overlap and unsupported dissolve consequences", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-edit-overlap-"));
+  try {
+    const service = new HeadlessProjectService({ directory });
+    const timeline = emptyTimeline();
+    timeline.resources.push({ id: "media", name: "media", mediaKind: "video" });
+    timeline.sequence.occurrences = [occurrence("a", "media"), { ...occurrence("b", "media"), startTime: { value: "1", timescale: "1" } }];
+    timeline.sequence.durationTime = { value: "2", timescale: "1" };
+    const initial = await service.create(timeline);
+    const target = [timeline.project.id, timeline.sequence.id] as const;
+    const move = { schemaVersion: 1 as const, expectedRevision: initial.timeline.revision, operations: [{ type: "move-occurrence" as const, occurrenceId: "b", startTime: { value: "0", timescale: "1" } }] };
+    const preview = await service.previewApprovedEdit(target[0], move, target[1]);
+    assert.match(JSON.stringify(preview.warnings), /HEADLESS_RENDER_UNSUPPORTED.*overlap/i);
+    assert.deepEqual((await service.open(target[0])).timeline, initial.timeline);
+    const executed = await service.executeApprovedEdit(target[0], target[1], preview.previewToken);
+    assert.deepEqual(executed.warnings, preview.warnings);
+    const restored = await service.undoEdit(target[0], target[1], executed.undoId, executed.after.timeline.revision);
+    const dissolve = { schemaVersion: 1 as const, expectedRevision: restored.project.timeline.revision, operations: [{ type: "add-transition" as const, transition: { id: "fade", kind: "cross-dissolve" as const, beforeOccurrenceId: "a", afterOccurrenceId: "b", durationTime: { value: "1", timescale: "5" } } }] };
+    const transition = await service.previewEdit(target[0], dissolve, target[1]);
+    assert.match(JSON.stringify(transition.warnings), /FCPXML.*DISSOLVE_FRAME_RATE/);
+    const result = await service.executeEdit(target[0], dissolve, target[1]);
+    assert.deepEqual(result.warnings, transition.warnings);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("production MCP preserves approval for an unsampled dissolve", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-788-dissolve-mcp-"));
   const here = dirname(fileURLToPath(import.meta.url));
