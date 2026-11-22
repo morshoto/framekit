@@ -22,3 +22,9 @@ test('separates published plugin smoke from the real-render evidence', async () 
   assert.match(guide, /published[^\n]*fixture backend/i);
   assert.match(guide, /fixture[^\n]*does not verify[^\n]*render/i);
 });
+
+test('identifies published real-media verification as scripted MCP evidence', async () => {
+  const guide = await read('../content/docs/en/your-first-video.mdx');
+  assert.match(guide, /adapted[^\n]*published[^\n]*real-media/i);
+  assert.match(guide, /scripted[^\n]*not[^\n]*prompt/i);
+});
