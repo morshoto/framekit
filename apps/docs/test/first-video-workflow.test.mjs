@@ -59,10 +59,11 @@ test('rejects a changed sample before creating a project directory', async () =>
   const { join } = await import('node:path');
   const { execFile } = await import('node:child_process');
   const { promisify } = await import('node:util');
+  const { fileURLToPath } = await import('node:url');
   const dir = await mkdtemp(join(tmpdir(), 'framekit-first-video-test-'));
   try {
     await writeFile(join(dir, 'sample.webm'), 'not the sample');
-    await assert.rejects(promisify(execFile)(process.execPath, [new URL('../public/examples/first-video.mjs', import.meta.url).pathname, 'sample.webm'], { cwd: dir }), /Sample SHA-256 mismatch/);
+    await assert.rejects(promisify(execFile)(process.execPath, [fileURLToPath(new URL('../public/examples/first-video.mjs', import.meta.url)), 'sample.webm'], { cwd: dir }), /Sample SHA-256 mismatch/);
     assert.deepEqual(await readdir(dir), ['sample.webm']);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
