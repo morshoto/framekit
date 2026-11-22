@@ -477,6 +477,9 @@ function installInputErrorFormatting(server: McpServer): void {
         if (issue.code === "too_small" && issue.type === "number") {
           return `${field} must be ${issue.inclusive ? "at least" : "greater than"} ${issue.minimum}`;
         }
+        if (issue.code === "too_small" && (issue.type === "string" || issue.type === "array")) {
+          return `${field} must contain at least ${issue.minimum} ${issue.type === "string" ? "character(s)" : "item(s)"}`;
+        }
         if (issue.code === "invalid_type") return `${field} must be ${issue.expected}`;
         if (issue.code === "invalid_literal") return `${field} must be ${JSON.stringify(issue.expected)}`;
         if (issue.code === "unrecognized_keys") return `${field} contains unsupported fields: ${issue.keys.join(", ")}`;
