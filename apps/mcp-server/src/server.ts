@@ -1867,7 +1867,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.nativeOperationSession.cancel(jobId));
   });
 
-  server.registerTool("editor.native.title.add.preview", {
+  registerValidatedTool(server, "editor.native.title.add.preview", {
     description: "Preview adding an installed Final Cut title at the live playhead or an explicit timeline range.",
     inputSchema: nativeTitlePreviewSchema,
   }, async ({ assetId, text, start, duration }, extra) => {
@@ -1876,7 +1876,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.nativeEditor.previewTitleAdd({ asset, text, start, duration }, { signal: extra.mcpReq.signal }));
   });
 
-  server.registerTool("editor.native.title.add.execute", {
+  registerValidatedTool(server, "editor.native.title.add.execute", {
     description: "Execute a previously previewed native Final Cut title placement and return its verification and Undo handle.",
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }, extra) => {
@@ -1884,7 +1884,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return nativeMutationResult(() => options.nativeEditor!.executeTitleAdd(previewToken, { signal: extra.mcpReq.signal }));
   });
 
-  server.registerTool("editor.native.picture-in-picture.preview", {
+  registerValidatedTool(server, "editor.native.picture-in-picture.preview", {
     description: "Preview connecting selected Final Cut Browser video to a stable timeline occurrence with verified transform properties.",
     inputSchema: nativePictureInPicturePreviewSchema,
   }, async (request, extra) => {
@@ -1893,7 +1893,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.nativeEditor.previewPictureInPicture(request, { signal: extra.mcpReq.signal }));
   });
 
-  server.registerTool("editor.native.picture-in-picture.execute", {
+  registerValidatedTool(server, "editor.native.picture-in-picture.execute", {
     description: "Execute a native Final Cut picture-in-picture preview and return transform readback, revision, and Undo verification.",
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }, extra) => {
@@ -1902,7 +1902,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return nativeMutationResult(() => options.nativeEditor!.executePictureInPicture(previewToken, { signal: extra.mcpReq.signal }));
   });
 
-  server.registerTool("editor.native.transition.search", {
+  registerValidatedTool(server, "editor.native.transition.search", {
     description: "Search the visible Final Cut Transitions browser and return only transitions with stable native identities.",
     inputSchema: { query: z.string().trim().min(1) },
   }, async ({ query }, extra) => {
@@ -1915,7 +1915,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(matches);
   });
 
-  server.registerTool("editor.native.transition.add.preview", {
+  registerValidatedTool(server, "editor.native.transition.add.preview", {
     description: "Preview adding a discovered native transition between two adjacent occurrence handles at an exact duration.",
     inputSchema: nativeTransitionPreviewSchema,
   }, async ({ assetId, beforeOccurrenceHandle, afterOccurrenceHandle, duration }, extra) => {
@@ -1929,7 +1929,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     }, { signal: extra.mcpReq.signal }));
   });
 
-  server.registerTool("editor.native.transition.add.execute", {
+  registerValidatedTool(server, "editor.native.transition.add.execute", {
     description: "Execute a previously previewed native transition placement and return verified revision and Undo state.",
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }, extra) => {
@@ -1937,7 +1937,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return nativeMutationResult(() => options.nativeEditor!.executeTransitionAdd(previewToken, { signal: extra.mcpReq.signal }));
   });
 
-  server.registerTool("editor.native.mask.preview", {
+  registerValidatedTool(server, "editor.native.mask.preview", {
     description: "Preview adding a bounded native Final Cut Draw Mask to one located occurrence without mutating the timeline.",
     inputSchema: nativeMaskPreviewSchema,
   }, async ({ occurrenceHandle, mask }, extra) => {
@@ -1945,7 +1945,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.nativeEditor.previewMask({ occurrenceHandle, mask }, { signal: extra.mcpReq.signal }));
   });
 
-  server.registerTool("editor.native.mask.execute", {
+  registerValidatedTool(server, "editor.native.mask.execute", {
     description: "Execute a previously previewed native Draw Mask and return readback verification and native Undo state.",
     inputSchema: { previewToken: z.string().trim().min(1) },
   }, async ({ previewToken }, extra) => {
@@ -1953,7 +1953,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return nativeMutationResult(() => options.nativeEditor!.executeMask(previewToken, { signal: extra.mcpReq.signal }));
   });
 
-  server.registerTool("editor.native.undo", {
+  registerValidatedTool(server, "editor.native.undo", {
     description: "Undo a previously accepted native Final Cut UI edit using Final Cut's native Undo command.",
     inputSchema: { operationId: z.string().min(1) },
   }, async ({ operationId }, extra) => {
@@ -1961,7 +1961,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.nativeEditor.undo(operationId, { signal: extra.mcpReq.signal }));
   });
 
-  server.registerTool("editor.native.media.search", {
+  registerValidatedTool(server, "editor.native.media.search", {
     description: "Search the active Final Cut Browser by literal text and return short-lived media handles; wildcard operators are unsupported.",
     inputSchema: { query: z.string().min(1) },
   }, async ({ query }, extra) => {
@@ -1976,7 +1976,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.nativeEditor.searchMedia(query, { signal: extra.mcpReq.signal }));
   });
 
-  server.registerTool("editor.native.media.select", {
+  registerValidatedTool(server, "editor.native.media.select", {
     description: "Select one live Final Cut Browser media result using its short-lived handle.",
     inputSchema: { mediaHandle: z.string().min(1) },
   }, async ({ mediaHandle }, extra) => {
@@ -1984,7 +1984,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.nativeEditor.selectMedia(mediaHandle, { signal: extra.mcpReq.signal }));
   });
 
-  server.registerTool("editor.native.media.append.preview", {
+  registerValidatedTool(server, "editor.native.media.append.preview", {
     description: "Preview appending the selected Final Cut Browser media to the end of the active timeline.",
     inputSchema: { mediaHandle: z.string().min(1) },
   }, async ({ mediaHandle }, extra) => {
@@ -1992,7 +1992,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.nativeEditor.previewAppendMedia(mediaHandle, { signal: extra.mcpReq.signal }));
   });
 
-  server.registerTool("editor.native.media.append.execute", {
+  registerValidatedTool(server, "editor.native.media.append.execute", {
     description: "Execute a previously previewed append of selected Final Cut Browser media.",
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }, extra) => {
@@ -2000,7 +2000,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return nativeMutationResult(() => options.nativeEditor!.executeAppendMedia(previewToken, { signal: extra.mcpReq.signal }));
   });
 
-  server.registerTool("editor.native.media.append.selected.preview", {
+  registerValidatedTool(server, "editor.native.media.append.selected.preview", {
     description: "Preview appending the currently selected Final Cut Browser media to the end of the active timeline.",
     inputSchema: {},
   }, async (_args, extra) => {
@@ -2008,7 +2008,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.nativeEditor.previewAppendSelectedMedia({ signal: extra.mcpReq.signal }));
   });
 
-  server.registerTool("editor.native.media.append.selected.execute", {
+  registerValidatedTool(server, "editor.native.media.append.selected.execute", {
     description: "Execute a previously previewed append of the currently selected Final Cut Browser media.",
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }, extra) => {
@@ -2016,7 +2016,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return nativeMutationResult(() => options.nativeEditor!.executeAppendSelectedMedia(previewToken, { signal: extra.mcpReq.signal }));
   });
 
-  server.registerTool("editor.native.media.insert.preview", {
+  registerValidatedTool(server, "editor.native.media.insert.preview", {
     description: "Preview inserting the selected Final Cut Browser media at the current playhead.",
     inputSchema: { mediaHandle: z.string().min(1) },
   }, async ({ mediaHandle }, extra) => {
@@ -2024,7 +2024,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.nativeEditor.previewInsertMedia(mediaHandle, { signal: extra.mcpReq.signal }));
   });
 
-  server.registerTool("editor.native.media.insert.execute", {
+  registerValidatedTool(server, "editor.native.media.insert.execute", {
     description: "Execute a previously previewed insertion of selected Final Cut Browser media at the playhead.",
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }, extra) => {
@@ -2032,7 +2032,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return nativeMutationResult(() => options.nativeEditor!.executeInsertMedia(previewToken, { signal: extra.mcpReq.signal }));
   });
 
-  server.registerTool("editor.native.timeline.locate", {
+  registerValidatedTool(server, "editor.native.timeline.locate", {
     description: "Locate matching occurrences of a live Browser media result in the active Final Cut timeline.",
     inputSchema: { mediaHandle: z.string().min(1) },
   }, async ({ mediaHandle }, extra) => {
@@ -2040,7 +2040,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.nativeEditor.locateOccurrence(mediaHandle, { signal: extra.mcpReq.signal }));
   });
 
-  server.registerTool("editor.native.media.target", {
+  registerValidatedTool(server, "editor.native.media.target", {
     description: "Search Final Cut's Browser and target exactly one timeline occurrence with a deterministic live playhead.",
     inputSchema: { query: z.string().min(1) },
   }, async ({ query }, extra) => {
@@ -2048,7 +2048,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.nativeEditor.targetMedia(query, { signal: extra.mcpReq.signal }));
   });
 
-  server.registerTool("editor.native.blade.preview", {
+  registerValidatedTool(server, "editor.native.blade.preview", {
     description: "Prepare a short-lived confirmation token for a Blade-at-playhead operation.",
     inputSchema: { occurrenceHandle: z.string().min(1) },
   }, async ({ occurrenceHandle }, extra) => {
@@ -2056,7 +2056,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.nativeEditor.previewBlade(occurrenceHandle, { signal: extra.mcpReq.signal }));
   });
 
-  server.registerTool("editor.native.blade.execute", {
+  registerValidatedTool(server, "editor.native.blade.execute", {
     description: "Execute a previously previewed Blade-at-playhead operation in Final Cut Pro.",
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }, extra) => {
@@ -2064,7 +2064,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return nativeMutationResult(() => options.nativeEditor!.executeBlade(previewToken, { signal: extra.mcpReq.signal }));
   });
 
-  server.registerTool("editor.native.delete-range.preview", {
+  registerValidatedTool(server, "editor.native.delete-range.preview", {
     description: "Preview a destructive ripple-delete of an explicit rational time range from the Final Cut primary storyline.",
     inputSchema: { start: rationalTimeSchema, end: rationalTimeSchema },
   }, async ({ start, end }, extra) => {
@@ -2072,7 +2072,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.nativeEditor.previewDeleteRange({ start, end }, { signal: extra.mcpReq.signal }));
   });
 
-  server.registerTool("editor.native.delete-range.execute", {
+  registerValidatedTool(server, "editor.native.delete-range.execute", {
     description: "Execute a previously previewed primary-storyline ripple-delete range operation in Final Cut Pro.",
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }, extra) => {
@@ -2080,7 +2080,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return nativeMutationResult(() => options.nativeEditor!.executeDeleteRange(previewToken, { signal: extra.mcpReq.signal }));
   });
 
-  server.registerTool("editor.native.trim-to-duration.preview", {
+  registerValidatedTool(server, "editor.native.trim-to-duration.preview", {
     description: "Preview a destructive operation that preserves the beginning of the Final Cut sequence and removes everything after the requested rational duration.",
     inputSchema: { duration: rationalTimeSchema },
   }, async ({ duration }, extra) => {
@@ -2088,7 +2088,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return jsonResult(await options.nativeEditor.previewTrimToDuration(duration, { signal: extra.mcpReq.signal }));
   });
 
-  server.registerTool("editor.native.trim-to-duration.execute", {
+  registerValidatedTool(server, "editor.native.trim-to-duration.execute", {
     description: "Execute a previously previewed trim-to-duration operation in Final Cut Pro.",
     inputSchema: { previewToken: z.string().min(1) },
   }, async ({ previewToken }, extra) => {
