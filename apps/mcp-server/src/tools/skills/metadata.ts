@@ -1,4 +1,4 @@
-import { z } from "zod/v3";
+import { z } from "zod/v4";
 
 export type SkillToolName = "skill.list" | "skill.inspect" | "skill.preview" | "skill.execute";
 export type SkillToolMode = "fixture" | "headless" | "editor";

@@ -1,5 +1,5 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod/v3";
+import { McpServer } from "@modelcontextprotocol/server";
+import { z } from "zod/v4";
 import type { AgentVideoRuntime, SkillPreview } from "@framekit/runtime";
 import { SKILL_TOOL_METADATA, skillRevisionValueSchema, type SkillToolMetadata, type SkillToolName } from "./metadata.js";
 
