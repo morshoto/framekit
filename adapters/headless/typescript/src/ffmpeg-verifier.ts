@@ -104,16 +104,19 @@ export class FfmpegRenderVerifier implements FramekitRenderArtifactVerifier {
     const expectedAudio = expectedAudioStream(plan);
     const audio = probe.streams.find((stream) => stream.codec_type === "audio");
     const observedFrameRate = parseFfmpegRate(video.r_frame_rate);
+    const averageFrameRate = parseFfmpegRate(video.avg_frame_rate);
     const expectedDuration = rationalSeconds(plan.timeline.sequence.durationTime);
     const tolerance = this.durationToleranceSeconds ?? Math.max(0.05, rationalSeconds(plan.timeline.sequence.frameDuration) * 1.5);
     const durationPassed = Number.isFinite(probe.format.duration)
       && Math.abs(probe.format.duration - expectedDuration) <= tolerance;
-    const frameRatePassed = observedFrameRate !== undefined && sameRational(observedFrameRate, expectedFrameRate);
+    const frameRatePassed = observedFrameRate !== undefined && sameRational(observedFrameRate, expectedFrameRate)
+      && averageFrameRate !== undefined
+      && Math.abs(rationalSeconds(averageFrameRate) - rationalSeconds(expectedFrameRate)) * probe.format.duration <= 1.01;
     const formatPassed = probe.format.format_name.split(",").some((format) => format === plan.parameters.format);
     checks.push({ name: "playable", passed: true, detail: "ffprobe read the output streams and duration" });
     checks.push({ name: "format", passed: formatPassed, detail: "output container matches the explicit request", expected: plan.parameters.format, observed: probe.format.format_name });
     checks.push({ name: "dimensions", passed: video.width === plan.parameters.width && video.height === plan.parameters.height, detail: "output dimensions match the explicit request", expected: { width: plan.parameters.width, height: plan.parameters.height }, observed: { width: video.width, height: video.height } });
-    checks.push({ name: "frame-rate", passed: frameRatePassed, detail: "output rational frame rate matches the explicit request", expected: expectedFrameRate, observed: observedFrameRate });
+    checks.push({ name: "frame-rate", passed: frameRatePassed, detail: "nominal and average output frame rates match the explicit request within one frame", expected: expectedFrameRate, observed: { nominal: observedFrameRate, average: averageFrameRate } });
     const audioPassed = expectedAudio === undefined || (
       audio !== undefined
       && (expectedAudio.sampleRate === undefined || Number(audio.sample_rate) === expectedAudio.sampleRate)
@@ -157,7 +160,7 @@ export class FfmpegRenderVerifier implements FramekitRenderArtifactVerifier {
   private async probe(path: string): Promise<ProbeResult> {
     const result = await execFileAsync(this.ffprobePath, [
       "-v", "error",
-      "-show_entries", "stream=codec_type,codec_name,width,height,r_frame_rate,sample_rate,channels",
+      "-show_entries", "stream=codec_type,codec_name,width,height,r_frame_rate,avg_frame_rate,sample_rate,channels",
       "-show_entries", "format=format_name,duration",
       "-of", "json",
       path,
@@ -179,6 +182,7 @@ interface ProbeStream {
   width?: number;
   height?: number;
   r_frame_rate?: string;
+  avg_frame_rate?: string;
   sample_rate?: string;
   channels?: number;
 }
