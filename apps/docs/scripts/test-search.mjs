@@ -46,6 +46,12 @@ try {
     await page.close();
   }
   {
+    const page = await browser.newPage({ viewport: { width: 320, height: 800 } });
+    await page.goto(`${origin}${base}/en/docs/editing-capabilities/`, { waitUntil:'networkidle' });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'capability guide overflows mobile viewport');
+    await page.close();
+  }
+  {
     const page = await browser.newPage();
     await page.goto(`${origin}${base}/`);
     await page.waitForURL(`${origin}${base}/en/`);
