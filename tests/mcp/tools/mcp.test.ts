@@ -18,6 +18,36 @@ function textFrom(result: unknown): string {
   return first.text as string;
 }
 
+test("MCP stdio restarts after clean shutdown", async () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const stateDirectory = await mkdtemp(join(os.tmpdir(), "framekit-mcp-restart-"));
+  const pids: number[] = [];
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const transport = new StdioClientTransport({
+        command: process.execPath,
+        args: ["--import", "tsx", join(here, "../../../apps/mcp-server/src/main.ts")],
+        env: { ...process.env, FRAMEKIT_STATE_DIR: stateDirectory, FRAMEKIT_EDITOR: "fixture", FRAMEKIT_AUTO_CONNECT: "0" },
+        stderr: "pipe",
+      });
+      const client = new Client({ name: "restart-test", version: "1" });
+      try {
+        await client.connect(transport);
+        assert.ok(transport.pid);
+        pids.push(transport.pid);
+        assert.ok((await client.listTools()).tools.some((tool) => tool.name === "connection.status"));
+        const status = await client.callTool({ name: "connection.status", arguments: {} });
+        assert.notEqual(status.isError, true);
+      } finally {
+        await client.close();
+        await transport.close();
+      }
+      assert.throws(() => process.kill(pids.at(-1)!, 0), /ESRCH/);
+    }
+    assert.notEqual(pids[0], pids[1]);
+  } finally { await rm(stateDirectory, { recursive: true, force: true }); }
+});
+
 test("MCP presents invalid tool arguments as actionable coded errors", async () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const stateDirectory = await mkdtemp(join(os.tmpdir(), "framekit-mcp-validation-"));

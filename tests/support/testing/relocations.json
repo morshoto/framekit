@@ -3073,6 +3073,9 @@
   },
   "recordedAtCommit": "37a92fa1",
   "addedTestNames": {
+    "tests/integration/mcp.test.ts": [
+      "\"MCP stdio restarts after clean shutdown\""
+    ],
     "tests/integration/clean-mcp-clients.test.ts": [
       "\"clean client diagnostics can select the packed candidate\"",
       "\"MCP server uses the stable v2 server dependency\""
