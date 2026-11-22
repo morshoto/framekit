@@ -25,8 +25,8 @@ test('localized navigation and search work', async ({ page, site }) => {
   await page.keyboard.press('ControlOrMeta+k');
   const dialog = page.getByRole('dialog', { name: 'Search documentation' });
   await expect(dialog).toBeVisible();
-  await dialog.getByRole('combobox').fill('ランタン');
-  await expect(dialog.getByText('No results found.')).toBeVisible();
+  await dialog.getByRole('combobox').fill('インストール');
+  await expect(dialog.locator('[role=option][href*="/ja/docs/installation/"]').first()).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   await page.goBack();
