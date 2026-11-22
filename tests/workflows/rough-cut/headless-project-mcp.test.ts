@@ -25,7 +25,8 @@ test("headless edit reports primary gaps in preview and execution", async () => 
     const service = new HeadlessProjectService({ directory });
     const timeline = emptyTimeline();
     timeline.resources.push({ id: "media", name: "media", mediaKind: "video" });
-    timeline.sequence.occurrences = [occurrence("a", "media"), { ...occurrence("b", "media"), startTime: { value: "1", timescale: "1" } }];
+    const { role: _role, ...implicitVideo } = occurrence("b", "media");
+    timeline.sequence.occurrences = [occurrence("a", "media"), { ...implicitVideo, startTime: { value: "1", timescale: "1" } }];
     timeline.sequence.durationTime = { value: "2", timescale: "1" };
     const initial = await service.create(timeline);
     const command = { schemaVersion: 1 as const, expectedRevision: initial.timeline.revision, operations: [{ type: "trim-occurrence" as const, occurrenceId: "a", durationTime: { value: "1", timescale: "2" }, sourceStartTime: { value: "0", timescale: "1" } }] };
