@@ -66,3 +66,9 @@ test('explains how to interpret an interrupted render checkpoint', async () => {
   assert.match(guide, /`edited`[^\n]*revision/i);
   assert.match(guide, /`previewed`[^\n]*does not prove/i);
 });
+
+test('provides an independent source-to-output frame check', async () => {
+  const guide = await read('../content/docs/en/your-first-video.mdx');
+  assert.match(guide, /\[source\]\[render\]ssim/);
+  assert.match(guide, /SSIM[^\n]*audio/i);
+});
