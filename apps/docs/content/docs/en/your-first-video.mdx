@@ -1,76 +1,69 @@
-This reproducible example generates synthetic media, edits a disposable Framekit-owned project through the production MCP server, and checks a rendered MP4. It does not open Final Cut Pro. The commands run a checkout-based release-gate example; they are separate from the installed Codex plugin. See [Installation](/en/docs/installation/) for the plugin and supported runtime requirements.
+Make a two-second video in a new Framekit-owned project, inspect the preview and resulting timeline, and independently check the MP4. This headless example does not open or edit Final Cut Pro. For plugin setup, see [Installation](/en/docs/installation/).
 
 ## Prerequisites
 
-Use macOS with Node.js 22.23.5, pnpm 12.18.0, Git, and FFmpeg/ffprobe available on `PATH`. FFmpeg needs `libx264`, AAC and the filters used by the [fixture generator](https://github.com/morshoto/framekit/blob/2f6f03b6a0cba5b5cb5d4a3ea0f44c3ffa9cdf6c/scripts/generate-headless-render-fixtures.mjs). A suitable system font is also needed for the title. The release-gate command and probe below passed in a fresh local checkout using the existing pnpm store on macOS 26.5.1 with FFmpeg 9.0.2 and candidate commit `2f6f03b6a0cba5b5cb5d4a3ea0f44c3ffa9cdf6c` (v0.2.6). Separately, a clean-client smoke test installed the published v0.2.6 package and matching plugin and confirmed that server fingerprint; its editing calls used a fixture backend. The fixture workflow does not verify the real-media render or the natural-language prompt below. An adapted release-gate test also ran the published v0.2.6 server in headless mode on generated real-media inputs and independently probed the output. That scripted MCP run is not an execution of the prompt below.
+The commands below were checked on macOS 26.5.1 with Node.js 22.23.5, npm, FFmpeg/ffprobe 9.0.2, and the published Framekit v0.2.6 server at commit `2f6f03b6a0cba5b5cb5d4a3ea0f44c3ffa9cdf6c`. FFmpeg must provide the `libx264` encoder. Install Git only if you also want a repository checkout; this example does not require one. The published package supports Node.js 20 or newer, but this exact example was checked with the version above.
 
-## Run the disposable example
+A separate clean-client smoke test installed the published plugin and used a fixture backend; that fixture test does not verify a real-media render. The direct scripted MCP workflow below was run against the published server with real-media input; it is not a test of the natural-language prompt later on this page.
 
-Create a new directory and checkout; the test uses its own temporary project and generates red, blue, and green video and sine tones with FFmpeg. No third-party media is downloaded. The generator and manifest are part of the [Framekit repository](https://github.com/morshoto/framekit/tree/2f6f03b6a0cba5b5cb5d4a3ea0f44c3ffa9cdf6c). The repository does not currently declare a license for these files; their redistribution terms have not been established. Output encoding can differ by FFmpeg version, so the MP4 does not have a fixed checksum.
+## Download the sample and tools
+
+[Sample Flash Animation](https://commons.wikimedia.org/wiki/File:Sample_Flash_Animation.webm) by H0iadfpwijdf is an original work dedicated to the public domain under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/). It is 14,384 bytes. Create a new directory, install the pinned MCP client and Framekit package, and download the sample and example client:
 
 ```sh
-git clone https://github.com/morshoto/framekit.git framekit-first-video
+mkdir framekit-first-video
 cd framekit-first-video
-git checkout --detach 2f6f03b6a0cba5b5cb5d4a3ea0f44c3ffa9cdf6c
-pnpm install --frozen-lockfile
-mkdir -p "$PWD/first-video-output"
-FRAMEKIT_HEADLESS_RELEASE_GATE_EVIDENCE_DIR="$PWD/first-video-output" pnpm exec tsx --test tests/release/gate/headless-release-gate.test.ts
-```
-
-The test should report `ok 1` and `# fail 0`. It starts the production stdio MCP server, creates an empty timeline, registers generated sources, previews and executes an insertion, and adds a second source, titles and a transition. It reopens the project and renders the current revision. The test includes additional safety checks; its recorded tool transcript and observations are in `first-video-output/headless-release-gate-evidence.json`. Paths in that file may reveal local information; sanitize it before sharing. It also saves `verified-final.mp4` and `fixture-manifest.json`.
-
-## Alternative: a freely distributable source
-
-[Sample Flash Animation](https://commons.wikimedia.org/wiki/File:Sample_Flash_Animation.webm) by H0iadfpwijdf is an original work dedicated to the public domain under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/). It is a separate input from the generated release-gate media above. Download and check the 14,384-byte source:
-
-```sh
+npm install --no-save --no-package-lock @morshoto/framekit@0.2.6 @modelcontextprotocol/sdk@1.32.2
 curl -fL -o sample.webm 'https://commons.wikimedia.org/wiki/Special:FilePath/Sample_Flash_Animation.webm'
+curl -fL -o first-video.mjs https://raw.githubusercontent.com/morshoto/framekit/5e00071b6babd730bf528a0641d5e7498676fb0c/apps/docs/public/examples/first-video.mjs
 shasum -a 256 sample.webm
 ```
 
-The observed SHA-256 is `e96efec0c3bf57836b54cbead8d195564ee4e1303a320b343b4fda6642ce5904`. Stop if it differs. In a separate manual MCP run against the published v0.2.6 server, registering this file, previewing and inserting its first two seconds into a new Framekit-owned sequence, and rendering MP4 succeeded with verification passed. Independent `ffprobe` reported a 400 × 290 video at 12 fps, with audio and a two-second duration. That scripted tool run does not verify an assistant prompt, and it does not make claims about Final Cut.
+The source SHA-256 must be `e96efec0c3bf57836b54cbead8d195564ee4e1303a320b343b4fda6642ce5904`. Stop if it differs. The client also checks that digest before creating a project. The npm command and downloads write only within the new example directory and normal npm cache.
 
-This frame was extracted from that actual headless MP4. It depicts the CC0 animation above; it is not a Final Cut screenshot.
+## Preview and render
+
+```sh
+node first-video.mjs sample.webm
+```
+
+The client starts the pinned package in headless mode, creates a disposable project, registers the source, and prints the proposed timeline and a new output path. It then asks for confirmation. Review the one `sample-shot` occurrence, starting at zero and lasting two seconds. Type `yes` to execute that same revision-bound edit and render; any other answer stops before edit execution and rendering. Project creation and media registration already write to the new Framekit-owned state directory. A successful run prints `Result: passed` and the directory containing `first-video.mp4` and `evidence.json`.
+
+The observed tool sequence was `headless.project.create`, `headless.media.register`, `headless.edit.preview`, `headless.edit.execute`, and `headless.render`. The render response and its verification both reported `passed`. If execution or verification fails, inspect the error and retained state before deciding what to do; do not blindly repeat an uncertain operation.
+
+## Inspect and verify
+
+Change into the output directory printed by the program. To inspect the saved Framekit timeline before and after the edit:
+
+```sh
+node --input-type=module <<'NODE'
+import { readFileSync } from 'node:fs';
+const evidence = JSON.parse(readFileSync('evidence.json', 'utf8'));
+console.log('Before:', JSON.stringify(evidence.before, null, 2));
+console.log('After:', JSON.stringify(evidence.after, null, 2));
+NODE
+```
+
+In the observed run, the starting sequence had no occurrences and the resulting sequence had one two-second occurrence. Open `first-video.mp4` in a player. This frame was extracted from an earlier v0.2.6 headless render of the same CC0 source and edit, not from Final Cut:
 
 ![A stick figure from the rendered CC0 animation](/images/first-video-cc0-output.png)
 
-## Prompt for an MCP-capable assistant
+Independently probe the output:
 
-The following prompt uses the CC0 source above, but its end-to-end execution through Codex has **not yet been verified** for this candidate. The tested checkout command above remains a separate reproducible path.
+```sh
+ffprobe -v error -show_entries stream=codec_type,width,height,r_frame_rate -show_entries format=duration -of json first-video.mp4
+```
+
+The observed output contained 400 × 290 video at 12 fps, an audio stream, and a duration of `2.000000` seconds. Metadata alone does not prove visual or audio correctness; inspect playback as well. `evidence.json` can contain local paths: remove personal information before sharing it.
+
+## Optional Codex prompt
+
+The following prompt uses the same downloaded source, but its end-to-end execution through Codex has **not yet been verified**. The scripted direct MCP run above is not evidence that an assistant followed this prompt.
 
 ```text
 Use the downloaded sample.webm in this directory with Framekit and a new disposable headless project. Register it, inspect its media ID and current project revision, then preview inserting the first two seconds at the beginning of a 12 fps timeline. Show me the proposed timeline and wait for approval before executing. After approval, execute the reviewed edit, render a 400 × 290 MP4 at 12 fps to a new path, and inspect it with ffprobe. Report the revision, output path, and verification results. Do not open or modify Final Cut Pro.
 ```
 
-The assistant should use the running server's tool schemas, keep each returned revision, and stop if the selected renderer or any required capability is unavailable. The prompt does not by itself establish that an assistant performed the requested calls.
-
-## Inspect and verify
-
-Inspect the saved before and after timelines:
-
-```sh
-node --input-type=module <<'NODE'
-import { readFileSync } from 'node:fs';
-const evidence = JSON.parse(readFileSync('first-video-output/headless-release-gate-evidence.json', 'utf8'));
-console.log('Before:', JSON.stringify(evidence.project.created.timeline.sequence, null, 2));
-console.log('After:', JSON.stringify(evidence.project.finalAfterEdits.timeline.sequence, null, 2));
-NODE
-```
-
-The observed starting sequence has no occurrences. After editing, it contains `occurrence-red` at 0–1 seconds and `occurrence-blue` at 1–2 seconds, plus two titles and a quarter-second cross-dissolve. Revision IDs and source digests can vary between runs. These records describe the Framekit-owned timeline; they do not show a Final Cut timeline.
-
-Open `first-video-output/verified-final.mp4` in a player. This frame is from the candidate run's actual output:
-
-![Red frame from the rendered sample video](/images/first-video-output.png)
-
-Independently inspect the result:
-
-```sh
-ffprobe -v error -show_entries stream=codec_type,width,height,r_frame_rate,sample_rate,channels -show_entries format=duration -of json first-video-output/verified-final.mp4
-```
-
-The observed run had a 320 × 180 video at 30/1 frames per second, mono audio at 48000 Hz, and a duration of 2.000000 seconds. The test also compares timeline state and checks output samples. Probe metadata alone does not prove the visual edit, audio content, or future results on a different environment.
-
 ## If something fails
 
-Check the first failing message and installed versions. Missing FFmpeg, encoder, font, or renderer capability can prevent a render. Consult the [Error Reference](/en/docs/error-reference/) for coded errors and the [Troubleshooting](/en/docs/troubleshooting/) for symptom-based guidance. The sample produces a headless MP4; FCPXML is a separate handoff artifact, and neither proves an import, playback, or edit in Final Cut Pro.
+Check the first failing message and installed versions. Missing FFmpeg, an encoder, or a renderer capability can prevent rendering. Use [Troubleshooting](/en/docs/troubleshooting/) for symptom-based checks and the [Error Reference](/en/docs/error-reference/) for coded errors. The MP4 is a headless output; FCPXML is a separate handoff artifact, and neither proves import, playback, or an edit in Final Cut Pro.
