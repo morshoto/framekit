@@ -6,10 +6,17 @@ Framekit は Final Cut Pro 向けのエージェントによる動画編集ラ�
 
 ## はじめに
 
-利用時は Node.js 20 以上が必要です。リポジトリの開発には Node.js 22.23.5 と pnpm 12.18.0 を使用します。ネイティブ Workflow Extension の開発には Xcode 16.4 と macOS 15.5 SDK も必要です。任意の Nix 環境には Node.js、pnpm、FFmpeg/ffprobe、SQLite が含まれます。
+利用時は Node.js 20 以上が必要です。リポジトリの開発には Node.js 22.23.5 と pnpm 12.18.0 を使用します。pnpm 12.18.0 は Corepack または任意のパッケージマネージャーでインストールしてください。ネイティブ Workflow Extension の開発には Xcode 16.4 と macOS 15.5 SDK も必要です。
+
+任意の Nix 環境には Node.js、pnpm、FFmpeg/ffprobe、SQLite が含まれます。利用する場合は次を実行します。
 
 ```sh
 nix develop ./nix
+```
+
+リポジトリのルートから依存関係をインストールし、検証を実行します。
+
+```sh
 pnpm install --frozen-lockfile
 pnpm run hooks:install
 pnpm run check:git-config
