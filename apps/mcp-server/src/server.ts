@@ -465,8 +465,12 @@ function installInputErrorFormatting(server: McpServer): void {
       const schema = tool.inputSchema instanceof z.ZodType ? tool.inputSchema : z.object(tool.inputSchema);
       const result = await schema.safeParseAsync(args ?? {});
       if (result.success) throw error;
-      const messages = result.error.issues.map((issue) => {
+      const formatIssue = (issue: z.ZodIssue): string => {
         const field = issue.path.length ? issue.path.map(String).join(" ") : "arguments";
+        if (issue.code === "invalid_union") {
+          const alternatives = issue.unionErrors.map((branch) => branch.issues.map(formatIssue).join("; "));
+          return `${field} must satisfy one of: ${[...new Set(alternatives)].map((alternative) => `(${alternative})`).join(" or ")}`;
+        }
         if (issue.path.at(-1) === "approved" && issue.code === "invalid_literal") {
           return "execute requires approved: true after a preview";
         }
@@ -486,7 +490,8 @@ function installInputErrorFormatting(server: McpServer): void {
         if (issue.code === "invalid_enum_value") return `${field} must be one of ${issue.options.map(String).join(", ")}`;
         if (issue.code === "custom" && issue.message !== "Invalid input") return `${field}: ${issue.message}`;
         return `${field} is invalid; check the tool's input requirements`;
-      });
+      };
+      const messages = result.error.issues.map(formatIssue);
       const message = `INPUT_INVALID: ${messages.join("; ")}`;
       throw new Error(JSON.stringify({ code: "INPUT_INVALID", message }));
     }
