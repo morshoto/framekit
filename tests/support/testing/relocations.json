@@ -1370,7 +1370,7 @@
       "\"installed Codex plugin does not inherit a source commit when bytes or cleanliness differ\"",
       "\"clean MCP evidence preserves installed Codex plugin content provenance\"",
       "\"clean MCP evidence reports package fingerprints and release artifact GO or NO_GO states\"",
-      "\"clean MCP evidence omits private paths, transaction IDs, and raw\u0020diagnostics\"",
+      "\"clean MCP evidence omits private paths, transaction IDs, and raw diagnostics\"",
       "\"clean MCP evidence rejects prohibited free-text fields\"",
       "\"clean MCP evidence permits ordinary prose mentioning 'key' without actual credentials\"",
       "\"clean MCP evidence still rejects actual whitespace-delimited credentials\"",
@@ -3123,7 +3123,12 @@
       "'package branch baselines retain unmeasured packages and reject invalid counters'"
     ],
     "tests/documentation/ci-workflow.test.mjs": [
-      "'deterministic PR coverage reports package branches even when tests fail'"
+      "'deterministic PR coverage reports package branches even when tests fail'",
+      "'milestone warnings compare releases numerically and ignore unknown milestones'",
+      "'milestone warnings create, update, resolve and avoid duplicate comments'",
+      "'milestone warning reconciliation checks both sides and skips other repositories'",
+      "'milestone warning API paginates dependencies and fails on GraphQL errors'",
+      "'assign workflow schedules and serializes milestone warnings'"
     ],
     "tests/integration/final-cut-library-inspection.test.ts": [
       "\"read-only library inspection preserves frontmost application\""
@@ -3414,7 +3419,9 @@
   ],
   "featureIntegrations": [
     {
-      "pullRequests": [738],
+      "pullRequests": [
+        738
+      ],
       "reason": "Do not represent unobserved gaps as continuous post-write speech coverage.",
       "addedTestNames": {
         "tests/integration/phase1.test.ts": [
@@ -3423,7 +3430,9 @@
       }
     },
     {
-      "pullRequests": [738],
+      "pullRequests": [
+        738
+      ],
       "reason": "Reject conflicting provider and clock provenance across disjoint reanalysis ranges.",
       "addedTestNames": {
         "tests/integration/phase1.test.ts": [
@@ -3432,7 +3441,9 @@
       }
     },
     {
-      "pullRequests": [738],
+      "pullRequests": [
+        738
+      ],
       "reason": "Preserve range-scoped VAD availability through partial reanalysis without exposing incomplete top-level VAD.",
       "addedTestNames": {
         "tests/integration/phase1.test.ts": [
@@ -3450,7 +3461,9 @@
       }
     },
     {
-      "pullRequests": [738],
+      "pullRequests": [
+        738
+      ],
       "reason": "Bound source verification before and after command analysis.",
       "addedTestNames": {
         "tests/speech/command-analyzer.test.ts": [
@@ -3459,7 +3472,9 @@
       }
     },
     {
-      "pullRequests": [738],
+      "pullRequests": [
+        738
+      ],
       "reason": "Reject invalid command analyzer signal scope and mismatched occurrence identity.",
       "addedTestNames": {
         "tests/speech/command-analyzer.test.ts": [
