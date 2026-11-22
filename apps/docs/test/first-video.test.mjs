@@ -88,3 +88,9 @@ test('explains that registered media is checked before preview', async () => {
   const guide = await read('../content/docs/en/your-first-video.mdx');
   assert.match(guide, /registered[^\n]*digest[^\n]*before preview/i);
 });
+
+test('distinguishes manual prompt exercise from installed-plugin verification', async () => {
+  const guide = await read('../content/docs/en/your-first-video.mdx');
+  assert.match(guide, /manually[^\n]*direct MCP[^\n]*simulated approval/i);
+  assert.match(guide, /does not[^\n]*installed Codex plugin/i);
+});
