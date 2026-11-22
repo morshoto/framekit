@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod/v4";
 import type { AgentVideoRuntime, SkillPreview } from "@framekit/runtime";
-import { SKILL_TOOL_METADATA, skillRevisionValueSchema, type SkillToolMetadata, type SkillToolName } from "./metadata.js";
+import { SKILL_TOOL_METADATA, skillRevisionValueSchema, type SkillToolName } from "./metadata.js";
 
 /** Runtime capability and availability resolution stays behind this injected port. */
 export type SkillToolsRuntime = Pick<AgentVideoRuntime,
@@ -71,10 +71,10 @@ export function registerSkillTools(server: McpServer, runtime: SkillToolsRuntime
   });
 }
 
-function toolMetadata(name: SkillToolName): SkillToolMetadata {
+function toolMetadata<Name extends SkillToolName>(name: Name): Extract<(typeof SKILL_TOOL_METADATA)[number], { name: Name }> {
   const metadata = metadataByName.get(name);
   if (!metadata) throw new Error(`SKILL_TOOL_METADATA_MISSING: ${name}`);
-  return metadata;
+  return metadata as Extract<(typeof SKILL_TOOL_METADATA)[number], { name: Name }>;
 }
 
 function jsonResult(value: unknown) {

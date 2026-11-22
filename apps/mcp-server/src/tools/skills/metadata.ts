@@ -26,7 +26,7 @@ export const skillRevisionValueSchema = z.object({
 
 const allSkillToolModes: readonly SkillToolMode[] = ["fixture", "headless", "editor"];
 
-export const SKILL_TOOL_METADATA: readonly SkillToolMetadata[] = [
+export const SKILL_TOOL_METADATA = [
   {
     name: "skill.list",
     description: "List registered versioned Framekit Skills with current capability availability.",
@@ -89,4 +89,4 @@ export const SKILL_TOOL_METADATA: readonly SkillToolMetadata[] = [
     errorCodes: ["SKILL_PREVIEW_TOKEN_INVALID", "SKILL_PREVIEW_TOKEN_EXPIRED", "SKILL_REQUIREMENTS_UNMET", "STALE_CONTEXT", "SKILL_ERROR"],
     examples: [{ input: { previewToken: "skill-preview-issued-by-runtime" } }],
   },
-];
+] as const satisfies readonly SkillToolMetadata[];
