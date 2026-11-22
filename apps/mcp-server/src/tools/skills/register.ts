@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod/v4";
 import type { AgentVideoRuntime, SkillPreview } from "@framekit/runtime";
 import { SKILL_TOOL_METADATA, skillRevisionValueSchema, type SkillToolName } from "./metadata.js";
+import { registerValidatedTool } from "../validated-tool.js";
 
 /** Runtime capability and availability resolution stays behind this injected port. */
 export type SkillToolsRuntime = Pick<AgentVideoRuntime,
@@ -12,9 +13,9 @@ const metadataByName = new Map(SKILL_TOOL_METADATA.map((metadata) => [metadata.n
 
 export function registerSkillTools(server: McpServer, runtime: SkillToolsRuntime): void {
   const list = toolMetadata("skill.list");
-  server.registerTool(list.name, {
+  registerValidatedTool(server, list.name, {
     description: list.description,
-    inputSchema: list.inputSchema,
+    inputSchema: z.object(list.inputSchema),
   }, async () => {
     try {
       return jsonResult((await runtime.listSkillAvailability()).map(({ manifest, availability }) => ({
@@ -27,9 +28,9 @@ export function registerSkillTools(server: McpServer, runtime: SkillToolsRuntime
   });
 
   const inspect = toolMetadata("skill.inspect");
-  server.registerTool(inspect.name, {
+  registerValidatedTool(server, inspect.name, {
     description: inspect.description,
-    inputSchema: inspect.inputSchema,
+    inputSchema: z.object(inspect.inputSchema),
   }, async ({ skill, version }) => {
     try {
       const { manifest, availability } = await runtime.inspectSkillAvailability(skill, version);
@@ -40,9 +41,9 @@ export function registerSkillTools(server: McpServer, runtime: SkillToolsRuntime
   });
 
   const preview = toolMetadata("skill.preview");
-  server.registerTool(preview.name, {
+  registerValidatedTool(server, preview.name, {
     description: preview.description,
-    inputSchema: preview.inputSchema,
+    inputSchema: z.object(preview.inputSchema),
   }, async ({ skill, version, arguments: skillArguments }) => {
     try {
       const baseRevision = skillRevisionValueSchema.parse(skillArguments.baseRevision);
@@ -59,9 +60,9 @@ export function registerSkillTools(server: McpServer, runtime: SkillToolsRuntime
   });
 
   const execute = toolMetadata("skill.execute");
-  server.registerTool(execute.name, {
+  registerValidatedTool(server, execute.name, {
     description: execute.description,
-    inputSchema: execute.inputSchema,
+    inputSchema: z.object(execute.inputSchema),
   }, async ({ previewToken }) => {
     try {
       return jsonResult(await runtime.executeSkill(previewToken));
