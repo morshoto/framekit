@@ -74,11 +74,13 @@ test("v2 discovery preserves v1 object constraints", async () => {
   const v2 = new V2McpServer({ name: "v2-schema", version: "1" });
   v1.registerTool("fixture.schema", { inputSchema: {
     nested: z3.object({ value: z3.string() }),
+    emptyNested: z3.object({}),
     loose: z3.object({ value: z3.string() }).passthrough(),
     dictionary: z3.record(z3.string()),
   } }, async () => ({ content: [] }));
   registerValidatedTool(v2, "fixture.schema", { inputSchema: {
     nested: z.object({ value: z.string() }),
+    emptyNested: z.object({}),
     loose: z.object({ value: z.string() }).passthrough(),
     dictionary: z.record(z.string(), z.string()),
   } }, async () => ({ content: [] }));
@@ -93,6 +95,7 @@ test("v2 discovery preserves v1 object constraints", async () => {
     const constraints = (schema: typeof schemas[number]) => ({
       root: schema.additionalProperties,
       nested: (schema.properties?.nested as Record<string, unknown>).additionalProperties,
+      emptyNested: (schema.properties?.emptyNested as Record<string, unknown>).additionalProperties,
       loose: (schema.properties?.loose as Record<string, unknown>).additionalProperties,
       dictionary: (schema.properties?.dictionary as Record<string, unknown>).additionalProperties,
     });

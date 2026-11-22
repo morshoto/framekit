@@ -7,11 +7,11 @@ type ToolSchema = z.ZodType | z.ZodRawShape;
 type ToolInput<Schema extends ToolSchema> = Schema extends z.ZodType ? z.output<Schema> : Schema extends z.ZodRawShape ? z.output<z.ZodObject<Schema>> : never;
 
 /** Preserve the object discovery constraints emitted by the v1 SDK. */
-function preserveObjectConstraints(value: unknown): void {
+function preserveObjectConstraints(value: unknown, isToolRoot = false): void {
   if (!value || typeof value !== "object" || Array.isArray(value)) return;
   const schema = value as Record<string, unknown>;
   if (schema.type === "object" && schema.properties && typeof schema.properties === "object"
-    && Object.keys(schema.properties).length > 0) {
+    && (!isToolRoot || Object.keys(schema.properties).length > 0)) {
     if (schema.additionalProperties === undefined) schema.additionalProperties = false;
     else if (schema.additionalProperties && typeof schema.additionalProperties === "object"
       && !Array.isArray(schema.additionalProperties) && Object.keys(schema.additionalProperties).length === 0) {
@@ -40,7 +40,7 @@ export function registerValidatedTool<Schema extends ToolSchema>(
 ): void {
   const schema = config.inputSchema instanceof z.ZodType ? config.inputSchema : z.object(config.inputSchema);
   const generated = z.toJSONSchema(schema, { io: "input" });
-  preserveObjectConstraints(generated);
+  preserveObjectConstraints(generated, true);
   const { oneOf, ...rest } = generated;
   const branches = oneOf ?? generated.anyOf;
   const variants = new Map<string, Map<string, unknown>>();
