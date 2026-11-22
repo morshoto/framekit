@@ -15,3 +15,9 @@ test('headless guidance states actionable media, effect, and output constraints'
     assert.match(guide, new RegExp(phrase, 'i'));
   }
 });
+
+test('states the native extension deployment target separately from its build SDK', async () => {
+  const guide = await read('../content/docs/en/editing-capabilities.mdx');
+  assert.match(guide, /macOS 15\.0/);
+  assert.match(guide, /macOS 15\.5 SDK/);
+});
