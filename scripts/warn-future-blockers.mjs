@@ -80,6 +80,7 @@ export function createApi({ repository, token, apiUrl = 'https://api.github.com'
 export async function reconcile(api, repository, eventName, event) {
   let issues;
   if (eventName === 'issues') {
+    if (event.issue?.pull_request) return;
     const issue = await api.issue(event.issue.number);
     const affected = await api.blocking(issue.number);
     issues = [issue, ...affected.filter(item => item.repository.nameWithOwner === repository && item.state === 'OPEN')];

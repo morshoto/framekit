@@ -137,6 +137,8 @@ test('milestone warning reconciliation checks both sides and skips other reposit
   };
   await reconcile(api, 'a/b', 'issues', { issue: { number: 1 } });
   assert.deepEqual(seen, [1, 2]);
+  await reconcile(api, 'a/b', 'issues', { issue: { number: 99, pull_request: { url: 'https://api.github.com/repos/a/b/pulls/99' } } });
+  assert.deepEqual(seen, [1, 2]);
 });
 
 test('milestone warning API paginates dependencies and fails on GraphQL errors', async () => {
