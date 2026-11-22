@@ -39,10 +39,11 @@ test("MCP presents invalid tool arguments as actionable coded errors", async () 
     for (const example of cases) {
       const result = await client.callTool({ name: example.name, arguments: example.arguments });
       assert.equal(result.isError, true);
-      const message = textFrom(result);
-      assert.match(message, /^INPUT_INVALID: /);
-      assert.match(message, example.expected);
-      assert.doesNotMatch(message, /-32602|Invalid literal|Input validation error/);
+      const error = JSON.parse(textFrom(result));
+      assert.equal(error.code, "INPUT_INVALID");
+      assert.match(error.message, /^INPUT_INVALID: /);
+      assert.match(error.message, example.expected);
+      assert.doesNotMatch(error.message, /-32602|Invalid literal|Input validation error/);
     }
   } finally {
     await client.close();

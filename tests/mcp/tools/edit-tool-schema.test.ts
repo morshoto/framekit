@@ -138,8 +138,7 @@ test("editor.timeline.edit validates trim duration before its handler", async ()
       },
     });
     assert.equal(invalid.isError, true);
-    assert.match(textFrom(invalid), /Input validation error/);
-    assert.match(textFrom(invalid), /Required at duration/);
+    assert.match(JSON.parse(textFrom(invalid)).message, /INPUT_INVALID: duration is required/);
 
     const valid = await client.callTool({
       name: "editor.timeline.edit",
@@ -177,7 +176,7 @@ test("single-edit tools reject fields from another operation", async () => {
       },
     });
     assert.equal(invalid.isError, true);
-    assert.match(textFrom(invalid), /Unrecognized key\(s\).*duration/);
+    assert.match(JSON.parse(textFrom(invalid)).message, /INPUT_INVALID: .*unsupported fields: duration/);
   } finally {
     await client.close();
     await server.close();
