@@ -366,10 +366,9 @@ async function runMcpWorkflow({ clientName, clientVersion, executable, framekitV
 }
 
 async function installCleanPackage(packageDirectory, installDirectory, packageStatus, sourceVersion) {
-  let source = "published-package";
+  const source = selectPackageSource(packageStatus, process.env.FRAMEKIT_CLEAN_PACKAGE_SOURCE);
   let installSpec = `${packageName}@${packageStatus.version}`;
-  if (!packageStatus.available) {
-    source = "packed-source";
+  if (source === "packed-source") {
     const packed = JSON.parse((await execFile("npm", ["pack", "--json", "--pack-destination", packageDirectory], {
       cwd: root,
       maxBuffer: 10 * 1024 * 1024,
@@ -393,6 +392,13 @@ async function installCleanPackage(packageDirectory, installDirectory, packageSt
     version: installedManifest.version,
     source,
   };
+}
+
+export function selectPackageSource(packageStatus, requested) {
+  if (requested !== undefined && requested !== "packed-source") {
+    throw new Error("FRAMEKIT_CLEAN_PACKAGE_SOURCE must be packed-source when specified");
+  }
+  return requested === "packed-source" || !packageStatus.available ? "packed-source" : "published-package";
 }
 
 async function ensureClaudeBinary(directory) {
