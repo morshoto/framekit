@@ -187,6 +187,18 @@ export class FcpxmlDocumentAdapter implements EditorPort {
 
   public async readProject(): Promise<ProjectSnapshot> {
     await this.ensureLoaded();
+    return this.projectSnapshot();
+  }
+
+  /** Parse a caller-verified document while retaining this adapter's path context. */
+  public static readProjectFromContent(filePath: string, content: string, options: FcpxmlDocumentAdapterOptions = {}): ProjectSnapshot {
+    const adapter = new FcpxmlDocumentAdapter(filePath, undefined, options);
+    adapter.xml = adapter.parser.parse(content) as OrderedXml;
+    adapter.fileSignature = hash(content);
+    return adapter.projectSnapshot();
+  }
+
+  private projectSnapshot(): ProjectSnapshot {
     const project = this.projectNode();
     const sequenceNode = findElement(project, "sequence");
     const sequence = sequenceNode ?? {};
@@ -966,6 +978,52 @@ export class FcpxmlDocumentAdapter implements EditorPort {
       : kind === "transition" ? attribute(firstChild(node, "filter-video") ?? {}, "ref") : undefined;
     const assetId = referencedEffect === undefined ? undefined : this.effectAssetId(String(referencedEffect));
     const text = kind === "title" ? textChildValue(node, "text") : undefined;
+    const metadata = firstChild(node, "metadata");
+    const metadataValue = (key: string) => {
+      const matches = metadata === undefined ? [] : storyEntries(metadata)
+        .filter(({ kind: childKind, node: child }) => childKind === "md" && attribute(child, "key") === key);
+      if (matches.length > 1) throw new Error("FCPXML_TRANSITION_METADATA_INVALID: duplicate canonical transition metadata");
+      return matches[0]?.node;
+    };
+    const transitionMarker = metadataValue("com.framekit.transition-kind");
+    const transitionKind = transitionMarker && attribute(transitionMarker, "value");
+    const beforeMetadata = metadataValue("com.framekit.before");
+    const afterMetadata = metadataValue("com.framekit.after");
+    const beforeValue = beforeMetadata && attribute(beforeMetadata, "value");
+    const afterValue = afterMetadata && attribute(afterMetadata, "value");
+    const beforeAttribute = attribute(node, "framekit-before-clip");
+    const afterAttribute = attribute(node, "framekit-after-clip");
+    const filters = storyEntries(node).filter(({ kind: childKind }) => childKind === "filter-video" || childKind === "filter-audio");
+    const videoFilters = filters.filter(({ kind: childKind }) => childKind === "filter-video");
+    const audioFilters = filters.filter(({ kind: childKind }) => childKind === "filter-audio");
+    const videoFilter = videoFilters[0]?.node;
+    const audioFilter = audioFilters[0]?.node;
+    const audioRef = audioFilter && attribute(audioFilter, "ref");
+    const audioEffect = audioRef === undefined ? undefined : this.effectAssetId(String(audioRef));
+    const enabled = (filter: XmlNode | undefined) => filter !== undefined && (attribute(filter, "enabled") === undefined || String(attribute(filter, "enabled")) === "1");
+    const transitionAttributes = new Set(["@_name", "@_offset", "@_duration"]);
+    const transitionComplete = Object.keys(attributes(node)).every((key) => transitionAttributes.has(key))
+      && storyEntries(node).every(({ kind: childKind }) => ["filter-video", "filter-audio", "metadata"].includes(childKind));
+    const transitionEffects: NonNullable<StoryElement["transitionEffects"]> = filters.map(({ kind: filterKind, node: filter }) => {
+      const ref = attribute(filter, "ref");
+      const identity = ref === undefined ? undefined : this.effectAssetId(String(ref));
+      const children = storyEntries(filter);
+      const allowedAttributes = new Set(["@_ref", "@_name", "@_enabled"]);
+      const allowedParameterAttributes = new Set(["@_name", "@_key", "@_value", "@_auxValue", "@_enabled"]);
+      const enabledValue = attribute(filter, "enabled");
+      const complete = transitionComplete && identity !== undefined && Object.keys(attributes(filter)).every((key) => allowedAttributes.has(key))
+        && (enabledValue === undefined || String(enabledValue) === "0" || String(enabledValue) === "1")
+        && children.every(({ kind: childKind, node: child }) => childKind === "param" && storyEntries(child).length === 0
+          && typeof attribute(child, "name") === "string" && String(attribute(child, "name")).length > 0
+          && Object.keys(attributes(child)).every((key) => allowedParameterAttributes.has(key))
+          && (attribute(child, "enabled") === undefined || ["0", "1"].includes(String(attribute(child, "enabled")))));
+      const parameters = children.filter(({ kind: childKind }) => childKind === "param").map(({ node: child }) =>
+        Object.fromEntries(Object.entries(attributes(child)).map(([key, value]) => [key, String(value)])));
+      return { kind: filterKind === "filter-video" ? "video" : "audio", ...(identity ? { assetId: identity } : {}), enabled: enabled(filter), parameters, complete };
+    });
+    if ((transitionMarker || beforeMetadata || afterMetadata) && (kind !== "transition" || transitionKind !== "cross-dissolve" || assetId !== "fcpxml:effect:FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265" || audioEffect !== "fcpxml:effect:FFAudioTransition" || videoFilters.length !== 1 || audioFilters.length !== 1 || !enabled(videoFilter) || !enabled(audioFilter) || !canonicalDissolveSettings(node, videoFilter, audioFilter) || !beforeValue || !afterValue || beforeAttribute !== undefined && String(beforeAttribute) !== String(beforeValue) || afterAttribute !== undefined && String(afterAttribute) !== String(afterValue))) {
+      throw new Error("FCPXML_TRANSITION_METADATA_INVALID: unverified canonical transition metadata");
+    }
     return {
       id: this.instanceId(node, kind, path, timelineId),
       kind,
@@ -979,7 +1037,9 @@ export class FcpxmlDocumentAdapter implements EditorPort {
         : {}),
       ...(attribute(node, "framekit-attached-to") !== undefined ? { attachedTo: String(attribute(node, "framekit-attached-to")) } : {}),
       ...(assetId ? { assetId } : {}),
+      ...(kind === "transition" ? { transitionEffects } : {}),
       ...(text !== undefined ? { text } : {}),
+      ...(transitionKind === "cross-dissolve" ? { transitionKind, beforeClipId: String(attribute(beforeMetadata!, "value") ?? ""), afterClipId: String(attribute(afterMetadata!, "value") ?? "") } : {}),
       ...(attribute(node, "framekit-before-clip") !== undefined
         ? { beforeClipId: String(attribute(node, "framekit-before-clip")) }
         : {}),
@@ -1139,6 +1199,25 @@ function storyEntries(node: XmlNode): Array<{ kind: string; node: XmlNode }> {
       ? value.filter((child): child is XmlNode => typeof child === "object" && child !== null)
         .map((child) => ({ kind: Object.keys(child).find((key) => key !== ":@") ?? kind, node: child }))
       : []);
+}
+
+function canonicalDissolveSettings(transition: XmlNode, video: XmlNode | undefined, audio: XmlNode | undefined): boolean {
+  if (!video || !audio) return false;
+  const allowedTransition = new Set(["@_name", "@_offset", "@_duration"]);
+  const allowedFilter = new Set(["@_ref", "@_name", "@_enabled"]);
+  if (!Object.keys(attributes(transition)).every((key) => allowedTransition.has(key))
+    || !storyEntries(transition).every(({ kind }) => ["filter-video", "filter-audio", "metadata"].includes(kind))
+    || ![video, audio].every((filter) => Object.keys(attributes(filter)).every((key) => allowedFilter.has(key)))
+    || storyEntries(audio).length !== 0) return false;
+  const parameters = storyEntries(video);
+  const expected = [
+    { name: "Look", key: "1", value: "11 (Video)" },
+    { name: "Amount", key: "2", value: "50" },
+    { name: "Ease", key: "50", value: "2 (In & Out)" },
+    { name: "Ease Amount", key: "51", value: "0" },
+  ];
+  return parameters.length === expected.length && parameters.every(({ kind, node }) => kind === "param" && storyEntries(node).length === 0 && Object.keys(attributes(node)).length === 3)
+    && expected.every(({ name, key, value }) => parameters.some(({ node }) => attribute(node, "name") === name && attribute(node, "key") === key && attribute(node, "value") === value));
 }
 
 function effectResources(document: OrderedXml): XmlNode[] {

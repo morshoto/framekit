@@ -1,5 +1,39 @@
 # Changelog
 
+## [v0.2.5](https://github.com/morshoto/framekit/compare/v0.2.4...v0.2.5) - 2026-11-21
+
+### New Features
+- feat: allow optional external edit sections by @morshoto in https://github.com/morshoto/framekit/pull/792
+- feat: prepare bounded cross-dissolve handoff by @morshoto in https://github.com/morshoto/framekit/pull/817
+- feat: publish llms documentation exports by @morshoto in https://github.com/morshoto/framekit/pull/821
+- feat: publish docs crawler metadata by @morshoto in https://github.com/morshoto/framekit/pull/820
+- feat: bind explicit clip audio roles by @morshoto in https://github.com/morshoto/framekit/pull/830
+### Bug Fixes
+- fix: end titles at the cut frame by @morshoto in https://github.com/morshoto/framekit/pull/789
+- fix: bound external edit music gain by @morshoto in https://github.com/morshoto/framekit/pull/790
+- fix: signal failed renders as MCP errors by @morshoto in https://github.com/morshoto/framekit/pull/791
+- fix: preserve previews when storyboard cannot sample by @morshoto in https://github.com/morshoto/framekit/pull/794
+- fix: verify decoded output audio peaks by @morshoto in https://github.com/morshoto/framekit/pull/795
+- fix: preserve incoming dissolve timing by @morshoto in https://github.com/morshoto/framekit/pull/810
+- fix: reject titles with missing font glyphs by @morshoto in https://github.com/morshoto/framekit/pull/807
+- fix: bind handoff to verified render by @morshoto in https://github.com/morshoto/framekit/pull/812
+- fix: canonicalize documentation landing routes by @morshoto in https://github.com/morshoto/framekit/pull/819
+- fix: verify native transition effects on readback by @morshoto in https://github.com/morshoto/framekit/pull/823
+- fix: allow repeated rough-cut plans by @morshoto in https://github.com/morshoto/framekit/pull/809
+- fix: bind title font across outputs by @morshoto in https://github.com/morshoto/framekit/pull/824
+### Documentation
+- docs: add emergency release rollback runbook by @morshoto in https://github.com/morshoto/framekit/pull/770
+- test: measure finishing parity outputs by @morshoto in https://github.com/morshoto/framekit/pull/816
+- docs: add searchable error reference by @morshoto in https://github.com/morshoto/framekit/pull/822
+- fix: validate connected audio source bounds by @morshoto in https://github.com/morshoto/framekit/pull/828
+- fix: verify connected audio proof by @morshoto in https://github.com/morshoto/framekit/pull/827
+- fix: bind approved edits and render evidence by @morshoto in https://github.com/morshoto/framekit/pull/829
+- fix: bound audio mix and verify finishing parity by @morshoto in https://github.com/morshoto/framekit/pull/826
+### Other changes
+- test: verify reused music artifacts by @morshoto in https://github.com/morshoto/framekit/pull/813
+- test: verify editable title artifacts by @morshoto in https://github.com/morshoto/framekit/pull/814
+- test: preserve dissolve MCP approval by @morshoto in https://github.com/morshoto/framekit/pull/818
+
 ## [v0.2.4](https://github.com/morshoto/framekit/compare/v0.2.3...v0.2.4) - 2026-11-21
 
 ### New Features

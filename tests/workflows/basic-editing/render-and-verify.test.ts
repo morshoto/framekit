@@ -56,7 +56,7 @@ test("render-and-verify returns verified provenance and independent artifact met
               && transition.r > 20 && transition.b > 20
               && late.b > 150 && late.r < 80
               && countBrightPixels(titleFrame, 80, 240, 40, 140) > countBrightPixels(noTitleFrame, 80, 240, 40, 140) + 5
-              && Math.abs((outputVolume - sourceVolume) - 6) < 1.5;
+              && Math.abs((outputVolume - sourceVolume) - (6 - 3.0103)) < 1.5;
             return {
             name: "fixture-semantics",
             passed: plan.timeline.sequence.occurrences.map(({ id }) => id).join(",") === "occurrence-red,occurrence-blue"
@@ -77,9 +77,9 @@ test("render-and-verify returns verified provenance and independent artifact met
     assert.match(outcome.verification?.artifact?.fileDigest ?? "", /^[a-f0-9]{64}$/);
     assert.equal(outcome.verification?.checks.every(({ passed }) => passed), true);
 
-    const rangedFrame = await frameAt(outcome.verification!.artifact!.path, 1.4, directory, "range-selected");
+    const rangedFrame = await frameAt(outcome.verification!.artifact!.path, 1.1, directory, "range-selected");
     const unrangedTimeline = structuredClone(timeline);
-    unrangedTimeline.sequence.occurrences[1]!.sourceStartTime = { value: "0", timescale: "1" };
+    unrangedTimeline.sequence.occurrences[1]!.sourceStartTime = { value: "1", timescale: "4" };
     const unrangedParameters = renderParameters(join(directory, "unranged.mp4"));
     const unrangedRequest = createFramekitRenderRequest({
       timeline: unrangedTimeline,
@@ -89,7 +89,7 @@ test("render-and-verify returns verified provenance and independent artifact met
     const unrangedRenderer = new FfmpegTimelineRenderer({ ffmpegPath: process.env.FFMPEG_BIN || "ffmpeg" });
     const unrangedPlan = createFramekitRenderPlan(unrangedRequest, unrangedRenderer.capabilities(unrangedRequest));
     await unrangedRenderer.render(unrangedPlan);
-    const unrangedFrame = await frameAt(unrangedParameters.outputPath, 1.4, directory, "range-ignored");
+    const unrangedFrame = await frameAt(unrangedParameters.outputPath, 1.1, directory, "range-ignored");
     assert.notEqual(frameDigest(rangedFrame), frameDigest(unrangedFrame), "sourceStartTime must change the verified artifact segment");
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -305,6 +305,13 @@ test("render verification measures decoded mix true peak", async () => {
         const unavailable = await new FfmpegRenderVerifier({ ffmpegPath: join(directory, "missing-ffmpeg") }).verify(plan, result);
         assert.equal(unavailable.status, "failed");
         assert.match(unavailable.checks.find((item) => item.name === "audio-true-peak")!.detail, /could not measure/);
+        const detail = unavailable.checks.find((item) => item.name === "audio-true-peak")!.detail;
+        assert.match(detail, /DEPENDENCY_MISSING:.*ffmpeg/);
+        assert.doesNotMatch(detail, /ENOENT|spawn/);
+        const missingProbe = await new FfmpegRenderVerifier({ ffprobePath: join(directory, "missing-ffprobe") }).verify(plan, result);
+        assert.equal(missingProbe.status, "unavailable");
+        assert.equal(missingProbe.error?.code, "DEPENDENCY_MISSING");
+        assert.match(missingProbe.error!.message, /ffprobe.*install/i);
       }
     }
   } finally {

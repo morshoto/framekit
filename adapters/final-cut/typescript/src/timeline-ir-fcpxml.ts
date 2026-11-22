@@ -1,3 +1,4 @@
+import { planFcpxmlDissolve } from "./fcpxml-transition-plan.js";
 import { createHash } from "node:crypto";
 import { isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -9,6 +10,9 @@ import type {
 import { timelineIrDigest, validateTimelineIr } from "@framekit/runtime";
 
 export const FRAMEKIT_FCPXML_VERSION = "1.11" as const;
+const AUDIO_CROSSFADE_EFFECT_ID = "effect-audio-crossfade";
+const CROSS_DISSOLVE_EFFECT_ID = "effect-cross-dissolve";
+const CROSS_DISSOLVE_EFFECT_UID = "FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265";
 const BASIC_TITLE_EFFECT_ID = "effect-basic-title";
 const AUDIO_FORMAT_ID = "format-audio";
 const BASIC_TITLE_EFFECT_UID = ".../Titles.localized/Bumper:Opener.localized/Basic Title.localized/Basic Title.moti";
@@ -32,6 +36,8 @@ export interface TimelineIrToFcpxmlTarget extends FinalCutTargetIdentity {
 export interface TimelineIrToFcpxmlOptions {
   target: TimelineIrToFcpxmlTarget;
   version?: typeof FRAMEKIT_FCPXML_VERSION;
+  /** Explicit requested font; installation on the Final Cut target is not implied. */
+  basicTitleFont?: { family: string; style: string; postscriptName: string; digest: string };
 }
 
 export interface TimelineIrMaterializationCoverage {
@@ -74,7 +80,7 @@ export interface TimelineIrToFcpxmlResult {
 
 interface RenderableElement {
   id: string;
-  kind: "asset-clip" | "gap" | "title" | "marker" | "caption";
+  kind: "asset-clip" | "gap" | "title" | "marker" | "caption" | "transition";
   startTime: { value: string; timescale: string };
   durationTime: { value: string; timescale: string };
   lane?: number;
@@ -89,6 +95,8 @@ interface RenderableElement {
   text?: string;
   frameAlignmentAdjusted?: boolean;
   sourceRangeAdjusted?: boolean;
+  beforeId?: string;
+  afterId?: string;
 }
 
 /**
@@ -112,11 +120,31 @@ export function compileTimelineIrToFcpxml(
     throw new Error(`FCPXML_VERSION_UNSUPPORTED: ${String(version)}`);
   }
   validateTarget(options.target);
+  if (options.basicTitleFont !== undefined) {
+    const font = options.basicTitleFont;
+    if (!font || typeof font !== "object" || Array.isArray(font) || ![font.family, font.style, font.postscriptName].every((value) => typeof value === "string" && value.trim()) || typeof font.digest !== "string" || !/^[a-f0-9]{64}$/.test(font.digest)) {
+      throw new Error("FCPXML_TITLE_FONT_INVALID: family, style, PostScript name and SHA-256 are required");
+    }
+    for (const value of [font.family, font.style, font.postscriptName]) xmlEscape(value);
+  }
+  const titles = timeline.sequence.titles ?? [];
+  const boundFonts = titles.map(({ font }) => font).filter((font): font is NonNullable<typeof font> => font !== undefined);
+  if (boundFonts.length && boundFonts.length !== titles.length) {
+    throw new Error("FCPXML_TITLE_FONT_UNBOUND: every title must bind the selected font");
+  }
+  const sameFont = (left: NonNullable<typeof boundFonts[number]>, right: NonNullable<typeof boundFonts[number]>) =>
+    left.family === right.family && left.style === right.style && left.postscriptName === right.postscriptName && left.digest === right.digest;
+  const canonicalFont = boundFonts[0];
+  if (canonicalFont && (boundFonts.some((font) => !sameFont(font, canonicalFont)) || options.basicTitleFont && !sameFont(canonicalFont, options.basicTitleFont))) {
+    throw new Error("FCPXML_TITLE_FONT_MISMATCH: title fonts must match the selected asset");
+  }
+  const explicitTitleFont = canonicalFont ?? options.basicTitleFont;
   const unsupported = unsupportedFeatures(timeline);
   if (unsupported.length > 0) {
     throw new Error(`FCPXML_UNSUPPORTED_TIMELINE_FEATURE: ${unsupported.join(", ")}`);
   }
-  const destination = resolveDestination(timeline, options.target);
+  const destination = resolveDestination(timeline, options.target, explicitTitleFont);
+  const dissolve = timeline.sequence.transitions?.length ? planFcpxmlDissolve(timeline) : undefined;
 
   const resourceIds = createResourceIds(timeline);
   const resourceNames = uniqueResourceNames(timeline);
@@ -126,6 +154,25 @@ export function compileTimelineIrToFcpxml(
     timeline.sequence.frameDuration,
     new Set(resources.filter(({ mediaKind }) => mediaKind === "audio").map(({ id }) => resourceIds.get(id)!)),
   );
+  if (dissolve) {
+    const before = elements.find((element) => element.id === dissolve.beforeId);
+    const after = elements.find((element) => element.id === dissolve.afterId);
+    if (!before || before.kind !== "asset-clip" || before.parentId !== undefined) throw new Error("FCPXML_DISSOLVE_ADJACENCY: outgoing clip is not a primary asset");
+    before.durationTime = dissolve.beforeDurationTime;
+    if (!after || after.kind !== "asset-clip" || after.parentId !== undefined) throw new Error("FCPXML_DISSOLVE_ADJACENCY: incoming clip is not a primary asset");
+    after.startTime = dissolve.afterStartTime;
+    after.sourceStartTime = dissolve.afterSourceStartTime;
+    after.durationTime = dissolve.afterDurationTime;
+    const afterEnd = addExactTimes(after.startTime, after.durationTime);
+    for (const element of elements) {
+      if (element.kind !== "title" || element.parentId !== dissolve.beforeId) continue;
+      const end = addExactTimes(element.startTime, element.durationTime);
+      if (compareExactTimes(element.startTime, dissolve.startTime) >= 0 && compareExactTimes(end, afterEnd) <= 0) {
+        element.parentId = after.id;
+      }
+    }
+    elements.push({ id: dissolve.id, kind: "transition", startTime: dissolve.startTime, durationTime: dissolve.durationTime, name: "Cross Dissolve", resourceId: CROSS_DISSOLVE_EFFECT_ID, beforeId: dissolve.beforeId, afterId: dissolve.afterId });
+  }
   const sourceBounds = new Map(resources.filter((resource) => resource.sourceRange).map((resource) => [resourceIds.get(resource.id)!, resource.sourceRange!]));
   for (const element of elements) {
     if (element.kind !== "asset-clip" || !element.resourceId) continue;
@@ -164,6 +211,10 @@ export function compileTimelineIrToFcpxml(
     ...(timeline.sequence.titles?.length
       ? [`    <effect id="${BASIC_TITLE_EFFECT_ID}" name="Basic Title" uid="${BASIC_TITLE_EFFECT_UID}" />`]
       : []),
+    ...(dissolve ? [
+      `    <effect id="${CROSS_DISSOLVE_EFFECT_ID}" name="Cross Dissolve" uid="${CROSS_DISSOLVE_EFFECT_UID}" />`,
+      `    <effect id="${AUDIO_CROSSFADE_EFFECT_ID}" name="Audio Crossfade" uid="FFAudioTransition" />`,
+    ] : []),
     ...resources.map((resource) => renderResource(resource, resourceIds.get(resource.id)!, resourceNames.get(resource.id)!)),
     "  </resources>",
     "  <library>",
@@ -171,7 +222,7 @@ export function compileTimelineIrToFcpxml(
     `      <project uid="${xmlEscape(destination.projectUid)}" name="${xmlEscape(destination.projectName)}">`,
     `        <sequence format="${formatId}" duration="${formatRational(timeline.sequence.durationTime, "sequence.durationTime")}"${timeline.sequence.timecodeStart ? ` tcStart="${formatRational(timeline.sequence.timecodeStart, "sequence.timecodeStart")}"` : ""}>`,
     "          <spine>",
-    ...renderElements(elements),
+    ...renderElements(elements, explicitTitleFont),
     "          </spine>",
     "        </sequence>",
     "      </project>",
@@ -190,7 +241,7 @@ export function compileTimelineIrToFcpxml(
     target: structuredClone(options.target),
     destination,
     resourceIds: Object.fromEntries([...resourceIds.entries()].sort(([left], [right]) => left.localeCompare(right))),
-    coverage: materializationCoverage(timeline, destination.mode, elements),
+    coverage: materializationCoverage(timeline, destination.mode, elements, explicitTitleFont !== undefined),
     provenance: {
       source: "framekit-timeline-ir",
       schemaVersion: 1,
@@ -217,7 +268,6 @@ function unsupportedFeatures(timeline: TimelineIr): string[] {
   if (timeline.sequence.titles?.some(({ style, position }) => style !== undefined || position !== undefined)) {
     unsupported.add("styled-or-positioned-titles");
   }
-  if (timeline.sequence.transitions?.length) unsupported.add("transitions");
   for (const occurrence of timeline.sequence.occurrences) {
     if (occurrence.transform !== undefined) unsupported.add("transforms");
     if (occurrence.fadeIn !== undefined || occurrence.fadeOut !== undefined) unsupported.add("audio-fades");
@@ -233,6 +283,7 @@ function materializationCoverage(
   timeline: TimelineIr,
   destinationMode: TimelineIrToFcpxmlResult["destination"]["mode"],
   elements: readonly RenderableElement[],
+  hasExplicitTitleFont: boolean,
 ): TimelineIrMaterializationCoverage {
   const exact = new Set([
     "artifact",
@@ -248,12 +299,17 @@ function materializationCoverage(
     degraded.add("video-edit-frame-rounding");
   }
   if (elements.some(({ sourceRangeAdjusted }) => sourceRangeAdjusted)) exact.delete("source-ranges");
+  if (timeline.sequence.transitions?.length) {
+    exact.delete("source-ranges");
+    degraded.add("transition-audio-and-roundtrip-unverified");
+  }
   if (elements.some(({ parentId }) => parentId !== undefined)) exact.add("connected-elements");
   if (timeline.sequence.occurrences.some(({ role }) => role !== undefined)) exact.add("roles");
   if (timeline.sequence.occurrences.some(({ gainDb }) => gainDb !== undefined)) exact.add("gain");
   if (timeline.sequence.occurrences.some(({ enabled }) => enabled !== undefined)) exact.add("enabled");
   if (timeline.sequence.titles?.length) {
     exact.add("editable-titles");
+    if (hasExplicitTitleFont) degraded.add("native-title-font-availability-unverified");
   }
   if (destinationMode === "versioned") exact.add("versioned-destination");
   if (timeline.sequence.markers.length > 0) exact.add("markers");
@@ -360,6 +416,7 @@ function validateTarget(target: TimelineIrToFcpxmlTarget): void {
 function resolveDestination(
   timeline: TimelineIr,
   target: TimelineIrToFcpxmlTarget,
+  titleFont?: TimelineIrToFcpxmlOptions["basicTitleFont"],
 ): TimelineIrToFcpxmlResult["destination"] {
   if (target.materialization === "reuse-existing") {
     return {
@@ -371,7 +428,10 @@ function resolveDestination(
     };
   }
 
-  const revisionKey = shortHash(`${timeline.project.id}:${timeline.sequence.id}:${timeline.revision.id}:${timeline.revision.sequence}:${timeline.revision.timestamp}:${timelineIrDigest(timeline)}`);
+  const fontBinding = timeline.sequence.titles?.length && titleFont
+    ? `:title-font:${JSON.stringify([titleFont.family, titleFont.style, titleFont.postscriptName, titleFont.digest])}:basic-title-defaults:63:center`
+    : "";
+  const revisionKey = shortHash(`${timeline.project.id}:${timeline.sequence.id}:${timeline.revision.id}:${timeline.revision.sequence}:${timeline.revision.timestamp}:${timelineIrDigest(timeline)}${fontBinding}`);
   const revisionName = `${safeId(timeline.revision.id)}-${timeline.revision.sequence}`;
   const projectName = `${timeline.project.name} (Framekit ${revisionName}-${revisionKey})`;
   return {
@@ -602,7 +662,7 @@ function musicAttachmentTarget(occurrence: TimelineIrOccurrence, timeline: Timel
   return parent.id;
 }
 
-function renderElements(elements: RenderableElement[]): string[] {
+function renderElements(elements: RenderableElement[], titleFont?: TimelineIrToFcpxmlOptions["basicTitleFont"]): string[] {
   const byParent = new Map<string | undefined, RenderableElement[]>();
   const byId = new Map<string, RenderableElement>();
   for (const element of elements) {
@@ -613,6 +673,10 @@ function renderElements(elements: RenderableElement[]): string[] {
   }
   for (const siblings of byParent.values()) {
     siblings.sort((left, right) => {
+      if (compareExactTimes(left.startTime, right.startTime) === 0 && left.kind !== right.kind) {
+        if (left.kind === "transition") return -1;
+        if (right.kind === "transition") return 1;
+      }
       if (left.kind === "marker" && right.kind !== "marker") return 1;
       if (right.kind === "marker" && left.kind !== "marker") return -1;
       return compareTimedItems(left, right);
@@ -620,6 +684,7 @@ function renderElements(elements: RenderableElement[]): string[] {
   }
   const rendered = new Set<string>();
   const lines: string[] = [];
+  let titleStyleNumber = 0;
   const render = (parentId: string | undefined, indent: string): void => {
     for (const element of byParent.get(parentId) ?? []) {
       if (rendered.has(element.id)) throw new Error(`FCPXML_CYCLIC_ATTACHMENT: ${element.id}`);
@@ -629,12 +694,14 @@ function renderElements(elements: RenderableElement[]): string[] {
         ? { value: "0", timescale: "1" }
         : parentElement?.startTime;
       if (!parentStartTime) throw new Error(`FCPXML_ATTACHMENT_TARGET_NOT_FOUND: ${element.id} -> ${element.parentId}`);
-      const localStartTime = subtractRational(element.startTime, parentStartTime, `${element.id}.startTime`);
-      const offsetTime = parentElement?.kind === "asset-clip"
+      const sourceRelative = parentElement?.kind === "asset-clip"
         && (element.kind === "title" || element.kind === "caption" || element.kind === "marker" || element.role === "music")
-        && parentElement.sourceStartTime !== undefined
-        ? addExactTimes(localStartTime, parentElement.sourceStartTime)
-        : localStartTime;
+        && parentElement.sourceStartTime !== undefined;
+      const offsetTime = subtractRational(
+        sourceRelative ? addExactTimes(element.startTime, parentElement.sourceStartTime!) : element.startTime,
+        parentStartTime,
+        `${element.id}.startTime`,
+      );
       const attributes = element.kind === "asset-clip"
         ? [
             `ref="${xmlEscape(element.resourceId!)}"`,
@@ -671,12 +738,29 @@ function renderElements(elements: RenderableElement[]): string[] {
               `offset="${formatRational(offsetTime, `${element.id}.startTime`)}"`,
               `duration="${formatRational(element.durationTime, `${element.id}.durationTime`)}"`,
             ];
+      if (element.kind === "transition") {
+        lines.push(`${indent}<transition name="Cross Dissolve" offset="${formatRational(offsetTime, `${element.id}.startTime`)}" duration="${formatRational(element.durationTime, `${element.id}.durationTime`)}">`);
+        lines.push(`${indent}  <filter-video ref="${CROSS_DISSOLVE_EFFECT_ID}" name="Cross Dissolve">`);
+        lines.push(`${indent}    <param name="Look" key="1" value="11 (Video)" />`);
+        lines.push(`${indent}    <param name="Amount" key="2" value="50" />`);
+        lines.push(`${indent}    <param name="Ease" key="50" value="2 (In &amp; Out)" />`);
+        lines.push(`${indent}    <param name="Ease Amount" key="51" value="0" />`);
+        lines.push(`${indent}  </filter-video>`);
+        lines.push(`${indent}  <filter-audio ref="${AUDIO_CROSSFADE_EFFECT_ID}" name="Audio Crossfade" />`);
+        lines.push(`${indent}  <metadata><md key="com.framekit.id" value="${xmlEscape(element.id)}" /><md key="com.framekit.transition-kind" value="cross-dissolve" /><md key="com.framekit.before" value="${xmlEscape(element.beforeId!)}" /><md key="com.framekit.after" value="${xmlEscape(element.afterId!)}" /></metadata>`);
+        lines.push(`${indent}</transition>`);
+        continue;
+      }
       if (element.kind === "marker") {
         lines.push(`${indent}<marker ${attributes.join(" ")} />`);
         continue;
       }
       lines.push(`${indent}<${element.kind} ${attributes.join(" ")}>`);
-      if (element.kind === "title" || element.kind === "caption") {
+      if (element.kind === "title" && titleFont) {
+        const styleId = `title-style-${++titleStyleNumber}`;
+        lines.push(`${indent}  <text><text-style ref="${styleId}">${xmlEscape(element.text ?? "")}</text-style></text>`);
+        lines.push(`${indent}  <text-style-def id="${styleId}"><text-style font="${xmlEscape(titleFont.family)}" fontFace="${xmlEscape(titleFont.style)}" fontSize="63" alignment="center" /></text-style-def>`);
+      } else if (element.kind === "title" || element.kind === "caption") {
         lines.push(`${indent}  <text>${xmlEscape(element.text ?? "")}</text>`);
       }
       if (element.gainDb !== undefined) {
@@ -686,7 +770,10 @@ function renderElements(elements: RenderableElement[]): string[] {
       if (element.kind === "caption") {
         lines.push(`${indent}  <note>com.framekit.id:${xmlEscape(element.id)}</note>`);
       } else {
-        lines.push(`${indent}  <metadata><md key="com.framekit.id" value="${xmlEscape(element.id)}" /></metadata>`);
+        const fontMetadata = element.kind === "title" && titleFont
+          ? `<md key="com.framekit.title-font-sha256" value="${titleFont.digest}" /><md key="com.framekit.title-font-postscript" value="${xmlEscape(titleFont.postscriptName)}" />`
+          : "";
+        lines.push(`${indent}  <metadata><md key="com.framekit.id" value="${xmlEscape(element.id)}" />${fontMetadata}</metadata>`);
       }
       lines.push(`${indent}</${element.kind}>`);
     }

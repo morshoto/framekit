@@ -1438,6 +1438,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     clips: z.array(z.object({
       id: z.string().min(1), mediaId: z.string().min(1),
       sourceStartTime: rationalTimeSchema, durationTime: rationalTimeSchema,
+      nativeAudioRole: z.string().regex(/^dialogue(?:\.[^.]+)?$/).refine((role) => !/[\t\r\n]/.test(role)).optional(),
     }).strict()).min(1),
     title: z.object({
       id: z.string().min(1), text: z.string().min(1),
@@ -1454,7 +1455,13 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ projectId, sequenceId, expectedRevision, edit }) => sessionResult(async () => {
     const service = requireHeadlessProjects();
     const project = await service.inspect(projectId);
-    const operations = externalEditOperations(edit, project.timeline, expectedRevision);
+    let operations = externalEditOperations(edit, project.timeline, expectedRevision);
+    if (edit.title) {
+      const unbound = await service.previewEdit(projectId, { schemaVersion: 1, expectedRevision, operations }, sequenceId);
+      verifyExternalEditExportable(unbound.after.timeline);
+      const font = service.selectTitleFont([edit.title.text]);
+      operations = operations.map((operation) => operation.type === "add-title" ? { ...operation, title: { ...operation.title, font } } : operation);
+    }
     const preview = await service.previewEdit(projectId, { schemaVersion: 1, expectedRevision, operations }, sequenceId);
     verifyExternalEditExportable(preview.after.timeline);
     return { ...preview, planDigest: externalEditPlanDigest(preview.command) };
@@ -1466,7 +1473,13 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ projectId, sequenceId, expectedRevision, edit, planDigest }) => sessionResult(async () => {
     const service = requireHeadlessProjects();
     const project = await service.inspect(projectId);
-    const operations = externalEditOperations(edit, project.timeline, expectedRevision);
+    let operations = externalEditOperations(edit, project.timeline, expectedRevision);
+    if (edit.title) {
+      const unbound = await service.previewEdit(projectId, { schemaVersion: 1, expectedRevision, operations }, sequenceId);
+      verifyExternalEditExportable(unbound.after.timeline);
+      const font = service.selectTitleFont([edit.title.text]);
+      operations = operations.map((operation) => operation.type === "add-title" ? { ...operation, title: { ...operation.title, font } } : operation);
+    }
     const preview = await service.previewEdit(projectId, { schemaVersion: 1, expectedRevision, operations }, sequenceId);
     verifyExternalEditExportable(preview.after.timeline);
     if (externalEditPlanDigest(preview.command) !== planDigest) throw new Error("EXTERNAL_EDIT_STALE_PREVIEW: approved edit does not match preview");
@@ -1486,6 +1499,30 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     expectedRevision,
     operations: operations as TimelineIrEditOperation[],
   }, sequenceId)));
+
+  server.registerTool("headless.edit.approved-preview", {
+    description: "Preview a revision-bound headless edit and issue a single-use approval token.",
+    inputSchema: {
+      projectId: z.string().min(1),
+      sequenceId: z.string().min(1),
+      expectedRevision: revisionValueSchema,
+      operations: z.array(z.unknown()),
+    },
+  }, async ({ projectId, sequenceId, expectedRevision, operations }) => sessionResult(() => requireHeadlessProjects().previewApprovedEdit(projectId, {
+    schemaVersion: 1,
+    expectedRevision,
+    operations: operations as TimelineIrEditOperation[],
+  }, sequenceId)));
+
+  server.registerTool("headless.edit.approved-execute", {
+    description: "Execute exactly the previously previewed headless edit after explicit approval.",
+    inputSchema: {
+      projectId: z.string().min(1),
+      sequenceId: z.string().min(1),
+      previewToken: z.string().min(1),
+      approved: z.literal(true),
+    },
+  }, async ({ projectId, sequenceId, previewToken }) => sessionResult(() => requireHeadlessProjects().executeApprovedEdit(projectId, sequenceId, previewToken)));
 
   server.registerTool("headless.edit.execute", {
     description: "Execute supported Framekit Timeline IR edits against the expected canonical revision and persist exactly one revision.",

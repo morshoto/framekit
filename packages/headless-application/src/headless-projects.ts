@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { readdir, readFile, rename, writeFile, mkdir, link, unlink, realpath, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { readdir, readFile, rename, writeFile, mkdir, link, unlink, realpath, stat, lstat, open } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   FramekitProjectStore,
@@ -10,6 +11,7 @@ import {
   type ContextRevision,
   type FramekitProjectDocument,
   type FramekitRenderArtifactVerifier,
+  type FramekitRenderAndVerifyResult,
   type FramekitRenderProvider,
   type FramekitRenderParameters,
   type LocalMediaRegistrationResult,
@@ -21,6 +23,7 @@ import {
   type RoughCutPlan,
   type TimelineIrEditOperation,
   type TimelineIr,
+  type TimelineIrTitleFont,
   type TimelineIrResource,
   timelineIrDigest,
 } from "@framekit/runtime";
@@ -31,6 +34,28 @@ import {
   type TimelineIrToFcpxmlResult,
   type TimelineIrToFcpxmlTarget,
 } from "@framekit/final-cut/fcpxml";
+
+import { verifyConnectedAudioBounds } from "./external-edit.js";
+
+function verifyConnectedAudioOccurrences(timeline: TimelineIr, previousTimeline?: TimelineIr): TimelineIrResource[] {
+  const resources = new Map<string, TimelineIrResource>();
+  for (const occurrence of timeline.sequence.occurrences) {
+    const connectedAudio = occurrence.role === "music" || occurrence.role === "audio";
+    const videoAudioRole = occurrence.role === "video" && occurrence.nativeAudioRole !== undefined;
+    if (!connectedAudio && !videoAudioRole) continue;
+    const previous = previousTimeline?.sequence.occurrences.find((item) => item.id === occurrence.id);
+    if (previous && stableJson(previous) === stableJson(occurrence)) continue;
+    const resource = timeline.resources.find((item) => item.id === occurrence.mediaId);
+    if (resource?.sourceKind === "local-file") {
+      if (connectedAudio) verifyConnectedAudioBounds(resource, occurrence.sourceStartTime ?? { value: "0", timescale: "1" }, occurrence.durationTime);
+      if (videoAudioRole && resource.metadata?.streams.filter((stream) => stream.kind === "audio").length !== 1) {
+        throw new Error("HEADLESS_AUDIO_INVALID: video audio role requires exactly one audio stream");
+      }
+      resources.set(resource.id, resource);
+    }
+  }
+  return [...resources.values()];
+}
 
 export interface HeadlessProjectServiceOptions {
   directory: string;
@@ -51,6 +76,7 @@ export interface StoryboardImage {
   mimeType: "image/png";
   samples: Array<{ kind: "shot" | "title"; id: string; occurrenceId: string; mediaId: string; sourceDigest: string; timelineSeconds: number; sourceSeconds: number }>;
   limitations: string[];
+  titleFontDigest?: string;
 }
 
 export type HeadlessProjectEditCommand = Omit<ProjectEditCommand, "target"> & {
@@ -62,6 +88,7 @@ export interface HeadlessProjectWorkflow {
   list(): Promise<HeadlessProjectSummary[]>;
   open(projectId: string): Promise<FramekitProjectDocument>;
   inspect(projectId: string): Promise<FramekitProjectDocument>;
+  selectTitleFont(texts: readonly string[]): TimelineIrTitleFont;
   registerMedia(
     projectId: string,
     sourcePath: string,
@@ -78,6 +105,8 @@ export interface HeadlessProjectWorkflow {
     command: HeadlessProjectEditCommand,
     sequenceId: string,
   ): Promise<ProjectEditResult & { undoId: string }>;
+  previewApprovedEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string): Promise<Awaited<ReturnType<ProjectTransactionService["preview"]>> & { previewToken: string }>;
+  executeApprovedEdit(projectId: string, sequenceId: string, previewToken: string): Promise<ProjectEditResult & { undoId: string }>;
   undoEdit(projectId: string, sequenceId: string, undoId: string, expectedRevision: ContextRevision): Promise<HeadlessUndoResult>;
   exportFcpxml(projectId: string, sequenceId: string, expectedRevision: ContextRevision, outputPath: string, target: TimelineIrToFcpxmlTarget): Promise<{ artifact: { path: string; digest: string; bytes: number; verified: true }; provenance: TimelineIrToFcpxmlResult["provenance"]; coverage: TimelineIrToFcpxmlResult["coverage"] }>;
   previewRoughCut(request: HeadlessRoughCutRequest, signal?: AbortSignal, requireStoryboard?: boolean): Promise<HeadlessRoughCutPreview>;
@@ -192,6 +221,7 @@ export interface HeadlessRoughCutPreview extends ProjectEditPreview {
   provenance: HeadlessRoughCutShotProvenance[];
   storyboard?: StoryboardImage & { planDigest: string; revision: ContextRevision };
   storyboardUnavailable?: string;
+  titleFont?: { renderer: { id: string; version: string }; digest: string; face: { family: string; style: string; postscriptName: string } };
   outputIntent: {
     sourceAudioPolicy: "preserve-and-mix";
     render: FramekitRenderParameters;
@@ -226,6 +256,9 @@ export interface HeadlessRoughCutPublishProof {
   canonicalRevision: ContextRevision;
   planDigest: string;
   renderId: string;
+  renderer: { id: string; version: string };
+  renderArtifact: { path: string; digest: string; bytes: number };
+  titleFont?: HeadlessRoughCutPreview["titleFont"];
   artifactPath: string;
   artifactDigest: string;
   sourceAudioPolicy: "preserve-and-mix";
@@ -257,6 +290,8 @@ interface HeadlessRoughCutExecutionRecord {
   planDigest: string;
   inputDigest: string;
   renderId: string;
+  renderer: { id: string; version: string };
+  renderArtifact: { path: string; digest: string; bytes: number };
   artifactPath: string;
   artifactDigest: string;
   artifactBytes: number;
@@ -275,6 +310,7 @@ interface HeadlessRoughCutApprovalRecord {
   canonicalRevision: ContextRevision;
   artifactPath: string;
   artifactDigest: string;
+  titleFont?: HeadlessRoughCutPreview["titleFont"];
   outputIntent: HeadlessRoughCutPreview["outputIntent"];
   evidenceDigest: string;
 }
@@ -287,6 +323,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
   private readonly verifier?: FramekitRenderArtifactVerifier;
   private readonly storyboard?: StoryboardRenderer;
   private readonly clock: () => string;
+  private readonly approvedEdits = new Map<string, { projectId: string; sequenceId: string; command: HeadlessProjectEditCommand; baseDigest: string; resultDigest: string; expiresAt: number }>();
 
   public constructor(options: HeadlessProjectServiceOptions) {
     this.directory = options.directory;
@@ -296,6 +333,15 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     this.verifier = options.verifier;
     this.storyboard = options.storyboard;
     this.clock = options.clock ?? (() => new Date().toISOString());
+  }
+
+  public selectTitleFont(texts: readonly string[]): TimelineIrTitleFont {
+    const font = this.renderer?.inspectTitleFont?.(texts);
+    if (!font || ![font.family, font.style, font.postscriptName].every((value) => typeof value === "string" && value.trim())
+      || typeof font.digest !== "string" || !/^[a-f0-9]{64}$/.test(font.digest)) {
+      throw new Error("HEADLESS_TITLE_FONT_UNAVAILABLE: selected title font or required glyphs are unavailable");
+    }
+    return structuredClone(font);
   }
 
   public async create(timeline: TimelineIr): Promise<FramekitProjectDocument> {
@@ -377,13 +423,35 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
   public async previewEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string) {
     const project = await this.open(projectId);
     const transaction = new ProjectTransactionService(this.snapshotStore(projectId, project), { clock: this.clock });
-    return transaction.preview({
+    const preview = await transaction.preview({
       ...command,
       target: command.target ?? { projectId, sequenceId },
     });
+    await this.verifyConnectedAudioMetadata(projectId, preview.after.timeline, preview.before.timeline);
+    return preview;
   }
 
-  public async executeEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string) {
+  public async previewApprovedEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string) {
+    const preview = await this.previewEdit(projectId, command, sequenceId);
+    const now = Date.now();
+    for (const [token, entry] of this.approvedEdits) if (entry.expiresAt <= now) this.approvedEdits.delete(token);
+    while (this.approvedEdits.size >= 256) this.approvedEdits.delete(this.approvedEdits.keys().next().value!);
+    const previewToken = `headless-edit-${randomUUID()}`;
+    this.approvedEdits.set(previewToken, { projectId, sequenceId, command: structuredClone(preview.command), baseDigest: timelineIrDigest(preview.before.timeline), resultDigest: timelineIrDigest(preview.after.timeline), expiresAt: now + 10 * 60 * 1000 });
+    return { ...preview, previewToken };
+  }
+
+  public async executeApprovedEdit(projectId: string, sequenceId: string, previewToken: string) {
+    const entry = this.approvedEdits.get(previewToken);
+    if (!entry || entry.expiresAt <= Date.now() || entry.projectId !== projectId || entry.sequenceId !== sequenceId) {
+      throw new Error("HEADLESS_EDIT_PREVIEW_INVALID: preview token is unknown, expired or belongs to another target");
+    }
+    // Consume synchronously before the first await so concurrent requests cannot reuse the token.
+    this.approvedEdits.delete(previewToken);
+    return this.executeEdit(projectId, entry.command, sequenceId, entry);
+  }
+
+  public async executeEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string, approvedDigests?: { baseDigest: string; resultDigest: string }) {
     const project = await this.open(projectId);
     const timestamp = this.clock();
     const transaction = new ProjectTransactionService(this.snapshotStore(projectId, project), { clock: () => timestamp });
@@ -392,6 +460,11 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       target: command.target ?? { projectId, sequenceId },
     };
     const preview = await transaction.preview(editCommand);
+    await this.verifyConnectedAudioMetadata(projectId, preview.after.timeline, preview.before.timeline);
+    if (approvedDigests && (timelineIrDigest(preview.before.timeline) !== approvedDigests.baseDigest
+      || timelineIrDigest(preview.after.timeline) !== approvedDigests.resultDigest)) {
+      throw new Error("HEADLESS_EDIT_PREVIEW_MISMATCH: project or proposed edit differs from the approved preview");
+    }
     const recordId = `undo-${randomUUID()}`;
     const afterDigest = timelineIrDigest(preview.after.timeline);
     const record = {
@@ -456,6 +529,20 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       throw new Error("HEADLESS_FCPXML_STALE: project target or revision does not match the requested export");
     }
     await this.assertOutputSeparation(project, [outputPath]);
+    const titles = project.timeline.sequence.titles ?? [];
+    const boundTitles = titles.filter((title) => title.font);
+    if (boundTitles.length !== titles.length) {
+      throw new Error("HEADLESS_TITLE_FONT_UNBOUND: every title must bind an approved font before export");
+    }
+    if (boundTitles.length) {
+      const selected = this.selectTitleFont(titles.map((title) => title.text));
+      if (boundTitles.some((title) => title.font!.family !== selected.family || title.font!.style !== selected.style
+        || title.font!.postscriptName !== selected.postscriptName || title.font!.digest !== selected.digest)) {
+        throw new Error("HEADLESS_TITLE_FONT_UNAVAILABLE: selected font does not match the approved title font");
+      }
+    }
+    await this.verifyConnectedAudioMetadata(projectId, project.timeline);
+    await this.verifyDissolveMetadata(project.timeline);
     const compiled = compileTimelineIrToFcpxml(project.timeline, { target });
     const artifact = await writeVerifiedFcpxml(resolve(outputPath), compiled.xml, compiled.digest, false);
     return { artifact, provenance: compiled.provenance, coverage: compiled.coverage };
@@ -466,7 +553,29 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     if (requireStoryboard && !this.storyboard) throw new Error("HEADLESS_STORYBOARD_UNAVAILABLE: storyboard renderer is not configured");
     const prepared = await this.prepareRoughCut(request);
     const timestamp = this.clock();
-    const { preview, fcpxml } = await this.previewPreparedRoughCut(request, prepared, timestamp);
+    let { preview, fcpxml } = await this.previewPreparedRoughCut(request, prepared, timestamp);
+    let titleFont: HeadlessRoughCutPreview["titleFont"];
+    if (preview.after.timeline.sequence.titles?.length) {
+      if (!this.renderer) throw new Error("HEADLESS_ROUGH_CUT_RENDER_UNAVAILABLE: renderer is required to check title support");
+      const renderRequest = createFramekitRenderRequest({
+        timeline: preview.after.timeline,
+        target: { projectId: request.projectId, sequenceId: request.sequenceId },
+        revision: preview.after.timeline.revision,
+        parameters: request.render,
+      });
+      const capabilities = this.renderer.capabilities(renderRequest);
+      if (capabilities.features.titles !== "supported" || !/^[a-f0-9]{64}$/.test(capabilities.titleFontDigest ?? "") || !capabilities.titleFontFace
+        || ![capabilities.titleFontFace.family, capabilities.titleFontFace.style, capabilities.titleFontFace.postscriptName].every((value) => typeof value === "string" && value.trim())) {
+        throw new Error("RENDER_CAPABILITY_UNAVAILABLE: required title font or semantics are unavailable (titles)");
+      }
+      if (!this.renderer.validateTitleOutput) throw new Error("HEADLESS_ROUGH_CUT_RENDER_UNAVAILABLE: renderer cannot validate title output safety");
+      await this.renderer.validateTitleOutput(renderRequest, [request.fcpxml.path]);
+      titleFont = { renderer: capabilities.renderer, digest: capabilities.titleFontDigest!, face: capabilities.titleFontFace };
+      fcpxml = compileTimelineIrToFcpxml(preview.after.timeline, {
+        target: request.fcpxml.target,
+        basicTitleFont: { ...titleFont.face, digest: titleFont.digest },
+      });
+    }
     const approval = createRoughCutApproval({
       inputDigest: prepared.inputDigest,
       projectId: request.projectId,
@@ -475,12 +584,17 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       canonicalRevision: preview.after.timeline.revision,
       artifactPath: resolve(request.fcpxml.path),
       artifactDigest: fcpxml.digest,
+      ...(titleFont ? { titleFont } : {}),
       outputIntent: prepared.outputIntent,
     });
     let storyboard: StoryboardImage | undefined;
     let storyboardUnavailable: string | undefined;
     try {
-      storyboard = await this.storyboard?.render(preview.after.timeline, request.render, signal);
+      const sampled = await this.storyboard?.render(preview.after.timeline, request.render, signal);
+      if (sampled && titleFont && sampled.titleFontDigest !== titleFont.digest) {
+        throw new Error("HEADLESS_STORYBOARD_UNSUPPORTED: storyboard font does not match the approved title font");
+      }
+      storyboard = sampled;
     } catch (error) {
       signal?.throwIfAborted();
       if (!(error instanceof Error) || !/^HEADLESS_STORYBOARD_(UNSUPPORTED|LIMIT):/.test(error.message)) throw error;
@@ -498,6 +612,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       plan: structuredClone(request.plan),
       planDigest: approval.planDigest,
       provenance: prepared.provenance,
+      ...(titleFont ? { titleFont } : {}),
       ...(storyboard ? { storyboard: { ...storyboard, planDigest: approval.planDigest, revision: preview.after.timeline.revision } } : {}),
       ...(storyboardUnavailable ? { storyboardUnavailable } : {}),
       outputIntent: prepared.outputIntent,
@@ -534,12 +649,19 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     const transaction = new ProjectTransactionService(this.snapshotStore(request.projectId, prepared.project), {
       clock: () => approval.canonicalRevision.timestamp,
     });
-    const { preview, fcpxml } = await this.previewPreparedRoughCut(
+    let { preview, fcpxml } = await this.previewPreparedRoughCut(
       request,
       prepared,
       approval.canonicalRevision.timestamp,
       transaction,
     );
+    if (preview.after.timeline.sequence.titles?.length) {
+      if (!approval.titleFont?.face) throw new Error("HEADLESS_ROUGH_CUT_PLAN_MISMATCH: title font is not bound to the preview");
+      fcpxml = compileTimelineIrToFcpxml(preview.after.timeline, {
+        target: request.fcpxml.target,
+        basicTitleFont: { ...approval.titleFont.face, digest: approval.titleFont.digest },
+      });
+    }
     if (!sameRevision(preview.after.timeline.revision, approval.canonicalRevision)
       || fcpxml.digest !== approval.artifactDigest) {
       throw new Error("HEADLESS_ROUGH_CUT_PLAN_MISMATCH: replayed preview differs from the approved revision or FCPXML digest");
@@ -554,7 +676,16 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     if (!this.renderer || !this.verifier) {
       throw new Error("HEADLESS_ROUGH_CUT_RENDER_UNAVAILABLE: renderer and verifier are not configured");
     }
-    const outcome = await renderAndVerifyFramekitProject(renderRequest, this.renderer, this.verifier);
+    const capabilities = this.renderer.capabilities(renderRequest);
+    if (preview.after.timeline.sequence.titles?.length) {
+      const currentFont = { renderer: capabilities.renderer, digest: capabilities.titleFontDigest, face: capabilities.titleFontFace };
+      if (capabilities.features.titles !== "supported" || !approval.titleFont || stableJson(currentFont) !== stableJson(approval.titleFont)) {
+        throw new Error("HEADLESS_ROUGH_CUT_PLAN_MISMATCH: title font or renderer changed after preview");
+      }
+      if (!this.renderer.validateTitleOutput) throw new Error("HEADLESS_ROUGH_CUT_RENDER_UNAVAILABLE: renderer cannot validate title output safety");
+      await this.renderer.validateTitleOutput(renderRequest, [request.fcpxml.path]);
+    }
+    const outcome = await renderAndVerifyFramekitProject(renderRequest, this.renderer, this.verifier, { capabilities });
     const renderId = `render-${randomUUID()}`;
     const renderRecord: HeadlessRenderRecord = {
       renderId,
@@ -569,7 +700,16 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     if (outcome.status !== "passed") {
       throw new Error(`HEADLESS_ROUGH_CUT_RENDER_FAILED: render verification status was ${outcome.status}; inspect ${renderId}`);
     }
+    const renderedArtifact = outcome.verification?.artifact;
+    if (!outcome.plan?.renderer?.id?.trim() || !outcome.plan.renderer.version?.trim()) {
+      throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: renderer identity is unavailable");
+    }
+    if (!renderedArtifact || resolve(renderedArtifact.path) !== resolve(request.render.outputPath)
+      || !/^[a-f0-9]{64}$/.test(renderedArtifact.fileDigest) || !Number.isSafeInteger(renderedArtifact.sizeBytes) || renderedArtifact.sizeBytes <= 0) {
+      throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: verified render artifact identity is unavailable or inconsistent");
+    }
     await this.assertOutputSeparation(prepared.project, [request.render.outputPath, request.fcpxml.path]);
+    if (preview.after.timeline.sequence.titles?.length) await this.renderer.validateTitleOutput!(renderRequest, [request.fcpxml.path]);
     const fcpxmlArtifact = await writeVerifiedFcpxml(
       request.fcpxml.path,
       fcpxml.xml,
@@ -593,6 +733,8 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
         planDigest: approval.planDigest,
         inputDigest: prepared.inputDigest,
         renderId,
+        renderer: structuredClone(outcome.plan.renderer),
+        renderArtifact: { path: resolve(renderedArtifact.path), digest: renderedArtifact.fileDigest, bytes: renderedArtifact.sizeBytes },
         artifactPath: resolve(fcpxmlArtifact.path),
         artifactDigest: fcpxmlArtifact.digest,
         artifactBytes: fcpxmlArtifact.bytes,
@@ -609,6 +751,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       plan: structuredClone(request.plan),
       planDigest: approval.planDigest,
       provenance: prepared.provenance,
+      ...(approval.titleFont ? { titleFont: approval.titleFont } : {}),
       outputIntent: prepared.outputIntent,
       fcpxml: selectFcpxmlMetadata(fcpxml),
       executionId,
@@ -675,9 +818,35 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       || !sameRevision(project.timeline.revision, record.canonicalRevision)) {
       throw new Error("HEADLESS_ROUGH_CUT_STALE_REVISION: canonical project changed after the approved rough cut");
     }
-    const approvedSnapshot = await new FcpxmlDocumentAdapter(record.artifactPath, undefined, {
+    await this.verifyConnectedAudioMetadata(record.projectId, project.timeline);
+    const readApprovedArtifact = async (): Promise<string> => {
+      try {
+        const file = await open(record.artifactPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+        try {
+          const before = await file.stat();
+          if (!before.isFile() || before.size !== record.artifactBytes) throw new Error("invalid FCPXML file");
+          const bytes = await file.readFile();
+          const after = await file.stat();
+          const current = await lstat(record.artifactPath);
+          if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size
+            || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs
+            || !current.isFile() || current.dev !== after.dev || current.ino !== after.ino
+            || current.size !== after.size || current.mtimeMs !== after.mtimeMs || current.ctimeMs !== after.ctimeMs
+            || bytes.length !== record.artifactBytes || createHash("sha256").update(bytes).digest("hex") !== record.artifactDigest) {
+            throw new Error("FCPXML differs from the approved artifact");
+          }
+          return bytes.toString("utf8");
+        } finally {
+          await file.close();
+        }
+      } catch (cause) {
+        throw new Error("HEADLESS_ROUGH_CUT_ARTIFACT_CHANGED: approved FCPXML is missing or has changed", { cause });
+      }
+    };
+    const artifact = await readApprovedArtifact();
+    const approvedSnapshot = FcpxmlDocumentAdapter.readProjectFromContent(record.artifactPath, artifact, {
       allowMissingImmutableIdsForReadback: true,
-    }).readProject();
+    });
     const referencedMediaIds = new Set([
       ...approvedSnapshot.timeline.clips.map(({ mediaId }) => mediaId),
       ...approvedSnapshot.timeline.storyElements.map(({ mediaId }) => mediaId),
@@ -700,10 +869,69 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       || !sameRevision(render.requestedRevision, record.canonicalRevision)) {
       throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render evidence does not match the approved revision");
     }
-    const artifact = await readFile(record.artifactPath, "utf8");
-    if (hash(artifact) !== record.artifactDigest || Buffer.byteLength(artifact) !== record.artifactBytes) {
-      throw new Error("HEADLESS_ROUGH_CUT_ARTIFACT_CHANGED: approved FCPXML no longer matches its recorded digest");
+    const outcome = render.outcome as FramekitRenderAndVerifyResult | undefined;
+    const plan = outcome?.plan;
+    const verifiedArtifact = outcome?.verification?.artifact;
+    if (outcome?.status !== "passed" || outcome.verification?.status !== "passed" || !verifiedArtifact
+      || !Array.isArray(outcome.verification.checks) || !outcome.verification.checks.length || outcome.verification.checks.some((check) => check?.passed !== true)
+      || verifiedArtifact.fileDigest !== record.renderArtifact?.digest || verifiedArtifact.sizeBytes !== record.renderArtifact?.bytes
+      || typeof verifiedArtifact.path !== "string" || resolve(verifiedArtifact.path) !== resolve(record.outputIntent.render.outputPath)
+      || !plan || typeof plan !== "object" || outcome.render?.status !== "rendered"
+      || outcome.render.contractVersion !== plan.contractVersion || outcome.render.verificationRequired !== true
+      || typeof record.renderer?.id !== "string" || !record.renderer.id.trim()
+      || typeof record.renderer?.version !== "string" || !record.renderer.version.trim()
+      || stableJson(record.renderer) !== stableJson(plan.renderer)
+      || stableJson(plan.capabilities?.renderer) !== stableJson(plan.renderer)
+      || stableJson(outcome.render?.renderer) !== stableJson(plan.renderer)
+      || outcome.render?.planDigest !== plan.planDigest
+      || stableJson(plan.target) !== stableJson({ projectId: record.projectId, sequenceId: record.sequenceId })
+      || stableJson(outcome.render?.target) !== stableJson(plan.target)
+      || stableJson(plan.projectRevision) !== stableJson(record.canonicalRevision)
+      || stableJson(outcome.render?.projectRevision) !== stableJson(record.canonicalRevision)
+      || stableJson(plan.parameters) !== stableJson(record.outputIntent.render)
+      || stableJson(outcome.render?.output) !== stableJson({ path: record.outputIntent.render.outputPath, format: record.outputIntent.render.format })
+      || !plan.timeline || typeof plan.timeline !== "object" || Array.isArray(plan.timeline)
+      || stableJson(plan.timeline.revision) !== stableJson(record.canonicalRevision)
+      || timelineIrDigest(plan.timeline) !== timelineIrDigest(project.timeline)) {
+      throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render font, plan or verification differs from the approved preview");
     }
+    const { planDigest, ...planBase } = plan;
+    if (typeof planDigest !== "string" || hash(stableJson(planBase)) !== planDigest) {
+      throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render font or plan is invalid");
+    }
+    if (project.timeline.sequence.titles?.length && (!approval.titleFont
+      || plan.capabilities?.titleFontDigest !== approval.titleFont.digest
+      || stableJson(plan.capabilities?.titleFontFace) !== stableJson(approval.titleFont.face)
+      || stableJson(plan.renderer) !== stableJson(approval.titleFont.renderer))) {
+      throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render font differs from the approved preview");
+    }
+    const boundRender = record.renderArtifact;
+    if (!boundRender || typeof boundRender.path !== "string" || resolve(boundRender.path) !== resolve(record.outputIntent.render.outputPath)
+      || !/^[a-f0-9]{64}$/.test(boundRender.digest) || !Number.isSafeInteger(boundRender.bytes) || boundRender.bytes <= 0) {
+      throw new Error("HEADLESS_ROUGH_CUT_RENDER_EVIDENCE_MISMATCH: render artifact identity is missing or invalid");
+    }
+    try {
+      const file = await open(boundRender.path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      try {
+        const before = await file.stat();
+        if (!before.isFile()) throw new Error("render artifact is not a regular file");
+        const digest = createHash("sha256");
+        for await (const chunk of file.createReadStream({ autoClose: false })) digest.update(chunk as Buffer);
+        const after = await file.stat();
+        const current = await lstat(boundRender.path);
+        if (!before.isFile() || before.size !== boundRender.bytes || before.dev !== after.dev || before.ino !== after.ino
+          || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs
+          || !current.isFile() || current.dev !== after.dev || current.ino !== after.ino || current.size !== after.size
+          || current.mtimeMs !== after.mtimeMs || current.ctimeMs !== after.ctimeMs || digest.digest("hex") !== boundRender.digest) {
+          throw new Error("render bytes differ from the verified artifact");
+        }
+      } finally {
+        await file.close();
+      }
+    } catch (cause) {
+      throw new Error("HEADLESS_ROUGH_CUT_RENDER_CHANGED: verified render is missing or has changed", { cause });
+    }
+    await readApprovedArtifact();
     if (!record.fcpxml.target.libraryUid?.trim()
       || !record.fcpxml.destination.projectUid?.trim()
       || !record.fcpxml.destination.sequenceUid?.trim()) {
@@ -719,6 +947,9 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       canonicalRevision: structuredClone(record.canonicalRevision),
       planDigest: record.planDigest,
       renderId: record.renderId,
+      renderer: structuredClone(record.renderer),
+      renderArtifact: structuredClone(boundRender),
+      ...(project.timeline.sequence.titles?.length && approval.titleFont ? { titleFont: structuredClone(approval.titleFont) } : {}),
       artifactPath: record.artifactPath,
       artifactDigest: record.artifactDigest,
       sourceAudioPolicy: record.outputIntent.sourceAudioPolicy,
@@ -760,6 +991,10 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       ...(expectedRevision ? { revision: expectedRevision } : {}),
       parameters,
     });
+    if ((project.timeline.sequence.titles ?? []).some((title) => !title.font)) {
+      throw new Error("HEADLESS_TITLE_FONT_UNBOUND: every title must bind an approved font before rendering");
+    }
+    await this.verifyConnectedAudioMetadata(projectId, project.timeline);
     const outcome = await renderAndVerifyFramekitProject(request, this.renderer, this.verifier);
     const renderId = `render-${randomUUID()}`;
     const record: HeadlessRenderRecord = {
@@ -889,9 +1124,11 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     const planOperations: TimelineIrEditOperation[] = [];
     for (const shot of request.plan.shots) {
       const shotWithEvidence = shot as RoughCutShotWithEvidence;
-      const occurrenceId = `rough-cut-${shot.order}`;
-      if (existingOccurrenceIds.has(occurrenceId)) {
-        throw new Error(`HEADLESS_ROUGH_CUT_OCCURRENCE_COLLISION: ${occurrenceId} already exists`);
+      const baseOccurrenceId = `rough-cut-${shot.order}`;
+      let occurrenceId = baseOccurrenceId;
+      let suffix = 2;
+      while (existingOccurrenceIds.has(occurrenceId)) {
+        occurrenceId = `${baseOccurrenceId}-${suffix++}`;
       }
       existingOccurrenceIds.add(occurrenceId);
       const resource = resourceByMediaId.get(shot.sourceIdentity.mediaId);
@@ -930,6 +1167,18 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
         ...(shotWithEvidence.evidence ? { evidence: structuredClone(shotWithEvidence.evidence) } : {}),
       });
     }
+    // An existing bound title requires newly added titles to carry the same
+    // selected font before the first FCPXML compilation and transaction replay.
+    const existingTitles = project.timeline.sequence.titles ?? [];
+    if (existingTitles.some((title) => title.font) && operations.some((operation) => operation.type === "add-title" && !operation.title.font)) {
+      const selected = this.selectTitleFont([
+        ...existingTitles.map((title) => title.text),
+        ...operations.flatMap((operation) => operation.type === "add-title" ? [operation.title.text] : []),
+      ]);
+      for (const operation of operations) {
+        if (operation.type === "add-title" && !operation.title.font) operation.title.font = structuredClone(selected);
+      }
+    }
     const editOperations = [...planOperations, ...operations];
     const command: ProjectEditCommand = {
       schemaVersion: 1,
@@ -947,6 +1196,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     transaction = new ProjectTransactionService(this.snapshotStore(request.projectId, prepared.project), { clock: () => timestamp }),
   ): Promise<{ preview: ProjectEditPreview; fcpxml: TimelineIrToFcpxmlResult }> {
     const rawPreview = await transaction.preview(prepared.command);
+    await this.verifyConnectedAudioMetadata(request.projectId, rawPreview.after.timeline);
     const canonicalRevision: ContextRevision = {
       id: `ir:${timelineIrDigest(rawPreview.after.timeline)}`,
       sequence: rawPreview.before.timeline.revision.sequence + 1,
@@ -958,8 +1208,25 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       ...rawPreview,
       after: { ...rawPreview.after, timeline: canonicalTimeline },
     };
+    await this.verifyDissolveMetadata(canonicalTimeline);
     const fcpxml = compileTimelineIrToFcpxml(canonicalTimeline, { target: request.fcpxml.target });
     return { preview, fcpxml };
+  }
+
+  private async verifyConnectedAudioMetadata(projectId: string, timeline: TimelineIr, previousTimeline?: TimelineIr): Promise<void> {
+    const resources = verifyConnectedAudioOccurrences(timeline, previousTimeline);
+    if (!resources.length) return;
+    if (!this.mediaProbe) throw new Error("HEADLESS_MEDIA_PROBE_UNAVAILABLE: audio roles require a source metadata probe");
+    await new LocalMediaRegistrar(this.store(projectId), this.mediaProbe).verifyMetadata(resources);
+  }
+
+  private async verifyDissolveMetadata(timeline: TimelineIr): Promise<void> {
+    if (!timeline.sequence.transitions?.length) return;
+    if (!this.mediaProbe) throw new Error("HEADLESS_MEDIA_PROBE_UNAVAILABLE: dissolve handoff requires a source metadata probe");
+    const ids = new Set(timeline.sequence.occurrences.map((occurrence) => occurrence.mediaId).filter((id): id is string => id !== undefined));
+    const resources = timeline.resources.filter((resource) => ids.has(resource.id));
+    if (resources.length !== ids.size) throw new Error("MEDIA_METADATA_CHANGED: dissolve source metadata is unavailable");
+    await new LocalMediaRegistrar(this.store(timeline.project.id), this.mediaProbe).verifyMetadata(resources);
   }
 }
 
@@ -1269,16 +1536,21 @@ async function assertOutputSeparation(projects: FramekitProjectDocument[], state
 }
 
 async function writeVerifiedFcpxml(path: string, xml: string, digest: string, overwrite: boolean): Promise<{ path: string; digest: string; bytes: number; verified: true }> {
-  await mkdir(dirname(path), { recursive: true });
   const temporary = `${path}.${randomUUID()}.tmp`;
-  await writeFile(temporary, xml, { encoding: "utf8", flag: "wx" });
+  let persisted: string;
   try {
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(temporary, xml, { encoding: "utf8", flag: "wx" });
     if (overwrite) await rename(temporary, path);
     else await link(temporary, path);
+    persisted = await readFile(path, "utf8");
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EEXIST") throw new Error(`FCPXML_OUTPUT_EXISTS: destination already exists: ${path}; choose a new path or explicitly allow overwrite`, { cause: error });
+    throw new Error(`FCPXML_OUTPUT_FAILED: could not write or verify ${path}; check the destination and permissions`, { cause: error });
   } finally {
-    if (!overwrite) await unlink(temporary).catch(() => {});
+    await unlink(temporary).catch(() => {});
   }
-  const persisted = await readFile(path, "utf8");
   const persistedDigest = createHash("sha256").update(persisted).digest("hex");
   if (persistedDigest !== digest) throw new Error("HEADLESS_ROUGH_CUT_FCPXML_VERIFY_FAILED: persisted XML digest differs from the compiled artifact");
   return { path, digest, bytes: Buffer.byteLength(persisted), verified: true };

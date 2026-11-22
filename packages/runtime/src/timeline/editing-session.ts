@@ -49,6 +49,7 @@ export interface TimelineIrMediaStream {
   width?: number;
   height?: number;
   frameRate?: RationalTime;
+  color?: { primaries?: string; transfer?: string; matrix?: string; range?: string };
   sourceRange?: { start: RationalTime; duration: RationalTime };
   sampleRate?: number;
   channels?: number;
@@ -110,6 +111,14 @@ export interface TimelineIrTitleStyle {
   alignment?: "left" | "center" | "right";
 }
 
+/** Identity of the exact font asset selected for a basic editable title. */
+export interface TimelineIrTitleFont {
+  family: string;
+  style: string;
+  postscriptName: string;
+  digest: string;
+}
+
 export interface TimelineIrTitle {
   id: string;
   text: string;
@@ -117,6 +126,7 @@ export interface TimelineIrTitle {
   durationTime: RationalTime;
   /** Connected/overlay lane; zero is reserved for the primary storyline. */
   lane: number;
+  font?: TimelineIrTitleFont;
   style?: TimelineIrTitleStyle;
   /** Normalized output coordinates in the centered canvas space: x and y are in [-1, 1], +x is right, and +y is up. */
   position?: { x: number; y: number };
@@ -447,7 +457,41 @@ export function createTimelineIrFromProjectSnapshot(
     ...(clip.attachedTo ? { attachedTo: clip.attachedTo } : {}),
     ...(binding ? { binding: binding("occurrence", clip.id) } : {}),
   } satisfies TimelineIrOccurrence));
-  const storyElements = snapshot.timeline.storyElements.map((element) => storyElementToIr(element, binding));
+  const canonicalTransitions: TimelineIrTransition[] = [];
+  const usedIncoming = new Set<string>();
+  const adjustedBefore = new Set<string>();
+  for (const element of snapshot.timeline.storyElements) {
+    if (!element.transitionKind) continue;
+    const before = occurrences.find((item) => item.id === element.beforeClipId);
+    const after = occurrences.find((item) => item.id === element.afterClipId);
+    const start = requiredRational(element.startTime, `transition ${element.id} startTime`);
+    const duration = requiredRational(element.durationTime, `transition ${element.id} durationTime`);
+    const frame = requiredRational(snapshot.timeline.frameDuration, "timeline frameDuration");
+    const frameNumerator = BigInt(duration.value) * BigInt(frame.timescale);
+    const frameDenominator = BigInt(duration.timescale) * BigInt(frame.value);
+    if (frameDenominator <= 0n || frameNumerator <= 0n || frameNumerator % frameDenominator !== 0n) {
+      throw new Error(`TIMELINE_IR_INVALID: transition ${element.id} duration is not frame aligned`);
+    }
+    const halfDuration = { value: ((frameNumerator / frameDenominator / 2n) * BigInt(frame.value)).toString(), timescale: frame.timescale };
+    const midpoint = addRationalTimes(start, subtractRationalTimes(duration, halfDuration, "TIMELINE_IR_INVALID"));
+    if (element.kind !== "transition" || element.transitionKind !== "cross-dissolve" || !before || !after || before.id === after.id || usedIncoming.has(after.id) || before.track !== 0 || after.track !== 0 || before.role !== undefined && before.role !== "video" || after.role !== undefined && after.role !== "video" || !after.sourceStartTime || compareRational(after.sourceStartTime, { value: "0", timescale: "1" }) < 0 || compareRational(duration, { value: "0", timescale: "1" }) <= 0 || compareRational(after.startTime, midpoint) !== 0 || compareRational(before.startTime, start) > 0 || compareRational(addRationalTimes(before.startTime, before.durationTime), midpoint) !== 0 || compareRational(after.durationTime, halfDuration) <= 0 || occurrences.some((item) => item.id !== before.id && item.id !== after.id && item.track === 0 && compareRational(item.startTime, before.startTime) > 0 && compareRational(item.startTime, start) <= 0)) {
+      throw new Error(`TIMELINE_IR_INVALID: transition ${element.id} metadata does not match the clip timing`);
+    }
+    usedIncoming.add(after.id);
+    adjustedBefore.add(before.id);
+    before.durationTime = addRationalTimes(before.durationTime, halfDuration);
+    after.startTime = addRationalTimes(after.startTime, halfDuration);
+    after.sourceStartTime = addRationalTimes(after.sourceStartTime, halfDuration);
+    after.durationTime = subtractRationalTimes(after.durationTime, halfDuration, "TIMELINE_IR_INVALID");
+    canonicalTransitions.push({ id: element.id, kind: "cross-dissolve", beforeOccurrenceId: before.id, afterOccurrenceId: after.id, durationTime: duration });
+  }
+  const storyElements = snapshot.timeline.storyElements.filter((element) => !element.transitionKind).map((element) => {
+    const story = storyElementToIr(element, binding);
+    const occurrence = (usedIncoming.has(element.id) || adjustedBefore.has(element.id)) && element.kind === "asset-clip"
+      ? occurrences.find((item) => item.id === element.id)
+      : undefined;
+    return occurrence ? { ...story, startTime: occurrence.startTime, durationTime: occurrence.durationTime } : story;
+  });
   const markers = snapshot.timeline.markers.map((marker) => ({
     id: marker.id,
     name: marker.name,
@@ -476,6 +520,7 @@ export function createTimelineIrFromProjectSnapshot(
       frameDuration: requiredRational(snapshot.timeline.frameDuration, "timeline frameDuration"),
       occurrences,
       storyElements,
+      ...(canonicalTransitions.length ? { transitions: canonicalTransitions } : {}),
       markers,
       captions,
       ...(binding ? { binding: binding("sequence", snapshot.timeline.id) } : {}),
@@ -564,6 +609,7 @@ export function validateTimelineIr(timeline: TimelineIr): void {
     if (occurrence.nativeAudioRole !== undefined && (
       typeof occurrence.nativeAudioRole !== "string"
       || !/^dialogue(?:\.[^.]+)?$/.test(occurrence.nativeAudioRole)
+      || /[\t\r\n]/.test(occurrence.nativeAudioRole)
       || occurrence.role === "music"
       || occurrence.role === "title"
     )) {
@@ -646,6 +692,14 @@ function validateMediaMetadata(metadata: TimelineIrMediaMetadata, field: string)
       validateRational(stream.sourceRange.duration, `${streamField}.sourceRange.duration`, true);
     }
     if (stream.codec !== undefined) requireText(stream.codec, `${streamField}.codec`);
+    if (stream.color !== undefined) {
+      if (stream.kind !== "video" || !stream.color || typeof stream.color !== "object" || Array.isArray(stream.color)) {
+        throw new Error(`TIMELINE_IR_INVALID: ${streamField}.color must be a video color object`);
+      }
+      for (const key of ["primaries", "transfer", "matrix", "range"] as const) {
+        if (stream.color[key] !== undefined) requireText(stream.color[key], `${streamField}.color.${key}`);
+      }
+    }
     if (stream.kind === "video") {
       if ((stream.width === undefined) !== (stream.height === undefined)) {
         throw new Error(`TIMELINE_IR_INVALID: ${streamField}.width and height must be provided together`);
@@ -843,6 +897,15 @@ function validateTitle(title: TimelineIrTitle): void {
   validateRational(title.startTime, `title ${title.id}.startTime`, false);
   validateRational(title.durationTime, `title ${title.id}.durationTime`, true);
   if (!Number.isInteger(title.lane) || title.lane < 1) throw new Error(`TIMELINE_IR_INVALID: title ${title.id}.lane must be a positive integer`);
+  if (title.font !== undefined) {
+    const font = title.font;
+    if (!font || typeof font !== "object" || Array.isArray(font)
+      || Object.keys(font).some((key) => !["family", "style", "postscriptName", "digest"].includes(key))
+      || ![font.family, font.style, font.postscriptName].every((value) => typeof value === "string" && value.trim())
+      || typeof font.digest !== "string" || !/^[a-f0-9]{64}$/.test(font.digest)) {
+      throw new Error(`TIMELINE_IR_INVALID: title ${title.id}.font requires an identifiable face and SHA-256`);
+    }
+  }
   if (title.position && (![title.position.x, title.position.y].every(Number.isFinite)
     || ![title.position.x, title.position.y].every((value) => value >= -1 && value <= 1))) {
     throw new Error(`TIMELINE_IR_INVALID: title ${title.id}.position must use normalized coordinates in [-1, 1]`);

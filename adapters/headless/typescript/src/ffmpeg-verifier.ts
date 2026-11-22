@@ -63,9 +63,9 @@ export class FfmpegRenderVerifier implements FramekitRenderArtifactVerifier {
       probe = await this.probe(outputPath);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT" || (error instanceof Error && /spawn ffprobe ENOENT/.test(error.message))) {
-        return unavailable("ffprobe is not configured", "RENDER_VERIFIER_UNAVAILABLE");
+        return unavailable("DEPENDENCY_MISSING: ffprobe is required; install FFmpeg and ensure ffprobe is on PATH", "DEPENDENCY_MISSING");
       }
-      return failed(checks, error instanceof Error ? error.message : String(error), "RENDER_OUTPUT_UNPLAYABLE");
+      return failed(checks, "could not inspect rendered output; check the media and FFmpeg installation", "RENDER_OUTPUT_UNPLAYABLE");
     }
     if (probe.streams.some((stream) => stream.codec_type === "audio")) {
       try {
@@ -76,7 +76,10 @@ export class FfmpegRenderVerifier implements FramekitRenderArtifactVerifier {
           ? `decoded audio true peak is ${peak} dBFS (ceiling: below 0 dBFS)`
           : `decoded audio true peak is ${peak} dBFS; reduce mix gain below 0 dBFS and render again`, expected: "below 0 dBFS", observed: peak });
       } catch (error) {
-        checks.push({ name: "audio-true-peak", passed: false, detail: `could not measure decoded audio true peak: ${error instanceof Error ? error.message : String(error)}` });
+        const detail = (error as NodeJS.ErrnoException).code === "ENOENT"
+          ? "DEPENDENCY_MISSING: ffmpeg is required; install FFmpeg and ensure ffmpeg is on PATH"
+          : "measurement failed; check the rendered audio and FFmpeg installation";
+        checks.push({ name: "audio-true-peak", passed: false, detail: `could not measure decoded audio true peak: ${detail}` });
       }
     }
     let finalDetails;

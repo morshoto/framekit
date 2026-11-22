@@ -92,6 +92,17 @@ ffprobe to register local sources. Start the MCP server in headless mode, then:
    `headless.fcpxml.export`; provide a new output path and an explicit Final Cut
    target with `materialization: "versioned"`.
 
+For later Timeline IR revisions that require explicit approval, call
+`headless.edit.approved-preview` with the project, sequence, current revision
+and operations. Review the result, then call `headless.edit.approved-execute`
+with the same project and sequence, `approved: true`, and its `previewToken`.
+Execution uses the stored previewed operations and rejects changed base or result
+contents, even if a revision ID is reused. The token is single-use, expires
+after ten minutes, and does not survive a server restart. Preview again
+if it expires, the server restarts, or execution fails. The existing
+`headless.edit.execute` remains available for direct revision-bound edits and
+does not require an approved preview.
+
 For a semantic rough-cut plan, `headless.rough-cut.preview` also returns an MCP
 PNG image and storyboard metadata alongside the existing JSON preview. The
 sheet samples each primary shot start and each title midpoint in chronological
@@ -99,11 +110,62 @@ order; metadata identifies each sample's timeline and source time, media
 digest, proposed revision, and plan digest. Inspect the image, revise the plan
 or operations if needed, and preview again before executing with the new
 digest and explicit approval. Preview does not change the project or source
-media. The sheet is limited to 12 samples and a maximum of 640 × 360 pixels per
+media. A later rough cut appends its shots to the existing primary storyline;
+it does not replace earlier edits. Use the current revision and review the new
+preview before executing. The sheet is limited to 12 samples and a maximum of 640 × 360 pixels per
 sample. It does not show motion or audio, and frame-rate conversion can select
 a nearby source frame. Unsupported visual compositions or sample limits return
 JSON and a plan digest without an image; `storyboardUnavailable` explains why.
 FFmpeg and its drawtext support are required for storyboard rendering.
+
+Publishing an approved rough cut requires its verified video and FCPXML to
+remain as regular files at their approved paths with unchanged contents;
+symbolic links are not accepted. The publish preview's
+`sourceProof.renderArtifact` reports the checked video path, SHA-256 digest,
+and byte count; `sourceProof.renderer` reports the renderer identity recorded at
+execution. Older rough-cut execution records without a verified video or
+renderer identity cannot be published. Restore the project to its pre-execution state,
+or recreate the intended edit in a fresh project, then use new output paths and
+run a new approved preview and execution to create current evidence.
+Publication also rejects a saved render plan or verification record that does
+not match the approved timeline, revision, target and output, including for
+edits without titles.
+
+Headless title rendering checks glyph coverage in the selected font and fails
+when a glyph is missing or a variation or joined sequence cannot be verified.
+Set `FRAMEKIT_RENDER_FONT` to a suitable font file when the default lacks the
+needed characters. An unavailable configured font fails rendering instead of
+falling back to another font. Rough-cut previews with titles require a renderer
+that can inspect the selected font and cover the requested characters. The preview
+binds the font digest, family, face and renderer identity; execution rejects a changed font and
+renders from a checked copy. The video and FCPXML output paths must not replace that font, including
+through an alias. Publish verification checks the saved render's font binding
+against the approval and reports the verified headless font digest and renderer.
+The rough-cut FCPXML requests the same family and face and records the font digest;
+it reports native font availability as unverified until checked on the Final Cut target.
+Title-bearing approvals created before font and face binding
+must be previewed again. A storyboard using a different or unverified font is
+reported unavailable. Glyph coverage alone does not establish visual correctness
+or shaping. Unstyled, unpositioned titles use a canvas-scaled size (44 pixels
+at 720p) with their baseline at the frame center; explicitly styled or
+positioned titles retain their requested settings.
+
+For a headless cross-dissolve, the incoming source must have a pre-roll handle
+at least as long as the transition. The blend uses that handle before the cut,
+while frames and audio after the cut retain the approved source timing. The
+renderer rejects insufficient handles before writing the output.
+For explicitly tagged limited-range BT.709 video, the headless dissolve uses
+linear-light blending with frame-center sampling. Before a dissolve handoff,
+Framekit re-probes referenced media and rejects metadata that differs from the
+stored registration. FCPXML handoff supports one dissolve between two primary
+clips with explicitly tagged limited-range BT.709 video and either matched
+mono 48 kHz audio or no clip audio; independent audio must also be mono at
+48 kHz. Other combinations fail before handoff.
+
+When all used audio streams are mono, the headless mono output applies a
+−3.01 dB adjustment after mixing. This matches the standard mono downmix of
+the tested 48 kHz Final Cut stereo reference; other input channel layouts
+retain their existing headless behavior and are not covered by that result.
 
 Headless render verification measures the first output audio stream's decoded
 true peak using FFmpeg. The reported peak must be below 0 dBFS; a value rounded
@@ -133,9 +195,23 @@ Example `edit` for step 3, with two one-second clips and a two-second music bed:
 
 Version 1 requires at least one clip; `title` and `music` are independently
 optional. When present, each section must satisfy its normal validation rules.
+An individual video clip may specify `nativeAudioRole` as `dialogue` or a
+`dialogue` subrole such as `dialogue.alternate` when its registered source has
+exactly one audio stream. Framekit re-probes the source before accepting the role
+and before rendering or export, rejecting changed or unverifiable metadata. The
+role is included in the approved preview and exported FCPXML; omitting it leaves
+the native role unspecified. Tabs, carriage returns and newlines are rejected
+because XML would normalize them.
 
-External edit music `gainDb` must be between -60 and +12 dB inclusive. This
-bound does not guarantee that the combined audio mix avoids clipping.
+New or changed local connected audio in headless edits requires exactly one audio
+stream with verified bounds covering the requested source range. Rough-cut output,
+FCPXML export, headless rendering and publication proof require those bounds for
+all local connected audio. Files with ambiguous streams or unavailable bounds are
+rejected. Framekit re-probes referenced connected audio and rejects metadata that
+differs from the registered source. Older registrations without stream bounds
+need to be registered in a new project. Music `gainDb` must be between -60 and +12 dB
+inclusive. This bound does not guarantee that the combined audio mix avoids
+clipping.
 
 ```json
 {
@@ -173,7 +249,14 @@ ordered primary video sequence, one basic unstyled title contained in a single
 clip, and one audio-only music source with static gain. The edit requires an
 empty timeline; styling, unsupported effects, stale revisions, changed media,
 and invalid or ambiguous sources are rejected. Preview and execute check
-FCPXML support before committing an edit. The resulting file is a candidate
+FCPXML support before committing an edit. For a title, preview selects a font
+covering its text and binds its face and file digest to the edit. If the font
+changes, preview the edit again; later rendering and FCPXML export also reject
+a changed bound font. Standalone rendering and FCPXML export reject titles
+without a bound font; create a new previewed edit to bind one. Rough-cut
+execution already produces its approved video and FCPXML, but its canonical
+titles may need a bound-font edit before a separate render or export. The exported FCPXML requests that face, but its availability
+on the Final Cut target remains unverified. The resulting file is a candidate
 for manual import: artifact verification does not prove Final Cut import,
 playback, editability, or video export.
 
