@@ -77,12 +77,17 @@ test("production MCP preserves approval for an unsampled dissolve", async () => 
     const rejected = await client.callTool({ name: "headless.rough-cut.execute", arguments: { ...changed, approved: true, planDigest: preview.planDigest } });
     assert.equal(rejected.isError, true);
     assert.match(toolErrorText(rejected), /PLAN_MISMATCH/);
-    const executed = payload(await client.callTool({ name: "headless.rough-cut.execute", arguments: { ...request, approved: true, planDigest: preview.planDigest } }));
+    const dropped = await client.callTool({ name: "headless.rough-cut.execute", arguments: { ...renderOnly, approved: true, planDigest: preview.planDigest } });
+    assert.equal(dropped.isError, true);
+    const added = await client.callTool({ name: "headless.rough-cut.execute", arguments: { ...request, approved: true, planDigest: renderOnlyPreview.planDigest } });
+    assert.equal(added.isError, true);
+    assert.match(toolErrorText(added), /PLAN_MISMATCH/);
+    const executed = payload(await client.callTool({ name: "headless.rough-cut.execute", arguments: { ...renderOnly, approved: true, planDigest: renderOnlyPreview.planDigest } }));
     assert.equal(executed.committed, true);
     assert.equal(executed.render.status, "passed");
-    assert.equal(executed.fcpxmlArtifact.verified, true);
-    assert.deepEqual(executed.after.timeline.revision, preview.after.timeline.revision);
-    assert.match(await readFile(request.fcpxml.path, "utf8"), /<transition name="Cross Dissolve"/);
+    assert.equal(executed.fcpxmlArtifact, null);
+    assert.deepEqual(executed.after.timeline.revision, renderOnlyPreview.after.timeline.revision);
+    assert.equal(existsSync(request.fcpxml.path), false);
   } finally {
     await client?.close();
     await transport?.close();
