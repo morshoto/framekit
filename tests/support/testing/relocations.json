@@ -1965,6 +1965,7 @@
       "\"runtime dependency scan includes side-effect imports and value re-exports\""
     ],
     "tests/integration/headless-project-mcp.test.ts": [
+      "\"same-session and fresh-session renders retain all frames after JSON and gain edits\"",
       "\"production MCP preserves approval for an unsampled dissolve\"",
       "\"production rough-cut tools expose digest-bound edit operations\"",
       "\"headless project media can be understood and planned without a Final Cut connection\"",

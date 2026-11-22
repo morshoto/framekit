@@ -2713,6 +2713,51 @@ function rationalSeconds(time: { value: string; timescale: string }): number {
   return Number(time.value) / Number(time.timescale);
 }
 
+test("same-session and fresh-session renders retain all frames after JSON and gain edits", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-session-render-"));
+  const here = dirname(fileURLToPath(import.meta.url));
+  const environment: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1",
+    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0", FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"),
+    FRAMEKIT_STATE_DIR: join(directory, "state"),
+  };
+  let client: Client | undefined;
+  let transport: StdioClientTransport | undefined;
+  try {
+    const video = join(directory, "source.mp4");
+    await generateSegmentedSource(video, [{ color: "red", duration: 4 }], 440);
+    ({ client, transport } = await connectProductionClient(here, environment));
+    const initial = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: emptyTimeline() } }));
+    const projectId = initial.timeline.project.id;
+    const sequenceId = initial.timeline.sequence.id;
+    const source = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: video, expectedRevision: initial.timeline.revision } }));
+    const clips = Array.from({ length: 13 }, (_, index) => ({ id: `clip-${index}`, mediaId: source.resource.id, sourceStartTime: { value: "0", timescale: "1" }, durationTime: { value: index === 12 ? "81" : "78", timescale: "30" } }));
+    const args = { projectId, sequenceId, expectedRevision: source.project.timeline.revision, edit: { schemaVersion: 1, clips } };
+    const preview = payload(await client.callTool({ name: "headless.edit-json.preview", arguments: args }));
+    const executed = payload(await client.callTool({ name: "headless.edit-json.execute", arguments: { ...args, approved: true, planDigest: preview.planDigest } }));
+    const edited = payload(await client.callTool({ name: "headless.edit.execute", arguments: { projectId, sequenceId, expectedRevision: executed.after.timeline.revision, operations: clips.map(({ id }) => ({ type: "set-gain", occurrenceId: id, gainDb: -6 })) } }));
+    const revision = edited.after.timeline.revision;
+    for (const label of ["same", "fresh"]) {
+      if (label === "fresh") {
+        await client.close();
+        await transport!.close();
+        ({ client, transport } = await connectProductionClient(here, environment));
+      }
+      const outputPath = join(directory, `${label}.mp4`);
+      const rendered = payload(await client!.callTool({ name: "headless.render", arguments: { projectId, sequenceId, expectedRevision: revision, parameters: { outputPath, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } } }));
+      assert.equal(rendered.status, "passed", JSON.stringify(rendered.outcome));
+      const probe = JSON.parse((await execFileAsync("ffprobe", ["-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames,avg_frame_rate", "-of", "json", outputPath])).stdout);
+      assert.equal(Number(probe.streams[0].nb_read_frames), 1017, label);
+      assert.equal(probe.streams[0].avg_frame_rate, "30/1", label);
+    }
+  } finally {
+    await client?.close();
+    await transport?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("external JSON binds one font through preview, render and FCPXML", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-json-title-font-"));
   const here = dirname(fileURLToPath(import.meta.url));
