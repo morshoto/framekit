@@ -13,7 +13,7 @@ export function registerValidatedTool<Schema extends ToolSchema>(
   callback: (input: ToolInput<Schema>, context: ServerContext) => Promise<CallToolResult>,
 ): void {
   const schema = config.inputSchema instanceof z.ZodType ? config.inputSchema : z.object(config.inputSchema);
-  const jsonSchema = z.toJSONSchema(schema);
+  const jsonSchema = z.toJSONSchema(schema, { io: "input" });
   const passthrough: jsonSchemaValidator = {
     getValidator: (() => (data: unknown) => ({ valid: true, data, errorMessage: undefined })) as jsonSchemaValidator["getValidator"],
   };
