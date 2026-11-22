@@ -54,8 +54,8 @@ try {
     assert.equal(await matrix.evaluate(el => el.scrollWidth > el.clientWidth), true, 'matrix should scroll on mobile');
     assert.ok(await page.locator('table th').first().evaluate(el => el.getBoundingClientRect().width >= 120), 'matrix columns must remain readable');
     await matrix.focus();
-    await page.keyboard.press('End');
-    assert.ok(await matrix.evaluate(el => el.scrollLeft > 0), 'matrix must support keyboard scrolling');
+    await page.keyboard.press('ArrowRight');
+    await page.waitForFunction(() => document.querySelector('[aria-label="Editing capability comparison"]')?.scrollLeft > 0, null, { timeout: 5000 });
     await page.close();
   }
   {

@@ -6,6 +6,11 @@ This guide distinguishes Framekit-owned projects, FCPXML handoff, and live Final
 
 Each cell describes the mode itself; a handoff does not execute the task in Final Cut. “Unverified” does not mean that a native operation is safe to attempt.
 
+Scroll the comparison horizontally to see all workflows.
+
+<div className="capability-matrix" role="region" aria-label="Editing capability comparison" tabIndex={0} style={{ overflowX: "auto", maxWidth: "100%" }}>
+<div style={{ minWidth: "720px" }}>
+
 | Task | Framekit-owned headless | FCPXML handoff | Live Final Cut |
 | --- | --- | --- | --- |
 | Import and search media | **Limited:** register local sources, then search registered sources. | **Unsupported:** export does not search or import a library. | **Unverified:** inspect the running provider; Browser search may be incomplete. |
@@ -14,6 +19,9 @@ Each cell describes the mode itself; a handoff does not execute the task in Fina
 | Titles, music, transitions | **Limited:** supported shapes and assets only. | **Limited:** compiler rejects unsupported timeline features. | **Unverified:** effect availability and native acceptance vary. |
 | Preview, render, export | **Limited:** preview is non-mutating; rendering requires renderer and verifier. | **Limited:** writes a new interchange file; no import proof. | **Unverified:** native export and readback require separate evidence. |
 | Undo and recovery | **Limited:** exact handle and revision; independent readback required. | **Unsupported:** a file cannot undo a Final Cut action. | **Unverified:** stop on uncertain results; recovery inspection does not release reservations. |
+
+</div>
+</div>
 
 Evidence for the operation contracts is in the [candidate MCP tool definitions](https://github.com/morshoto/framekit/blob/2f6f03b6a0cba5b5cb5d4a3ea0f44c3ffa9cdf6c/apps/mcp-server/src/server.ts), [headless release-gate test](https://github.com/morshoto/framekit/blob/2f6f03b6a0cba5b5cb5d4a3ea0f44c3ffa9cdf6c/tests/release/gate/headless-release-gate.test.ts), [headless workflow tests](https://github.com/morshoto/framekit/blob/2f6f03b6a0cba5b5cb5d4a3ea0f44c3ffa9cdf6c/tests/workflows/rough-cut/headless-project-mcp.test.ts), and [safety reference](/en/docs/revisions-and-safety/). These tests are not a claim of headed native acceptance.
 
