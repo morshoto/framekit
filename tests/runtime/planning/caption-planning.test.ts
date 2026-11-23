@@ -125,3 +125,8 @@ test("frame rounding is exposed alongside original word timing", async () => {
     }
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
+
+test("caption planner is exported to runtime consumers", async () => {
+  const runtime = await import("../../../packages/runtime/src/index.js");
+  assert.equal(typeof (runtime as Record<string, unknown>).planCaptionGroups, "function");
+});
