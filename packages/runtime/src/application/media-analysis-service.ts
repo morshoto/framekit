@@ -325,7 +325,8 @@ export class MediaAnalysisService {
       return unavailableTimelineOccurrence(clip.id, "cached analyzer provenance is incompatible with current source analysis",
         clip.mediaId, sourceRange, sourceIdentity);
     }
-    if (!query.includeSpeechMappings && !sourceSpeechIsReusable(understanding, persisted ? understanding.analysisRevision : media.analysisRevision)) {
+    if ((!query.includeSpeechMappings || !persisted)
+      && !sourceSpeechIsReusable(understanding, persisted ? understanding.analysisRevision : media.analysisRevision)) {
       return unavailableTimelineOccurrence(clip.id, "cached speech provenance is incompatible with current source analysis",
         clip.mediaId, sourceRange, sourceIdentity);
     }
@@ -812,7 +813,8 @@ function understandingFromMediaContext(
     ...(media.visual ? { visual: structuredClone(media.visual) } : {}),
     semantic: structuredClone(media.semantic ?? emptySemanticDescription()),
     analysis: structuredClone(media.analysis ?? []),
-    analysisRevision: {
+    analysisRevision: media.speech?.revision && media.speech.revision.id === media.analysisRevision
+      ? structuredClone(media.speech.revision) : {
       id: media.analysisRevision ?? revision.id,
       sequence: revision.sequence,
       timestamp: revision.timestamp,
@@ -1000,7 +1002,7 @@ function sourceAudioIsReusable(evidence: SourceAudioEvidence): boolean {
   if (audio === undefined) return true;
   try {
     validateAudioAnalysisPayload(audio);
-    if (audio.signalScope !== "source" || audio.valid === false) return false;
+    if ((audio.signalScope ?? "source") !== "source" || audio.valid === false) return false;
     const provenance = evidence.analysis.find((entry) => entry.capability === "audio" && entry.status === "analyzed")?.provenance;
     if (!provenance || !sameMediaSourceIdentity(provenance.source, evidence.sourceIdentity)) return false;
     if (audio.mediaId !== undefined && audio.mediaId !== evidence.sourceIdentity.mediaId) return false;
