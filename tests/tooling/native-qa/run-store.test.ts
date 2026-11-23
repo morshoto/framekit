@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -69,4 +69,16 @@ test("incomplete initialization is never treated as a new run", async () => {
     await assert.rejects(createOrInspectRun(root, manifest), /QA_RUN_NOT_FOUND_OR_INCOMPLETE/);
     await assert.rejects(inspectRun(root, manifest.qaRunId), /QA_RUN_NOT_FOUND_OR_INCOMPLETE/);
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+
+test("linked run directories cannot masquerade as owned records", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-link-"));
+  const other = await mkdtemp(join(tmpdir(), "framekit-qa-other-"));
+  try {
+    await createOrInspectRun(other, manifest);
+    await symlink(join(other, manifest.qaRunId), join(root, manifest.qaRunId), "dir");
+    await assert.rejects(inspectRun(root, manifest.qaRunId), /QA_RUN_UNSAFE_PATH/);
+    await assert.rejects(createOrInspectRun(root, manifest), /QA_RUN_UNSAFE_PATH/);
+  } finally { await rm(root, { recursive: true, force: true }); await rm(other, { recursive: true, force: true }); }
 });
