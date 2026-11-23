@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { acceptCreativeBrief, assertBriefSourceCoverage, reviewCreativeBrief } from "@framekit/runtime";
+import { acceptCreativeBrief, assertBriefSourceCoverage, assertCurrentAcceptedBrief, reviewCreativeBrief } from "@framekit/runtime";
 import type { CreativeBrief, CreativeBriefReview, CreativeBriefStore, FramekitProjectDocument, MediaSourceIdentity, StoredCreativeBrief, ContextRevision } from "@framekit/runtime";
 
 export interface CreativeBriefTarget {
@@ -53,12 +53,15 @@ export class HeadlessCreativeBriefService {
       const after = await this.openTarget(input);
       if (projectDigest(before) !== projectDigest(after)) throw new Error("STALE_CONTEXT: project changed during brief acceptance");
       assertBriefSourceCoverage(acceptance, accepted.brief, registeredMedia(after));
+      await assertCurrentAcceptedBrief(store, input.projectId, acceptance);
       return view(accepted, after);
     } catch (error) {
       // If the project drifted after acceptance, preserve no usable acceptance.
       // A competing or interrupted writer requires explicit reconciliation.
-      try { await store.revise(input.projectId, accepted.digest, accepted.brief); }
-      catch (reconcileError) { throw new Error("BRIEF_RECONCILIATION_REQUIRED: acceptance may need inspection", { cause: reconcileError }); }
+      try {
+        const current = await store.read(input.projectId);
+        if (current.state === "accepted" && current.digest === accepted.digest) await store.revise(input.projectId, accepted.digest, accepted.brief);
+      } catch (reconcileError) { throw new Error("BRIEF_RECONCILIATION_REQUIRED: acceptance may need inspection", { cause: reconcileError }); }
       throw error;
     }
   }
