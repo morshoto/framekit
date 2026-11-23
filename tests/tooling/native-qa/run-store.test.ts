@@ -852,3 +852,25 @@ test("artifact mismatch and symlinks never create matching evidence", async () =
     assert.equal(await readQaArtifactEvidence(root, unapproved.qaRunId), null);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("CLI verifies and retrieves artifact evidence without exposing its path", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-artifact-cli-"));
+  try {
+    const path = join(root, "fixture.fcpxml");
+    const contents = "<fcpxml/>\n";
+    await writeFile(path, contents);
+    const unapproved = { ...manifest, authorizationDigest: null, artifactDigest: createHash("sha256").update(contents).digest("hex") };
+    await createOrInspectRun(root, unapproved);
+    const cli = ["--import", "tsx", "scripts/native-qa/cli.ts"];
+    const verified = spawnSync(process.execPath, [...cli, "verify-artifact", root, unapproved.qaRunId, path], { encoding: "utf8", timeout: 10000 });
+    assert.equal(verified.status, 0, verified.stderr);
+    const record = JSON.parse(verified.stdout);
+    assert.equal(record.result, "digest-matched");
+    assert.equal(record.scope, "snapshot-only");
+    assert.equal(record.dispatchAllowed, false);
+    assert.equal(verified.stdout.includes(path), false);
+    const read = spawnSync(process.execPath, [...cli, "artifact-evidence", root, unapproved.qaRunId], { encoding: "utf8", timeout: 10000 });
+    assert.equal(read.status, 0, read.stderr);
+    assert.deepEqual(JSON.parse(read.stdout), record);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
