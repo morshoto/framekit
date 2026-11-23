@@ -32,10 +32,33 @@ export async function startQaRun(root: string, manifest: QaRunManifest) {
   return outcome;
 }
 
+function validTimestamp(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(value)) return false;
+  const milliseconds = Date.parse(value);
+  return Number.isFinite(milliseconds) && new Date(milliseconds).toISOString() === value;
+}
+
 /** Missing or partial evidence never establishes that a worker is running or that native work is safe. */
 export async function readQaEvidence(root: string, qaRunId: string) {
   const run = await inspectRun(root, qaRunId);
-  const path = join(root, qaRunId, "headless-result.json");
+  const directory = join(root, qaRunId);
+  const path = join(directory, "headless-result.json");
+  let startedAt: string | undefined;
+  try {
+    const marker = join(directory, "headless-started");
+    const file = await lstat(marker);
+    if (!file.isFile() || file.isSymbolicLink()) throw new Error("QA_RUN_UNSAFE_PATH");
+    const value: unknown = JSON.parse(await readFile(marker, "utf8"));
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid");
+    const item = value as Record<string, unknown>;
+    if (Object.keys(item).sort().join(",") !== "schemaVersion,startedAt" || item.schemaVersion !== 1 || !validTimestamp(item.startedAt)) throw new Error("invalid");
+    startedAt = item.startedAt;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      if (error instanceof Error && error.message === "QA_RUN_UNSAFE_PATH") throw error;
+      throw new Error("QA_EVIDENCE_CORRUPT");
+    }
+  }
   let evidence: HeadlessEvidence;
   try {
     const file = await lstat(path);
@@ -45,14 +68,11 @@ export async function readQaEvidence(root: string, qaRunId: string) {
     const item = value as Record<string, unknown>;
     if (Object.keys(item).sort().join(",") !== "finishedAt,result,schemaVersion,startedAt,tier"
       || item.schemaVersion !== 1 || item.tier !== "headless" || !results.includes(item.result as HeadlessResult)
-      || typeof item.startedAt !== "string" || typeof item.finishedAt !== "string"
-      || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(item.startedAt)
-      || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(item.finishedAt)
-      || !Number.isFinite(Date.parse(item.startedAt)) || !Number.isFinite(Date.parse(item.finishedAt))
-      || item.finishedAt < item.startedAt) throw new Error("invalid");
+      || !validTimestamp(item.startedAt) || !validTimestamp(item.finishedAt)
+      || !startedAt || item.startedAt !== startedAt || item.finishedAt < item.startedAt) throw new Error("invalid");
     evidence = item as unknown as HeadlessEvidence;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { tier: "headless" as const, result: "pending-or-interrupted" as const, verdict: "BLOCKED" as const, dispatch: run.dispatch };
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { tier: "headless" as const, result: "pending-or-interrupted" as const, verdict: "BLOCKED" as const, dispatch: run.dispatch, ...(startedAt ? { startedAt } : {}) };
     if (error instanceof Error && error.message === "QA_RUN_UNSAFE_PATH") throw error;
     throw new Error("QA_EVIDENCE_CORRUPT");
   }

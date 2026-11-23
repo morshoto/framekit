@@ -12,17 +12,17 @@ const [root, qaRunId] = process.argv.slice(2);
 if (!root || !qaRunId || process.argv.length !== 4) throw new Error("QA_WORKER_ARGUMENTS_INVALID");
 const run = await inspectRun(root, qaRunId);
 const directory = join(root, qaRunId);
+const started = Date.now();
 let lock;
 try { lock = await open(join(directory, "headless-started"), "wx", 0o600); }
 catch (error) {
   if ((error as NodeJS.ErrnoException).code === "EEXIST") process.exit(0);
   throw error;
 }
-try { await lock.writeFile("started\n"); await lock.sync(); }
+try { await lock.writeFile(`${JSON.stringify({ schemaVersion: 1, startedAt: new Date(started).toISOString() })}\n`); await lock.sync(); }
 finally { await lock.close(); }
 const directoryHandle = await open(directory, "r");
 try { await directoryHandle.sync(); } finally { await directoryHandle.close(); }
-const started = Date.now();
 let result: HeadlessResult = "preflight-error";
 const candidateMatches = async () => {
   const options = { cwd: checkout, timeout: 10000, maxBuffer: 1024 * 1024 };

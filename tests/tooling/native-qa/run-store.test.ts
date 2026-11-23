@@ -388,6 +388,7 @@ test("headless evidence rejects unsanitized fields and reversed timestamps", asy
     await createOrInspectRun(root, manifest);
     const path = join(root, manifest.qaRunId, "headless-result.json");
     const data = { schemaVersion: 1, tier: "headless", result: "render-contract-passed", startedAt: "2026-01-01T00:00:00.000Z", finishedAt: "2026-01-01T00:00:01.000Z" };
+    await writeFile(join(root, manifest.qaRunId, "headless-started"), JSON.stringify({ schemaVersion: 1, startedAt: data.startedAt }));
     await writeFile(path, JSON.stringify({ ...data, privatePath: "sensitive-value" }));
     await assert.rejects(readQaEvidence(root, manifest.qaRunId), /QA_EVIDENCE_CORRUPT/);
     await writeFile(path, JSON.stringify({ ...data, finishedAt: "2025-01-01T00:00:00.000Z" }));
