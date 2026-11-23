@@ -2712,6 +2712,7 @@
     ],
     "tests/integration/semantic-media.test.ts": [
       "\"media understanding preserves source identity and analyzer provenance\"",
+      "\"project source recheck rejects analysis before index publication\"",
       "\"local speech and audio analysis return source-bound range evidence\"",
       "\"local audio analysis rejects a source identity mismatch\"",
       "\"media understanding rejects stale audio revisions instead of caching them\"",
