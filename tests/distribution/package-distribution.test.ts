@@ -203,8 +203,9 @@ test("clean package analyzes registered headless media with configured providers
     client = new Client({ name: "package-analysis-missing-setup", version: "1" }); await client.connect(transport);
     const unavailable = await client.callTool({ name: "speech.analyze", arguments: { projectId, mediaId } });
     assert.equal(unavailable.isError, true);
-    assert.match(JSON.stringify(unavailable.content), /SPEECH_ANALYZER_SETUP_REQUIRED/);
-    assert.doesNotMatch(JSON.stringify(unavailable.content), /\n\s+at /);
+    const unavailableMessage = JSON.parse((unavailable.content as Array<{ text: string }>)[0]!.text).message;
+    assert.match(unavailableMessage, /SPEECH_ANALYZER_SETUP_REQUIRED/);
+    assert.doesNotMatch(unavailableMessage, /Traceback|\n\s+at /);
     await client.close(); await transport.close();
     const fakePython = join(directory, "fake-python"); await mkdir(fakePython);
     await writeFile(join(fakePython, "mlx_whisper.py"), "# Importable stub; no inference is invoked.\n");
@@ -214,8 +215,9 @@ test("clean package analyzes registered headless media with configured providers
     client = new Client({ name: "package-analysis-missing-model", version: "1" }); await client.connect(transport);
     const noModel = await client.callTool({ name: "speech.analyze", arguments: { projectId, mediaId } });
     assert.equal(noModel.isError, true);
-    assert.match(JSON.stringify(noModel.content), /WHISPER_SETUP_REQUIRED.*FRAMEKIT_WHISPER_MODEL/);
-    assert.doesNotMatch(JSON.stringify(noModel.content), /Traceback|\n\s+at /);
+    const noModelMessage = JSON.parse((noModel.content as Array<{ text: string }>)[0]!.text).message;
+    assert.match(noModelMessage, /WHISPER_SETUP_REQUIRED.*FRAMEKIT_WHISPER_MODEL/);
+    assert.doesNotMatch(noModelMessage, /Traceback|\n\s+at /);
   } finally { await client?.close(); await transport?.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
