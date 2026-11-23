@@ -110,3 +110,22 @@ test("an incomplete dispatch marker is never interpreted as safe to replay", asy
     assert.equal((await createOrInspectRun(root, manifest)).created, false);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("mismatched identity cannot mark an existing run uncertain", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-mismatch-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    await assert.rejects(markDispatchUncertain(root, { ...manifest, sourceDigest: "8".repeat(64) }), /QA_RUN_IDENTITY_MISMATCH/);
+    assert.equal((await inspectRun(root, manifest.qaRunId)).dispatch, "NOT_DISPATCHED");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("concurrent uncertainty records converge without enabling dispatch", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-mark-race-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    const observations = await Promise.all(Array.from({ length: 8 }, () => markDispatchUncertain(root, manifest)));
+    assert.ok(observations.every(run => run.dispatch === "UNKNOWN_AFTER_DISPATCH" && run.verdict === "BLOCKED"));
+    assert.equal((await createOrInspectRun(root, manifest)).created, false);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
