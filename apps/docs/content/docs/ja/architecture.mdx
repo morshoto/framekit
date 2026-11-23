@@ -1,1 +1,9 @@
-内容は準備中です。
+## 構成要素
+
+Framekit はローカル環境で動作し、エディタに依存しないプロジェクトとタイムラインのモデルを使います。`packages/runtime` がドメインの契約と検証を担い、`packages/headless-application` が通信方式に依存しないプロジェクト操作を提供します。`apps/mcp-server` は MCP 通信とツールの公開を担当します。Final Cut アダプターがドキュメントとネイティブブリッジとの接続を受け持ち、`packages/testkit` が再現可能なテスト用データを提供します。
+
+各層はランタイムの契約に依存します。ランタイムから MCP SDK や Final Cut アダプターをインポートすることはできません。ヘッドレス編集では Framekit が管理するプロジェクトを正とし、外部の成果物や観測したメタデータがその状態を自動的に置き換えることはありません。
+
+## 操作ごとの対応範囲
+
+実行前に、必要な機能を操作ごとに確認してください。ヘッドレス編集では Final Cut Pro の起動は不要です。ネイティブ UI の操作は別途承認が必要な経路で、同じ対象から結果を読み戻し、復元を確認する必要があります。[Final Cut Pro](/ja/docs/final-cut-pro/)、[リビジョンと安全性](/ja/docs/revisions-and-safety/)、[アーキテクチャの詳細](https://github.com/morshoto/framekit/blob/main/docs/architecture.md)を参照してください。

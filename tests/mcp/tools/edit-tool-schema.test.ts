@@ -122,6 +122,28 @@ test("published root schema validates non-last edit operations", async () => {
   }
 });
 
+test("music add discovery permits both placement variants", async () => {
+  const { client, server } = await connectedClient();
+  try {
+    const tools = await client.listTools();
+    for (const name of ["music.add", "music.add.preview"]) {
+      const schema = tools.tools.find((tool) => tool.name === name)?.inputSchema as JsonSchema;
+      assert.ok(schema, name);
+      const placement = schema.properties?.placement as { const?: string; anyOf?: Array<{ const?: string }> } | undefined;
+      assert.ok(placement, name);
+      for (const value of ["append", "insert"]) {
+        const rootAccepts = placement.const === undefined || placement.const === value;
+        const alternativesAccept = !placement.anyOf || placement.anyOf.some((option) => option.const === value);
+        assert.ok(rootAccepts && alternativesAccept, `${name} rejects ${value} at the schema root`);
+        assert.ok(schema.anyOf?.some((branch) => branch.properties?.placement?.const === value), `${name} lacks ${value} branch`);
+      }
+    }
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
 test("editor.timeline.edit validates trim duration before its handler", async () => {
   const { client, server } = await connectedClient();
   try {
@@ -138,8 +160,7 @@ test("editor.timeline.edit validates trim duration before its handler", async ()
       },
     });
     assert.equal(invalid.isError, true);
-    assert.match(textFrom(invalid), /Input validation error/);
-    assert.match(textFrom(invalid), /Required at duration/);
+    assert.match(JSON.parse(textFrom(invalid)).message, /INPUT_INVALID: duration is required/);
 
     const valid = await client.callTool({
       name: "editor.timeline.edit",
@@ -177,7 +198,7 @@ test("single-edit tools reject fields from another operation", async () => {
       },
     });
     assert.equal(invalid.isError, true);
-    assert.match(textFrom(invalid), /Unrecognized key\(s\).*duration/);
+    assert.match(JSON.parse(textFrom(invalid)).message, /INPUT_INVALID: .*unsupported fields: duration/);
   } finally {
     await client.close();
     await server.close();

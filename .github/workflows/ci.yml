@@ -36,7 +36,9 @@ jobs:
   test:
     name: Unit / integration tests
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # FFmpeg package downloads can consume most of a 10-minute job budget;
+    # retain enough time for the complete coverage-enabled suite and reports.
+    timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

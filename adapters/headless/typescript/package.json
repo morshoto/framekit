@@ -10,7 +10,8 @@
     }
   },
   "dependencies": {
-    "@framekit/runtime": "workspace:*"
+    "@framekit/runtime": "workspace:*",
+    "fontkit": "^3.0.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json"

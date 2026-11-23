@@ -4,9 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "pnpm run check:content && next build && pagefind --site out && node scripts/report-search-size.mjs",
+    "build": "pnpm run check:content && next build && node --import tsx scripts/build-social.tsx && node --import tsx scripts/check-sitemap.ts && node --import tsx scripts/build-llms.mts && pagefind --site out && node scripts/report-search-size.mjs",
     "typecheck": "tsc --noEmit",
-    "test:export": "node scripts/check-export-links.mjs && node --test test/*.test.mjs",
+    "test:export": "node scripts/check-export-links.mjs && node --import tsx --test test/*.test.mjs",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "test": "vitest run",
@@ -16,9 +16,11 @@
     "test:locales": "node scripts/test-locales.mjs",
     "test:search": "node scripts/test-search.mjs",
     "test:e2e": "playwright test",
-    "test:pages": "node scripts/smoke-pages.mjs"
+    "test:pages": "node scripts/smoke-pages.mjs",
+    "report:error-reference": "node scripts/check-error-reference.mjs"
   },
   "dependencies": {
+    "@fontsource/noto-sans-jp": "5.3.1",
     "@mdx-js/loader": "3.1.1",
     "@mdx-js/react": "3.1.1",
     "@next/mdx": "16.4.5",
@@ -37,23 +39,23 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "4.14.0",
-    "@playwright/test": "1.64.1",
-    "@storybook/addon-themes": "10.6.5",
-    "@storybook/nextjs-vite": "10.6.5",
+    "@playwright/test": "1.65.1",
+    "@storybook/addon-themes": "10.6.7",
+    "@storybook/nextjs-vite": "10.6.7",
     "@testing-library/dom": "10.4.2",
     "@testing-library/jest-dom": "7.0.1",
     "@testing-library/react": "16.3.3",
-    "@testing-library/user-event": "14.6.8",
+    "@testing-library/user-event": "14.6.10",
     "@types/mdx": "2.0.14",
     "@types/node": "24.19.2",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "jsdom": "26.1.0",
     "pagefind": "1.6.0",
-    "playwright": "1.64.1",
-    "storybook": "10.6.5",
+    "playwright": "1.65.1",
+    "storybook": "10.6.7",
     "typescript": "5.9.3",
-    "vite": "7.3.7",
+    "vite": "7.3.8",
     "vitest": "4.1.12"
   }
 }

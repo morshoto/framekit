@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { lstat } from "node:fs/promises";
 import { basename, resolve } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import type { ContextRevision } from "../domain/primitives.js";
 import {
   type FramekitProjectDocument,
@@ -30,7 +31,7 @@ export type RegisteredMediaStatus =
   | { id: string; source: string; status: "changed"; expectedDigest: string; actualDigest: string };
 
 export class LocalMediaError extends Error {
-  public readonly code: "MEDIA_MISSING" | "MEDIA_CHANGED" | "MEDIA_AMBIGUOUS";
+  public readonly code: "MEDIA_MISSING" | "MEDIA_CHANGED" | "MEDIA_AMBIGUOUS" | "MEDIA_METADATA_CHANGED";
   public readonly details: Readonly<Record<string, unknown>>;
 
   public constructor(
@@ -123,6 +124,25 @@ export class LocalMediaRegistrar {
       }
     }
     return results;
+  }
+
+  /** Verify persisted metadata against a fresh probe bracketed by source identity checks. */
+  public async verifyMetadata(resources: readonly TimelineIrResource[]): Promise<void> {
+    for (const resource of resources) {
+      if (resource.sourceKind !== "local-file" || !resource.source || !resource.sourceDigest || !resource.metadata) {
+        throw new LocalMediaError("MEDIA_METADATA_CHANGED", `source metadata is unavailable: ${resource.id}`, { id: resource.id });
+      }
+      const source = await inspectLocalFile(resource.source);
+      if (await digestFile(source.path) !== resource.sourceDigest) {
+        throw new LocalMediaError("MEDIA_CHANGED", `registered source changed: ${source.path}`, { id: resource.id });
+      }
+      await assertStableSource(source, resource.sourceDigest);
+      const observed = await this.metadataProbe.probe(source.path);
+      await assertStableSource(source, resource.sourceDigest);
+      if (!isDeepStrictEqual(resource.metadata, observed)) {
+        throw new LocalMediaError("MEDIA_METADATA_CHANGED", `registered source metadata differs from the current probe: ${source.path}`, { id: resource.id });
+      }
+    }
   }
 
   public async reopen(): Promise<FramekitProjectDocument> {

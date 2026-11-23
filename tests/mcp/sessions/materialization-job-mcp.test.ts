@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -6,10 +7,12 @@ import { join } from "node:path";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { createMcpServer, type SessionMaterializationPublisher } from "../../../apps/mcp-server/src/server.js";
 import { FileCanonicalRecoveryGuard, FinalCutBackgroundMaterializationPublisher } from "@framekit/final-cut";
 import { AgentVideoRuntime, type TimelineIr } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
+import { ScriptedNativeReceiver, simulatedMaterializationPublisher, assertSingleSimulatedDispatch, writeSimulatedEvidence } from "../../support/simulated-native-receiver.js";
 
 function timeline(): TimelineIr {
   return {
@@ -1070,5 +1073,195 @@ test("invalid provenance is checked before the unavailable-provider shortcut", a
         await guard.assertClear();
       } finally { await second.client.close(); await second.server.close(); }
     } finally { await rm(directory, { recursive: true, force: true }); }
+  }
+});
+
+
+test("simulated-native: lost reply retains a reservation through MCP reconnect", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-simulated-receiver-"));
+  const path = join(directory, "recovery.json");
+  const receiver = new ScriptedNativeReceiver([{ kind: "lose-response" }]);
+  const publisher = simulatedMaterializationPublisher(receiver);
+  const first = await connect(directory, publisher, undefined, "default", new FileCanonicalRecoveryGuard(path));
+  try {
+    await first.client.callTool({ name: "session.create", arguments: { sessionId: "simulated", provider: { id: "final-cut" }, base: timeline() } });
+    const preview = payload(await first.client.callTool({ name: "session.materialize.preview", arguments: { sessionId: "simulated", target } }));
+    assert.equal(preview.mutating, false);
+    assert.equal(receiver.trace().length, 0);
+    const declined = await first.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "simulated", target, confirm: false } });
+    assert.equal(declined.isError, true);
+    assert.equal(receiver.trace().length, 0);
+    const result = payload(await first.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "simulated", target, confirm: true } }));
+    assert.equal(result.state, "failed");
+    assert.equal(result.nextAction, "none");
+    assert.equal(result.evidence.headedNative, false);
+    assert.equal(result.recoveryReservation.reason, "native-quiescence-unproven");
+    assertSingleSimulatedDispatch(receiver.trace(), result.jobId);
+    assert.equal(receiver.publisherCalls(), 1);
+    assert.equal(receiver.trace()[0]?.operationId, result.jobId);
+    const sources = result.desired.resources.map((resource: { id: string; source?: string }) => [resource.id, resource.source ?? null]).sort(([a]: string[], [b]: string[]) => a < b ? -1 : a > b ? 1 : 0);
+    assert.equal(receiver.trace()[0]?.sourceDigest, createHash("sha256").update(JSON.stringify(sources)).digest("hex"));
+    assert.equal(receiver.trace()[0]?.desiredDigest, result.desiredDigest);
+
+    await first.client.close();
+    await first.server.close();
+    const second = await connect(directory, simulatedMaterializationPublisher(receiver.restart()), undefined, "default", new FileCanonicalRecoveryGuard(path));
+    try {
+      const status = payload(await second.client.callTool({ name: "session.materialize.status", arguments: { jobId: result.jobId } }));
+      assert.equal(status.state, "failed");
+      assert.equal(status.recoveryReservation.reason, "native-quiescence-unproven");
+      await second.client.callTool({ name: "session.materialize.retry", arguments: { jobId: result.jobId } });
+      assert.equal(receiver.trace().filter(event => event.kind === "dispatch").length, 1);
+      assert.equal(receiver.publisherCalls(), 1);
+      await assert.rejects(new FileCanonicalRecoveryGuard(path).assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+      await writeSimulatedEvidence(receiver, "lost-reply", { failed: status.state === "failed", noReplay: true, reservationRetained: true, headedNative: false });
+    } finally { await second.client.close(); await second.server.close(); }
+  } finally {
+    await first.client.close().catch(() => undefined);
+    await first.server.close().catch(() => undefined);
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("simulated-native: wrong canonical target cannot become a verified success", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-simulated-target-"));
+  const receiver = new ScriptedNativeReceiver([{ kind: "accept" }]);
+  const basePublisher = simulatedMaterializationPublisher(receiver);
+  const publisher: SessionMaterializationPublisher = {
+    async publish(request) {
+      const result = await basePublisher.publish(request);
+      if (result.state !== "completed") return result;
+      return { ...result, canonicalTarget: { ...result.canonicalTarget, projectUid: "wrong-simulated-project" } };
+    },
+  };
+  const connected = await connect(directory, publisher);
+  try {
+    await connected.client.callTool({ name: "session.create", arguments: { sessionId: "simulated-target", provider: { id: "final-cut" }, base: timeline() } });
+    const result = payload(await connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "simulated-target", target, confirm: true } }));
+    assert.equal(receiver.trace().filter(event => event.kind === "dispatch").length, 1);
+    assert.equal(result.state, "failed");
+    assert.equal(result.error.code, "MATERIALIZATION_TARGET_READBACK_MISMATCH");
+    assert.equal(result.evidence.canonicalReadback, false);
+    assert.equal(result.evidence.headedNative, false);
+    await writeSimulatedEvidence(receiver, "wrong-target", { failed: true, headedNative: false });
+  } finally {
+    await connected.client.close(); await connected.server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("simulated-native: partial write fails canonical verification", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-simulated-partial-"));
+  const receiver = new ScriptedNativeReceiver([{ kind: "partial-write" }]);
+  const connected = await connect(directory, simulatedMaterializationPublisher(receiver));
+  try {
+    await connected.client.callTool({ name: "session.create", arguments: { sessionId: "simulated-partial", provider: { id: "final-cut" }, base: timeline() } });
+    const result = payload(await connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "simulated-partial", target, confirm: true } }));
+    assert.equal(result.state, "failed");
+    assert.equal(result.error.code, "MATERIALIZATION_READBACK_MISMATCH");
+    assert.equal(result.verification.status, "failed");
+    assert.equal(result.evidence.headedNative, false);
+    assert.deepEqual(receiver.trace().map(event => event.kind), ["dispatch", "partial"]);
+    await writeSimulatedEvidence(receiver, "partial-write", { failed: true, headedNative: false });
+  } finally {
+    await connected.client.close(); await connected.server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("simulated-native: pre-dispatch disconnect is inspectable after reconnect", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-simulated-disconnect-"));
+  const path = join(directory, "recovery.json");
+  const receiver = new ScriptedNativeReceiver([{ kind: "disconnect-before-dispatch" }]);
+  const first = await connect(directory, simulatedMaterializationPublisher(receiver), undefined, "default", new FileCanonicalRecoveryGuard(path));
+  try {
+    await first.client.callTool({ name: "session.create", arguments: { sessionId: "simulated-disconnect", provider: { id: "final-cut" }, base: timeline() } });
+    const result = payload(await first.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "simulated-disconnect", target, confirm: true } }));
+    assert.deepEqual(receiver.trace().map(event => event.kind), ["disconnected"]);
+    assert.equal(result.evidence.headedNative, false);
+    assert.equal(result.recoveryReservation.reason, "native-quiescence-unproven");
+    await first.client.close(); await first.server.close();
+    const second = await connect(directory, simulatedMaterializationPublisher(receiver.restart()), undefined, "default", new FileCanonicalRecoveryGuard(path));
+    try {
+      const status = payload(await second.client.callTool({ name: "session.materialize.status", arguments: { jobId: result.jobId } }));
+      assert.equal(status.jobId, result.jobId);
+      assert.equal(status.recoveryReservation.reason, "native-quiescence-unproven");
+      await second.client.callTool({ name: "session.materialize.retry", arguments: { jobId: result.jobId } });
+      assert.equal(receiver.trace().filter(event => event.kind === "dispatch").length, 0);
+      await writeSimulatedEvidence(receiver, "disconnect-before-dispatch", { noDispatch: true, reservationRetained: true });
+    } finally { await second.client.close(); await second.server.close(); }
+  } finally {
+    await first.client.close().catch(() => undefined); await first.server.close().catch(() => undefined);
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("simulated-native: concurrent clients cannot dispatch twice", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-simulated-concurrent-"));
+  const path = join(directory, "recovery.json");
+  const receiver = new ScriptedNativeReceiver([{ kind: "stall" }]);
+  const basePublisher = simulatedMaterializationPublisher(receiver);
+  let entered!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const publisher: SessionMaterializationPublisher = { publish: async request => { entered(); return basePublisher.publish(request); } };
+  const first = await connect(directory, publisher, undefined, "default", new FileCanonicalRecoveryGuard(path));
+  const second = await connect(directory, publisher, undefined, "default", new FileCanonicalRecoveryGuard(path));
+  let pending: ReturnType<Client["callTool"]> | undefined;
+  try {
+    await first.client.callTool({ name: "session.create", arguments: { sessionId: "simulated-concurrent", provider: { id: "final-cut" }, base: timeline() } });
+    pending = first.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "simulated-concurrent", target, confirm: true } });
+    await started;
+    const operationId = receiver.trace()[0]!.operationId;
+    const competing = await second.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "simulated-concurrent", target, confirm: true } });
+    assert.equal(competing.isError, true);
+    assert.equal(payload(competing).code, "FINAL_CUT_CANONICAL_RECOVERY_REQUIRED");
+    assertSingleSimulatedDispatch(receiver.trace(), operationId);
+    assert.equal(receiver.trace().filter(event => event.kind === "dispatch").length, 1);
+    receiver.reply(operationId, "accepted");
+    const result = payload(await pending);
+    assert.equal(result.evidence.headedNative, false);
+    assertSingleSimulatedDispatch(receiver.trace(), operationId);
+    assert.equal(receiver.trace().filter(event => event.kind === "dispatch").length, 1);
+    await assert.rejects(new FileCanonicalRecoveryGuard(path).assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await writeSimulatedEvidence(receiver, "concurrent-clients", { noReplay: true, reservationRetained: true, headedNative: false });
+  } finally {
+    const stalled = receiver.trace().find(event => event.kind === "stalled");
+    if (stalled && receiver.inspect(stalled.operationId)?.state === "uncertain") receiver.reply(stalled.operationId, "rejected");
+    await pending?.catch(() => undefined);
+    await first.client.close(); await first.server.close(); await second.client.close(); await second.server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+
+test("simulated-native: separate MCP process restart never replays lost dispatch", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-simulated-process-"));
+  async function startClient() {
+    const transport = new StdioClientTransport({ command: process.execPath, args: ["--import", "tsx", join(process.cwd(), "tests/support/simulated-native-mcp-child.ts"), directory], env: Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === "string")), stderr: "pipe" });
+    const client = new Client({ name: "simulated-restart", version: "1" });
+    await client.connect(transport);
+    return client;
+  }
+  let first: Client | undefined;
+  let second: Client | undefined;
+  try {
+    first = await startClient();
+    await first.callTool({ name: "session.create", arguments: { sessionId: "simulated-process", provider: { id: "final-cut" }, base: timeline() } });
+    const result = payload(await first.callTool({ name: "session.materialize.execute", arguments: { sessionId: "simulated-process", target, confirm: true } }));
+    assert.equal(result.recoveryReservation.reason, "native-quiescence-unproven");
+    await first.close(); first = undefined;
+    const before = JSON.parse(await readFile(join(directory, "receiver.json"), "utf8"));
+    assert.equal(before.events.filter((event: { kind: string }) => event.kind === "dispatch").length, 1);
+    assert.equal(before.publisherCalls, 1);
+    second = await startClient();
+    const status = payload(await second.callTool({ name: "session.materialize.status", arguments: { jobId: result.jobId } }));
+    assert.equal(status.recoveryReservation.reason, "native-quiescence-unproven");
+    await second.callTool({ name: "session.materialize.retry", arguments: { jobId: result.jobId } });
+    assert.deepEqual(JSON.parse(await readFile(join(directory, "receiver.json"), "utf8")), before);
+    await assert.rejects(new FileCanonicalRecoveryGuard(join(directory, "recovery.json")).assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await writeSimulatedEvidence(ScriptedNativeReceiver.restore(before), "mcp-process-restart", { noReplay: true, reservationRetained: true, headedNative: false });
+  } finally {
+    await first?.close(); await second?.close();
+    await rm(directory, { recursive: true, force: true });
   }
 });

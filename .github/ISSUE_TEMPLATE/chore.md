@@ -3,7 +3,7 @@
 name: 🧹 Chore
 about: Track maintenance, cleanup, tooling, or other non-feature Framekit work
 title: "[Chore] "
-labels: "Type: Chore"
+labels: "Type: Chore, Status: Backlog"
 assignees: ""
 ---
 

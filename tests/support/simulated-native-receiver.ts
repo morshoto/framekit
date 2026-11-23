@@ -1,0 +1,207 @@
+import { createHash } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+
+/** Test-only receiver: its observations never establish native terminality. */
+export type SimulatedIdentity = {
+  operationId: string;
+  targetId: string;
+  sourceDigest: string;
+  desiredDigest: string;
+  revisionId: string;
+};
+type State = "accepted" | "rejected" | "uncertain" | "not-dispatched" | "partial";
+type Step = { kind: "accept" | "reject" | "lose-response" | "stall" | "disconnect-before-dispatch" | "partial-write" | "crash-after-dispatch" };
+type Event = SimulatedIdentity & { tick: number; kind: "dispatch" | "accepted" | "rejected" | "response-lost" | "stalled" | "disconnected" | "partial" | "crashed" };
+type Entry = { identity: SimulatedIdentity; state: State; awaitingLateReply?: boolean; resolve?: (result: { state: State }) => void };
+type Snapshot = { version: 1; publisherCalls: number; tick: number; events: Event[]; entries: Array<{ identity: SimulatedIdentity; state: State; awaitingLateReply: boolean }>; script: Step[] };
+type Storage = { publisherCalls: number; tick: number; events: Event[]; entries: Map<string, Entry>; script: Step[] };
+
+export class ScriptedNativeReceiver {
+  public readonly evidenceTier = "simulated-native" as const;
+  private readonly storage: Storage;
+
+  public constructor(script: Step[], storage?: Storage) {
+    this.storage = storage ?? { publisherCalls: 0, tick: 0, events: [], entries: new Map(), script: [...script] };
+  }
+
+  public evidence(input: { scenario: string; seed: number; candidate: string }) {
+    if (!/^[a-f0-9]{40}$/.test(input.candidate)) throw new Error("SIMULATED_CANDIDATE_INVALID");
+    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(input.scenario) || !Number.isSafeInteger(input.seed) || input.seed < 0) throw new Error("SIMULATED_SCENARIO_INVALID");
+    const digest = (value: string) => createHash("sha256").update(value).digest("hex");
+    return {
+      tier: this.evidenceTier,
+      publisherCalls: this.storage.publisherCalls,
+      ...input,
+      events: this.storage.events.map(event => ({
+        tick: event.tick, kind: event.kind,
+        operationId: digest(event.operationId), targetId: digest(event.targetId),
+        sourceDigest: digest(event.sourceDigest), desiredDigest: digest(event.desiredDigest), revisionId: digest(event.revisionId),
+      })),
+    };
+  }
+
+  public snapshot(): Snapshot {
+    return {
+      version: 1,
+      publisherCalls: this.storage.publisherCalls,
+      tick: this.storage.tick,
+      events: this.trace(),
+      entries: [...this.storage.entries.values()].map(entry => ({ identity: { ...entry.identity }, state: entry.state, awaitingLateReply: Boolean(entry.resolve || entry.awaitingLateReply) })),
+      script: this.storage.script.map(step => ({ ...step })),
+    };
+  }
+
+  public static restore(snapshot: Snapshot): ScriptedNativeReceiver {
+    if (snapshot.version !== 1) throw new Error("SIMULATED_SNAPSHOT_VERSION_UNSUPPORTED");
+    if (!Number.isSafeInteger(snapshot.publisherCalls) || snapshot.publisherCalls < 0) throw new Error("SIMULATED_SNAPSHOT_CALL_COUNT_INVALID");
+    const entries = new Map(snapshot.entries.map(entry => [entry.identity.operationId, { identity: { ...entry.identity }, state: entry.state, awaitingLateReply: entry.awaitingLateReply }]));
+    return new ScriptedNativeReceiver([], { publisherCalls: snapshot.publisherCalls, tick: snapshot.tick, events: snapshot.events.map(event => ({ ...event })), entries, script: snapshot.script.map(step => ({ ...step })) });
+  }
+
+  public recordPublisherCall(): void { this.storage.publisherCalls += 1; }
+
+  public publisherCalls(): number { return this.storage.publisherCalls; }
+
+  public trace(): Event[] {
+    return this.storage.events.map(event => ({ ...event }));
+  }
+
+  public inspect(operationId: string): { state: State } | undefined {
+    const entry = this.storage.entries.get(operationId);
+    return entry ? { state: entry.state } : undefined;
+  }
+
+  public restart(): ScriptedNativeReceiver {
+    return new ScriptedNativeReceiver([], this.storage);
+  }
+
+  public async dispatch(request: SimulatedIdentity): Promise<{ state: State }> {
+    const keys: Array<keyof SimulatedIdentity> = ["operationId", "targetId", "sourceDigest", "desiredDigest", "revisionId"];
+    if (Object.keys(request).length !== keys.length || keys.some(key => typeof request[key] !== "string" || !request[key])) throw new Error("SIMULATED_IDENTITY_MISMATCH");
+    const previous = this.storage.entries.get(request.operationId);
+    if (previous) {
+      if (keys.some(key => request[key] !== previous.identity[key])) {
+        throw new Error("SIMULATED_IDENTITY_MISMATCH");
+      }
+      return { state: previous.state };
+    }
+    const step = this.storage.script.shift();
+    if (!step) throw new Error("SIMULATED_SCRIPT_EXHAUSTED");
+    const entry: Entry = { identity: { ...request }, state: "uncertain" };
+    this.storage.entries.set(request.operationId, entry);
+    if (step.kind === "disconnect-before-dispatch") {
+      entry.state = "not-dispatched";
+      this.record("disconnected", entry.identity);
+      return { state: entry.state };
+    }
+    this.record("dispatch", entry.identity);
+    if (step.kind === "stall") {
+      this.record("stalled", entry.identity);
+      return new Promise(resolve => { entry.resolve = resolve; });
+    }
+    if (step.kind === "crash-after-dispatch") {
+      this.record("crashed", entry.identity);
+      return { state: "uncertain" };
+    }
+    if (step.kind === "lose-response") {
+      entry.awaitingLateReply = true;
+      this.record("response-lost", entry.identity);
+      return { state: "uncertain" };
+    }
+    entry.state = step.kind === "accept" ? "accepted" : step.kind === "partial-write" ? "partial" : "rejected";
+    this.record(entry.state, entry.identity);
+    return { state: entry.state };
+  }
+
+  public reply(operationId: string, state: "accepted" | "rejected"): void {
+    const entry = this.storage.entries.get(operationId);
+    if (!entry || (!entry.resolve && !entry.awaitingLateReply)) throw new Error("SIMULATED_OPERATION_NOT_PENDING");
+    entry.state = state;
+    const resolve = entry.resolve;
+    delete entry.resolve;
+    delete entry.awaitingLateReply;
+    this.record(state, entry.identity);
+    resolve?.({ state });
+  }
+
+  private record(kind: Event["kind"], identity: SimulatedIdentity): void {
+    this.storage.events.push({ tick: ++this.storage.tick, kind, ...identity });
+  }
+}
+
+/** Encode the four target components without delimiter collisions. */
+export function simulatedTargetIdentity(target: readonly [string, string, string, string]): string {
+  return JSON.stringify(target);
+}
+
+/** Inject the fake at the production materialization publisher boundary. */
+export function simulatedMaterializationPublisher(receiver: ScriptedNativeReceiver): import("../../apps/mcp-server/src/materialization-jobs.js").SessionMaterializationPublisher {
+  return {
+    async publish(request) {
+      receiver.recordPublisherCall();
+      const result = await receiver.dispatch({
+        operationId: request.jobId,
+        targetId: simulatedTargetIdentity([request.target.libraryUid, request.target.eventUid, request.destination.projectUid, request.destination.sequenceUid]),
+        // Hash source references without exposing paths; this is not a media-content digest.
+        sourceDigest: createHash("sha256").update(JSON.stringify(request.desired.resources.map(resource => [resource.id, resource.source ?? null]).sort(([a], [b]) => String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0))).digest("hex"),
+        desiredDigest: request.desiredDigest,
+        revisionId: request.baseRevision.id,
+      });
+      if (result.state === "uncertain") throw new Error("SIMULATED_RESPONSE_LOST");
+      if (result.state === "not-dispatched") return { state: "blocked", code: "SIMULATED_DISCONNECTED", message: "Simulated connection lost before dispatch", retryable: true };
+      if (result.state === "rejected") return { state: "blocked", code: "SIMULATED_REJECTION", message: "Simulated receiver rejected the request", retryable: false };
+      const canonicalReadback = structuredClone(request.desired);
+      if (result.state === "partial") canonicalReadback.project.name += " (partial)";
+      return {
+        state: "completed",
+        canonicalReadback,
+        canonicalTarget: { libraryUid: request.target.libraryUid, eventUid: request.target.eventUid, projectUid: request.destination.projectUid, sequenceUid: request.destination.sequenceUid },
+        headedNativeVerified: false,
+      };
+    },
+  };
+}
+
+/** Test-only disposable Undo boundary; no native command is issued. */
+export function simulatedUndoWorkflow(receiver: ScriptedNativeReceiver) {
+  return {
+    async trackNativeDispatch<T>(operation: () => Promise<T>, onDispatch: () => void): Promise<T> {
+      onDispatch();
+      return operation();
+    },
+    async undo(operationId: string) {
+      const result = await receiver.dispatch({ operationId, targetId: "simulated-target", sourceDigest: "simulated-source", desiredDigest: "simulated-before", revisionId: "simulated-revision" });
+      if (result.state !== "accepted") throw new Error("SIMULATED_UNDO_UNVERIFIED");
+      return { undone: true, beforeDigest: "a".repeat(64), restoredDigest: "a".repeat(64), verification: { passed: true } };
+    },
+  };
+}
+
+/** Assert the dispatch contract against a complete simulated event trace. */
+export function assertSingleSimulatedDispatch(events: readonly Event[], operationId: string): void {
+  const count = events.filter(event => event.kind === "dispatch" && event.operationId === operationId).length;
+  if (count > 1) throw new Error("SIMULATED_DUPLICATE_DISPATCH");
+  if (count !== 1) throw new Error("SIMULATED_DISPATCH_MISSING");
+}
+
+
+/** Persist only redacted simulation evidence when the isolated runner opts in. */
+export async function writeSimulatedEvidence(receiver: ScriptedNativeReceiver, scenario: string, outcomes: Record<string, boolean>): Promise<void> {
+  const directory = process.env.FRAMEKIT_SIMULATION_EVIDENCE_DIR;
+  if (!directory) return;
+  const evidence = receiver.evidence({ scenario, seed: 0, candidate: process.env.FRAMEKIT_SIMULATION_CANDIDATE_SHA ?? "" });
+  await mkdir(directory, { recursive: true });
+  await writeFile(join(directory, `${scenario}.json`), JSON.stringify({ ...evidence, outcomes }, null, 2) + "\n");
+}
+
+/** Record observed pre-dispatch stages without inventing a receiver event. */
+export async function writeSimulatedStageEvidence(scenario: string, identity: SimulatedIdentity, stages: readonly ("preview-issued" | "revision-changed" | "execute-rejected" | "no-dispatch")[]): Promise<void> {
+  const directory = process.env.FRAMEKIT_SIMULATION_EVIDENCE_DIR;
+  if (!directory) return;
+  const evidence = new ScriptedNativeReceiver([]).evidence({ scenario, seed: 0, candidate: process.env.FRAMEKIT_SIMULATION_CANDIDATE_SHA ?? "" });
+  const digest = (value: string) => createHash("sha256").update(value).digest("hex");
+  const identifiers = Object.fromEntries(Object.entries(identity).map(([key, value]) => [key, digest(value)]));
+  await mkdir(directory, { recursive: true });
+  await writeFile(join(directory, `${scenario}.json`), JSON.stringify({ ...evidence, identifiers, stages: stages.map((stage, index) => ({ tick: index + 1, stage })) }, null, 2) + "\n");
+}

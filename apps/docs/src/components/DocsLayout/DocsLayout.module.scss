@@ -14,3 +14,5 @@
 .landing .main { padding: 0 40px 32px; }
 .landing .article { max-width: none; }
 @media (max-width: 767px) { .landing .main { padding: 0 20px 32px; } }
+
+.article :global(.capability-matrix) table { table-layout: fixed; width: 100%; }

@@ -28,6 +28,7 @@ import {
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { createMcpServer } from "../../../apps/mcp-server/src/server.js";
 import { finalCutMcpEnvironment } from "../../support/final-cut/test-environment.js";
+import { ScriptedNativeReceiver, simulatedUndoWorkflow, writeSimulatedEvidence } from "../../support/simulated-native-receiver.js";
 
 const identity: EditorIdentity = {
   name: "Final Cut Pro",
@@ -2484,4 +2485,24 @@ test("live-state configuration changes during acquisition remain uncertain", asy
     assert.equal(result.recoveryReservation.reason, "native-quiescence-unproven");
     await assert.rejects(guard.assertClear(), /RECOVERY_REQUIRED/);
   } finally { await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+
+test("simulated-native: failed Undo keeps the reservation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-simulated-undo-"));
+  const guard = new FileCanonicalRecoveryGuard(join(directory, "pending.json"));
+  const receiver = new ScriptedNativeReceiver([{ kind: "reject" }]);
+  const workflow = simulatedUndoWorkflow(receiver) as unknown as NonNullable<Parameters<typeof createMcpServer>[1]>["disposableNative"];
+  const { client, server } = await connect(createRuntime([]), { canonicalRecovery: guard, disposableNative: workflow });
+  try {
+    const outcome = await client.callTool({ name: "editor.native.disposable.undo", arguments: { operationId: "operation-1" } });
+    assert.equal(outcome.isError, true);
+    assert.deepEqual(receiver.trace().map(event => event.kind), ["dispatch", "rejected"]);
+    assert.equal((await guard.inspectNativeReservation())?.operation, "native.disposable.undo");
+    await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await writeSimulatedEvidence(receiver, "undo-failure", { failed: true, reservationRetained: true });
+  } finally {
+    await client.close(); await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
 });

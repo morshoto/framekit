@@ -61,6 +61,16 @@ export function verifyFinalCutPublishReadback(
     throw new FinalCutPublishSemanticMismatchError(expectedDigest, observedDigest, [...mismatchedChecks]);
   }
 
+  for (const element of [...expected.timeline.storyElements, ...actual.timeline.storyElements]) {
+    if (element.kind !== "transition") continue;
+    const effects = element.transitionEffects;
+    if (!effects || effects.length !== 2 || effects.some((effect) => !effect.complete || !effect.enabled)
+      || !effects.some((effect) => effect.kind === "video" && effect.assetId === "fcpxml:effect:FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265")
+      || !effects.some((effect) => effect.kind === "audio" && effect.assetId === "fcpxml:effect:FFAudioTransition")) {
+      throw new Error("FINAL_CUT_PUBLISH_READBACK_UNSUPPORTED: transition effects were not completely observed or supported");
+    }
+  }
+
   return {
     verified: true,
     expectedDigest,
@@ -191,6 +201,7 @@ function storyElementSignature(
     source: mediaSource(element.mediaId),
     text: element.text,
     assetId: element.assetId,
+    transitionEffects: element.kind === "transition" ? element.transitionEffects : undefined,
     position: element.position,
     scale: element.scale,
     crop: element.crop,

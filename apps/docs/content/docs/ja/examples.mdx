@@ -1,11 +1,11 @@
-## サンプルの流れ
+## 接続状態を調べる
 
-**琥珀の草原** は架空のコード例です。
+MCP クライアントから `connection.status`、`editor.inspect` の順に呼び出して、バックエンドと使える機能を確認します。実行したい操作を `editing.route` に指定し、返された経路と選択理由を確認してください。
 
-```ts
-const example = 'synthetic-content-for-testing-abcdefghijklmnopqrstuvwxyz-abcdefghijklmnopqrstuvwxyz';
-```
+## フィクスチャを試す
 
-### 関連情報
+[はじめに](/ja/docs/getting-started/)の設定に従い、MCP クライアントからリポジトリのルートでフィクスチャサーバーを起動して、標準入出力を接続します。フィクスチャを使うと、同じ条件でテストを繰り返せます。実際の Final Cut Pro プロジェクトの状態を調べるには、そのプロジェクトに接続する必要があります。
 
-[はじめに](/ja/docs/introduction/) を参照してください。
+## ヘッドレスでプロジェクトを編集する
+
+Framekit プロジェクトを作成するか既存のものを開き、リビジョンを確認して手元のメディアを登録します。変更内容をプレビューしてから実行し、レンダリングの前にもう一度リビジョンを確認します。出力ファイルも個別に検証してください。詳しい手順は[ヘッドレス編集](/ja/docs/headless-editing/)と[動画制作の手順書](https://github.com/morshoto/framekit/blob/main/plugins/framekit/references/tests/codex-video-production-e2e.md)を参照してください。

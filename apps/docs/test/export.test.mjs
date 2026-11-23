@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 test('static export contains the landing page, accessible links and 404', async () => {
-  const html = await readFile(new URL('../out/index.html', import.meta.url), 'utf8');
+  const html = await readFile(new URL('../out/en/index.html', import.meta.url), 'utf8');
   assert.match(html, /<h1[^>]*>Video editing,[\s\S]*?in your own words\./);
   assert.match(html, /Framekit/);
   assert.match(html, /github\.com\/morshoto\/framekit/);
@@ -13,4 +13,15 @@ test('static export contains the landing page, accessible links and 404', async 
   assert.ok(html.includes(`${prefix}/_next/`), 'assets use the configured base path');
   assert.ok(html.includes(`href="${prefix}/icon.svg?`), 'icon uses the configured base path');
   assert.match(await readFile(new URL('../out/icon.svg', import.meta.url), 'utf8'), /<svg/);
+});
+
+test('duplicate entry points redirect without indexing landing content', async () => {
+  const prefix = process.env.DOCS_BASE_PATH || '';
+  for (const [path, destination] of [['index.html', '/en/'], ['en/docs/index.html', '/en/docs/introduction/']]) {
+    const html = await readFile(new URL(`../out/${path}`, import.meta.url), 'utf8');
+    assert.match(html, /http-equiv="refresh"/i);
+    assert.ok(html.includes(`${prefix}${destination}`));
+    assert.doesNotMatch(html, /Video editing,[\s\S]*?in your own words\./);
+    assert.match(html, /noindex/);
+  }
 });

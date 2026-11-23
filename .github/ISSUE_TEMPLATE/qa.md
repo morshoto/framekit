@@ -2,7 +2,7 @@
 name: 🧪 QA / Validation
 about: Track release, milestone, workflow, or editor validation for Framekit
 title: "[QA] "
-labels: "Type: Chore"
+labels: "Type: Chore, Status: Backlog"
 assignees: ""
 ---
 

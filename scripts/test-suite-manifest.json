@@ -1045,6 +1045,24 @@
       "network": "none"
     },
     {
+      "path": "tests/adapters/final-cut/simulated-native-receiver.test.ts",
+      "owner": "adapters/final-cut/typescript",
+      "reviewed": true,
+      "tags": [
+        "unit"
+      ],
+      "evidence": "fixture",
+      "dependsOn": [
+        "adapters/final-cut/typescript",
+        "scripts"
+      ],
+      "requires": [],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
       "path": "tests/adapters/final-cut/timeline-ir-fcpxml.test.ts",
       "owner": "adapters/final-cut/typescript",
       "tags": [
@@ -1967,7 +1985,9 @@
       "dependsOn": [
         "apps/mcp-server"
       ],
-      "requires": ["python3"],
+      "requires": [
+        "python3"
+      ],
       "platforms": [
         "darwin",
         "linux"
@@ -2807,7 +2827,9 @@
         {
           "name": "command audio bounds source verification before and after the provider",
           "reason": "requires the POSIX /dev/zero device",
-          "platforms": ["win32"]
+          "platforms": [
+            "win32"
+          ]
         }
       ]
     },
@@ -2913,7 +2935,9 @@
       "dependsOn": [
         "apps/mcp-server"
       ],
-      "requires": ["python3"],
+      "requires": [
+        "python3"
+      ],
       "platforms": [
         "darwin",
         "linux"
@@ -3871,6 +3895,31 @@
         "packages/headless-application",
         "packages/runtime",
         "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/workflows/rough-cut/manual-import-qa.test.ts",
+      "owner": "scripts",
+      "tags": [
+        "fixture-e2e",
+        "headless",
+        "integration"
+      ],
+      "requires": [
+        "ffmpeg",
+        "ffprobe"
+      ],
+      "reviewed": true,
+      "evidence": "process",
+      "dependsOn": [
+        "scripts",
+        "apps/mcp-server",
+        "packages/headless-application",
+        "adapters/final-cut/typescript"
       ],
       "platforms": [
         "any"

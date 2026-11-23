@@ -1,1 +1,14 @@
-内容は準備中です。
+## コマンドの実行方法
+
+Framekit の CLI は `framekit` です。公開パッケージでは `npx -y @morshoto/framekit`、リポジトリでは `pnpm run framekit --` に続けて次のコマンドを指定します。
+
+| コマンド | 用途 |
+| --- | --- |
+| `help` | CLI の使い方を表示します。 |
+| `mcp` | MCP サーバーを起動します。フィクスチャを使うには `--editor fixture` を指定します。 |
+| `mcp --headless` | ライブバックエンドをヘッドレスモードで起動します。 |
+| `doctor finalcut` | Final Cut Pro に接続できる状態かを診断します。`--json` を付けると結果を JSON で出力します。 |
+| `doctor dev --profile fixture` | 開発環境を診断します。`headless` と `native` プロファイルも選べます。 |
+| `connect finalcut --development` | 開発用拡張をビルドして接続します。Final Cut Pro が再読み込みされることがあります。 |
+
+最新の使い方は `framekit help` で確認してください。コンパイル済みファイルのパスは内部実装の一部で、公開 API としての互換性は保証されません。

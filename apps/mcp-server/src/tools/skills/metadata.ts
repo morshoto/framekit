@@ -1,4 +1,4 @@
-import { z } from "zod/v3";
+import { z } from "zod/v4";
 
 export type SkillToolName = "skill.list" | "skill.inspect" | "skill.preview" | "skill.execute";
 export type SkillToolMode = "fixture" | "headless" | "editor";
@@ -8,7 +8,7 @@ export type SkillToolOutputContract = "SkillInspection[]" | "SkillInspection" | 
 export interface SkillToolMetadata {
   name: SkillToolName;
   description: string;
-  inputSchema: z.ZodRawShape;
+  inputSchema: Record<string, z.ZodType>;
   outputContract: SkillToolOutputContract;
   capabilityModes: readonly SkillToolMode[];
   capabilities: readonly string[];
@@ -26,7 +26,7 @@ export const skillRevisionValueSchema = z.object({
 
 const allSkillToolModes: readonly SkillToolMode[] = ["fixture", "headless", "editor"];
 
-export const SKILL_TOOL_METADATA: readonly SkillToolMetadata[] = [
+export const SKILL_TOOL_METADATA = [
   {
     name: "skill.list",
     description: "List registered versioned Framekit Skills with current capability availability.",
@@ -60,7 +60,7 @@ export const SKILL_TOOL_METADATA: readonly SkillToolMetadata[] = [
     inputSchema: {
       skill: z.string().min(1),
       version: z.string().min(1).optional(),
-      arguments: z.record(z.unknown()),
+      arguments: z.record(z.string(), z.unknown()),
     },
     outputContract: "SkillPreview",
     capabilityModes: allSkillToolModes,
@@ -89,4 +89,4 @@ export const SKILL_TOOL_METADATA: readonly SkillToolMetadata[] = [
     errorCodes: ["SKILL_PREVIEW_TOKEN_INVALID", "SKILL_PREVIEW_TOKEN_EXPIRED", "SKILL_REQUIREMENTS_UNMET", "STALE_CONTEXT", "SKILL_ERROR"],
     examples: [{ input: { previewToken: "skill-preview-issued-by-runtime" } }],
   },
-];
+] as const satisfies readonly SkillToolMetadata[];

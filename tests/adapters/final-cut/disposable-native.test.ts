@@ -10,6 +10,7 @@ import {
   type NativeFinalCutUndoResult,
 } from "@framekit/final-cut";
 import type { ProjectSnapshot, RuntimeCapabilities } from "@framekit/runtime";
+import { writeSimulatedStageEvidence } from "../../support/simulated-native-receiver.js";
 
 const canonicalCapabilities: RuntimeCapabilities = {
   editor: {
@@ -88,7 +89,7 @@ test("disposable native workflow prepares the canonical target before native pre
   assert.equal(prepared, 2);
 });
 
-test("disposable native execute returns a canonical diff and explicit undo restores the digest", async () => {
+test("simulated-native: disposable native execute returns a canonical diff and explicit undo restores the digest", async () => {
   const state = createState();
   const workflow = createWorkflow(state);
   const preview = await workflow.preview({ clipId: "clip-1", name: "Interview Clean" });
@@ -170,7 +171,7 @@ test("disposable native workflow bounds retained operations while preserving the
   assert.equal(undone.restored.timeline.clips[0]?.name, "Interview One");
 });
 
-test("disposable native execute rejects a stale preview before native mutation", async () => {
+test("simulated-native: disposable native execute rejects a stale preview before native mutation", async () => {
   const state = createState();
   const workflow = createWorkflow(state);
   const preview = await workflow.preview({ clipId: "clip-1", name: "Interview Clean" });
@@ -178,9 +179,10 @@ test("disposable native execute rejects a stale preview before native mutation",
 
   await assert.rejects(workflow.execute(preview.previewToken), /STALE_CONTEXT/);
   assert.equal(state.nativeEditCalls, 0);
+  await writeSimulatedStageEvidence("stale-preview", { operationId: preview.previewToken, targetId: preview.target.clipId, sourceDigest: state.snapshot.media[0]!.source!, desiredDigest: "Interview Clean", revisionId: preview.baseRevision.id }, ["preview-issued", "revision-changed", "execute-rejected", "no-dispatch"]);
 });
 
-test("disposable native execute rejects changed native targets before mutation", async () => {
+test("simulated-native: disposable native execute rejects changed native targets before mutation", async () => {
   const state = createState();
   const workflow = createWorkflow(state);
   const preview = await workflow.preview({ clipId: "clip-1", name: "Interview Clean" });
@@ -190,7 +192,7 @@ test("disposable native execute rejects changed native targets before mutation",
   assert.equal(state.nativeEditCalls, 0);
 });
 
-test("disposable native verification failure compensates with native Undo", async () => {
+test("simulated-native: disposable native verification failure compensates with native Undo", async () => {
   const state = createState();
   const workflow = createWorkflow(state);
   const preview = await workflow.preview({ clipId: "clip-1", name: "Interview Clean" });

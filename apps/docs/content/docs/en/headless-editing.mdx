@@ -11,15 +11,21 @@ The headless path works without a running Final Cut Pro session. Framekit owns t
 
 `headless.edit.execute` returns an `undoId`. Retain it unchanged: it commits to the stored Undo record. To restore that edit, call `headless.edit.undo` with the project, sequence, Undo ID and exact current revision. Undo writes a new revision and reloads the project to verify its timeline digest. A later edit, missing or altered Undo record, or changed local media causes Undo to fail closed. This assumes the caller retains the original handle and the project store is trusted; it does not protect against a malicious caller or whole-state rollback, and it does not undo an operation in Final Cut Pro.
 
+To revise an existing project, inspect its current revision and retain the stable occurrence IDs returned in its timeline. Pass that revision and operations such as `trim-occurrence`, `split-occurrence`, `remove-occurrence`, or `move-occurrence` to `headless.edit.preview`; inspect the proposed timeline, then execute the same operations with `headless.edit.execute`. Times are rational values, and move operations specify timeline start times rather than display positions. Preview does not write the project. Reinspect after a stale-revision error, and never infer identity from a clip name or position alone. Project state and occurrence IDs persist across MCP server restarts.
+
 Use `headless.fcpxml.export` to compile a specific project and sequence revision into a new FCPXML file. Supply an explicit destination identity; the tool refuses to overwrite an existing file. Headless exports and renders reject destinations inside Framekit state or aliasing registered source media; rough-cut render and FCPXML destinations must also be distinct. The resulting artifact is a manual handoff candidate, not evidence that Final Cut Pro imported or verified it.
 
 
 A stale revision or unavailable provider requires a fresh inspection or a structured failure. Framekit does not silently substitute a native operation or external renderer. The [video production runbook](https://github.com/morshoto/framekit/blob/main/plugins/framekit/references/tests/codex-video-production-e2e.md) shows a detailed workflow and its evidence boundaries.
 
-If rough-cut execution returns `HEADLESS_ROUGH_CUT_HISTORY_UNCONFIRMED`, the project edit has already committed, but no execution or publish proof was returned. The error includes the project, sequence, execution ID, and committed revision. Reinspect the project before retrying; an error response does not mean the edit was rolled back.
+See the [error reference for `HEADLESS_ROUGH_CUT_HISTORY_UNCONFIRMED`](/en/docs/error-reference/#headless-rough-cut-history-unconfirmed) before retrying an unconfirmed rough-cut execution.
 
 Splitting an occurrence with fades, attachments, or story-element references is unavailable until those structures can be remapped safely. The preview and execution reject such splits without changing the project.
 
 Project writes do not automatically remove an existing project lock, even if its recorded process has exited. This protection requires every writer using the project state to include this behavior. Before sharing state with upgraded writers, stop and drain older writers: they may remove an initializing or replaced lock and allow concurrent writes. An interrupted writer can leave later writes blocked. Before an operator clears such a lock, they must independently establish that no writer can still use it; elapsed time, an empty file, or a PID alone does not prove that.
 
 See [Projects & Timeline IR](/en/docs/projects-and-timeline/) and [Revisions & Safety](/en/docs/revisions-and-safety/).
+
+Compare workflows and their evidence limits in [Editing Capabilities](/en/docs/editing-capabilities/).
+
+For symptom-based diagnostics and safe recovery, see [Troubleshooting](/en/docs/troubleshooting/).

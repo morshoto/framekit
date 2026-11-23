@@ -2,7 +2,7 @@
 name: ✨ Feature request
 about: Propose a user-facing Framekit or Final Cut capability
 title: "[Feature] "
-labels: "Type: New Feature"
+labels: "Type: New Feature, Status: Backlog"
 assignees: ""
 ---
 

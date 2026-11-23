@@ -1,6 +1,6 @@
 {
   "name": "@morshoto/framekit",
-  "version": "0.2.2",
+  "version": "0.2.6",
   "packageManager": "pnpm@12.18.0",
   "private": false,
   "type": "module",
@@ -55,6 +55,7 @@
     "smoke:fixture-mcp": "node scripts/fixture-mcp-smoke.mjs",
     "test:clean-mcp-clients": "node scripts/clean-mcp-client-smoke.mjs",
     "evaluate": "tsx scripts/run-mcp-evaluation.ts",
+    "test:simulated-native": "node scripts/run-tests-with-isolated-home.mjs --file tests/adapters/final-cut/simulated-native-receiver.test.ts --file tests/adapters/final-cut/disposable-native.test.ts --file tests/mcp/sessions/materialization-job-mcp.test.ts --file tests/mcp/tools/canonical-native-mcp.test.ts --test-name-pattern simulated-native",
     "test:final-cut-headless": "node scripts/run-tests-with-isolated-home.mjs --file tests/adapters/final-cut/connection.test.ts --file tests/workflows/basic-editing/finalcut-mcp.test.ts --file tests/adapters/final-cut/native.test.ts",
     "probe:final-cut-read": "node scripts/final-cut-supported-read-probe.mjs",
     "test:final-cut-overlay-headed": "node scripts/final-cut-overlay-headed-e2e.mjs",
@@ -96,15 +97,18 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/server": "2.4.0",
     "commitizen": "^4.3.1",
     "fast-xml-parser": "^5.10.1",
+    "fontkit": "^3.0.0",
     "git-cz": "^4.9.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@babel/parser": "7.29.13",
-    "@openai/codex": "0.166.0",
+    "@babel/parser": "7.29.14",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@openai/codex": "0.169.0",
+    "@types/fontkit": "^2.0.9",
     "@types/node": "24.19.2",
     "c8": "12.0.0",
     "esbuild": "0.28.2",

@@ -4,13 +4,13 @@ import { createProjectStatusClient } from './sync-project-status.mjs';
 
 const FAILED_CHECKS = new Set(['FAILURE', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE', 'STALE']);
 
-export function choosePullRequestStatus({ mergeable, mergeStateStatus, hasReviewComments, checks }) {
+export function choosePullRequestStatus({ mergeable, mergeStateStatus, isDraft, checks }) {
 	if (mergeable === 'CONFLICTING' || mergeStateStatus === 'DIRTY' || mergeStateStatus === 'BEHIND'
 		|| checks.some((check) => check.required && (
 			(check.status === 'COMPLETED' && FAILED_CHECKS.has(check.conclusion))
 			|| check.state === 'FAILURE' || check.state === 'ERROR'
 		))) return 'Pending';
-	return hasReviewComments ? 'In review' : 'In progress';
+	return isDraft ? 'In progress' : 'In review';
 }
 
 export function extractLinkedIssueNumbers(body, repository) {
@@ -37,9 +37,7 @@ const ROLLUP = `statusCheckRollup { id ${CONTEXTS} }`;
 const PULL_REQUEST_QUERY = `query($owner:String!, $name:String!, $number:Int!, $after:String) {
 	repository(owner:$owner, name:$name) {
 		pullRequest(number:$number) {
-			number body state mergeable mergeStateStatus
-			reviews(first:1, states:[COMMENTED, CHANGES_REQUESTED, APPROVED]) { totalCount }
-			reviewThreads(first:1) { totalCount }
+			number body state isDraft mergeable mergeStateStatus
 			closingIssuesReferences(first:100) { nodes { number repository { nameWithOwner } } ${PAGE_INFO} }
 			commits(last:1) { nodes { commit { ${ROLLUP} } } }
 			potentialMergeCommit { ${ROLLUP} }
@@ -119,7 +117,7 @@ export function createPullRequestStatusSource({ repository, token, apiUrl = 'htt
 		return {
 			number, issueNumbers: [...issueNumbers], mergeable: pr.mergeable,
 			mergeStateStatus: pr.mergeStateStatus,
-			hasReviewComments: pr.reviews.totalCount > 0 || pr.reviewThreads.totalCount > 0,
+			isDraft: pr.isDraft,
 			checks: [...checks.values()],
 		};
 	};

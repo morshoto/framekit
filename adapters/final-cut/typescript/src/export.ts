@@ -270,8 +270,11 @@ export class FinalCutVideoExporter {
       try {
         return await this.probe(outputPath);
       } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          throw new Error("DEPENDENCY_MISSING: ffprobe is required; install FFmpeg and ensure ffprobe is on PATH", { cause: error });
+        }
         if (this.now() >= deadline) {
-          throw new Error(`FINAL_CUT_EXPORT_METADATA_FAILED: could not inspect ${outputPath} (${String(error)})`);
+          throw new Error("FINAL_CUT_EXPORT_METADATA_FAILED: could not inspect exported video; check the output and FFmpeg installation", { cause: error });
         }
         await this.sleep(Math.min(this.pollMs, Math.max(0, deadline - this.now())));
       }
@@ -626,17 +629,12 @@ function unavailableSemanticCheck(
 }
 
 async function probeWithFfprobe(outputPath: string): Promise<FinalCutVideoProbeResult> {
-  let stdout: string;
-  try {
-    ({ stdout } = await execFile("ffprobe", [
+  const { stdout } = await execFile("ffprobe", [
       "-v", "error",
       "-show_entries", "format=duration:stream=codec_type,width,height,r_frame_rate,avg_frame_rate,codec_name",
       "-of", "json",
       outputPath,
-    ], { maxBuffer: 1_000_000 }));
-  } catch (error) {
-    throw new Error(`ffprobe failed: ${String(error)}`);
-  }
+    ], { maxBuffer: 1_000_000 });
   const parsed = JSON.parse(stdout) as {
     streams?: Array<Record<string, unknown>>;
     format?: { duration?: string };

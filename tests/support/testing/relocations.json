@@ -1181,7 +1181,8 @@
       "\"mutable live-state availability cannot establish non-dispatch\"",
       "\"built-in publisher without readback rejects safely before dispatch\"",
       "\"mutable readback availability cannot establish non-dispatch\"",
-      "\"live-state configuration changes during acquisition remain uncertain\""
+      "\"live-state configuration changes during acquisition remain uncertain\"",
+      "\"simulated-native: failed Undo keeps the reservation\""
     ],
     "tests/integration/canonical-native-provider.test.ts": [
       "\"canonical native provider exposes one explicit active project and sequence\"",
@@ -1533,12 +1534,12 @@
     "tests/integration/disposable-native.test.ts": [
       "\"disposable native preview binds the canonical target without mutating it\"",
       "\"disposable native workflow prepares the canonical target before native preflight\"",
-      "\"disposable native execute returns a canonical diff and explicit undo restores the digest\"",
+      "\"simulated-native: disposable native execute returns a canonical diff and explicit undo restores the digest\"",
       "\"disposable native restoration evidence names the requested non-first target\"",
       "\"disposable native workflow bounds retained operations while preserving the newest undo\"",
-      "\"disposable native execute rejects a stale preview before native mutation\"",
-      "\"disposable native execute rejects changed native targets before mutation\"",
-      "\"disposable native verification failure compensates with native Undo\"",
+      "\"simulated-native: disposable native execute rejects a stale preview before native mutation\"",
+      "\"simulated-native: disposable native execute rejects changed native targets before mutation\"",
+      "\"simulated-native: disposable native verification failure compensates with native Undo\"",
       "\"disposable native workflow fails closed when canonical snapshots are unavailable\"",
       "\"disposable native workflow accepts an active canonical target without project selection\""
     ],
@@ -1578,6 +1579,7 @@
     "tests/integration/edit-tool-schema.test.ts": [
       "\"single-edit tools advertise operation-specific required fields\"",
       "\"published root schema validates non-last edit operations\"",
+      "\"music add discovery permits both placement variants\"",
       "\"editor.timeline.edit validates trim duration before its handler\"",
       "\"single-edit tools reject fields from another operation\""
     ],
@@ -1613,7 +1615,8 @@
       "\"previews and applies deterministic edits while Final Cut is unavailable\"",
       "\"rejects stale desired revisions before changing the session\"",
       "\"blocks stale session plans without changing BASE or OURS\"",
-      "\"can construct an IR from a canonical snapshot without leaking editor types\""
+      "\"can construct an IR from a canonical snapshot without leaking editor types\"",
+      "\"canonical dissolve recovery rejects invalid provider readback\""
     ],
     "tests/integration/editor-first-routing.test.ts": [
       "\"routing selects the connected editor when required capabilities are available\"",
@@ -1666,6 +1669,7 @@
       "\"video exporter preserves the existing output until a replacement is verified\"",
       "\"video exporter replaces an existing output only after verification\"",
       "\"video exporter refuses a pre-existing output unless overwrite is explicit\"",
+      "\"video exporter sanitizes probe failures and preserves existing output\"",
       "\"video exporter detects completion before probing metadata\"",
       "\"video exporter rejects unsupported presets before automation\"",
       "\"video exporter verifies every requested media property\"",
@@ -1962,12 +1966,18 @@
       "\"runtime dependency scan includes side-effect imports and value re-exports\""
     ],
     "tests/integration/headless-project-mcp.test.ts": [
+      "\"same-session and fresh-session renders retain all frames after JSON and gain edits\"",
+      "\"production MCP preserves approval for an unsampled dissolve\"",
       "\"production rough-cut tools expose digest-bound edit operations\"",
       "\"headless project media can be understood and planned without a Final Cut connection\"",
       "\"production rough-cut MCP workflow previews and commits B-A-C video, title, and mixed music\"",
+      "\"rough-cut dissolve preview binds render and FCPXML output\"",
       "\"production stdio MCP persists and reopens the headless project and render record\"",
       "\"headless project open fails closed when local media has no metadata probe\"",
+      "\"concurrent MCP edit reports a spaced stale-project error\"",
+      "\"media probing reports actionable coded failures\"",
       "\"headless rough-cut preview and execution preserve provenance and produce verified artifacts\"",
+      "\"rough cut binds appended titles to an existing selected font\"",
       "\"inferred rough-cut ranges align duration to the sequence frame grid\""
     ],
     "tests/integration/headless-release-gate.test.ts": [
@@ -1977,10 +1987,15 @@
       "\"headless render fixtures are reproducible and encode the canonical QA assertions\""
     ],
     "tests/integration/headless-renderer.test.ts": [
+      "\"FFmpeg renderer rejects titles with unavailable glyphs\"",
+      "\"FFmpeg renders a supported mixed-script title without tofu\"",
+      "\"FFmpeg dissolve preserves incoming video and audio timing\"",
       "\"FFmpeg renderer preserves apostrophes in title text\"",
+      "\"FFmpeg renderer ends titles before the cut frame\"",
       "\"FFmpeg renderer keeps title text separate from drawtext options\"",
       "\"FFmpeg Timeline IR renderer honors explicit output frame rate without mutating sources\"",
       "\"FFmpeg renderer fills a trailing video gap with black while music continues\"",
+      "\"FFmpeg preserves a silent tail after short music ends\"",
       "\"FFmpeg renders a title during a cross-dissolve\"",
       "\"FFmpeg mixes independent music with source audio at the requested gain\"",
       "\"FFmpeg renders both occurrences that reuse one music resource\"",
@@ -2075,9 +2090,16 @@
       "\"materialization tracker lookup occurs only with a reservation\"",
       "\"an overridden built-in publisher does not use the unavailable shortcut\"",
       "\"invalid persisted provenance is rejected before materialization reservation\"",
-      "\"invalid provenance is checked before the unavailable-provider shortcut\""
+      "\"invalid provenance is checked before the unavailable-provider shortcut\"",
+      "\"simulated-native: lost reply retains a reservation through MCP reconnect\"",
+      "\"simulated-native: wrong canonical target cannot become a verified success\"",
+      "\"simulated-native: partial write fails canonical verification\"",
+      "\"simulated-native: pre-dispatch disconnect is inspectable after reconnect\"",
+      "\"simulated-native: concurrent clients cannot dispatch twice\"",
+      "\"simulated-native: separate MCP process restart never replays lost dispatch\""
     ],
     "tests/integration/mcp.test.ts": [
+      "\"MCP presents invalid tool arguments as actionable coded errors\"",
       "\"Phase 0 exposes read/write/diff through MCP stdio\""
     ],
     "tests/integration/media-role-preservation.test.ts": [
@@ -2606,6 +2628,8 @@
       "\"ffprobe verifier treats missing output as failure\"",
       "\"ffprobe verifier requires canonical audio streams\"",
       "\"ffprobe verifier accepts renderer audio resampling\"",
+      "\"render verification measures decoded mix true peak\"",
+      "\"ffprobe verifier rejects a sparse video despite its nominal frame rate\"",
       "\"ffprobe verifier requires AAC for FFmpeg headless renders\"",
       "\"ffprobe verifier rejects output identity or bytes changing during verification\"",
       "\"render-and-verify preserves explicit unavailable state\""
@@ -2751,6 +2775,7 @@
       "\"the public Skill contract exposes the editor-independent lifecycle\""
     ],
     "tests/integration/skill-mcp-contract.test.ts": [
+      "\"public v2 registration preserves union discovery and branch validation\"",
       "\"skill tools register independently with the same names, schemas, and error mapping\"",
       "\"generic MCP Skill tools delegate discovery, inspection, preview, and token-only execution\"",
       "\"generic MCP maps unavailable Skill requirements to structured errors\""
@@ -2794,6 +2819,10 @@
       "\"discovery includes documentation but deliberately delegates Docs app runners\""
     ],
     "tests/integration/timeline-ir-fcpxml.test.ts": [
+      "\"native dissolve without canonical metadata stays unbound\"",
+      "\"exports an adjacent cross-dissolve with its media references\"",
+      "\"unverified dissolve export fails closed\"",
+      "\"dissolve planning preserves fractional frame timing and bounds\"",
       "\"materialization round trips plain dialogue on a video occurrence\"",
       "\"materialization retains native dialogue subroles\"",
       "\"compiled FCPXML validates against Final Cut's 1.11 DTD\"",
@@ -3055,6 +3084,30 @@
   },
   "recordedAtCommit": "37a92fa1",
   "addedTestNames": {
+    "tests/integration/mcp.test.ts": [
+      "\"MCP preserves omitted opaque input behavior across SDK migration\"",
+      "\"all tools with required root inputs reject empty arguments\"",
+      "\"MCP stdio restarts after clean shutdown\""
+    ],
+    "tests/integration/clean-mcp-clients.test.ts": [
+      "\"clean client diagnostics can select the packed candidate\"",
+      "\"MCP server uses the stable v2 server dependency\""
+    ],
+    "tests/integration/skill-mcp-contract.test.ts": [
+      "\"public v2 registration validates raw tool schemas\"",
+      "\"v2 discovery preserves v1 object constraints\"",
+      "\"public v2 registration rejects invalid input before invoking the handler\"",
+      "\"public v2 registration skips handlers cancelled during validation\"",
+      "\"production server is built with the v2 SDK\""
+    ],
+    "tests/integration/editing-session.test.ts": [
+      "\"title font identity persists and rejects incomplete assets\""
+    ],
+    "tests/integration/release-notes-format.test.ts": [
+      "'matches exactly one nonempty milestone description by release version'",
+      "'omits categories and description when no milestone matches'",
+      "'CLI fetches paginated milestone descriptions and preserves manual notes'"
+    ],
     "tests/integration/phase1.test.ts": [
       "\"post-write speech reanalysis preserves mixed VAD coverage without advertising complete VAD\"",
       "\"post-write speech reanalysis rejects inconsistent provenance across disjoint ranges\"",
@@ -3076,7 +3129,12 @@
       "'package branch baselines retain unmeasured packages and reject invalid counters'"
     ],
     "tests/documentation/ci-workflow.test.mjs": [
-      "'deterministic PR coverage reports package branches even when tests fail'"
+      "'deterministic PR coverage reports package branches even when tests fail'",
+      "'milestone warnings compare releases numerically and ignore unknown milestones'",
+      "'milestone warnings create, update, resolve and avoid duplicate comments'",
+      "'milestone warning reconciliation checks both sides and skips other repositories'",
+      "'milestone warning API paginates dependencies and fails on GraphQL errors'",
+      "'assign workflow schedules and serializes milestone warnings'"
     ],
     "tests/integration/final-cut-library-inspection.test.ts": [
       "\"read-only library inspection preserves frontmost application\""
@@ -3089,7 +3147,15 @@
       "\"a legacy writer removing an initializing lock can bypass upgraded writer exclusion\""
     ],
     "tests/integration/headless-project-mcp.test.ts": [
+      "\"production rough-cut renders without FCPXML and rejects changed export intent\"",
+      "\"approved headless edit tokens expire without mutation\"",
+      "\"headless edit reports primary gaps in preview and execution\"",
+      "\"approved headless edits report overlap and unsupported dissolve consequences\"",
+      "\"approved headless edit rejects a changed base with the same revision\"",
+      "\"approved headless edits execute only a matching issued preview\"",
       "\"headless media search returns both registered same-name sources through production MCP\"",
+      "\"external edit JSON previews registered clips, a title and music without mutation\"",
+      "\"external JSON binds one font through preview, render and FCPXML\"",
       "\"headless project list includes valid project IDs that resemble render records\"",
       "\"headless project list rejects a project whose stored ID differs from its filename\"",
       "\"rough-cut history failure reports the committed revision without execution proof\"",
@@ -3101,10 +3167,11 @@
       "\"headless Undo rejects changed or missing media and a validation race\"",
       "\"headless Undo reports save and independent readback failures without verified success\"",
       "\"concurrent headless Undo attempts cannot both restore the same revision\"",
-      "\"artifact-first production MCP edits, restores, exports and renders fractional-frame media\""
+      "\"artifact-first production MCP edits, restores, exports and renders fractional-frame media\"",
+      "\"storyboard rejects stale media and cleans up after cancellation\""
     ],
     "tests/integration/project-status-sync.test.ts": [
-      "'PR creation starts progress; submitted review comments select review'",
+      "'draft PRs select progress and ready PRs select review'",
       "'only failed required CI, conflicts, or behind branches select Pending'",
       "'issue references include Refs and closing links but exclude other repositories'",
       "'missing reference targets are skipped without hiding real API failures'",
@@ -3245,11 +3312,23 @@
       "\"FCPXML snapshots preserve explicit sequence timecode origin without inventing one\"",
       "\"FCPXML original representations honor the default kind and reject ambiguous sources\""
     ],
+    "tests/integration/local-media-registration.test.ts": [
+      "\"dissolve metadata verification rejects mismatched probe data and changed files\""
+    ],
     "tests/integration/headless-renderer.test.ts": [
+      "\"FFmpeg renders differently scaled occurrences across cuts and dissolves\"",
+      "\"FFmpeg renderer rejects a missing explicitly configured title font\"",
       "\"FFmpeg renderer refuses an unimplemented nonzero source origin\"",
-      "\"FFmpeg renderer rejects an explicit nonzero sequence timecode origin\""
+      "\"FFmpeg renderer rejects an explicit nonzero sequence timecode origin\"",
+      "\"media probe retains declared video color metadata\"",
+      "\"basic 720p title fits the observed Final Cut bounds\"",
+      "\"BT.709 dissolve samples meet the 720p Final Cut reference bounds\""
     ],
     "tests/integration/timeline-ir-fcpxml.test.ts": [
+      "\"encodes an explicitly selected basic title font\"",
+      "\"dissolve plans preserve source frames across rates and odd durations\"",
+      "\"native dissolve readback preserves visible semantics without inventing stripped IDs\"",
+      "\"dissolve planning rejects unknown or non-BT.709 colors\"",
       "\"FCPXML compilation preserves explicit nonzero source bounds\"",
       "\"FCPXML frame rounding cannot move an occurrence outside source bounds\"",
       "\"FCPXML compilation refuses to discard an explicit nonzero timecode origin\"",
@@ -3331,7 +3410,7 @@
         "\"render and rough-cut execution history cannot replace projects with matching IDs\""
       ],
       "tests/integration/project-status-sync.test.ts": [
-        "'PR creation starts progress; submitted review comments select review'",
+        "'draft PRs select progress and ready PRs select review'",
         "'only failed required CI, conflicts, or behind branches select Pending'",
         "'issue references include Refs and closing links but exclude other repositories'",
         "'missing reference targets are skipped without hiding real API failures'",

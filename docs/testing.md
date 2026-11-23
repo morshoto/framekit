@@ -74,6 +74,12 @@ compatibility check retains Xcode 16.4 / SDK 15.5. Hosted validation lists the
 project and type-checks the Swift source against a shim; it does not build the
 extension or validate headed Final Cut behavior.
 
+For fast offline native-boundary regression checks, run `pnpm run test:simulated-native`.
+It uses the isolated test runner and a scripted receiver; its `simulated-native`
+results do not establish real Final Cut dispatch terminality, reservation
+release, canonical readback, Undo, or headed acceptance. The PR test action
+runs this command separately from native acceptance.
+
 For native source changes, also run:
 
 ```sh
@@ -86,6 +92,95 @@ specific consent and target required by that runner. Standard validation does
 not launch or activate Final Cut Pro. Keep private media, raw tool output,
 credentials, local filesystem paths, and crash dumps out of committed test
 fixtures and reports.
+
+### Manual FCPXML import and export QA
+
+The following workflow prepares disposable, non-private media and an FCPXML
+artifact through production MCP. It does not open Final Cut or operate on a
+native project. Create the fixture in a **new** directory; the command refuses
+to reuse an existing one:
+
+```sh
+node --import tsx scripts/manual-import-qa.ts prepare /path/to/new-qa-fixture
+```
+
+`reference.json` records the candidate commit, whether the checkout was dirty,
+source and artifact SHA-256 hashes, and independently stated clip ranges,
+title, music, and expected samples. Use a clean checkout and pin the exact
+candidate. The three video inputs have a black lead-in; the JSON edit selects a
+one-second colored range starting at one second from each. A successful artifact
+check does not prove Final Cut behavior.
+
+The exclusive fixture directory also contains `input-edit.json`,
+`preview-receipt.json`, and `execution-receipt.json`: the submitted edit, its
+preview digest, and the approved execution and export identities. Their hashes
+are recorded in `reference.json`. These files do not establish native import.
+
+For the headed portion, obtain explicit approval for the exact disposable
+library, generated FCPXML, operations, and new export path. In Final Cut,
+create and select a new isolated library; use **File > Import > XML** and import
+`edit.fcpxml`. Confirm the import targets the disposable library before
+proceeding; stop if the destination is ambiguous or an existing project could
+be overwritten. Confirm all three trimmed clips are present in red, green, blue
+order, play the timeline, and inspect the basic title and static music. Verify
+that the title text can be edited independently in the disposable project.
+Record the actual Framekit, Final Cut, and macOS versions, library and project
+identities, the import path, any warnings, and sanitized observations.
+
+Select the disposable project and use **File > Share > Export File** to a new
+movie path. After Final Cut finishes its export, run:
+
+```sh
+node --import tsx scripts/manual-import-qa.ts inspect /path/to/qa-fixture /path/to/final-cut-export.mov /path/to/new-observation-directory
+```
+
+The inspector rechecks artifact and source hashes, checks duration, frame rate and frame count, samples
+clip interiors and adjacent boundary frames, measures the 880 Hz music tone,
+and saves a frame for human title-visibility inspection. It never asserts that
+a movie came from Final Cut, that import succeeded, or that the title is
+editable. Record those observations separately and verify title text in the
+saved frame. Missing media, import errors, missing/unsupported title assets,
+failed measurements, or ambiguous provenance are FAIL or BLOCKED; never
+convert an unobserved condition into PASS. Do not clear or replay a retained
+native reservation. A synthetic or FFmpeg-rendered movie is not a substitute
+for the actual Final Cut export.
+
+For the fixed two-second synthetic dissolve diagnostic (30 fps, six-frame
+red-to-blue transition, 440/880 Hz source audio and a 1760 Hz music bed), a
+separate measurement report can be created without overwriting an existing
+directory:
+
+```sh
+node --import tsx scripts/manual-import-qa.ts inspect-dissolve /path/to/video /path/to/new-dissolve-report
+```
+
+The report checks selected frame and audio windows and binds the inspected
+video hash. It does not verify the approved manifest, native import, Final Cut
+export provenance, title visibility or editability, or visual color parity.
+Record those checks independently; this diagnostic is not a release verdict.
+
+For the 720p fixture, compare a 48 kHz stereo reference and a 48 kHz mono
+candidate using the agreed sampled color, title-bounds, and audio-level limits:
+
+```sh
+node --import tsx scripts/manual-import-qa.ts compare-dissolve /path/to/reference.mov /path/to/candidate.mp4 /path/to/new-parity-report
+```
+
+The default signal profile expects the fixture music at −12 dB. For the
+otherwise identical approved revision at −9 dB, append `--music-gain=-9`;
+the report records the selected profile. These profiles apply only to the
+known synthetic source levels, not arbitrary music. The −9 dB profile
+requires the music-to-outgoing tone amplitude ratio to be 0.315–0.399
+(approximately ±1 dB around the expected ratio).
+
+The reference is downmixed as `0.7071067811865476 * left +
+0.7071067811865476 * right`. Title measurement detects white pixels in the
+fixture's central region at frame 27; it does not identify the text. A sampled
+pass leaves source lineage, exact boundaries, editable title/transition, and
+Final Cut import and export provenance unverified.
+
+Apple documents [XML import](https://support.apple.com/guide/final-cut-pro/verdbd66ae/mac)
+and [Export File](https://support.apple.com/guide/final-cut-pro/export-final-mastering-files-ver0192a47b8/mac).
 
 For publisher QA, `pnpm run test:final-cut-publisher-headed --help` lists the
 approved artifact digest, verified rough-cut execution, clean candidate commit,
@@ -100,8 +195,9 @@ evidence has been independently reviewed.
 ## Project status automation
 
 The `Assign` workflow keeps issue `Status:` labels and Project #3's Status
-field aligned. Opening or reopening an issue selects Backlog; closing selects
-Done. Adding a status label selects that status and removes the previous status
+field aligned. Issue templates apply `Status: Backlog`. Opening or reopening an issue selects
+Backlog; closing selects Done. To signal local work before opening a PR, add
+`Status: In progress`. Adding a status label selects that status and removes the previous status
 label. Removing the last status label resets it to Backlog. Manual dispatch
 backfills existing issue cards, using a single status label first or seeding a
 missing label from the board. Multiple labels are reported as conflicts.
@@ -112,8 +208,8 @@ or issue URLs), as well as GitHub's linked closing issues:
 
 | Current related PR state | Issue label and project status |
 | --- | --- |
-| Open PR, including a draft | In progress |
-| Submitted review or inline review comments | In review |
+| Open draft PR | In progress |
+| Open PR ready for review | In review |
 | Failed required CI, merge conflict, or branch behind the base | Pending |
 
 Pending takes precedence over In review, which takes precedence over In progress

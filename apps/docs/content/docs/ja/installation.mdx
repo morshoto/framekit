@@ -1,1 +1,21 @@
-内容は準備中です。
+## 必要な環境
+
+- **公開パッケージを使う場合**は Node.js 20 以降が必要です。Codex プラグインが `npx` でパッケージを起動します。
+- **リポジトリで開発する場合**は Node.js 22.23.5 と pnpm 12.18.0 を使います。[開発](/ja/docs/development/)を参照してください。
+- **ネイティブ拡張をビルドする場合**は、開発ツールに加えて Xcode 16.4 と macOS 15.5 SDK が必要です。ヘッドレス編集には不要です。
+
+## Codex プラグインをインストールする
+
+最初にマーケットプレイスを登録します。
+
+```sh
+codex plugin marketplace add morshoto/framekit
+```
+
+Codex で `/plugins` を開き、**Framekit** をインストールして、新しいセッションを開始してください。リポジトリをクローンする必要はありません。
+
+## Final Cut Pro に接続する場合
+
+Final Cut Workflow Extension は個別に配布されています。ライブ接続が必要な場合は、対応する [GitHub リリース](https://github.com/morshoto/framekit/releases)から入手してください。接続手順と利用できる機能は [Final Cut Pro](/ja/docs/final-cut-pro/) に記載しています。
+
+[クイックスタート](/ja/docs/quick-start/)で接続を確認しましょう。

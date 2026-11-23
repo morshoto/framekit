@@ -56,7 +56,7 @@ test("render-and-verify returns verified provenance and independent artifact met
               && transition.r > 20 && transition.b > 20
               && late.b > 150 && late.r < 80
               && countBrightPixels(titleFrame, 80, 240, 40, 140) > countBrightPixels(noTitleFrame, 80, 240, 40, 140) + 5
-              && Math.abs((outputVolume - sourceVolume) - 6) < 1.5;
+              && Math.abs((outputVolume - sourceVolume) - (6 - 3.0103)) < 1.5;
             return {
             name: "fixture-semantics",
             passed: plan.timeline.sequence.occurrences.map(({ id }) => id).join(",") === "occurrence-red,occurrence-blue"
@@ -77,9 +77,9 @@ test("render-and-verify returns verified provenance and independent artifact met
     assert.match(outcome.verification?.artifact?.fileDigest ?? "", /^[a-f0-9]{64}$/);
     assert.equal(outcome.verification?.checks.every(({ passed }) => passed), true);
 
-    const rangedFrame = await frameAt(outcome.verification!.artifact!.path, 1.4, directory, "range-selected");
+    const rangedFrame = await frameAt(outcome.verification!.artifact!.path, 1.1, directory, "range-selected");
     const unrangedTimeline = structuredClone(timeline);
-    unrangedTimeline.sequence.occurrences[1]!.sourceStartTime = { value: "0", timescale: "1" };
+    unrangedTimeline.sequence.occurrences[1]!.sourceStartTime = { value: "1", timescale: "4" };
     const unrangedParameters = renderParameters(join(directory, "unranged.mp4"));
     const unrangedRequest = createFramekitRenderRequest({
       timeline: unrangedTimeline,
@@ -89,7 +89,7 @@ test("render-and-verify returns verified provenance and independent artifact met
     const unrangedRenderer = new FfmpegTimelineRenderer({ ffmpegPath: process.env.FFMPEG_BIN || "ffmpeg" });
     const unrangedPlan = createFramekitRenderPlan(unrangedRequest, unrangedRenderer.capabilities(unrangedRequest));
     await unrangedRenderer.render(unrangedPlan);
-    const unrangedFrame = await frameAt(unrangedParameters.outputPath, 1.4, directory, "range-ignored");
+    const unrangedFrame = await frameAt(unrangedParameters.outputPath, 1.1, directory, "range-ignored");
     assert.notEqual(frameDigest(rangedFrame), frameDigest(unrangedFrame), "sourceStartTime must change the verified artifact segment");
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -276,6 +276,70 @@ test("ffprobe verifier accepts renderer audio resampling", async () => {
       sampleRate: 22_050,
       channels: 1,
     });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("render verification measures decoded mix true peak", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-render-peak-"));
+  try {
+    for (const [name, gain, expected] of [["hot", 7.2, false], ["safe", 1, true], ["silent", 0, true]] as const) {
+      const path = join(directory, `${name}.mp4`);
+      await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", [
+        "-v", "error", "-f", "lavfi", "-i", "color=c=red:s=320x180:r=30:d=2",
+        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2",
+        "-filter_complex", `[1:a]volume=${gain},asplit=2[a][b];[a][b]amix=inputs=2:normalize=0[mix]`,
+        "-map", "0:v:0", "-map", "[mix]", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", path,
+      ], { cwd: repositoryRoot, env: process.env });
+      const timeline = minimalTimeline();
+      const request = createFramekitRenderRequest({ timeline, target: { projectId: timeline.project.id, sequenceId: timeline.sequence.id }, parameters: renderParameters(path) });
+      const plan = createFramekitRenderPlan(request, { renderer: { id: "ffmpeg-headless", version: "1" }, features: { "local-media": "supported", "structural-edits": "supported" } });
+      const result = createFramekitRenderResult(plan, { path, format: "mp4" });
+      const verification = await new FfmpegRenderVerifier().verify(plan, result);
+      const check = verification.checks.find((item) => item.name === "audio-true-peak");
+      assert.equal(check?.passed, expected, `${name}: ${JSON.stringify(verification)}`);
+      assert.equal(verification.status, expected ? "passed" : "failed");
+      if (!expected) assert.match(check!.detail, /peak|gain/i);
+      if (name === "safe") {
+        const unavailable = await new FfmpegRenderVerifier({ ffmpegPath: join(directory, "missing-ffmpeg") }).verify(plan, result);
+        assert.equal(unavailable.status, "failed");
+        assert.match(unavailable.checks.find((item) => item.name === "audio-true-peak")!.detail, /could not measure/);
+        const detail = unavailable.checks.find((item) => item.name === "audio-true-peak")!.detail;
+        assert.match(detail, /DEPENDENCY_MISSING:.*ffmpeg/);
+        assert.doesNotMatch(detail, /ENOENT|spawn/);
+        const missingProbe = await new FfmpegRenderVerifier({ ffprobePath: join(directory, "missing-ffprobe") }).verify(plan, result);
+        assert.equal(missingProbe.status, "unavailable");
+        assert.equal(missingProbe.error?.code, "DEPENDENCY_MISSING");
+        assert.match(missingProbe.error!.message, /ffprobe.*install/i);
+      }
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("ffprobe verifier rejects a sparse video despite its nominal frame rate", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-sparse-video-"));
+  try {
+    const outputPath = join(directory, "sparse.mp4");
+    await writeFile(outputPath, "fixture output");
+    const ffprobePath = join(directory, "ffprobe.mjs");
+    const probe = {
+      streams: [{ codec_type: "video", codec_name: "h264", width: 320, height: 180, r_frame_rate: "30/1", avg_frame_rate: "1/1" }],
+      format: { format_name: "mp4", duration: "2" },
+    };
+    await writeFile(ffprobePath, `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(JSON.stringify(probe))});\n`);
+    await chmod(ffprobePath, 0o755);
+    const timeline = minimalTimeline();
+    const request = createFramekitRenderRequest({ timeline, target: { projectId: timeline.project.id, sequenceId: timeline.sequence.id }, parameters: renderParameters(outputPath) });
+    const plan = createFramekitRenderPlan(request, { renderer: { id: "ffmpeg-headless", version: "1" }, features: { "local-media": "supported", "structural-edits": "supported" } });
+    const result = createFramekitRenderResult(plan, { path: outputPath, format: "mp4" });
+    const verification = await new FfmpegRenderVerifier({ ffprobePath }).verify(plan, result);
+    const frameRateCheck = verification.checks.find((check) => check.name === "frame-rate");
+    assert.equal(frameRateCheck?.passed, false);
+    assert.deepEqual(frameRateCheck?.observed, { value: "1", timescale: "1" });
+    assert.equal(verification.status, "failed");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
