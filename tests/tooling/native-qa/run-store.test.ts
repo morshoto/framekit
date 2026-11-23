@@ -3,7 +3,7 @@ import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createOrInspectRun, inspectRun } from "../../../scripts/native-qa/run-store.js";
+import { createOrInspectRun, inspectRun, markDispatchUncertain } from "../../../scripts/native-qa/run-store.js";
 
 const manifest = {
   qaRunId: "qa-fixture-1", candidateCommit: "a".repeat(40), candidateTree: "b".repeat(40),
@@ -81,4 +81,32 @@ test("linked run directories cannot masquerade as owned records", async () => {
     await assert.rejects(inspectRun(root, manifest.qaRunId), /QA_RUN_UNSAFE_PATH/);
     await assert.rejects(createOrInspectRun(root, manifest), /QA_RUN_UNSAFE_PATH/);
   } finally { await rm(root, { recursive: true, force: true }); await rm(other, { recursive: true, force: true }); }
+});
+
+
+test("uncertain dispatch remains blocked across repeated starts", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-uncertain-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    const marked = await markDispatchUncertain(root, manifest);
+    assert.equal(marked.dispatch, "UNKNOWN_AFTER_DISPATCH");
+    assert.equal(marked.verdict, "BLOCKED");
+    assert.deepEqual(await markDispatchUncertain(root, manifest), marked);
+    const reopened = await createOrInspectRun(root, manifest);
+    assert.equal(reopened.created, false);
+    assert.deepEqual(reopened.run, marked);
+    await assert.rejects(markDispatchUncertain(root, { ...manifest, targetDigest: "8".repeat(64) }), /QA_RUN_IDENTITY_MISMATCH/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("an incomplete dispatch marker is never interpreted as safe to replay", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-marker-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    await writeFile(join(root, manifest.qaRunId, "dispatch-uncertain"), "");
+    const observed = await inspectRun(root, manifest.qaRunId);
+    assert.equal(observed.dispatch, "UNKNOWN_AFTER_DISPATCH");
+    assert.equal(observed.verdict, "BLOCKED");
+    assert.equal((await createOrInspectRun(root, manifest)).created, false);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
