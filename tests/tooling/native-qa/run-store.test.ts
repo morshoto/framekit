@@ -874,3 +874,20 @@ test("CLI verifies and retrieves artifact evidence without exposing its path", a
     assert.deepEqual(JSON.parse(read.stdout), record);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("corrupt artifact evidence cannot be reused or silently overwritten", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-artifact-corrupt-"));
+  try {
+    const path = join(root, "fixture.fcpxml");
+    const contents = "<fcpxml/>\n";
+    await writeFile(path, contents);
+    const unapproved = { ...manifest, authorizationDigest: null, artifactDigest: createHash("sha256").update(contents).digest("hex") };
+    await createOrInspectRun(root, unapproved);
+    await verifyQaArtifact(root, unapproved.qaRunId, path);
+    const evidencePath = join(root, unapproved.qaRunId, "artifact-evidence.json");
+    await writeFile(evidencePath, "{");
+    await assert.rejects(readQaArtifactEvidence(root, unapproved.qaRunId), /QA_EVIDENCE_CORRUPT/);
+    await assert.rejects(verifyQaArtifact(root, unapproved.qaRunId, path), /QA_EVIDENCE_CORRUPT/);
+    assert.equal(await readFile(evidencePath, "utf8"), "{");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
