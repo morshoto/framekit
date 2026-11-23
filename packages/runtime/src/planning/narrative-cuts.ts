@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { sameMediaSourceIdentity } from "../domain/media.js";
 import type { MediaSourceIdentity, RevisionBoundSpeechAnalysis } from "../domain/media.js";
 import type { ContextRevision, RationalTime, TimeRange } from "../domain/primitives.js";
@@ -148,4 +149,50 @@ export function rankNarrativeCuts(request: NarrativeCutRequest): NarrativeCutPla
   }
   result.candidates.sort((a, b) => b.confidence - a.confidence || Number(b.evidence.some((item) => item.startsWith("Unverified visual"))) - Number(a.evidence.some((item) => item.startsWith("Unverified visual"))) || a.sourceRange.start - b.sourceRange.start);
   return result;
+}
+
+/** Recompute safety and permit a frame-aligned subrange of an issued suggestion. */
+export function adjustNarrativeCut(
+  request: NarrativeCutRequest,
+  candidate: NarrativeCutCandidate,
+  adjusted: TimeRange,
+): NarrativeCutCandidate {
+  const current = rankNarrativeCuts(request).candidates.find((item) => isDeepStrictEqual(item, candidate));
+  if (!current) throw new Error("STALE_CANDIDATE: candidate no longer matches the current evidence or target");
+  if (!validRange(adjusted) || !adjusted.startTime || !adjusted.durationTime) throw new Error("INVALID_CUT_RANGE: exact positive sequence timing is required");
+  const start = parseRational(adjusted.startTime, "INVALID_CUT_RANGE");
+  const duration = parseRational(adjusted.durationTime, "INVALID_CUT_RANGE");
+  const frame = parseRational(request.sequenceFrameDuration, "INVALID_CUT_RANGE");
+  if (start.value < 0n || duration.value <= 0n || frame.value <= 0n) throw new Error("INVALID_CUT_RANGE: invalid frame timing");
+  const numericStart = Number(start.value) / Number(start.timescale);
+  const numericDuration = Number(duration.value) / Number(duration.timescale);
+  if (!Number.isFinite(numericStart) || !Number.isFinite(numericDuration)
+    || Math.abs(numericStart - adjusted.start) > 1e-9 || Math.abs(numericStart + numericDuration - adjusted.end) > 1e-9) {
+    throw new Error("INVALID_CUT_RANGE: numeric and exact timing differ");
+  }
+  if ((start.value * frame.timescale) % (start.timescale * frame.value) !== 0n
+    || (duration.value * frame.timescale) % (duration.timescale * frame.value) !== 0n) {
+    throw new Error("INVALID_CUT_RANGE: start and duration must align to the sequence frame grid");
+  }
+  const adjustedEnd = addRationalTimes(adjusted.startTime, adjusted.durationTime);
+  const candidateEnd = addRationalTimes(current.sequenceRange.startTime!, current.sequenceRange.durationTime!);
+  if (compareTimes(adjusted.startTime, current.sequenceRange.startTime!) < 0 || compareTimes(adjustedEnd, candidateEnd) > 0) {
+    throw new Error("UNSAFE_CUT_RANGE: adjustment exceeds the validated speech-safe interval");
+  }
+  const sourceStart = addRationalTimes(request.sourceRange.startTime!, subtractRationalTimes(adjusted.startTime, request.sequenceRange.startTime!));
+  const sourceStartParts = parseRational(sourceStart, "INVALID_CUT_RANGE");
+  const sourceSeconds = Number(sourceStartParts.value) / Number(sourceStartParts.timescale);
+  return {
+    ...structuredClone(current),
+    sourceRange: { start: sourceSeconds, end: sourceSeconds + numericDuration, startTime: sourceStart, durationTime: { ...adjusted.durationTime } },
+    sequenceRange: structuredClone(adjusted),
+    rationale: `${current.rationale} The interval was adjusted within the validated candidate.`,
+  };
+}
+
+function compareTimes(left: RationalTime, right: RationalTime): number {
+  const a = parseRational(left, "INVALID_CUT_RANGE");
+  const b = parseRational(right, "INVALID_CUT_RANGE");
+  const difference = a.value * b.timescale - b.value * a.timescale;
+  return difference < 0n ? -1 : difference > 0n ? 1 : 0;
 }
