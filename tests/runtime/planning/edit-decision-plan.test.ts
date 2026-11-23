@@ -287,7 +287,13 @@ test("headless decision service loads current project and brief and rejects proj
     const stale = await racing.plan(input);
     assert.equal(stale.status, "unavailable");
     assert.match(stale.reason, /STALE/);
-    await f.briefStore.revise("p", f.draft.digest, { ...f.request.brief, theme: "changed" });
+    snapshot = structuredClone(f.request.snapshot);
+    let reads = 0;
+    const briefRace = new HeadlessDecisionPlanService({ readProject: async () => {
+      if (++reads === 2) await f.briefStore.revise("p", f.draft.digest, { ...f.request.brief, theme: "changed" });
+      return structuredClone(snapshot);
+    }, storeForProject: () => f.briefStore, artifacts: f.artifacts, verifySource: verifyLocalMediaSource });
+    assert.equal((await briefRace.plan(input)).status, "unavailable");
     snapshot = structuredClone(f.request.snapshot);
     assert.equal((await service.plan(input)).status, "unavailable");
     assert.deepEqual(f.request.speechContext, speechContext);
