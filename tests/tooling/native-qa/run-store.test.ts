@@ -50,6 +50,39 @@ test("supervised publisher retains uncertain intent after a lost receiver respon
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("supervised publisher never dispatches when readiness fails", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-supervised-gate-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    let executions = 0;
+    const call = async (name: string) => {
+      if (name === "artifact.publish.preview") return { jobId: "job-123", state: "awaiting-confirmation", artifactDigest: manifest.artifactDigest, targetLibraryPath: "/fixture/library" };
+      executions++; throw new Error("unexpected dispatch");
+    };
+    const input = { artifactPath: "/fixture/artifact", transactionId: "fixture", targetLibraryPath: "/fixture/library", artifactDigest: manifest.artifactDigest };
+    await assert.rejects(runSupervisedQaPublisher(root, manifest, input, call, async () => { throw new Error("not ready"); }), /not ready/);
+    assert.equal(executions, 0);
+    assert.equal((await inspectRun(root, manifest.qaRunId)).dispatch, "NOT_DISPATCHED");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("concurrent supervised publisher attempts dispatch at most once", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-supervised-race-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    let executions = 0;
+    const call = async (name: string) => {
+      if (name === "artifact.publish.preview") return { jobId: "job-123", state: "awaiting-confirmation", artifactDigest: manifest.artifactDigest, targetLibraryPath: "/fixture/library" };
+      executions++; throw new Error("simulated lost response");
+    };
+    const input = { artifactPath: "/fixture/artifact", transactionId: "fixture", targetLibraryPath: "/fixture/library", artifactDigest: manifest.artifactDigest };
+    const outcomes = await Promise.allSettled(Array.from({ length: 6 }, () => runSupervisedQaPublisher(root, manifest, input, call, async () => {})));
+    assert.ok(outcomes.every(outcome => outcome.status === "rejected"));
+    assert.equal(executions, 1);
+    assert.equal((await inspectRun(root, manifest.qaRunId)).dispatch, "UNKNOWN_AFTER_DISPATCH");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("oversized QA records fail closed without weakening uncertain dispatch", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-qa-oversized-"));
   try {
