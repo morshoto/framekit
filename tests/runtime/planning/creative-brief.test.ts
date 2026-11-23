@@ -88,3 +88,8 @@ test("review examples cover different purposes and identify uncovered requiremen
     assert.throws(() => acceptCreativeBrief(example), /coverage/i);
   }
 });
+
+test("brief workflow is available to runtime consumers", async () => {
+  const runtime = await import("../../../packages/runtime/src/index.js");
+  assert.equal(typeof (runtime as Record<string, unknown>).reviewCreativeBrief, "function");
+});
