@@ -44,3 +44,9 @@ test("a mismatched MCP fingerprint blocks even when other identities match", () 
   assert.equal(result.nextAction, "resolve-identity-mismatch");
   assert.equal(result.dispatchAllowed, false);
 });
+
+test("reports which identities differ without exposing fingerprint values", () => {
+  const result = assessQaPreflight({ ...ready, observed: { ...identity, mcpDigest: "9".repeat(64), pluginDigest: "7".repeat(64) } });
+  assert.deepEqual(result.mismatchedIdentities, ["mcpDigest", "pluginDigest"]);
+  assert.equal(JSON.stringify(result).includes("9".repeat(64)), false);
+});
