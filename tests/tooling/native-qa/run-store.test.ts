@@ -4,7 +4,7 @@ import { chmod, lstat, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { claimDispatchIntent, createOrInspectRun, inspectRun, markDispatchUncertain } from "../../../scripts/native-qa/run-store.js";
+import { bindQaAuthorization, claimDispatchIntent, createOrInspectRun, inspectRun, markDispatchUncertain } from "../../../scripts/native-qa/run-store.js";
 import { runPublishStages } from "../../../scripts/final-cut-publisher-verification.mjs";
 import { readQaEvidence } from "../../../scripts/native-qa/supervisor.js";
 import { publishQaRecord } from "../../../scripts/native-qa/atomic-record.js";
@@ -455,5 +455,47 @@ test("headless preflight can start without native authorization", async () => {
     assert.equal((await createOrInspectRun(root, unapproved)).created, false);
     await assert.rejects(claimDispatchIntent(root, unapproved, "publish-job-1"), /QA_AUTHORIZATION_REQUIRED/);
     assert.equal((await inspectRun(root, manifest.qaRunId)).dispatch, "NOT_DISPATCHED");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+
+test("a separate authorization digest can be bound after headless preflight", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-bind-approval-"));
+  try {
+    const unapproved = { ...manifest, authorizationDigest: null };
+    await createOrInspectRun(root, unapproved);
+    const digest = "9".repeat(64);
+    const bound = await bindQaAuthorization(root, unapproved, digest);
+    assert.equal(bound.bound, true);
+    assert.equal(bound.run.manifest.authorizationDigest, null);
+    assert.equal(bound.run.authorizationBinding, digest);
+    assert.equal((await inspectRun(root, unapproved.qaRunId)).authorizationBinding, digest);
+    assert.equal((await bindQaAuthorization(root, unapproved, digest)).bound, false);
+    await assert.rejects(bindQaAuthorization(root, unapproved, "a".repeat(64)), /QA_RUN_IDENTITY_MISMATCH/);
+    assert.equal((await claimDispatchIntent(root, unapproved, "publish-job-1")).dispatch, "UNKNOWN_AFTER_DISPATCH");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("authorization binding rejects changed identity and uncertain runs", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-bind-identity-"));
+  try {
+    const unapproved = { ...manifest, authorizationDigest: null };
+    await createOrInspectRun(root, unapproved);
+    await assert.rejects(bindQaAuthorization(root, { ...unapproved, targetDigest: "a".repeat(64) }, "9".repeat(64)), /QA_RUN_IDENTITY_MISMATCH/);
+    await markDispatchUncertain(root, unapproved);
+    await assert.rejects(bindQaAuthorization(root, unapproved, "9".repeat(64)), /QA_DISPATCH_ALREADY_CLAIMED/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("one authorization cannot bind different target identities", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-bind-target-"));
+  try {
+    const first = { ...manifest, authorizationDigest: null };
+    const other = { ...first, qaRunId: "other-run", targetDigest: "a".repeat(64) };
+    await createOrInspectRun(root, first);
+    await createOrInspectRun(root, other);
+    await bindQaAuthorization(root, first, "9".repeat(64));
+    await assert.rejects(bindQaAuthorization(root, other, "9".repeat(64)), /QA_RUN_IDENTITY_MISMATCH/);
+    await assert.rejects(claimDispatchIntent(root, other, "publish-job-2"), /QA_AUTHORIZATION_REQUIRED/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
