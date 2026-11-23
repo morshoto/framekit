@@ -130,3 +130,14 @@ test("caption planner is exported to runtime consumers", async () => {
   const runtime = await import("../../../packages/runtime/src/index.js");
   assert.equal(typeof (runtime as Record<string, unknown>).planCaptionGroups, "function");
 });
+
+test("caption planning fails closed if pinned bytes change between reads", async () => {
+  const f = await fixture();
+  try {
+    const original = await f.artifacts.get(f.ref.artifactDigest);
+    let reads = 0;
+    const changed = { get: async () => ++reads === 1 ? original : Buffer.from("{}"), put: async () => {} };
+    const result = await planCaptionGroups(f.request, f.ref, f.current, changed, verifyLocalMediaSource);
+    assert.equal(result.status, "unavailable");
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
