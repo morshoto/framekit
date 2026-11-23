@@ -1,0 +1,50 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { rankNarrativeCuts } from "../../../packages/runtime/src/planning/narrative-cuts.js";
+
+const revision = { id: "rev-1", sequence: 1, timestamp: "2026-01-01T00:00:00.000Z" };
+const source = { mediaId: "source", source: "source.mov", sourceDigest: "sha256:source", duration: 10 };
+const input = {
+  source, revision, occurrenceId: "clip-1", sourceRange: { start: 0, end: 10 }, sequenceRange: { start: 20, end: 30 },
+  analysis: {
+    schemaVersion: 1 as const, mediaId: source.mediaId, sourceIdentity: source, revision,
+    requestedRange: { start: 0, end: 10 }, observedRange: { start: 0, end: 10 },
+    provider: { id: "speech", provider: "fixture", version: "1" }, sourceTimebase: { value: "1", timescale: "1000" },
+    capability: "transcription-plus-vad" as const,
+    words: [{ text: "Complete.", start: 0, end: 1, confidence: 0.99 }, { text: "Next", start: 3, end: 4, confidence: 0.99 }],
+    vadSegments: [{ kind: "speech" as const, start: 0, end: 1 }, { kind: "silence" as const, start: 1, end: 3 }, { kind: "speech" as const, start: 3, end: 4 }],
+  },
+};
+
+test("ranks a review-only pause between complete thoughts with source and sequence evidence", () => {
+  const before = structuredClone(input);
+  const result = rankNarrativeCuts(input);
+  assert.deepEqual(input, before);
+  assert.equal(result.candidates.length, 1);
+  const candidate = result.candidates[0]!;
+  assert.deepEqual(candidate.sourceRange, { start: 1, end: 3 });
+  assert.deepEqual(candidate.sequenceRange, { start: 21, end: 23 });
+  assert.equal(candidate.occurrenceId, "clip-1");
+  assert.equal(candidate.reviewRequired, true);
+  assert.ok(candidate.rationale);
+  assert.ok(candidate.evidence.length > 0);
+  assert.deepEqual(result.revision, revision);
+});
+
+test("does not recommend ambiguous speech, protected content or unobserved silence", () => {
+  const protectedInput = { ...input, analysis: { ...input.analysis, protectedSegments: [{ kind: "speech" as const, start: 1.5, end: 2 }] } };
+  assert.equal(rankNarrativeCuts(protectedInput).candidates.length, 0);
+  const incomplete = { ...input, analysis: { ...input.analysis, observedRange: { start: 0, end: 2 } } };
+  assert.equal(rankNarrativeCuts(incomplete).candidates.length, 0);
+  const midThought = { ...input, analysis: { ...input.analysis, words: [{ ...input.analysis.words[0]!, text: "Incomplete" }, input.analysis.words[1]!] } };
+  assert.equal(rankNarrativeCuts(midThought).candidates.length, 0);
+  const noVad = { ...input, analysis: { ...input.analysis, vadSegments: undefined } };
+  assert.equal(rankNarrativeCuts(noVad).candidates.length, 0);
+});
+
+test("visual gaps alone never authorize a cut, and stale or retimed mappings fail", () => {
+  const visualOnly = { ...input, analysis: { ...input.analysis, vadSegments: undefined }, visualGaps: [{ start: 1, end: 3 }] };
+  assert.equal(rankNarrativeCuts(visualOnly).candidates.length, 0);
+  assert.throws(() => rankNarrativeCuts({ ...input, revision: { ...revision, sequence: 2 } }), /STALE/);
+  assert.throws(() => rankNarrativeCuts({ ...input, sequenceRange: { start: 20, end: 25 } }), /AMBIGUOUS/);
+});
