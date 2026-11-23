@@ -9,7 +9,7 @@ export const sections = [
 ] as const;
 type Section = typeof sections[number]['key'];
 export interface DocumentMeta { locale: Locale; slug: string; title: string; description: string; section: Section; order: number; status: 'draft' | 'ready' }
-type Page = { slug: string; section: Section; order: number; status: 'draft' | 'ready'; englishStatus?: 'draft' | 'ready'; titles: Partial<Record<Locale, string>> };
+type Page = { slug: string; section: Section; order: number; status: 'draft' | 'ready'; titles: Partial<Record<Locale, string>> };
 const pages: Page[] = [
   { slug: 'introduction', section: 'getting-started', order: 0, status: 'ready', titles: { en: 'Introduction', ja: 'Framekit の概要' } },
   { slug: 'installation', section: 'getting-started', order: 1, status: 'ready', titles: { en: 'Installation', ja: 'インストール' } },
@@ -91,7 +91,7 @@ const japaneseDescriptions: Record<string, string> = {
   architecture: 'Framekit の各コンポーネントの役割と依存関係を説明します。',
 };
 validatePages(pages);
-export const documents: DocumentMeta[] = pages.flatMap(page => (['en', 'ja'] as const).flatMap(locale => page.titles[locale] ? [{ locale, slug: page.slug, title: page.titles[locale]!, description: locale === 'en' ? englishDescriptions[page.slug] : japaneseDescriptions[page.slug], section: page.section, order: page.order, status: locale === 'en' ? page.englishStatus ?? page.status : page.status }] : []));
+export const documents: DocumentMeta[] = pages.flatMap(page => (['en', 'ja'] as const).flatMap(locale => page.titles[locale] ? [{ locale, slug: page.slug, title: page.titles[locale]!, description: locale === 'en' ? englishDescriptions[page.slug] : japaneseDescriptions[page.slug], section: page.section, order: page.order, status: page.status }] : []));
 validateRegistry(documents);
 export function getDocument(locale: string, slug: string) { return documents.find(doc => doc.locale === locale && doc.slug === slug); }
 export function getNavigationGroups(locale: Locale) { return sections.map(section => ({ title: section.titles[locale], items: documents.filter(doc => doc.locale === locale && doc.section === section.key).sort((a, b) => a.order - b.order).map(doc => ({ title: doc.title, href: `/${locale}/docs/${doc.slug}/` })) })).filter(group => group.items.length); }

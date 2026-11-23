@@ -7,17 +7,17 @@ pnpm install --frozen-lockfile
 pnpm run build
 ```
 
-MCP クライアントに以下を設定してください。`cwd` はチェックアウトしたリポジトリのルートの絶対パスに置き換えます（設定形式はクライアントにより異なります）。
+MCP クライアントに以下を設定してください。`cwd` はチェックアウトしたリポジトリのルートの絶対パスに、`FRAMEKIT_STATE_DIR` は既存のプロジェクトとは別の専用ディレクトリの絶対パスに置き換えます（設定形式はクライアントにより異なります）。
 
 ```toml
 [mcp_servers.framekit-fixture]
 command = "pnpm"
 args = ["--silent", "run", "mcp"]
 cwd = "/path/to/framekit"
-env = { FRAMEKIT_EDITOR = "fixture" }
+env = { FRAMEKIT_EDITOR = "fixture", FRAMEKIT_STATE_DIR = "/path/to/disposable-framekit-state" }
 ```
 
-クライアント自身が `pnpm run mcp` を起動し、標準入出力（stdio）を接続します。サーバーはメモリ上の固定テストデータを使います。ターミナルで別に起動したプロセスには後から接続できません。`connection.status`、`editor.inspect`、`editing.route` でバックエンドが対応する操作を調べてください。
+クライアント自身が `pnpm run mcp` を起動し、標準入出力（stdio）を接続します。フィクスチャエディタの固定テストデータはメモリ上にありますが、同じサーバーのヘッドレスプロジェクトツールは `FRAMEKIT_STATE_DIR` 内のプロジェクトを読み書きできます。未設定の場合は `~/.framekit/projects` が使われます。専用ディレクトリを指定して既存プロジェクトと分離してください。ターミナルで別に起動したプロセスには後から接続できません。`connection.status`、`editor.inspect`、`editing.route` でバックエンドが対応する操作を調べてください。
 
 ## 応答を確認する
 
