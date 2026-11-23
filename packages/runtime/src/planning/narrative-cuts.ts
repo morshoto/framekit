@@ -127,9 +127,17 @@ export function rankNarrativeCuts(request: NarrativeCutRequest): NarrativeCutPla
     const previous = words[index]!;
     const next = words[index + 1]!;
     if (!END_OF_SENTENCE.test(previous.word.text.trim()) || previous.word.confidence < MIN_WORD_CONFIDENCE || next.word.confidence < MIN_WORD_CONFIDENCE) continue;
-    const corroborates = (range: TimeRange) => vad.some((entry) => entry.segment.kind === "speech" && entry.sourceRange.start <= range.start && entry.sourceRange.end >= range.end);
-    if (!corroborates(previous.sourceRange) || !corroborates(next.sourceRange)) continue;
-    const pause = { start: previous.sourceRange.end, end: next.sourceRange.start };
+    const corroboration = (range: TimeRange) => {
+      const spans = vad.filter((entry) => entry.segment.kind === "speech" && overlaps(entry.sourceRange, range));
+      const minimum = Math.min(0.2, (range.end - range.start) / 2);
+      if (!spans.some((entry) => Math.min(entry.sourceRange.end, range.end) - Math.max(entry.sourceRange.start, range.start) >= minimum - 1e-9)) return undefined;
+      return { spans, complete: spans.some((entry) => entry.sourceRange.start <= range.start && entry.sourceRange.end >= range.end) };
+    };
+    const before = corroboration(previous.sourceRange); const after = corroboration(next.sourceRange);
+    if (!before || !after) continue;
+    // Retain both observations: no suggested interval may include either word or its overlapping VAD speech.
+    const pause = { start: Math.max(previous.sourceRange.end, ...before.spans.map((entry) => entry.sourceRange.end)),
+      end: Math.min(next.sourceRange.start, ...after.spans.map((entry) => entry.sourceRange.start)) };
     if (!validRange(pause) || pause.end - pause.start < MIN_PAUSE_SECONDS) continue;
     if (words.some((entry) => overlaps(entry.sourceRange, pause)) || protectedRanges.some((entry) => overlaps(entry.sourceRange, pause))) continue;
     const silence = vad.find((entry) => entry.segment.kind === "silence" && entry.sourceRange.start <= pause.start && entry.sourceRange.end >= pause.end);
@@ -152,6 +160,10 @@ export function rankNarrativeCuts(request: NarrativeCutRequest): NarrativeCutPla
       durationTime: duration,
     };
     const evidence = ["Sentence-ending transcript boundary", silence ? "VAD silence covers the pause" : "VAD suggests a non-speech gap", "Speech margins retained"];
+    if (!before.complete || !after.complete) {
+      evidence.push("VAD partially corroborates adjacent words");
+      if (!result.warnings.includes("VAD only partially covers adjacent words; review the boundaries carefully.")) result.warnings.push("VAD only partially covers adjacent words; review the boundaries carefully.");
+    }
     if (speechOnlyGap && !result.warnings.includes("Non-speech gaps remain uncertain and require listening.")) result.warnings.push("Non-speech gaps remain uncertain and require listening.");
     if (silence?.segment.confidence === undefined && !result.warnings.includes("VAD silence confidence is unavailable.")) result.warnings.push("VAD silence confidence is unavailable.");
     if (gaps.every(validRange) && gaps.some((gap) => gap.start <= sourceRange.start && gap.end >= sourceRange.end)) evidence.push("Unverified visual gap hint overlaps the proposed interval");

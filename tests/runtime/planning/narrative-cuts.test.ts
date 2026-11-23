@@ -211,3 +211,23 @@ test("pinned VAD evidence is verified before ranking and changed artifacts fail 
     assert.notEqual((await rankNarrativeCutsWithEvidence(localRequest, ref, evidenceContext, corrupt, async () => {})).status, "available");
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test("partially corroborated neighboring words retain both VAD and transcript margins", () => {
+  const partial = { ...input, analysis: { ...input.analysis, vadSegments: [
+    { kind: "speech" as const, start: 0, end: 1.1 },
+    { kind: "speech" as const, start: 3.4, end: 4 },
+  ] } };
+  const result = rankNarrativeCuts(partial);
+  assert.equal(result.candidates.length, 1);
+  const candidate = result.candidates[0]!;
+  assert.ok(candidate.sourceRange.start >= 1.3);
+  assert.ok(candidate.sourceRange.end <= 2.8);
+  assert.ok(result.warnings.some((warning) => /partial.*review/i.test(warning)));
+  assert.equal(candidate.reviewRequired, true);
+  const unrelatedSpeech = { ...partial, analysis: { ...partial.analysis, vadSegments: [...partial.analysis.vadSegments,
+    { kind: "speech" as const, start: 2, end: 2.3 }].sort((a, b) => a.start - b.start) } };
+  assert.equal(rankNarrativeCuts(unrelatedSpeech).candidates.length, 0);
+  const weakOverlap = { ...partial, analysis: { ...partial.analysis, vadSegments: [partial.analysis.vadSegments[0]!,
+    { kind: "speech" as const, start: 3.99, end: 4 }] } };
+  assert.equal(rankNarrativeCuts(weakOverlap).candidates.length, 0);
+});
