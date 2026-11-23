@@ -68,3 +68,21 @@ test("source must exist in the current exact project and range", () => {
   assert.throws(() => planMusic({ ...request, revision: { ...revision, sequence: 2 } }), /STALE/);
   assert.equal(planMusic({ ...request, placement: { start: 25, end: 35 } }).decision, "unsupported");
 });
+
+test("reviewed music proposal previews through the existing workflow without mutation", async () => {
+  const { AgentVideoRuntime } = await import("../../../packages/runtime/src/runtime.js");
+  const { InMemoryEditorAdapter } = await import("../../../packages/testkit/src/index.js");
+  const { previewMusicPlan } = await import("../../../packages/runtime/src/planning/music-planning.js");
+  const adapter = new InMemoryEditorAdapter({ projectId: "p", projectName: "Project", timelineId: "t", timelineName: "Main", clips: [{ id: "dialogue", name: "Dialogue", start: 0, duration: 30, track: 1 }], media: [registeredMusic] });
+  const runtime = new AgentVideoRuntime(adapter);
+  const before = await runtime.inspectProject();
+  const liveRequest = { ...request, snapshot: before, revision: before.revision };
+  const plan = planMusic(liveRequest);
+  const preview = await previewMusicPlan(runtime, liveRequest, plan, "music-clip");
+  assert.deepEqual(await runtime.inspectProject(), before);
+  assert.equal(preview.operations.some((operation) => operation.type === "timeline.media.add" && operation.mediaId === "music"), true);
+  assert.equal(preview.operations.some((operation) => operation.type === "set-gain" && operation.gainDb === -18), true);
+  const altered = { ...plan, placement: { ...plan.placement!, gainDb: -3 } };
+  await assert.rejects(() => previewMusicPlan(runtime, liveRequest, altered, "music-clip"), /STALE|INVALID/);
+  await assert.rejects(() => previewMusicPlan(runtime, { ...liveRequest, revision: { ...before.revision, sequence: before.revision.sequence + 1 } }, plan, "music-clip"), /STALE/);
+});
