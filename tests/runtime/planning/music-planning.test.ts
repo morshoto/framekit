@@ -100,3 +100,9 @@ test("invalid timeline duration and contradictory exact timing cannot produce a 
   const contradictory = { start: 0, end: 30, startTime: { value: "2", timescale: "1" }, durationTime: { value: "30", timescale: "1" } };
   assert.equal(planMusic({ ...request, placement: contradictory }).decision, "unsupported");
 });
+
+test("music planning is exposed through the runtime package", async () => {
+  const runtime = await import("../../../packages/runtime/src/index.js");
+  assert.equal(typeof (runtime as Record<string, unknown>).planMusic, "function");
+  assert.equal(typeof (runtime as Record<string, unknown>).previewMusicPlan, "function");
+});
