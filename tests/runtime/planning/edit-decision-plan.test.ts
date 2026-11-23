@@ -279,6 +279,23 @@ test("headless decision service loads current project and brief and rejects proj
     const { snapshot: _snapshot, brief: _brief, accepted: _accepted, speechContext, vadContext, ...input } = f.request;
     const result = await service.plan(input);
     assert.equal(result.status, "available");
+    const { AgentVideoRuntime } = await import("../../../packages/runtime/src/index.js");
+    const { InMemoryEditorAdapter } = await import("../../../packages/testkit/src/index.js");
+    const { createMcpServer } = await import("../../../apps/mcp-server/src/server.js");
+    const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+    const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+    const server = createMcpServer(new AgentVideoRuntime(new InMemoryEditorAdapter({ projectId: "fixture", projectName: "Fixture", timelineId: "t", timelineName: "Main", clips: [] })), { headlessDecisionPlans: service });
+    const client = new Client({ name: "decision-test", version: "1" });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    try {
+      await server.connect(st); await client.connect(ct);
+      const response = await client.callTool({ name: "headless.decision.plan", arguments: input });
+      assert.notEqual(response.isError, true);
+      const result = JSON.parse((response.content as Array<{ text: string }>)[0]!.text);
+      assert.equal(result.status, "available");
+      assert.equal(result.plan.reviewRequired, true);
+      assert.ok(result.plan.decisions.every((decision: { support: string }) => decision.support === "unavailable" || decision.support === "no-op"));
+    } finally { await client.close(); await server.close(); }
     const racing = new HeadlessDecisionPlanService({ readProject: async () => {
       const observed = structuredClone(snapshot);
       snapshot = { ...snapshot, revision: { ...snapshot.revision, sequence: 2 } };
