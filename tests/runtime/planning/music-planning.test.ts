@@ -13,7 +13,7 @@ const revision = { id: "r1", sequence: 1, timestamp: "2026-01-01T00:00:00.000Z" 
 const registeredMusic = { mediaId: "music", source: "music.wav", sourceDigest: "sha256:fixture", mediaKind: "audio" as const, duration: 40 };
 const snapshot = { projectId: "p", projectName: "Project", revision, timeline: { id: "t", name: "Main", duration: 30, clips: [], storyElements: [], markers: [], captions: [] }, media: [registeredMusic] };
 const request = {
-  snapshot,
+  snapshot, occurrenceId: "music-clip",
   brief, accepted: acceptCreativeBrief(brief), projectId: "p", timelineId: "t", revision,
   music: registeredMusic,
   placement: { start: 0, end: 30 }, gainDb: -18, targetLane: -1,
@@ -86,6 +86,7 @@ test("reviewed music proposal previews through the existing workflow without mut
   const changedSnapshot = { ...before, timeline: { ...before.timeline, duration: before.timeline.duration + 1 } };
   const changedRuntime = { inspectProject: async () => changedSnapshot, previewMusic: runtime.previewMusic.bind(runtime) };
   await assert.rejects(() => previewMusicPlan(changedRuntime, liveRequest, plan, "music-clip"), /STALE/);
+  await assert.rejects(() => previewMusicPlan(runtime, liveRequest, plan, "different-clip"), /STALE|INVALID/);
   const altered = { ...plan, placement: { ...plan.placement!, gainDb: -3 } };
   await assert.rejects(() => previewMusicPlan(runtime, liveRequest, altered, "music-clip"), /STALE|INVALID/);
   await assert.rejects(() => previewMusicPlan(runtime, { ...liveRequest, revision: { ...before.revision, sequence: before.revision.sequence + 1 } }, plan, "music-clip"), /STALE/);
