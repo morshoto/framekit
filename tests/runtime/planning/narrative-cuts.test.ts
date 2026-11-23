@@ -225,6 +225,11 @@ test("partially corroborated neighboring words retain both VAD and transcript ma
   assert.ok(result.warnings.some((warning) => /partial.*review/i.test(warning)));
   assert.equal(result.warnings.includes("VAD silence confidence is unavailable."), false);
   assert.equal(candidate.reviewRequired, true);
+  const explicitSilence = { ...partial, analysis: { ...partial.analysis, vadSegments: [partial.analysis.vadSegments[0]!,
+    { kind: "silence" as const, start: 1.1, end: 3, confidence: 0.99 }, partial.analysis.vadSegments[1]!] } };
+  const bounded = rankNarrativeCuts(explicitSilence);
+  assert.equal(bounded.candidates.length, 1);
+  assert.ok(bounded.candidates[0]!.confidence <= 0.5);
   const unrelatedSpeech = { ...partial, analysis: { ...partial.analysis, vadSegments: [...partial.analysis.vadSegments,
     { kind: "speech" as const, start: 2, end: 2.3 }].sort((a, b) => a.start - b.start) } };
   assert.equal(rankNarrativeCuts(unrelatedSpeech).candidates.length, 0);

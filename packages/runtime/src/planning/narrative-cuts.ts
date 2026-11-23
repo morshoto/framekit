@@ -170,7 +170,7 @@ export function rankNarrativeCuts(request: NarrativeCutRequest): NarrativeCutPla
     result.candidates.push({
       inputDigest, occurrenceId: request.occurrenceId, sourceRange,
       sequenceRange: { start, end, startTime: sequenceStart, durationTime: { ...duration } },
-      confidence: Math.min(previous.word.confidence, next.word.confidence, silence?.segment.confidence ?? 0.5),
+      confidence: Math.min(previous.word.confidence, next.word.confidence, silence?.segment.confidence ?? 0.5, before.complete && after.complete ? 1 : 0.5),
       rationale: "A pause follows a sentence-ending word; review the surrounding thought and pacing before editing.",
       evidence, reviewRequired: true,
     });
