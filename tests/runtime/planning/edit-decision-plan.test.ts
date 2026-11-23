@@ -225,3 +225,33 @@ test("decision planning verifies bytes of every brief-covered source", async () 
     assert.equal((await createEditDecisionPlan(input, f.artifacts, verifyLocalMediaSource, store)).status, "unavailable");
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
+
+test("music decisions retain verified source audio evidence and reject changed artifacts", async () => {
+  const f = await fixture();
+  try {
+    const source = f.request.snapshot.media[0]!;
+    const revision = f.request.revision;
+    const provider = { id: "audio", provider: "fixture", version: "1", configurationDigest: "audio-config" };
+    const range = { start: 0, end: 10 };
+    const context = { kind: "audio" as const, source, provider, revision, range };
+    const index = new InMemorySemanticMediaIndexStore();
+    await index.save({ mediaId: source.mediaId, source: source.source, sourceIdentity: source, analysisRevision: revision,
+      semantic: { subjects: [], scenes: [], environments: [], timeOfDay: [], moods: [], usableRanges: [] },
+      analysis: [{ capability: "audio", status: "analyzed", provenance: { source, analyzer: provider, ranges: [range] } }],
+      audio: { coverageProvenance: "provider", mediaId: source.mediaId, sourceIdentity: source, revision, provider, requestedRange: range, measuredRange: range, integratedLufs: -20, truePeakDb: -2, silenceMs: 10, valid: true } });
+    const audioRef = await pinAnalysisEvidence(index, f.artifacts, context, verifyLocalMediaSource);
+    const input = { ...f.request, audioRef, audioContext: context, music: { ...f.request.music, context: { speech: "present" as const, audioEvidence: "available" as const } } };
+    const result = await createEditDecisionPlan(input, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(result.status, "available");
+    if (result.status !== "available") return;
+    const music = result.plan.decisions.find((decision) => decision.kind === "music-omission");
+    assert.deepEqual(music && "audioRef" in music ? music.audioRef : undefined, audioRef);
+    assert.ok(result.plan.warnings.some((warning) => /mix|audib/i.test(warning)));
+    const missing = new InMemoryAnalysisArtifactStore();
+    assert.equal((await createEditDecisionPlan(input, missing, verifyLocalMediaSource, f.briefStore)).status, "unavailable");
+    const wrongRevision = { ...input, audioContext: { ...context, revision: { ...revision, sequence: 2 } } };
+    assert.equal((await createEditDecisionPlan(wrongRevision, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "unavailable");
+    const missingPair = { ...input, audioContext: undefined };
+    assert.equal((await createEditDecisionPlan(missingPair, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "unavailable");
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
