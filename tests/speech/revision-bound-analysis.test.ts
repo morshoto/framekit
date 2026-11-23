@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   AgentVideoRuntime,
   bindSpeechAnalysis,
+  createSpeechTranscriptArtifact,
   type AnalysisInput,
   type AnalyzerDescriptor,
   type MediaSourceIdentity,
@@ -42,6 +43,19 @@ const provider: AnalyzerDescriptor = {
   provider: "local-wrapper",
   version: "2.1.0",
 };
+
+test("speech transcript artifacts bind exact word timing and provenance", () => {
+  const boundInput = { ...input, media: { ...input.media, sourceDigest: "a".repeat(64) } };
+  const analysis = { words: [{ text: "hello", start: 0.125, end: 0.3, confidence: 0.98 }] };
+  const first = createSpeechTranscriptArtifact(analysis, { input: boundInput, provider, producerVersion: "0.2.6" });
+  assert.deepEqual(first.transcript[0], { text: "hello", startTime: { value: "1", timescale: "8" }, endTime: { value: "3", timescale: "10" }, confidence: 0.98 });
+  assert.match(first.digest, /^[a-f0-9]{64}$/);
+  assert.deepEqual(first, createSpeechTranscriptArtifact(analysis, { input: boundInput, provider: { version: provider.version, provider: provider.provider, id: provider.id }, producerVersion: "0.2.6" }));
+  assert.notEqual(first.digest, createSpeechTranscriptArtifact(analysis, { input: boundInput, provider: { ...provider, version: "other" }, producerVersion: "0.2.6" }).digest);
+  assert.notEqual(first.digest, createSpeechTranscriptArtifact(analysis, { input: boundInput, provider, producerVersion: "other" }).digest);
+  assert.throws(() => createSpeechTranscriptArtifact(analysis, { input, provider, producerVersion: "0.2.6" }), /ANALYSIS_SOURCE_DIGEST_REQUIRED/);
+  assert.throws(() => createSpeechTranscriptArtifact(analysis, { input: boundInput, provider: { id: "unknown", provider: "unknown" }, producerVersion: "0.2.6" }), /ANALYSIS_PROVIDER_VERSION_REQUIRED/);
+});
 
 test("speech binding retains an unavailable VAD reason without inventing activity", () => {
   const result = bindSpeechAnalysis({ words: [], vadUnavailableReason: "SILERO_VAD_MODEL_MISMATCH" }, { input, provider });
