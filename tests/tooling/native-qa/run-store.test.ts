@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import { chmod, lstat, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -728,4 +729,45 @@ test("simultaneous worker-start records have one winner", async () => {
     assert.ok(results.filter(result => result.status === "rejected").every(result => (result.reason as NodeJS.ErrnoException).code === "EEXIST"));
     assert.match(await readFile(path, "utf8"), /^worker-[0-7]\n$/);
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+
+test("simulated receiver acceptance survives a publisher process crash", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-acceptance-crash-"));
+  const script = `import { createOrInspectRun, claimDispatchIntent } from "./scripts/native-qa/run-store.ts";
+    import { runPublishStages } from "./scripts/final-cut-publisher-verification.mjs";
+    let text = ""; process.stdin.setEncoding("utf8"); for await (const chunk of process.stdin) text += chunk;
+    const manifest = JSON.parse(text); const root = process.argv[1]; await createOrInspectRun(root, manifest);
+    const call = async name => {
+      if (name === "artifact.publish.preview") return {jobId:"publish-job-fixture", state:"awaiting-confirmation", artifactDigest:manifest.artifactDigest, targetLibraryPath:"fixture-target"};
+      process.send({accepted:true}); await new Promise(() => {});
+    };
+    await runPublishStages(call, {artifactPath:"fixture-artifact", transactionId:"fixture", targetLibraryPath:"fixture-target", artifactDigest:manifest.artifactDigest}, () => {}, async jobId => { await claimDispatchIntent(root, manifest, jobId); });`;
+  const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script, root], { stdio: ["pipe", "ignore", "pipe", "ipc"] });
+  try {
+    assert.ok(child.stdin);
+    child.stdin.end(JSON.stringify(manifest));
+    const message = await Promise.race([
+      once(child, "message").then(([value]) => value),
+      once(child, "exit").then(() => { throw new Error("simulated receiver process exited before acceptance"); }),
+      new Promise<never>((_, reject) => { const timer = setTimeout(() => reject(new Error("simulated receiver acceptance timed out")), 10000); timer.unref(); }),
+    ]);
+    assert.deepEqual(message, { accepted: true });
+    const exited = once(child, "exit");
+    child.kill("SIGKILL");
+    await exited;
+    const observed = await inspectRun(root, manifest.qaRunId);
+    assert.equal(observed.dispatch, "UNKNOWN_AFTER_DISPATCH");
+    assert.equal(observed.publishJobId, "publish-job-fixture");
+    assert.equal(observed.verdict, "BLOCKED");
+    assert.equal((await createOrInspectRun(root, manifest)).created, false);
+    await assert.rejects(claimDispatchIntent(root, manifest, "publish-job-fixture"), /QA_DISPATCH_ALREADY_CLAIMED/);
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) {
+      const exited = once(child, "exit");
+      child.kill("SIGKILL");
+      await exited;
+    }
+    await rm(root, { recursive: true, force: true });
+  }
 });
