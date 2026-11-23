@@ -1016,3 +1016,37 @@ test("publisher inspection never queries without a recorded job ID", async () =>
     assert.equal(calls, 0);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("publisher status inspection rejects run identity changes during the call", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-status-race-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    await claimDispatchIntent(root, manifest, "publish-job-1");
+    let release!: (value: unknown) => void;
+    let entered!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const pending = inspectQaPublisher(root, manifest.qaRunId, async () => {
+      entered();
+      return await new Promise(resolve => { release = resolve; });
+    });
+    await started;
+    await writeFile(join(root, manifest.qaRunId, "run.json"), JSON.stringify({ schemaVersion: 1, manifest: { ...manifest, sourceDigest: "a".repeat(64) }, dispatch: "NOT_DISPATCHED", verdict: "BLOCKED" }));
+    release({ jobId: "publish-job-1", state: "verified" });
+    await assert.rejects(pending, /QA_PUBLISH_STATUS_IDENTITY_MISMATCH/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("publisher status inspection has a bounded wait", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-status-timeout-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    await claimDispatchIntent(root, manifest, "publish-job-1");
+    const result = await Promise.race([
+      inspectQaPublisher(root, manifest.qaRunId, async () => await new Promise(() => {}), { timeoutMs: 20 }),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("status inspection did not time out")), 500)),
+    ]);
+    assert.equal(result.nextAction, "status-unavailable");
+    assert.equal(result.verdict, "BLOCKED");
+    assert.equal(result.dispatchAllowed, false);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
