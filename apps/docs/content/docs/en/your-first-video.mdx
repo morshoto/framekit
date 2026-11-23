@@ -4,7 +4,7 @@ Make a two-second video in a new Framekit-owned project, inspect the preview and
 
 The commands below were checked on macOS 26.5.1 with Node.js 22.23.5, npm, FFmpeg/ffprobe 9.0.2, and the published Framekit v0.2.6 server at commit `2f6f03b6a0cba5b5cb5d4a3ea0f44c3ffa9cdf6c`. FFmpeg must provide the `libx264` encoder. Install Git only if you also want a repository checkout; this example does not require one. The published package supports Node.js 20 or newer, but this exact example was checked with the version above.
 
-A separate clean-client smoke test installed the published plugin and used a fixture backend; that fixture test does not verify a real-media render. The direct scripted MCP workflow below was run against the published server with real-media input; it is not a test of the natural-language prompt later on this page.
+The scripted MCP workflow below is separate from the installed plugin prompt run described later on this page. Both used the published server and real sample media.
 
 ## Download the sample and tools
 
@@ -66,11 +66,13 @@ The observed run compared 24 frames and reported `SSIM ... All:0.996139`; result
 
 ## Optional Codex prompt
 
-The following prompt uses the same downloaded source, but its end-to-end execution through the installed Codex plugin has **not yet been verified**. An agent manually exercised the prompt with direct MCP calls and simulated approval in an isolated v0.2.6 server session: after correcting an initially stale render revision, the render passed and an independent probe reported 400 × 290 at 12 fps for two seconds. This manual check does not verify that the installed Codex plugin will autonomously follow the prompt.
+The following prompt was exercised with the installed Framekit v0.2.6 plugin and server in Codex CLI 0.169.0, using the downloaded sample and actual approval after the preview. In that test, the plugin's state directory and Final Cut socket were set to isolated disposable paths; its published CLI still attempted to connect to that nonexistent socket. The plugin selected the headless path and did not open Final Cut. The test used a locally installed v0.2.6 package; check the installed server version when reproducing it, since the plugin's `npx` command does not pin a version.
 
 ```text
 Use the downloaded sample.webm in this directory with Framekit and a new disposable headless project. Register it, inspect its media ID and current project revision, then preview inserting the first two seconds at the beginning of a 12 fps timeline. Show me the proposed timeline and wait for approval before executing. After approval, execute the reviewed edit, render a 400 × 290 MP4 at 12 fps to a new path, and inspect it with ffprobe. Report the revision, output path, and verification results. Do not open or modify Final Cut Pro.
 ```
+
+The observed calls included `headless.project.create`, `headless.media.register`, `headless.project.inspect`, `headless.edit.approved-preview`, `headless.edit.approved-execute`, `headless.project.open`, and `headless.render`. The preview showed one clip from source 0–2 seconds at timeline 0–2 seconds with no warnings; execution followed user approval. Framekit reported a passed render and verification. An independent `ffprobe` reported H.264 video at 400 × 290, 12 fps and 24 frames, an AAC audio stream, and a duration of 2.000000 seconds. The sample's audio is silent, so this does not verify audible audio handling.
 
 ## If something fails
 

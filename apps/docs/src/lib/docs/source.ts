@@ -30,7 +30,7 @@ const pages: Page[] = [
   { slug: 'examples', section: 'guides', order: 3, status: 'ready', titles: { en: 'Examples', ja: 'サンプル' } },
   { slug: 'troubleshooting', section: 'guides', order: 4, status: 'ready', titles: { en: 'Troubleshooting' } },
   { slug: 'editing-capabilities', section: 'guides', order: 5, status: 'ready', titles: { en: 'Editing Capabilities' } },
-  { slug: 'your-first-video', section: 'guides', order: 6, status: 'draft', titles: { en: 'Your First Video' } },
+  { slug: 'your-first-video', section: 'guides', order: 6, status: 'ready', titles: { en: 'Your First Video' } },
 ];
 export function validateRegistry(docs: DocumentMeta[]) {
   const routes = new Set<string>(); const positions = new Set<string>(); const concepts = new Map<string, DocumentMeta>();
