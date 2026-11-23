@@ -771,3 +771,43 @@ test("simulated receiver acceptance survives a publisher process crash", async (
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("client loss before dispatch preserves a resumable headless run", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-before-dispatch-"));
+  const unapproved = { ...manifest, authorizationDigest: null };
+  const script = `import { createOrInspectRun } from "./scripts/native-qa/run-store.ts";
+    let text = ""; process.stdin.setEncoding("utf8"); for await (const chunk of process.stdin) text += chunk;
+    await createOrInspectRun(process.argv[1], JSON.parse(text)); process.send({recorded:true}); await new Promise(() => {});`;
+  const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script, root], { stdio: ["pipe", "ignore", "pipe", "ipc"] });
+  try {
+    assert.ok(child.stdin);
+    child.stdin.end(JSON.stringify(unapproved));
+    const message = await Promise.race([
+      once(child, "message").then(([value]) => value),
+      once(child, "exit").then(() => { throw new Error("client exited before recording the run"); }),
+      new Promise<never>((_, reject) => { const timer = setTimeout(() => reject(new Error("client recording timed out")), 10000); timer.unref(); }),
+    ]);
+    assert.deepEqual(message, { recorded: true });
+    const exited = once(child, "exit");
+    child.kill("SIGKILL");
+    await exited;
+    assert.equal((await inspectRun(root, unapproved.qaRunId)).dispatch, "NOT_DISPATCHED");
+    assert.equal((await createOrInspectRun(root, unapproved)).created, false);
+    assert.equal((await resumeHeadlessQaRun(root, unapproved.qaRunId)).scheduled, true);
+    let evidence;
+    for (let i = 0; i < 100; i++) {
+      evidence = await readQaEvidence(root, unapproved.qaRunId);
+      if (evidence.result !== "pending-or-interrupted") break;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.equal(evidence?.result, "candidate-mismatch");
+    assert.equal(evidence?.dispatch, "NOT_DISPATCHED");
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) {
+      const exited = once(child, "exit");
+      child.kill("SIGKILL");
+      await exited;
+    }
+    await rm(root, { recursive: true, force: true });
+  }
+});
