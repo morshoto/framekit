@@ -5,6 +5,9 @@ import type { MediaSourceIdentity, RevisionBoundSpeechAnalysis } from "../domain
 import type { ContextRevision, RationalTime, TimeRange } from "../domain/primitives.js";
 import type { ProjectSnapshot } from "../domain/project.js";
 import { bindSpeechAnalysis } from "../speech/analysis.js";
+import { verifyAnalysisEvidence } from "./analysis-evidence.js";
+import type { AnalysisArtifactStore, AnalysisEvidenceContext, AnalysisRef, AnalysisSourceVerifier } from "./analysis-evidence.js";
+import type { MediaUnderstanding } from "../domain/media.js";
 import { mapSpeechAnalysisToOccurrence } from "../speech/mapping.js";
 import { addRationalTimes, parseRational, subtractRationalTimes } from "../timeline/rational-time.js";
 
@@ -203,4 +206,40 @@ function compareTimes(left: RationalTime, right: RationalTime): number {
   const b = parseRational(right, "INVALID_CUT_RANGE");
   const difference = a.value * b.timescale - b.value * a.timescale;
   return difference < 0n ? -1 : difference > 0n ? 1 : 0;
+}
+
+
+export type EvidenceBoundNarrativePlan =
+  | { status: "available"; plan: NarrativeCutPlan; analysisRef: AnalysisRef }
+  | { status: "unavailable"; reason: string };
+
+/** Verify pinned VAD and rank its stored words; the caller must reverify before any write. */
+export async function rankNarrativeCutsWithEvidence(
+  request: Omit<NarrativeCutRequest, "analysis">,
+  ref: AnalysisRef,
+  current: AnalysisEvidenceContext,
+  artifacts: AnalysisArtifactStore,
+  verifySource: AnalysisSourceVerifier,
+): Promise<EvidenceBoundNarrativePlan> {
+  try {
+    if (current.kind !== "vad" || !sameMediaSourceIdentity(request.source, current.source)
+      || !sameRevision(request.revision, current.revision) || !sameRevision(ref.analysisRevision, current.revision)
+      || !validRange(request.sourceRange) || current.range.start > request.sourceRange.start || current.range.end < request.sourceRange.end) {
+      return { status: "unavailable", reason: "Current target, revision, or VAD coverage is incompatible with the pinned analysis." };
+    }
+    const verified = await verifyAnalysisEvidence(artifacts, ref, current, verifySource);
+    if (verified.status !== "verified") return { status: "unavailable", reason: verified.reason };
+    // The store may change between reads, so independently check the exact bytes used below.
+    const bytes = await artifacts.get(ref.artifactDigest);
+    if (!bytes || `sha256:${createHash("sha256").update(bytes).digest("hex")}` !== ref.artifactDigest) {
+      return { status: "unavailable", reason: "Pinned analysis artifact changed or disappeared." };
+    }
+    const record = JSON.parse(Buffer.from(bytes).toString("utf8")) as MediaUnderstanding;
+    if (!record.speech) return { status: "unavailable", reason: "Pinned speech analysis is unavailable." };
+    await verifySource(current.source);
+    const plan = rankNarrativeCuts({ ...request, analysis: record.speech as RevisionBoundSpeechAnalysis });
+    return { status: "available", plan, analysisRef: structuredClone(ref) };
+  } catch (error) {
+    return { status: "unavailable", reason: error instanceof Error ? error.message : "Evidence could not be verified." };
+  }
 }
