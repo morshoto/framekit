@@ -17,7 +17,7 @@ export interface QaRunManifest {
 export interface QaRun {
   schemaVersion: 1;
   manifest: QaRunManifest;
-  dispatch: "NOT_DISPATCHED";
+  dispatch: "NOT_DISPATCHED" | "UNKNOWN_AFTER_DISPATCH";
   verdict: "BLOCKED";
 }
 
@@ -49,6 +49,13 @@ export async function inspectRun(root: string, qaRunId: string): Promise<QaRun> 
     if (Object.keys(run).length !== 4 || run.schemaVersion !== 1 || run.dispatch !== "NOT_DISPATCHED" || run.verdict !== "BLOCKED") throw new Error("invalid");
     validateManifest(run.manifest);
     if (run.manifest.qaRunId !== qaRunId) throw new Error("invalid");
+    try {
+      const marker = await lstat(join(root, qaRunId, "dispatch-uncertain"));
+      if (!marker.isFile() || marker.isSymbolicLink()) throw new Error("QA_RUN_UNSAFE_PATH");
+      return { ...run, dispatch: "UNKNOWN_AFTER_DISPATCH" };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
     return run;
   } catch (error) {
     if (error instanceof Error && error.message === "QA_RUN_UNSAFE_PATH") throw error;
@@ -73,4 +80,26 @@ export async function createOrInspectRun(root: string, manifest: QaRunManifest):
   try { await file.writeFile(JSON.stringify(run) + "\n"); await file.sync(); }
   finally { await file.close(); }
   return { created: true, run };
+}
+
+
+/** Conservatively record uncertainty; this function never authorizes or dispatches native work. */
+export async function markDispatchUncertain(root: string, manifest: QaRunManifest): Promise<QaRun> {
+  validateManifest(manifest);
+  const existing = await inspectRun(root, manifest.qaRunId);
+  if (manifestFields.some(key => existing.manifest[key] !== manifest[key])) throw new Error("QA_RUN_IDENTITY_MISMATCH");
+  if (existing.dispatch === "UNKNOWN_AFTER_DISPATCH") return existing;
+  const directory = join(root, manifest.qaRunId);
+  let marker;
+  try { marker = await open(join(directory, "dispatch-uncertain"), "wx", 0o600); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") return inspectRun(root, manifest.qaRunId);
+    throw error;
+  }
+  try { await marker.writeFile("uncertain\n"); await marker.sync(); }
+  finally { await marker.close(); }
+  const directoryHandle = await open(directory, "r");
+  try { await directoryHandle.sync(); }
+  finally { await directoryHandle.close(); }
+  return inspectRun(root, manifest.qaRunId);
 }
