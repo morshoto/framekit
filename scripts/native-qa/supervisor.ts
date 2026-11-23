@@ -1,5 +1,6 @@
+import { readQaRecord } from "./read-record.js";
 import { spawn } from "node:child_process";
-import { lstat, readFile } from "node:fs/promises";
+import { lstat } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertQaHeadlessProfile, assertQaJobIndex, createOrInspectRun, inspectRun, type QaRunManifest } from "./run-store.js";
@@ -77,7 +78,7 @@ export async function readQaEvidence(root: string, qaRunId: string) {
     const marker = join(directory, "headless-started");
     const file = await lstat(marker);
     if (!file.isFile() || file.isSymbolicLink()) throw new Error("QA_RUN_UNSAFE_PATH");
-    const value: unknown = JSON.parse(await readFile(marker, "utf8"));
+    const value: unknown = JSON.parse(await readQaRecord(marker));
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid");
     const item = value as Record<string, unknown>;
     if (Object.keys(item).sort().join(",") !== "schemaVersion,startedAt" || item.schemaVersion !== 1 || !validTimestamp(item.startedAt)) throw new Error("invalid");
@@ -92,7 +93,7 @@ export async function readQaEvidence(root: string, qaRunId: string) {
   try {
     const file = await lstat(path);
     if (!file.isFile() || file.isSymbolicLink()) throw new Error("QA_RUN_UNSAFE_PATH");
-    const value: unknown = JSON.parse(await readFile(path, "utf8"));
+    const value: unknown = JSON.parse(await readQaRecord(path));
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid");
     const item = value as Record<string, unknown>;
     if (Object.keys(item).sort().join(",") !== "finishedAt,result,schemaVersion,startedAt,tier"

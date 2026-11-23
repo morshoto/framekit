@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readQaRecord } from "./read-record.js";
 import { bindQaAuthorization, inspectRun, type QaRunManifest } from "./run-store.js";
 import { readQaEvidence, resumeHeadlessQaRun, startQaRun } from "./supervisor.js";
 import { readQaArtifactEvidence, verifyQaArtifact } from "./artifact-evidence.js";
@@ -12,8 +12,8 @@ const expectsExtra = command === "record-authorization" || command === "verify-a
 const allowsOptionalArtifact = command === "start" || command === "resume-headless";
 if (!root || !input || !commands.includes(command ?? "") || (expectsExtra ? extra.length !== 1 : allowsOptionalArtifact ? extra.length > 1 : extra.length !== 0)) throw new Error("QA_CLI_ARGUMENTS_INVALID");
 let result: unknown;
-if (command === "start") result = await startQaRun(root, JSON.parse(await readFile(input, "utf8")) as QaRunManifest, extra[0]);
-else if (command === "start-publisher-fixture") result = await startQaRun(root, JSON.parse(await readFile(input, "utf8")) as QaRunManifest, extra[0], { publisherFixture: true });
+if (command === "start") result = await startQaRun(root, JSON.parse(await readQaRecord(input)) as QaRunManifest, extra[0]);
+else if (command === "start-publisher-fixture") result = await startQaRun(root, JSON.parse(await readQaRecord(input)) as QaRunManifest, extra[0], { publisherFixture: true });
 else if (command === "inspect") result = await inspectRun(root, input);
 else if (command === "resume-headless") result = await resumeHeadlessQaRun(root, input, extra[0]);
 else if (command === "resume-publisher-fixture") result = await resumeHeadlessQaRun(root, input, extra[0], { publisherFixture: true });

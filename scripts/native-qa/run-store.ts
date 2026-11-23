@@ -1,5 +1,6 @@
+import { readQaRecord } from "./read-record.js";
 import { createHash } from "node:crypto";
-import { lstat, mkdir, open, readFile, readdir } from "node:fs/promises";
+import { lstat, mkdir, open, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { publishQaRecord } from "./atomic-record.js";
 
@@ -63,7 +64,7 @@ export async function inspectRun(root: string, qaRunId: string): Promise<QaRun> 
     if (!directory.isDirectory() || directory.isSymbolicLink()) throw new Error("QA_RUN_UNSAFE_PATH");
     const file = await lstat(join(root, qaRunId, "run.json"));
     if (!file.isFile() || file.isSymbolicLink()) throw new Error("QA_RUN_UNSAFE_PATH");
-    const value: unknown = JSON.parse(await readFile(join(root, qaRunId, "run.json"), "utf8"));
+    const value: unknown = JSON.parse(await readQaRecord(join(root, qaRunId, "run.json")));
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid");
     let run = value as QaRun;
     const keys = Object.keys(run).sort().join(",");
@@ -76,7 +77,7 @@ export async function inspectRun(root: string, qaRunId: string): Promise<QaRun> 
       const bindingPath = join(root, qaRunId, "authorization-binding.json");
       const bindingFile = await lstat(bindingPath);
       if (!bindingFile.isFile() || bindingFile.isSymbolicLink()) throw new Error("QA_RUN_UNSAFE_PATH");
-      const binding: unknown = JSON.parse(await readFile(bindingPath, "utf8"));
+      const binding: unknown = JSON.parse(await readQaRecord(bindingPath));
       if (!binding || typeof binding !== "object" || Array.isArray(binding)) throw new Error("invalid");
       const item = binding as Record<string, unknown>;
       if (run.manifest.authorizationDigest !== null || Object.keys(item).sort().join(",") !== "authorizationDigest,schemaVersion" || item.schemaVersion !== 1 || typeof item.authorizationDigest !== "string" || !/^[a-f0-9]{64}$/.test(item.authorizationDigest)) throw new Error("invalid");
@@ -90,7 +91,7 @@ export async function inspectRun(root: string, qaRunId: string): Promise<QaRun> 
       if (!marker.isFile() || marker.isSymbolicLink()) throw new Error("QA_RUN_UNSAFE_PATH");
       let publishJobId: string | undefined;
       try {
-        const intent: unknown = JSON.parse(await readFile(join(root, qaRunId, "dispatch-uncertain"), "utf8"));
+        const intent: unknown = JSON.parse(await readQaRecord(join(root, qaRunId, "dispatch-uncertain")));
         if (intent && typeof intent === "object" && !Array.isArray(intent)) {
           const record = intent as Record<string, unknown>;
           if (Object.keys(record).length === 1 && typeof record.publishJobId === "string" && /^[a-z0-9][a-z0-9-]{0,127}$/.test(record.publishJobId)) publishJobId = record.publishJobId;
@@ -114,7 +115,7 @@ async function assertAuthorizationBinding(root: string, manifest: QaRunManifest)
     const bindingDir = await lstat(directory);
     const bindingFile = await lstat(join(directory, "run-id"));
     if (!bindingDir.isDirectory() || bindingDir.isSymbolicLink() || !bindingFile.isFile() || bindingFile.isSymbolicLink()) throw new Error("invalid");
-    if (await readFile(join(directory, "run-id"), "utf8") !== `${manifest.qaRunId}\n`) throw new Error("invalid");
+    if (await readQaRecord(join(directory, "run-id")) !== `${manifest.qaRunId}\n`) throw new Error("invalid");
   } catch { throw new Error("QA_AUTHORIZATION_BINDING_INVALID"); }
 }
 
@@ -130,7 +131,7 @@ export async function assertQaJobIndex(root: string, manifest: QaRunManifest): P
     const index = await lstat(directory);
     const binding = await lstat(join(directory, "run-id"));
     if (!index.isDirectory() || index.isSymbolicLink() || !binding.isFile() || binding.isSymbolicLink()) throw new Error("invalid");
-    if (await readFile(join(directory, "run-id"), "utf8") !== `${manifest.qaRunId}\n`) throw new Error("invalid");
+    if (await readQaRecord(join(directory, "run-id")) !== `${manifest.qaRunId}\n`) throw new Error("invalid");
   } catch { throw new Error("QA_INDEX_RECONCILIATION_REQUIRED"); }
 }
 
@@ -143,11 +144,12 @@ async function reserveIndex(root: string, name: string, runId: string): Promise<
       const index = await lstat(directory);
       const binding = await lstat(join(directory, "run-id"));
       if (!index.isDirectory() || index.isSymbolicLink() || !binding.isFile() || binding.isSymbolicLink()) throw new Error("QA_RUN_UNSAFE_PATH");
-      const content = await readFile(join(directory, "run-id"), "utf8");
+      const content = await readQaRecord(join(directory, "run-id"));
       if (!/^[a-z0-9][a-z0-9-]{0,63}\n$/.test(content)) throw new Error("QA_RUN_NOT_FOUND_OR_INCOMPLETE");
       return content.slice(0, -1);
     } catch (bindingError) {
-      if ((bindingError as NodeJS.ErrnoException).code === "ENOENT") throw new Error("QA_RUN_NOT_FOUND_OR_INCOMPLETE");
+      if ((bindingError as NodeJS.ErrnoException).code === "ENOENT"
+        || (bindingError instanceof Error && bindingError.message === "QA_RECORD_INVALID")) throw new Error("QA_RUN_NOT_FOUND_OR_INCOMPLETE");
       throw bindingError;
     }
   }
@@ -244,7 +246,7 @@ export async function bindQaAuthorization(root: string, manifest: QaRunManifest,
       const bindingDir = await lstat(authorizationDirectory);
       const bindingFile = await lstat(join(authorizationDirectory, "run-id"));
       if (!bindingDir.isDirectory() || bindingDir.isSymbolicLink() || !bindingFile.isFile() || bindingFile.isSymbolicLink()) throw new Error("QA_RUN_UNSAFE_PATH");
-      const content = await readFile(join(authorizationDirectory, "run-id"), "utf8");
+      const content = await readQaRecord(join(authorizationDirectory, "run-id"));
       if (!/^[a-z0-9][a-z0-9-]{0,63}\n$/.test(content)) throw new Error("QA_AUTHORIZATION_BINDING_INCOMPLETE");
       owner = content.slice(0, -1);
     } catch (bindingError) {

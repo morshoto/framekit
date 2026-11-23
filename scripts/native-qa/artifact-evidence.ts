@@ -1,6 +1,7 @@
+import { readQaRecord } from "./read-record.js";
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, open, readFile } from "node:fs/promises";
+import { lstat, open } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { publishQaRecord } from "./atomic-record.js";
 import { assertQaJobIndex, inspectRun } from "./run-store.js";
@@ -21,7 +22,7 @@ export async function readQaArtifactEvidence(root: string, qaRunId: string) {
   try {
     const file = await lstat(path);
     if (!file.isFile() || file.isSymbolicLink()) throw new Error("QA_RUN_UNSAFE_PATH");
-    const value: unknown = JSON.parse(await readFile(path, "utf8"));
+    const value: unknown = JSON.parse(await readQaRecord(path));
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid");
     const item = value as Record<string, unknown>;
     if (Object.keys(item).sort().join(",") !== "artifactDigest,checkedAt,result,schemaVersion,tier"

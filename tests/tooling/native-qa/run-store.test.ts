@@ -48,6 +48,18 @@ test("oversized QA records fail closed without weakening uncertain dispatch", as
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("oversized start manifest is rejected before a run is created", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-input-"));
+  const input = join(root, "manifest.json");
+  try {
+    await writeFile(input, JSON.stringify(manifest) + " ".repeat(128 * 1024));
+    const result = spawnSync(process.execPath, ["--import", "tsx", "scripts/native-qa/cli.ts", "start", root, input], { encoding: "utf8", timeout: 10000 });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /QA_RECORD_INVALID/);
+    await assert.rejects(lstat(join(root, manifest.qaRunId)), (error: NodeJS.ErrnoException) => error.code === "ENOENT");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("publisher source evidence binds four file identities and bytes", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-qa-source-evidence-"));
   const sources = await mkdtemp(join(tmpdir(), "framekit-qa-source-files-"));
