@@ -140,3 +140,12 @@ test("simulated-native: duplicate-dispatch mutant is detected", async () => {
   const mutant = [...actual, { ...dispatch, tick: 3 }];
   assert.throws(() => assertSingleSimulatedDispatch(mutant, request.operationId), /SIMULATED_DUPLICATE_DISPATCH/);
 });
+
+test("simulated-native: receiver crash after dispatch remains uncertain after restore", async () => {
+  const receiver = new ScriptedNativeReceiver([{ kind: "crash-after-dispatch" }]);
+  assert.deepEqual(await receiver.dispatch(request), { state: "uncertain" });
+  assert.deepEqual(receiver.trace().map(event => event.kind), ["dispatch", "crashed"]);
+  const restored = ScriptedNativeReceiver.restore(JSON.parse(JSON.stringify(receiver.snapshot())));
+  assert.deepEqual(await restored.dispatch(request), { state: "uncertain" });
+  assertSingleSimulatedDispatch(restored.trace(), request.operationId);
+});
