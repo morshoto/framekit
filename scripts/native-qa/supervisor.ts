@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { lstat, readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createOrInspectRun, inspectRun, type QaRunManifest } from "./run-store.js";
+import { assertQaJobIndex, createOrInspectRun, inspectRun, type QaRunManifest } from "./run-store.js";
 
 const checkout = fileURLToPath(new URL("../../", import.meta.url));
 const worker = join(dirname(fileURLToPath(import.meta.url)), "worker.ts");
@@ -16,12 +16,8 @@ export interface HeadlessEvidence {
   finishedAt: string;
 }
 
-/** Start one bounded headless check only. A duplicate start never creates a worker. */
-export async function startQaRun(root: string, manifest: QaRunManifest) {
-  const boundRoot = resolve(root);
-  const outcome = await createOrInspectRun(boundRoot, manifest);
-  if (!outcome.created) return outcome;
-  const child = spawn(process.execPath, ["--import", "tsx", worker, boundRoot, outcome.run.manifest.qaRunId], {
+async function launchHeadlessWorker(root: string, qaRunId: string): Promise<void> {
+  const child = spawn(process.execPath, ["--import", "tsx", worker, root, qaRunId], {
     cwd: checkout, detached: true, stdio: "ignore",
   });
   await new Promise<void>((resolve, reject) => {
@@ -29,7 +25,26 @@ export async function startQaRun(root: string, manifest: QaRunManifest) {
     child.once("spawn", resolve);
   });
   child.unref();
+}
+
+/** Start one bounded headless check only. A duplicate start never creates a worker. */
+export async function startQaRun(root: string, manifest: QaRunManifest) {
+  const boundRoot = resolve(root);
+  const outcome = await createOrInspectRun(boundRoot, manifest);
+  if (outcome.created) await launchHeadlessWorker(boundRoot, outcome.run.manifest.qaRunId);
   return outcome;
+}
+
+/** Explicitly reschedule only a not-yet-started headless check, never a native operation. */
+export async function resumeHeadlessQaRun(root: string, qaRunId: string) {
+  const boundRoot = resolve(root);
+  const run = await inspectRun(boundRoot, qaRunId);
+  if (run.dispatch !== "NOT_DISPATCHED") throw new Error("QA_DISPATCH_ALREADY_CLAIMED");
+  await assertQaJobIndex(boundRoot, run.manifest);
+  const evidence = await readQaEvidence(boundRoot, qaRunId);
+  if (evidence.result !== "pending-or-interrupted" || evidence.startedAt) return { scheduled: false, dispatchAllowed: false };
+  await launchHeadlessWorker(boundRoot, qaRunId);
+  return { scheduled: true, dispatchAllowed: false };
 }
 
 function validTimestamp(value: unknown): value is string {

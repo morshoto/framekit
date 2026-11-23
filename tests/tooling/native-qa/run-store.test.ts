@@ -6,7 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { bindQaAuthorization, claimDispatchIntent, createOrInspectRun, inspectRun, markDispatchUncertain } from "../../../scripts/native-qa/run-store.js";
 import { runPublishStages } from "../../../scripts/final-cut-publisher-verification.mjs";
-import { readQaEvidence } from "../../../scripts/native-qa/supervisor.js";
+import { readQaEvidence, resumeHeadlessQaRun } from "../../../scripts/native-qa/supervisor.js";
 import { publishQaRecord } from "../../../scripts/native-qa/atomic-record.js";
 
 const manifest = {
@@ -703,5 +703,18 @@ test("headless resume refuses a dispatch-uncertain run", async () => {
     const result = spawnSync(process.execPath, ["--import", "tsx", "scripts/native-qa/cli.ts", "resume-headless", root, unapproved.qaRunId], { encoding: "utf8", timeout: 10000 });
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /QA_DISPATCH_ALREADY_CLAIMED/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+
+test("headless resume requires an intact job index", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-resume-index-"));
+  try {
+    const unapproved = { ...manifest, authorizationDigest: null };
+    await createOrInspectRun(root, unapproved);
+    const index = (await readdir(root)).find(name => name.startsWith(".job-"));
+    assert.ok(index);
+    await rm(join(root, index), { recursive: true });
+    await assert.rejects(resumeHeadlessQaRun(root, unapproved.qaRunId), /QA_INDEX_RECONCILIATION_REQUIRED/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

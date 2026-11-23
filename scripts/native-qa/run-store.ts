@@ -119,7 +119,7 @@ function jobIdentity(manifest: QaRunManifest): unknown[] {
 function jobIndexName(manifest: QaRunManifest): string {
   return `.job-${createHash("sha256").update(JSON.stringify(jobIdentity(manifest))).digest("hex")}`;
 }
-async function assertJobIndex(root: string, manifest: QaRunManifest): Promise<void> {
+export async function assertQaJobIndex(root: string, manifest: QaRunManifest): Promise<void> {
   const directory = join(root, jobIndexName(manifest));
   try {
     const index = await lstat(directory);
@@ -222,7 +222,7 @@ export async function bindQaAuthorization(root: string, manifest: QaRunManifest,
     return { bound: false, run };
   }
   if (run.dispatch !== "NOT_DISPATCHED") throw new Error("QA_DISPATCH_ALREADY_CLAIMED");
-  await assertJobIndex(root, bound);
+  await assertQaJobIndex(root, bound);
   const authorizationDirectory = join(root, `.authorization-${digest}`);
   try { await mkdir(authorizationDirectory, { mode: 0o700 }); }
   catch (error) {
@@ -286,7 +286,7 @@ export async function claimDispatchIntent(root: string, manifest: QaRunManifest,
   if (manifestFields.some(key => existing.manifest[key] !== bound[key])) throw new Error("QA_RUN_IDENTITY_MISMATCH");
   const authorizationDigest = bound.authorizationDigest ?? existing.authorizationBinding;
   if (!authorizationDigest) throw new Error("QA_AUTHORIZATION_REQUIRED");
-  await assertJobIndex(root, bound);
+  await assertQaJobIndex(root, bound);
   await assertAuthorizationBinding(root, { ...bound, authorizationDigest });
   const directory = join(root, bound.qaRunId);
   let marker;
