@@ -190,3 +190,16 @@ test("brief acceptance is rechecked after asynchronous evidence reads", async ()
     assert.equal((await createEditDecisionPlan(f.request, f.artifacts, verifyLocalMediaSource, undefined as never)).status, "unavailable");
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
+
+test("decision planning rejects stale brief coverage even for unselected sources", async () => {
+  const f = await fixture();
+  try {
+    const extra = { mediaId: "other", source: "other.mov", sourceDigest: "b".repeat(64), mediaKind: "video" as const, duration: 10 };
+    const brief = { ...f.request.brief, requiredContent: ["intro"], sourceCoverage: [{ requirement: "intro", sourceId: "other", sourceDigest: "a".repeat(64), start: 0, end: 5 }] };
+    const store = new JsonCreativeBriefStore(join(f.dir, "coverage.json"));
+    const draft = await store.create("p", brief); await store.accept("p", draft.digest);
+    const result = await createEditDecisionPlan({ ...f.request, brief, accepted: acceptCreativeBrief(brief), snapshot: { ...f.request.snapshot, media: [...f.request.snapshot.media, extra] } }, f.artifacts, verifyLocalMediaSource, store);
+    assert.equal(result.status, "unavailable");
+    assert.match(result.reason, /COVERAGE/);
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
