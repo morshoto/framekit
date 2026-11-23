@@ -6,7 +6,7 @@ describe('development search', () => {
     expect(searchDevelopmentDocs('native capability', 'en').map(result => result.href)).toContain('/en/docs/final-cut-pro/');
   });
   it('restricts results to ready pages in the requested locale', () => {
-    expect(searchDevelopmentDocs('インストール', 'ja')).toEqual([]);
-    expect(searchDevelopmentDocs('はじめに', 'ja')).toEqual([]);
+    expect(searchDevelopmentDocs('インストール', 'ja').map(result => result.href)).toContain('/ja/docs/installation/');
+    expect(searchDevelopmentDocs('local-first', 'ja')).toEqual([]);
   });
 });

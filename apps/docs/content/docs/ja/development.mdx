@@ -1,1 +1,18 @@
-内容は準備中です。
+## 開発環境を準備する
+
+Node.js 22.23.5 と pnpm 12.18.0 を使います。リポジトリのルートで次を実行してください。
+
+```sh
+pnpm install --frozen-lockfile
+pnpm run hooks:install
+pnpm run build
+pnpm run test
+pnpm run check:boundaries
+pnpm run check:docs
+```
+
+フィクスチャやヘッドレス編集の開発には `nix develop ./nix` で用意できる環境も使えます。ネイティブ拡張を開発する場合は、さらに Xcode 16.4 と macOS 15.5 SDK が必要です。
+
+## 変更する場所を選ぶ
+
+エディタに依存しない契約は `packages/runtime`、MCP 通信とツール定義は `apps/mcp-server`、Final Cut Pro との連携は専用アダプターに配置します。再現可能なテスト用データは `packages/testkit` に置いてください。各層はランタイムの契約に依存します。[アーキテクチャ](/ja/docs/architecture/)と[テスト](/ja/docs/testing/)を参照してください。

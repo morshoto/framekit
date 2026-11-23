@@ -1,1 +1,21 @@
-内容は準備中です。
+## 必須のチェック
+
+リポジトリのルートで実行します。
+
+```sh
+pnpm install --frozen-lockfile
+pnpm run build
+pnpm run test
+pnpm run check:boundaries
+pnpm run check:docs
+```
+
+ネイティブ側を変更した場合は、さらに `pnpm run xcode:check` と、[テストガイド](https://github.com/morshoto/framekit/blob/main/docs/testing.md)に記載された Xcode プロジェクトの一覧表示コマンドを実行します。
+
+## 結果から確認できること
+
+フィクスチャで確認できるのは、条件を固定したテストデータに対する動作です。FCPXML テストは指定したファイルに対する動作を確認します。メタデータ専用のブリッジでは、公開されている情報だけを観測できます。
+
+実際のエディタ状態を取得するテストや Final Cut Pro の画面を使うテストには、それぞれ対応する機能と、正確な対象の特定、結果の検証が必要です。実行できなかった項目や未実施の項目は、その旨を記録してください。フィクスチャやファイルの検証だけでは、ネイティブ編集の成功は確認できません。
+
+個別のテストと画面を使う検証の前提条件は[テストガイド](https://github.com/morshoto/framekit/blob/main/docs/testing.md)を参照してください。

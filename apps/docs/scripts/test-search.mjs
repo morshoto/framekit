@@ -30,8 +30,8 @@ try {
     await page.getByRole('option').filter({hasText:title}).first().click(); await page.waitForURL(`**${base}/${locale}/docs/introduction/`); await page.reload({waitUntil:'networkidle'});
     if (locale === 'en') {
       await page.getByRole('link', { name:'日本語' }).click(); await page.waitForURL(`**${base}/ja/docs/introduction/`);
-      await page.getByRole('button', { name:'Search docs' }).click(); await page.getByRole('combobox').fill('ランタン');
-      await page.getByText('No results found.').waitFor();
+      await page.getByRole('button', { name:'Search docs' }).click(); await page.getByRole('combobox').fill('HEADLESS_UNDO_UNVERIFIED');
+      await page.locator('[role=option][href*="/ja/docs/error-reference/"]').first().waitFor();
     }
     assert.deepEqual(errors,[]); await context.close();
   }
