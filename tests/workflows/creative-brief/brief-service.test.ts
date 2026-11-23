@@ -76,3 +76,19 @@ test("a project change during acceptance invalidates the newly accepted state", 
     assert.equal((await store.read("p")).state, "draft");
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test("a concurrent brief revision cannot be reported as the accepted result", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "framekit-brief-concurrent-"));
+  try {
+    const store = new JsonCreativeBriefStore(join(dir, "brief.json"));
+    let opens = 0;
+    let expectedDigest = "";
+    const service = new HeadlessCreativeBriefService({ openProject: async () => {
+      if (++opens === 3) await store.revise("p", expectedDigest, { ...brief, theme: "concurrent" });
+      return structuredClone(project);
+    }, storeForProject: () => store });
+    const draft = await service.create({ ...target, brief }); expectedDigest = draft.record.digest;
+    await assert.rejects(() => service.accept({ ...target, expectedDigest, confirmed: true }), /STALE|RECONCILIATION|NOT_ACCEPTED/);
+    assert.equal((await store.read("p")).state, "draft");
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
