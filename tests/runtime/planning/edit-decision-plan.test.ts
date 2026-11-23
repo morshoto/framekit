@@ -135,3 +135,13 @@ test("music proposal preserves the requested source, range and gain without clai
     }
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
+
+test("unsupported nonzero frame-grid origin cannot produce a plan", async () => {
+  const f = await fixture();
+  try {
+    const snapshot = { ...f.request.snapshot, timeline: { ...f.request.snapshot.timeline, frameGridOrigin: { value: "1", timescale: "20" } } };
+    const brief = { ...f.request.brief, captionPolicy: { kind: "specified" as const, value: "none" } };
+    const result = await createEditDecisionPlan({ ...f.request, snapshot, brief, accepted: acceptCreativeBrief(brief) }, f.artifacts, verifyLocalMediaSource);
+    assert.equal(result.status, "unavailable");
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
