@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
+import { assertCurrentAcceptedBrief } from "../application/creative-brief-store.js";
+import type { CreativeBriefStore } from "../application/creative-brief-store.js";
 import { validateAudioAnalysisRange } from "../audio/analysis.js";
 import type { CompositeEditPreview, MusicAddRequest } from "../domain/editing.js";
 import { sameMediaSourceIdentity } from "../domain/media.js";
@@ -100,8 +102,11 @@ export async function previewMusicPlan(
   reviewed: MusicPlan,
   occurrenceId: string,
   verifySource: (source: MediaSourceIdentity) => Promise<void>,
+  briefStore: CreativeBriefStore,
 ): Promise<CompositeEditPreview> {
   if (!occurrenceId?.trim() || occurrenceId !== request.occurrenceId) throw new Error("INVALID_MUSIC_PLAN: reviewed occurrence identity is required");
+  if (!briefStore) throw new Error("CAPABILITY_UNAVAILABLE: authoritative brief store is required");
+  await assertCurrentAcceptedBrief(briefStore, request.projectId, request.accepted);
   const current = await runtime.inspectProject();
   const recomputed = planMusic({ ...request, snapshot: current });
   if (recomputed.decision !== "propose-music" || !recomputed.placement || !isDeepStrictEqual(recomputed, reviewed)) {
@@ -116,5 +121,6 @@ export async function previewMusicPlan(
     targetLane: recomputed.placement.targetLane, gainDb: recomputed.placement.gainDb,
   });
   await verifySource(request.music);
+  await assertCurrentAcceptedBrief(briefStore, request.projectId, request.accepted);
   return preview;
 }
