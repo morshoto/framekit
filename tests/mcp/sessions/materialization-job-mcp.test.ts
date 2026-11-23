@@ -11,7 +11,7 @@ import { createMcpServer, type SessionMaterializationPublisher } from "../../../
 import { FileCanonicalRecoveryGuard, FinalCutBackgroundMaterializationPublisher } from "@framekit/final-cut";
 import { AgentVideoRuntime, type TimelineIr } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
-import { ScriptedNativeReceiver, simulatedMaterializationPublisher } from "../../support/simulated-native-receiver.js";
+import { ScriptedNativeReceiver, simulatedMaterializationPublisher, assertSingleSimulatedDispatch } from "../../support/simulated-native-receiver.js";
 
 function timeline(): TimelineIr {
   return {
@@ -1095,7 +1095,7 @@ test("simulated-native: lost reply retains a reservation through MCP reconnect",
     assert.equal(result.nextAction, "none");
     assert.equal(result.evidence.headedNative, false);
     assert.equal(result.recoveryReservation.reason, "native-quiescence-unproven");
-    assert.equal(receiver.trace().filter(event => event.kind === "dispatch").length, 1);
+    assertSingleSimulatedDispatch(receiver.trace(), result.jobId);
     assert.equal(receiver.trace()[0]?.operationId, result.jobId);
     const sources = result.desired.resources.map((resource: { id: string; source?: string }) => [resource.id, resource.source ?? null]).sort(([a]: string[], [b]: string[]) => a < b ? -1 : a > b ? 1 : 0);
     assert.equal(receiver.trace()[0]?.sourceDigest, createHash("sha256").update(JSON.stringify(sources)).digest("hex"));

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { ScriptedNativeReceiver } from "../../support/simulated-native-receiver.js";
+import { ScriptedNativeReceiver, assertSingleSimulatedDispatch } from "../../support/simulated-native-receiver.js";
 import { loadNativeEditingManifest, summarizeHeadedEvidence } from "../../../scripts/release/gate/native-editing.js";
 
 const request = {
@@ -128,4 +128,15 @@ test("simulated-native: successful simulation is not headed release evidence", a
   const workflow = loadNativeEditingManifest().workflows.find(item => item.id === "picture-in-picture");
   assert.ok(workflow);
   assert.throws(() => summarizeHeadedEvidence(evidence, workflow), /headed evidence did not pass/);
+});
+
+
+test("simulated-native: duplicate-dispatch mutant is detected", async () => {
+  const receiver = new ScriptedNativeReceiver([{ kind: "lose-response" }]);
+  await receiver.dispatch(request);
+  const actual = receiver.trace();
+  assert.doesNotThrow(() => assertSingleSimulatedDispatch(actual, request.operationId));
+  const dispatch = actual.find(event => event.kind === "dispatch")!;
+  const mutant = [...actual, { ...dispatch, tick: 3 }];
+  assert.throws(() => assertSingleSimulatedDispatch(mutant, request.operationId), /SIMULATED_DUPLICATE_DISPATCH/);
 });
