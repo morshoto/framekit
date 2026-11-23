@@ -21,6 +21,7 @@ import { readQaArtifactEvidence, verifyQaArtifact } from "../../../scripts/nativ
 import { inspectQaPublisher, inspectQaPublisherFromStore } from "../../../scripts/native-qa/publisher-inspection.js";
 import { verifyQaPublisherFixture, readQaPublisherFixtureEvidence } from "../../../scripts/native-qa/publisher-fixture-evidence.js";
 import { verifyQaPublisherSources, readQaPublisherSourceEvidence } from "../../../scripts/native-qa/publisher-source-evidence.js";
+import { recordQaPublisherStage, readQaPublisherStages } from "../../../scripts/native-qa/publisher-stages.js";
 
 const manifest = {
   qaRunId: "qa-fixture-1", candidateCommit: "a".repeat(40), candidateTree: "b".repeat(40),
@@ -403,6 +404,33 @@ test("dispatch intent binds a publisher job before any receiver call", async () 
     assert.equal((await inspectRun(root, manifest.qaRunId)).publishJobId, "publish-job-123");
     await assert.rejects(claimDispatchIntent(root, manifest, "publish-job-123"), /QA_DISPATCH_ALREADY_CLAIMED/);
     await assert.rejects(claimDispatchIntent(root, manifest, "different-job"), /QA_DISPATCH_ALREADY_CLAIMED/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("publisher stage observations persist in order without claiming native proof", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-publisher-stages-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    const jobId = "publish-job-123";
+    const prepared = { jobId, state: "awaiting-confirmation", artifactDigest: manifest.artifactDigest, targetLibraryPath: "/private/fixture.fcpbundle" };
+    const dispatched = { jobId, state: "verification-pending", nextAction: "confirm-verification", delivery: { status: "dispatched" } };
+    const verified = { jobId, state: "verified", result: { verified: true, privatePath: "/private/fixture.mov" } };
+    await assert.rejects(recordQaPublisherStage(root, manifest.qaRunId, "dispatched", dispatched), /QA_STAGE_SEQUENCE_INVALID/);
+    await recordQaPublisherStage(root, manifest.qaRunId, "prepared", prepared, () => Date.parse("2026-01-02T00:00:00.000Z"));
+    await assert.rejects(recordQaPublisherStage(root, manifest.qaRunId, "prepared", prepared), /QA_STAGE_SEQUENCE_INVALID/);
+    await claimDispatchIntent(root, manifest, jobId);
+    await recordQaPublisherStage(root, manifest.qaRunId, "dispatched", dispatched, () => Date.parse("2026-01-01T00:00:00.000Z"));
+    await recordQaPublisherStage(root, manifest.qaRunId, "verified", verified, () => Date.parse("2026-01-01T00:00:00.000Z"));
+    const observed = await readQaPublisherStages(root, manifest.qaRunId);
+    assert.deepEqual(observed.stages.map((entry) => entry.stage), ["prepared", "dispatched", "verified"]);
+    assert.ok(observed.stages.every((entry) => entry.recordedAt === "2026-01-02T00:00:00.000Z"));
+    assert.equal(observed.dispatch, "UNKNOWN_AFTER_DISPATCH");
+    assert.equal(observed.verdict, "BLOCKED"); assert.equal(observed.nativeQuiescence, "unproven");
+    assert.equal(observed.dispatchAllowed, false);
+    assert.doesNotMatch(JSON.stringify(observed), /\/private\//);
+    await assert.rejects(recordQaPublisherStage(root, manifest.qaRunId, "verified", verified), /QA_STAGE_SEQUENCE_INVALID/);
+    await writeFile(join(root, manifest.qaRunId, "publisher-stage-2.json"), "{}");
+    await assert.rejects(readQaPublisherStages(root, manifest.qaRunId), /QA_STAGE_CORRUPT/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
