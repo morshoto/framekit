@@ -28,8 +28,10 @@ export interface EditDecisionPlanRequest {
   accepted: AcceptedCreativeBrief;
   speechRef?: AnalysisRef;
   vadRef?: AnalysisRef;
+  audioRef?: AnalysisRef;
   speechContext?: AnalysisEvidenceContext;
   vadContext?: AnalysisEvidenceContext;
+  audioContext?: AnalysisEvidenceContext;
   caption: Omit<CaptionPlanRequest, "snapshot" | "projectId" | "timelineId" | "revision" | "occurrenceId">;
   music: Omit<MusicPlanRequest, "snapshot" | "projectId" | "timelineId" | "revision" | "brief" | "accepted">;
 }
@@ -40,8 +42,8 @@ export type EditDecision =
   | { kind: "caption-unavailable"; support: "unavailable"; rationale: string }
   | { kind: "caption-omission"; support: "no-op"; rationale: string }
   | { kind: "caption-clarification"; support: "unavailable"; rationale: string }
-  | { kind: "music-omission"; support: "no-op"; rationale: string; musicPlan: MusicPlan }
-  | { kind: "music-proposal"; support: "unavailable"; rationale: string; musicPlan: MusicPlan; range?: TimeRange };
+  | { kind: "music-omission"; support: "no-op"; rationale: string; musicPlan: MusicPlan; audioRef?: AnalysisRef }
+  | { kind: "music-proposal"; support: "unavailable"; rationale: string; musicPlan: MusicPlan; range?: TimeRange; audioRef?: AnalysisRef };
 export interface EditDecisionPlan {
   projectId: string;
   timelineId: string;
@@ -78,7 +80,8 @@ export async function createEditDecisionPlan(request: EditDecisionPlanRequest, a
     const snapshot = request.snapshot;
     if (!snapshot || snapshot.projectId !== request.projectId || snapshot.timeline.id !== request.timelineId
       || !sameRevision(snapshot.revision, request.revision)
-      || Boolean(request.speechRef) !== Boolean(request.speechContext) || Boolean(request.vadRef) !== Boolean(request.vadContext)) {
+      || Boolean(request.speechRef) !== Boolean(request.speechContext) || Boolean(request.vadRef) !== Boolean(request.vadContext)
+      || Boolean(request.audioRef) !== Boolean(request.audioContext)) {
       return { status: "unavailable", reason: "Target, revision or analysis reference pair is invalid." };
     }
     assertBriefSourceCoverage(request.accepted, request.brief, snapshot.media);
@@ -105,6 +108,17 @@ export async function createEditDecisionPlan(request: EditDecisionPlanRequest, a
       || (speechContext && vadContext && (!sameAnalyzerDescriptor(speechContext.provider, vadContext.provider)
         || request.speechRef!.artifactDigest !== request.vadRef!.artifactDigest))) {
       return { status: "unavailable", reason: "Current source, revision or speech/VAD identity conflicts." };
+    }
+    if (request.audioRef && request.audioContext) {
+      const audio = request.audioContext;
+      const sourceStart = clip.sourceStart ?? 0;
+      if (audio.kind !== "audio" || !sameRevision(audio.revision, request.revision)
+        || !sameMediaSourceIdentity(source, audio.source) || audio.range.start > sourceStart
+        || audio.range.end < sourceStart + clip.duration) {
+        return { status: "unavailable", reason: "Audio evidence does not cover the current source occurrence." };
+      }
+      const evidence = await verifyAnalysisEvidence(artifacts, request.audioRef, audio, verifySource);
+      if (evidence.status !== "verified") return { status: "unavailable", reason: `Audio evidence: ${evidence.reason}` };
     }
     if (request.speechRef && speechContext) {
       const speechEvidence = await verifyAnalysisEvidence(artifacts, request.speechRef, speechContext, verifySource);
@@ -149,8 +163,8 @@ export async function createEditDecisionPlan(request: EditDecisionPlanRequest, a
       ...cutDecisions,
       ...captionDecisions,
       music.decision === "omit-music"
-        ? { kind: "music-omission", support: "no-op", rationale: music.reason, musicPlan: music }
-        : { kind: "music-proposal", support: "unavailable", rationale: music.reason, musicPlan: music, ...(music.placement ? { range: structuredClone(music.placement.range) } : {}) },
+        ? { kind: "music-omission", support: "no-op", rationale: music.reason, musicPlan: music, ...(request.audioRef ? { audioRef: structuredClone(request.audioRef) } : {}) }
+        : { kind: "music-proposal", support: "unavailable", rationale: music.reason, musicPlan: music, ...(request.audioRef ? { audioRef: structuredClone(request.audioRef) } : {}), ...(music.placement ? { range: structuredClone(music.placement.range) } : {}) },
     ];
     decisions.sort((a, b) => ("range" in a ? a.range?.start ?? Number.POSITIVE_INFINITY : Number.POSITIVE_INFINITY)
       - ("range" in b ? b.range?.start ?? Number.POSITIVE_INFINITY : Number.POSITIVE_INFINITY));
@@ -159,9 +173,14 @@ export async function createEditDecisionPlan(request: EditDecisionPlanRequest, a
     const content = { projectId: request.projectId, timelineId: request.timelineId, occurrenceId: request.occurrenceId, source: sourceIdentity,
       revision: structuredClone(request.revision), acceptedBrief: structuredClone(request.accepted), inputDigest: digest(request),
       reviewRequired: true as const, decisions, warnings: [...cutWarnings, ...captionWarnings, ...music.warnings,
-        ...(request.music.context.audioEvidence === "available" ? ["Supplied audio context is unverified because no pinned audio reference was provided."] : []),
+        ...(request.music.context.audioEvidence === "available" && !request.audioRef ? ["Supplied audio context is unverified because no pinned audio reference was provided."] : []),
+        ...(request.audioRef ? ["Source audio evidence does not verify the edited mix or dialogue audibility."] : []),
         "Native operation mapping, separate approval and independent verification are not yet available for these proposals."] };
     for (const source of coveredSources) await verifySource(source);
+    if (request.audioRef && request.audioContext) {
+      const evidence = await verifyAnalysisEvidence(artifacts, request.audioRef, request.audioContext, verifySource);
+      if (evidence.status !== "verified") return { status: "unavailable", reason: `Audio evidence: ${evidence.reason}` };
+    }
     await assertCurrentAcceptedBrief(briefStore, request.projectId, request.accepted);
     return { status: "available", plan: { ...content, planDigest: digest(content) } };
   } catch (error) {
