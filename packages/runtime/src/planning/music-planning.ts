@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from "node:util";
+import type { CompositeEditPreview, MusicAddRequest } from "../domain/editing.js";
 import { sameMediaSourceIdentity } from "../domain/media.js";
 import type { MediaSourceIdentity } from "../domain/media.js";
 import type { ContextRevision, TimeRange } from "../domain/primitives.js";
@@ -73,4 +75,30 @@ export function planMusic(request: MusicPlanRequest): MusicPlan {
     dialogueVerificationRequired: true,
     placement: { mediaId: music.mediaId, sourceDigest: music.sourceDigest, range: structuredClone(range), sourceRange: { start: 0, end: range.end - range.start }, targetLane: request.targetLane, gainDb: request.gainDb },
   };
+}
+
+export interface MusicPreviewPort {
+  inspectProject(): Promise<ProjectSnapshot>;
+  previewMusic(request: MusicAddRequest): Promise<CompositeEditPreview>;
+}
+
+/** Recompute the reviewed proposal against live context, then use the existing preview path. */
+export async function previewMusicPlan(
+  runtime: MusicPreviewPort,
+  request: MusicPlanRequest,
+  reviewed: MusicPlan,
+  occurrenceId: string,
+): Promise<CompositeEditPreview> {
+  if (!occurrenceId?.trim()) throw new Error("INVALID_MUSIC_PLAN: an occurrence identity is required");
+  const current = await runtime.inspectProject();
+  const recomputed = planMusic({ ...request, snapshot: current });
+  if (recomputed.decision !== "propose-music" || !recomputed.placement || !isDeepStrictEqual(recomputed, reviewed)) {
+    throw new Error("STALE_MUSIC_PLAN: reviewed proposal no longer matches current inputs");
+  }
+  return runtime.previewMusic({
+    baseRevision: structuredClone(recomputed.revision), occurrenceId, mediaId: recomputed.placement.mediaId,
+    placement: "insert", start: recomputed.placement.range.start,
+    duration: recomputed.placement.range.end - recomputed.placement.range.start,
+    targetLane: recomputed.placement.targetLane, gainDb: recomputed.placement.gainDb,
+  });
 }
