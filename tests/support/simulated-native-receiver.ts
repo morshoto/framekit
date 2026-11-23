@@ -14,15 +14,15 @@ type State = "accepted" | "rejected" | "uncertain" | "not-dispatched" | "partial
 type Step = { kind: "accept" | "reject" | "lose-response" | "stall" | "disconnect-before-dispatch" | "partial-write" | "crash-after-dispatch" };
 type Event = SimulatedIdentity & { tick: number; kind: "dispatch" | "accepted" | "rejected" | "response-lost" | "stalled" | "disconnected" | "partial" | "crashed" };
 type Entry = { identity: SimulatedIdentity; state: State; awaitingLateReply?: boolean; resolve?: (result: { state: State }) => void };
-type Snapshot = { version: 1; tick: number; events: Event[]; entries: Array<{ identity: SimulatedIdentity; state: State; awaitingLateReply: boolean }>; script: Step[] };
-type Storage = { tick: number; events: Event[]; entries: Map<string, Entry>; script: Step[] };
+type Snapshot = { version: 1; publisherCalls: number; tick: number; events: Event[]; entries: Array<{ identity: SimulatedIdentity; state: State; awaitingLateReply: boolean }>; script: Step[] };
+type Storage = { publisherCalls: number; tick: number; events: Event[]; entries: Map<string, Entry>; script: Step[] };
 
 export class ScriptedNativeReceiver {
   public readonly evidenceTier = "simulated-native" as const;
   private readonly storage: Storage;
 
   public constructor(script: Step[], storage?: Storage) {
-    this.storage = storage ?? { tick: 0, events: [], entries: new Map(), script: [...script] };
+    this.storage = storage ?? { publisherCalls: 0, tick: 0, events: [], entries: new Map(), script: [...script] };
   }
 
   public evidence(input: { scenario: string; seed: number; candidate: string }) {
@@ -31,6 +31,7 @@ export class ScriptedNativeReceiver {
     const digest = (value: string) => createHash("sha256").update(value).digest("hex");
     return {
       tier: this.evidenceTier,
+      publisherCalls: this.storage.publisherCalls,
       ...input,
       events: this.storage.events.map(event => ({
         tick: event.tick, kind: event.kind,
@@ -43,6 +44,7 @@ export class ScriptedNativeReceiver {
   public snapshot(): Snapshot {
     return {
       version: 1,
+      publisherCalls: this.storage.publisherCalls,
       tick: this.storage.tick,
       events: this.trace(),
       entries: [...this.storage.entries.values()].map(entry => ({ identity: { ...entry.identity }, state: entry.state, awaitingLateReply: Boolean(entry.resolve || entry.awaitingLateReply) })),
@@ -52,9 +54,14 @@ export class ScriptedNativeReceiver {
 
   public static restore(snapshot: Snapshot): ScriptedNativeReceiver {
     if (snapshot.version !== 1) throw new Error("SIMULATED_SNAPSHOT_VERSION_UNSUPPORTED");
+    if (!Number.isSafeInteger(snapshot.publisherCalls) || snapshot.publisherCalls < 0) throw new Error("SIMULATED_SNAPSHOT_CALL_COUNT_INVALID");
     const entries = new Map(snapshot.entries.map(entry => [entry.identity.operationId, { identity: { ...entry.identity }, state: entry.state, awaitingLateReply: entry.awaitingLateReply }]));
-    return new ScriptedNativeReceiver([], { tick: snapshot.tick, events: snapshot.events.map(event => ({ ...event })), entries, script: snapshot.script.map(step => ({ ...step })) });
+    return new ScriptedNativeReceiver([], { publisherCalls: snapshot.publisherCalls, tick: snapshot.tick, events: snapshot.events.map(event => ({ ...event })), entries, script: snapshot.script.map(step => ({ ...step })) });
   }
+
+  public recordPublisherCall(): void { this.storage.publisherCalls += 1; }
+
+  public publisherCalls(): number { return this.storage.publisherCalls; }
 
   public trace(): Event[] {
     return this.storage.events.map(event => ({ ...event }));
@@ -132,6 +139,7 @@ export function simulatedTargetIdentity(target: readonly [string, string, string
 export function simulatedMaterializationPublisher(receiver: ScriptedNativeReceiver): import("../../apps/mcp-server/src/materialization-jobs.js").SessionMaterializationPublisher {
   return {
     async publish(request) {
+      receiver.recordPublisherCall();
       const result = await receiver.dispatch({
         operationId: request.jobId,
         targetId: simulatedTargetIdentity([request.target.libraryUid, request.target.eventUid, request.destination.projectUid, request.destination.sequenceUid]),
