@@ -341,3 +341,20 @@ test("headless decision service loads current project and brief and rejects proj
     assert.deepEqual(f.request.vadContext, vadContext);
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
+
+test("caption corrections are not silently dropped when captions lack evidence or are omitted", async () => {
+  const f = await fixture();
+  try {
+    const caption = { ...f.request.caption, wordCorrections: [{ wordIndex: 0, text: "Welcome" }] };
+    const withoutSpeech = { ...f.request, caption, speechRef: undefined, speechContext: undefined };
+    const missing = await createEditDecisionPlan(withoutSpeech, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(missing.status, "unavailable");
+    if (missing.status === "unavailable") assert.match(missing.reason, /correction/i);
+    const brief = { ...f.request.brief, captionPolicy: { kind: "specified" as const, value: "none" } };
+    const store = new JsonCreativeBriefStore(join(f.dir, "omit-corrections.json"));
+    const draft = await store.create("p", brief); await store.accept("p", draft.digest);
+    const omitted = await createEditDecisionPlan({ ...f.request, brief, accepted: acceptCreativeBrief(brief), caption }, f.artifacts, verifyLocalMediaSource, store);
+    assert.equal(omitted.status, "unavailable");
+    if (omitted.status === "unavailable") assert.match(omitted.reason, /correction/i);
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
