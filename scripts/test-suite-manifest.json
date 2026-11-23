@@ -2584,13 +2584,17 @@
       "path": "tests/runtime/planning/edit-decision-plan.test.ts",
       "owner": "packages/runtime",
       "tags": [
-        "unit"
+        "unit",
+        "contract",
+        "fast-integration"
       ],
       "requires": [],
       "reviewed": true,
       "evidence": "fixture",
       "dependsOn": [
-        "packages/runtime"
+        "apps/mcp-server",
+        "packages/runtime",
+        "packages/testkit"
       ],
       "platforms": [
         "any"
