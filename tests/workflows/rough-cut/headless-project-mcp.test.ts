@@ -1434,6 +1434,57 @@ test("production headless analysis rejects source changes during the analyzer ca
   }
 });
 
+test("headless transcript cuts bind approval to source and stored analysis", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-transcript-cut-"));
+  const here = dirname(fileURLToPath(import.meta.url));
+  const sourcePath = join(directory, "source.mp4");
+  const stateDirectory = join(directory, "state");
+  const analyzer = await makeHeadlessSpeechAnalyzer(directory);
+  const environment = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1",
+    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0", FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"),
+    FRAMEKIT_STATE_DIR: stateDirectory, FRAMEKIT_SPEECH_ANALYZER: analyzer,
+    FRAMEKIT_SPEECH_ANALYZER_VERSION: "test-vad@1", FRAMEKIT_SPEECH_REQUIRE_VAD: "1",
+  };
+  let client: Client | undefined; let transport: StdioClientTransport | undefined;
+  try {
+    await generateSegmentedSource(sourcePath, [{ color: "blue", duration: 5 }], 440);
+    ({ client, transport } = await connectProductionClient(here, environment));
+    const timeline = emptyTimeline();
+    timeline.sequence.frameDuration = { value: "1", timescale: "24" };
+    timeline.sequence.frameGridOrigin = { value: "0", timescale: "1" };
+    const created = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline } }));
+    const projectId = created.timeline.project.id; const sequenceId = created.timeline.sequence.id;
+    const registered = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath, expectedRevision: created.timeline.revision } }));
+    const placed = payload(await client.callTool({ name: "headless.edit.execute", arguments: {
+      projectId, sequenceId, expectedRevision: registered.project.timeline.revision,
+      operations: [{ type: "insert-occurrence", placement: "append", occurrence: { ...occurrence("speech", registered.resource.id), durationTime: { value: "5", timescale: "1" } } }],
+    } }));
+    const transcript = payload(await client.callTool({ name: "headless.speech.transcript", arguments: { projectId, mediaId: registered.resource.id } }));
+    const request = { projectId, sequenceId, expectedRevision: placed.after.timeline.revision, occurrenceId: "speech", newOccurrenceId: "speech-right", digest: transcript.digest, wordIndex: 0, boundary: "start" };
+    const offGrid = await client.callTool({ name: "headless.speech.cut.preview", arguments: { ...request, boundary: "end" } });
+    assert.equal(offGrid.isError, true); assert.match(toolErrorText(offGrid), /not frame aligned/);
+    const preview = payload(await client.callTool({ name: "headless.speech.cut.preview", arguments: request }));
+    assert.equal(preview.artifactDigest, transcript.digest);
+    assert.deepEqual(preview.command.operations[0].splitOffsetTime, { value: "1", timescale: "2" });
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, placed.after.timeline);
+    const record = join(stateDirectory, "analysis-artifacts", `${transcript.digest}.json`);
+    const saved = await readFile(record); await rm(record);
+    const missing = await client.callTool({ name: "headless.speech.cut.execute", arguments: { projectId, sequenceId, previewToken: preview.previewToken, approved: true } });
+    assert.equal(missing.isError, true); assert.match(toolErrorText(missing), /ANALYSIS_ARTIFACT_NOT_FOUND/);
+    await writeFile(record, saved);
+    const retry = await client.callTool({ name: "headless.speech.cut.execute", arguments: { projectId, sequenceId, previewToken: preview.previewToken, approved: true } });
+    assert.equal(retry.isError, true);
+    const approved = payload(await client.callTool({ name: "headless.speech.cut.preview", arguments: request }));
+    const result = payload(await client.callTool({ name: "headless.speech.cut.execute", arguments: { projectId, sequenceId, previewToken: approved.previewToken, approved: true } }));
+    const right = result.after.timeline.sequence.occurrences.find((item: any) => item.id === "speech-right");
+    assert.deepEqual(right.sourceStartTime, { value: "1", timescale: "2" });
+    const replay = await client.callTool({ name: "headless.speech.cut.execute", arguments: { projectId, sequenceId, previewToken: approved.previewToken, approved: true } });
+    assert.equal(replay.isError, true);
+  } finally { await client?.close(); await transport?.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test("production rough-cut MCP workflow previews and commits B-A-C video, title, and mixed music", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-issue-517-mvp-"));
   const here = dirname(fileURLToPath(import.meta.url));
