@@ -103,6 +103,24 @@ test("reviewed music proposal previews through the existing workflow without mut
   const altered = { ...plan, placement: { ...plan.placement!, gainDb: -3 } };
   await assert.rejects(() => previewMusicPlan(runtime, liveRequest, altered, "music-clip", fixtureVerifySource, briefStore), /STALE|INVALID/);
   await assert.rejects(() => previewMusicPlan(runtime, { ...liveRequest, revision: { ...before.revision, sequence: before.revision.sequence + 1 } }, plan, "music-clip", fixtureVerifySource, briefStore), /STALE/);
+  let inspections = 0;
+  const projectRace = { inspectProject: async () => ++inspections === 1 ? before : { ...before, revision: { ...before.revision, sequence: before.revision.sequence + 1 } },
+    previewMusic: runtime.previewMusic.bind(runtime) };
+  await assert.rejects(() => previewMusicPlan(projectRace, liveRequest, plan, "music-clip", fixtureVerifySource, briefStore), /STALE/);
+  let sourceInspections = 0;
+  const sourceRace = { inspectProject: async () => ++sourceInspections === 1 ? before : { ...before,
+    media: before.media.map((source) => source.mediaId === "music" ? { ...source, sourceDigest: "changed" } : source) },
+    previewMusic: runtime.previewMusic.bind(runtime) };
+  await assert.rejects(() => previewMusicPlan(sourceRace, liveRequest, plan, "music-clip", fixtureVerifySource, briefStore), /STALE/);
+  const wrongPreview = { inspectProject: runtime.inspectProject.bind(runtime), previewMusic: async () => ({ ...preview,
+    target: { kind: "editor.timeline" as const, projectId: "other", sequenceId: "other" } }) };
+  await assert.rejects(() => previewMusicPlan(wrongPreview, liveRequest, plan, "music-clip", fixtureVerifySource, briefStore), /STALE|TARGET/);
+  const wrongOperations = { inspectProject: runtime.inspectProject.bind(runtime), previewMusic: async () => ({ ...preview,
+    operations: preview.operations.map((operation) => operation.type === "set-gain" ? { ...operation, gainDb: -3 } : operation) }) };
+  await assert.rejects(() => previewMusicPlan(wrongOperations, liveRequest, plan, "music-clip", fixtureVerifySource, briefStore), /STALE|MISMATCH/);
+  const wrongBase = { inspectProject: runtime.inspectProject.bind(runtime), previewMusic: async () => ({ ...preview,
+    baseRevision: { ...preview.baseRevision, sequence: preview.baseRevision.sequence + 1 } }) };
+  await assert.rejects(() => previewMusicPlan(wrongBase, liveRequest, plan, "music-clip", fixtureVerifySource, briefStore), /STALE/);
   const racingRuntime = {
     inspectProject: runtime.inspectProject.bind(runtime),
     previewMusic: async (input: Parameters<typeof runtime.previewMusic>[0]) => {
