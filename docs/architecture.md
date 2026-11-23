@@ -447,6 +447,9 @@ check; a changed or unreadable source invalidates that output. This check
 verifies local source content, not the independent binding between a native
 Final Cut occurrence and that source. Sources without a supplied digest are
 checked for changes during analysis but do not gain cross-run identity evidence.
+When any analyzer reports a source identity failure, `media.understand` fails
+the whole request without saving results from other analyzers under that source.
+Other analyzer failures can still be reported as unavailable dimensions.
 
 Audio analysis reports `signalScope: source` by default. An occurrence measurement
 request includes the exact `occurrenceId`; an occurrence-aware provider must echo
