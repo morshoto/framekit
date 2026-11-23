@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { SemanticMediaIndexStore } from "../application/semantic-media-index-store.js";
-import { validateAudioAnalysisPayload } from "../audio/analysis.js";
+import { validateAudioAnalysisPayload, validateAudioAnalysisRange } from "../audio/analysis.js";
 import { sameAnalyzerDescriptor, sameMediaSourceIdentity } from "../domain/media.js";
 import type { AnalyzerDescriptor, MediaSourceIdentity, MediaUnderstanding } from "../domain/media.js";
 import type { ContextRevision, TimeRange } from "../domain/primitives.js";
@@ -55,6 +55,11 @@ function validRange(range: TimeRange | undefined): range is TimeRange {
 function covers(outer: TimeRange | undefined, inner: TimeRange): boolean {
   return validRange(outer) && outer.start <= inner.start && outer.end >= inner.end;
 }
+function sameRange(a: TimeRange, b: TimeRange): boolean {
+  const sameTime = (x: TimeRange["startTime"], y: TimeRange["startTime"]) =>
+    x === undefined ? y === undefined : y !== undefined && x.value === y.value && x.timescale === y.timescale;
+  return a.start === b.start && a.end === b.end && sameTime(a.startTime, b.startTime) && sameTime(a.durationTime, b.durationTime);
+}
 function nonempty(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
@@ -67,6 +72,8 @@ function validateContext(context: AnalysisEvidenceContext): void {
     || !Number.isFinite(Date.parse(context.revision.timestamp)) || !validRange(context.range)) {
     throw new Error("ANALYSIS_INVALID: complete source, provider, revision and range are required");
   }
+  validateAudioAnalysisRange(context.range, "evidence range");
+  if (context.source.duration !== undefined && (!Number.isFinite(context.source.duration) || context.range.end > context.source.duration)) throw new Error("ANALYSIS_INVALID: evidence range exceeds source");
 }
 
 function validateRecord(record: MediaUnderstanding, context: AnalysisEvidenceContext): void {
@@ -120,7 +127,7 @@ export async function verifyAnalysisEvidence(artifacts: AnalysisArtifactStore, r
     if (!ref || ref.schemaVersion !== 1 || !/^sha256:[a-f0-9]{64}$/.test(ref.artifactDigest)
       || ref.kind !== current.kind || !sameMediaSourceIdentity(ref.source, current.source)
       || !sameAnalyzerDescriptor(ref.provider, current.provider) || !sameRevision(ref.revision, current.revision)
-      || ref.range.start !== current.range.start || ref.range.end !== current.range.end) return { status: "invalid", reason: "analysis reference no longer matches the current request" };
+      || !sameRange(ref.range, current.range)) return { status: "invalid", reason: "analysis reference no longer matches the current request" };
     const bytes = await artifacts.get(ref.artifactDigest);
     if (!bytes) return { status: "unavailable", reason: "pinned analysis artifact is missing" };
     if (hash(bytes) !== ref.artifactDigest) return { status: "invalid", reason: "analysis artifact digest mismatch" };
