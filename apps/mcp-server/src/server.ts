@@ -2464,7 +2464,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     while (speechCutPreviews.size >= 256) speechCutPreviews.delete(speechCutPreviews.keys().next().value!);
     const previewToken = `speech-cut-${randomUUID()}`;
     speechCutPreviews.set(previewToken, { innerToken, projectId, sequenceId, mediaId: occurrence.mediaId, digest, expiresAt: now + 10 * 60 * 1000 });
-    return { ...result, artifactDigest: digest, wordIndex, boundary, previewToken };
+    return { ...result, artifactDigest: digest, wordIndex, word, boundary, previewToken };
   }));
 
   registerValidatedTool(server, "headless.speech.cut.execute", {
