@@ -2510,6 +2510,23 @@
       "network": "none"
     },
     {
+      "path": "tests/runtime/planning/creative-brief.test.ts",
+      "owner": "packages/runtime",
+      "tags": [
+        "unit"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "unit",
+      "dependsOn": [
+        "packages/runtime"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
       "path": "tests/runtime/projects/capabilities.test.ts",
       "owner": "adapters/final-cut/typescript",
       "tags": [
