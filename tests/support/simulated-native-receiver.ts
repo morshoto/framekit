@@ -8,9 +8,9 @@ export type SimulatedIdentity = {
   desiredDigest: string;
   revisionId: string;
 };
-type State = "accepted" | "rejected" | "uncertain" | "not-dispatched";
-type Step = { kind: "accept" | "reject" | "lose-response" | "stall" | "disconnect-before-dispatch" };
-type Event = SimulatedIdentity & { tick: number; kind: "dispatch" | "accepted" | "rejected" | "response-lost" | "stalled" | "disconnected" };
+type State = "accepted" | "rejected" | "uncertain" | "not-dispatched" | "partial";
+type Step = { kind: "accept" | "reject" | "lose-response" | "stall" | "disconnect-before-dispatch" | "partial-write" };
+type Event = SimulatedIdentity & { tick: number; kind: "dispatch" | "accepted" | "rejected" | "response-lost" | "stalled" | "disconnected" | "partial" };
 type Entry = { identity: SimulatedIdentity; state: State; awaitingLateReply?: boolean; resolve?: (result: { state: State }) => void };
 type Snapshot = { version: 1; tick: number; events: Event[]; entries: Array<{ identity: SimulatedIdentity; state: State; awaitingLateReply: boolean }>; script: Step[] };
 type Storage = { tick: number; events: Event[]; entries: Map<string, Entry>; script: Step[] };
@@ -94,7 +94,7 @@ export class ScriptedNativeReceiver {
       this.record("response-lost", entry.identity);
       return { state: "uncertain" };
     }
-    entry.state = step.kind === "accept" ? "accepted" : "rejected";
+    entry.state = step.kind === "accept" ? "accepted" : step.kind === "partial-write" ? "partial" : "rejected";
     this.record(entry.state, entry.identity);
     return { state: entry.state };
   }
@@ -130,9 +130,11 @@ export function simulatedMaterializationPublisher(receiver: ScriptedNativeReceiv
       if (result.state === "uncertain") throw new Error("SIMULATED_RESPONSE_LOST");
       if (result.state === "not-dispatched") return { state: "blocked", code: "SIMULATED_DISCONNECTED", message: "Simulated connection lost before dispatch", retryable: true };
       if (result.state === "rejected") return { state: "blocked", code: "SIMULATED_REJECTION", message: "Simulated receiver rejected the request", retryable: false };
+      const canonicalReadback = structuredClone(request.desired);
+      if (result.state === "partial") canonicalReadback.project.name += " (partial)";
       return {
         state: "completed",
-        canonicalReadback: request.desired,
+        canonicalReadback,
         canonicalTarget: { libraryUid: request.target.libraryUid, eventUid: request.target.eventUid, projectUid: request.destination.projectUid, sequenceUid: request.destination.sequenceUid },
         headedNativeVerified: false,
       };
