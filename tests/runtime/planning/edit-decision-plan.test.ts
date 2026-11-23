@@ -203,3 +203,18 @@ test("decision planning rejects stale brief coverage even for unselected sources
     assert.match(result.reason, /COVERAGE/);
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
+
+test("decision planning verifies bytes of every brief-covered source", async () => {
+  const f = await fixture();
+  try {
+    const path = join(f.dir, "other.mov"); await writeFile(path, "original");
+    const extra = { mediaId: "other", source: path, sourceDigest: createHash("sha256").update("original").digest("hex"), mediaKind: "video" as const, duration: 10 };
+    const brief = { ...f.request.brief, requiredContent: ["intro"], sourceCoverage: [{ requirement: "intro", sourceId: "other", sourceDigest: extra.sourceDigest, start: 0, end: 5 }] };
+    const store = new JsonCreativeBriefStore(join(f.dir, "coverage-bytes.json"));
+    const draft = await store.create("p", brief); await store.accept("p", draft.digest);
+    const input = { ...f.request, brief, accepted: acceptCreativeBrief(brief), snapshot: { ...f.request.snapshot, media: [...f.request.snapshot.media, extra] } };
+    assert.equal((await createEditDecisionPlan(input, f.artifacts, verifyLocalMediaSource, store)).status, "available");
+    await writeFile(path, "changed");
+    assert.equal((await createEditDecisionPlan(input, f.artifacts, verifyLocalMediaSource, store)).status, "unavailable");
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
