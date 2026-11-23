@@ -289,14 +289,10 @@ export async function claimDispatchIntent(root: string, manifest: QaRunManifest,
   await assertQaJobIndex(root, bound);
   await assertAuthorizationBinding(root, { ...bound, authorizationDigest });
   const directory = join(root, bound.qaRunId);
-  let marker;
-  try { marker = await open(join(directory, "dispatch-uncertain"), "wx", 0o600); }
+  try { await publishQaRecord(join(directory, "dispatch-uncertain"), `${JSON.stringify({ publishJobId })}\n`); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error("QA_DISPATCH_ALREADY_CLAIMED");
     throw error;
   }
-  try { await marker.writeFile(JSON.stringify({ publishJobId }) + "\n"); await marker.sync(); }
-  finally { await marker.close(); }
-  await syncDirectory(directory);
   return inspectRun(root, bound.qaRunId);
 }
