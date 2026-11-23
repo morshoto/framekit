@@ -243,3 +243,32 @@ test("publisher job identity survives a separate process exit", async () => {
     await assert.rejects(claimDispatchIntent(root, manifest, "publish-job-fixture"), /QA_DISPATCH_ALREADY_CLAIMED/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("a separate run cannot reuse an operation authorization", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-auth-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    assert.equal((await createOrInspectRun(root, manifest)).created, false);
+    await assert.rejects(createOrInspectRun(root, { ...manifest, qaRunId: "another-run" }), /QA_AUTHORIZATION_ALREADY_BOUND/);
+    await assert.rejects(createOrInspectRun(root, { ...manifest, qaRunId: "changed-run", targetDigest: "9".repeat(64) }), /QA_AUTHORIZATION_ALREADY_BOUND/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("concurrent different run IDs cannot consume the same authorization", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-auth-race-"));
+  try {
+    const results = await Promise.allSettled(Array.from({ length: 8 }, (_, i) => createOrInspectRun(root, { ...manifest, qaRunId: `run-${i}` })));
+    assert.equal(results.filter(result => result.status === "fulfilled").length, 1);
+    assert.ok(results.filter(result => result.status === "rejected").every(result => /QA_AUTHORIZATION_ALREADY_BOUND/.test(String(result.reason))));
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("a missing authorization binding cannot claim a dispatch", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-auth-missing-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    await rm(join(root, `.authorization-${manifest.authorizationDigest}`), { recursive: true });
+    await assert.rejects(claimDispatchIntent(root, manifest, "publish-job-1"), /QA_AUTHORIZATION_BINDING_INVALID/);
+    assert.equal((await inspectRun(root, manifest.qaRunId)).dispatch, "NOT_DISPATCHED");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
