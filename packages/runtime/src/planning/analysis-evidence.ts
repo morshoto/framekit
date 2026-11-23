@@ -1,4 +1,6 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { link, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { SemanticMediaIndexStore } from "../application/semantic-media-index-store.js";
 import { validateAudioAnalysisPayload, validateAudioAnalysisRange } from "../audio/analysis.js";
 import { sameAnalyzerDescriptor, sameMediaSourceIdentity } from "../domain/media.js";
@@ -37,6 +39,40 @@ export class InMemoryAnalysisArtifactStore implements AnalysisArtifactStore {
     const bytes = this.entries.get(digest);
     return bytes && Uint8Array.from(bytes);
   }
+}
+
+/** Immutable content-addressed files, published atomically without replacing existing artifacts. */
+export class FileAnalysisArtifactStore implements AnalysisArtifactStore {
+  constructor(private readonly directory: string) {}
+  private path(digest: string): string {
+    if (!/^sha256:[a-f0-9]{64}$/.test(digest)) throw new Error("ANALYSIS_INVALID: invalid artifact digest");
+    return join(this.directory, digest.slice(7));
+  }
+  async put(digest: string, bytes: Uint8Array): Promise<void> {
+    const destination = this.path(digest);
+    if (hash(bytes) !== digest) throw new Error("ANALYSIS_INVALID: artifact digest mismatch");
+    await mkdir(this.directory, { recursive: true });
+    const temporary = join(this.directory, `.analysis-${randomUUID()}.tmp`);
+    try {
+      await writeFile(temporary, bytes, { flag: "wx" });
+      try {
+        await link(temporary, destination);
+      } catch (error) {
+        if (!isCode(error, "EEXIST")) throw error;
+        const existing = await readFile(destination);
+        if (hash(existing) !== digest) throw new Error("ANALYSIS_INVALID: existing artifact is corrupt");
+      }
+    } finally {
+      try { await unlink(temporary); } catch (error) { if (!isCode(error, "ENOENT")) throw error; }
+    }
+  }
+  async get(digest: string): Promise<Uint8Array | undefined> {
+    try { return await readFile(this.path(digest)); }
+    catch (error) { if (isCode(error, "ENOENT")) return undefined; throw error; }
+  }
+}
+function isCode(error: unknown, code: string): boolean {
+  return !!error && typeof error === "object" && "code" in error && error.code === code;
 }
 
 export type AnalysisEvidenceVerification =
