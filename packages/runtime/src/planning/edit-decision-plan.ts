@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 import { sameAnalyzerDescriptor, sameMediaSourceIdentity } from "../domain/media.js";
 import type { ContextRevision, TimeRange } from "../domain/primitives.js";
 import type { ProjectSnapshot } from "../domain/project.js";
+import { parseRational } from "../timeline/rational-time.js";
 import { verifyAnalysisEvidence } from "./analysis-evidence.js";
 import type { AnalysisArtifactStore, AnalysisEvidenceContext, AnalysisRef, AnalysisSourceVerifier } from "./analysis-evidence.js";
 import { planCaptionGroups } from "./caption-planning.js";
@@ -73,6 +74,9 @@ export async function createEditDecisionPlan(request: EditDecisionPlanRequest, a
       || !sameRevision(snapshot.revision, request.revision)
       || Boolean(request.speechRef) !== Boolean(request.speechContext) || Boolean(request.vadRef) !== Boolean(request.vadContext)) {
       return { status: "unavailable", reason: "Target, revision or analysis reference pair is invalid." };
+    }
+    if (snapshot.timeline.frameGridOrigin && parseRational(snapshot.timeline.frameGridOrigin, "ANALYSIS_INVALID").value !== 0n) {
+      return { status: "unavailable", reason: "Nonzero sequence frame-grid origins are not supported by the current planners." };
     }
     const clips = snapshot.timeline.clips.filter((clip) => clip.id === request.occurrenceId);
     const clip = clips.length === 1 ? clips[0] : undefined;
