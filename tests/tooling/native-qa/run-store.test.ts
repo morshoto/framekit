@@ -430,11 +430,13 @@ test("evidence publication is complete and exclusive for concurrent readers", as
     let finished = false;
     let writingError: unknown;
     const writing = publishQaRecord(path, content).then(() => { finished = true; }, error => { writingError = error; finished = true; });
-    while (!finished) {
+    const deadline = Date.now() + 5000;
+    while (!finished && Date.now() < deadline) {
       try { assert.equal(await readFile(path, "utf8"), content); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
       await new Promise(resolve => setTimeout(resolve, 1));
     }
+    assert.equal(finished, true, "evidence publication did not finish within five seconds");
     await writing;
     if (writingError) throw writingError;
     assert.equal(await readFile(path, "utf8"), content);
