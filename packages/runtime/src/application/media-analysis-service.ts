@@ -326,8 +326,8 @@ export class MediaAnalysisService {
         clip.mediaId, sourceRange, sourceIdentity);
     }
     if ((!query.includeSpeechMappings || !persisted)
-      && !sourceSpeechIsReusable(understanding, persisted ? understanding.analysisRevision : media.analysisRevision)) {
-      return unavailableTimelineOccurrence(clip.id, "cached speech provenance is incompatible with current source analysis",
+      && !sourceSpeechIsReusable(understanding, persisted ? understanding.analysisRevision : media.analysisRevision, project)) {
+      return unavailableTimelineOccurrence(clip.id, "cached speech provenance or coverage is incompatible with current source analysis",
         clip.mediaId, sourceRange, sourceIdentity);
     }
     let speechMapping: SpeechOccurrenceMapping | undefined;
@@ -376,7 +376,7 @@ export class MediaAnalysisService {
     if (!cached || !cacheMatchesAnalyzers(cached, this.options)) return undefined;
     if (cached.speech && (!coversWholeSource(cached.speech.requestedRange, media.duration)
       || !coversWholeSource(cached.speech.observedRange, media.duration))) return undefined;
-    if (!sourceSpeechIsReusable(cached, cached.analysisRevision)) return undefined;
+    if (!sourceSpeechIsReusable(cached, cached.analysisRevision, project)) return undefined;
     if (!sourceAudioIsReusable(cached)) return undefined;
     if (cached.audio && (!coversWholeSource(cached.audio.requestedRange, media.duration)
       || !coversWholeSource(cached.audio.measuredRange, media.duration))) return undefined;
@@ -409,7 +409,7 @@ export class MediaAnalysisService {
     const entries = await this.options.semanticMediaIndexStore?.list() ?? [];
     return this.validIndexEntries(entries
       .filter((entry) => entry.sourceIdentity.sourceDigest?.trim() && sourceAudioIsReusable(entry)
-        && sourceSpeechIsReusable(entry, entry.analysisRevision))
+        && sourceSpeechIsReusable(entry, entry.analysisRevision, project))
       .map(understandingToIndexEntry)
       .filter((entry) => matchesMediaIndexQuery(entry, query)), project);
   }
@@ -418,7 +418,7 @@ export class MediaAnalysisService {
     const valid: MediaIndexEntry[] = [];
     for (const entry of entries) {
       if (!analyzedProvidersMatch(entry, this.options)
-        || !sourceAudioIsReusable(entry) || !sourceSpeechIsReusable(entry, entry.analysisRevision)) continue;
+        || !sourceAudioIsReusable(entry) || !sourceSpeechIsReusable(entry, entry.analysisRevision, project)) continue;
       try {
         await this.validateCurrentSource(project, { ...entry.sourceIdentity });
         valid.push(entry);
@@ -1023,6 +1023,7 @@ function sourceAudioIsReusable(evidence: SourceAudioEvidence): boolean {
 function sourceSpeechIsReusable(
   evidence: Pick<MediaUnderstanding, "speech" | "sourceIdentity" | "analysis">,
   revision: MediaUnderstanding["analysisRevision"] | string | undefined,
+  project: ProjectSnapshot,
 ): boolean {
   const speech = evidence.speech;
   if (!speech) return true;
@@ -1033,6 +1034,15 @@ function sourceSpeechIsReusable(
   if (speech.provider !== undefined && !sameDescriptor(speech.provider, provenance.analyzer)) return false;
   if (speech.revision !== undefined && (!revision || (typeof revision === "string"
     ? speech.revision.id !== revision : !sameContextRevision(speech.revision, revision)))) return false;
+  try {
+    const analysisRevision = typeof revision === "object" ? revision : speech.revision ?? project.revision;
+    bindSpeechAnalysis(speech, {
+      input: { project: { ...project, revision: analysisRevision }, media: evidence.sourceIdentity },
+      provider: provenance.analyzer,
+    });
+  } catch {
+    return false;
+  }
   return true;
 }
 
