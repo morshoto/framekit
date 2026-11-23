@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -274,4 +274,30 @@ test("a missing authorization binding cannot claim a dispatch", async () => {
     await assert.rejects(claimDispatchIntent(root, manifest, "publish-job-1"), /QA_AUTHORIZATION_BINDING_INVALID/);
     assert.equal((await inspectRun(root, manifest.qaRunId)).dispatch, "NOT_DISPATCHED");
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+
+test("QA records require a private, owned root and private directories", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-private-"));
+  try {
+    await chmod(root, 0o777);
+    await assert.rejects(createOrInspectRun(root, manifest), /QA_RUN_ROOT_UNSAFE/);
+    await chmod(root, 0o700);
+    await createOrInspectRun(root, manifest);
+    assert.equal((await lstat(join(root, manifest.qaRunId))).mode & 0o077, 0);
+    assert.equal((await lstat(join(root, `.authorization-${manifest.authorizationDigest}`))).mode & 0o077, 0);
+    await chmod(root, 0o755);
+    await assert.rejects(inspectRun(root, manifest.qaRunId), /QA_RUN_ROOT_UNSAFE/);
+    await assert.rejects(claimDispatchIntent(root, manifest, "publish-job-1"), /QA_RUN_ROOT_UNSAFE/);
+  } finally { await chmod(root, 0o700); await rm(root, { recursive: true, force: true }); }
+});
+
+test("a symbolic link cannot be used as the QA root", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "framekit-qa-root-link-"));
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-real-root-"));
+  try {
+    const link = join(parent, "link");
+    await symlink(root, link, "dir");
+    await assert.rejects(createOrInspectRun(link, manifest), /QA_RUN_ROOT_UNSAFE/);
+  } finally { await rm(parent, { recursive: true, force: true }); await rm(root, { recursive: true, force: true }); }
 });
