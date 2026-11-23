@@ -141,3 +141,18 @@ export function simulatedMaterializationPublisher(receiver: ScriptedNativeReceiv
     },
   };
 }
+
+/** Test-only disposable Undo boundary; no native command is issued. */
+export function simulatedUndoWorkflow(receiver: ScriptedNativeReceiver) {
+  return {
+    async trackNativeDispatch<T>(operation: () => Promise<T>, onDispatch: () => void): Promise<T> {
+      onDispatch();
+      return operation();
+    },
+    async undo(operationId: string) {
+      const result = await receiver.dispatch({ operationId, targetId: "simulated-target", sourceDigest: "simulated-source", desiredDigest: "simulated-before", revisionId: "simulated-revision" });
+      if (result.state !== "accepted") throw new Error("SIMULATED_UNDO_UNVERIFIED");
+      return { undone: true, beforeDigest: "a".repeat(64), restoredDigest: "a".repeat(64), verification: { passed: true } };
+    },
+  };
+}
