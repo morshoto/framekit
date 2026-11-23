@@ -16,9 +16,10 @@ export interface HeadlessEvidence {
   finishedAt: string;
 }
 
-function workerInput(artifactPath: string | undefined): string {
+function workerInput(artifactPath: string | undefined, publisherFixture: boolean): string {
+  if (publisherFixture && artifactPath === undefined) throw new Error("QA_ARTIFACT_UNSAFE");
   if (artifactPath !== undefined && (typeof artifactPath !== "string" || !isAbsolute(artifactPath) || artifactPath.length > 4096 || artifactPath.includes("\0"))) throw new Error("QA_ARTIFACT_UNSAFE");
-  const input = JSON.stringify(artifactPath === undefined ? {} : { artifactPath });
+  const input = JSON.stringify({ ...(artifactPath === undefined ? {} : { artifactPath }), ...(publisherFixture ? { publisherFixture: true } : {}) });
   if (input.length > 8192) throw new Error("QA_ARTIFACT_UNSAFE");
   return input;
 }
@@ -38,8 +39,8 @@ async function launchHeadlessWorker(root: string, qaRunId: string, input: string
 }
 
 /** Start one bounded headless check only. A duplicate start never creates a worker. */
-export async function startQaRun(root: string, manifest: QaRunManifest, artifactPath?: string) {
-  const input = workerInput(artifactPath);
+export async function startQaRun(root: string, manifest: QaRunManifest, artifactPath?: string, options: { publisherFixture?: boolean } = {}) {
+  const input = workerInput(artifactPath, options.publisherFixture === true);
   const boundRoot = resolve(root);
   const outcome = await createOrInspectRun(boundRoot, manifest);
   if (outcome.created) await launchHeadlessWorker(boundRoot, outcome.run.manifest.qaRunId, input);
@@ -47,8 +48,8 @@ export async function startQaRun(root: string, manifest: QaRunManifest, artifact
 }
 
 /** Explicitly reschedule only a not-yet-started headless check, never a native operation. */
-export async function resumeHeadlessQaRun(root: string, qaRunId: string, artifactPath?: string) {
-  const input = workerInput(artifactPath);
+export async function resumeHeadlessQaRun(root: string, qaRunId: string, artifactPath?: string, options: { publisherFixture?: boolean } = {}) {
+  const input = workerInput(artifactPath, options.publisherFixture === true);
   const boundRoot = resolve(root);
   const run = await inspectRun(boundRoot, qaRunId);
   if (run.dispatch !== "NOT_DISPATCHED") throw new Error("QA_DISPATCH_ALREADY_CLAIMED");

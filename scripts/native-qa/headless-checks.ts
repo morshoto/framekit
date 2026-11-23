@@ -1,6 +1,6 @@
 export const headlessResults = [
   "candidate-mismatch", "candidate-changed", "render-contract-passed", "render-contract-failed", "preflight-error",
-  "artifact-digest-mismatch", "artifact-unsafe", "artifact-changed", "artifact-check-failed",
+  "artifact-digest-mismatch", "artifact-unsafe", "artifact-changed", "artifact-check-failed", "publisher-fixture-mismatch",
 ] as const;
 export type HeadlessResult = typeof headlessResults[number];
 
@@ -18,6 +18,7 @@ export async function runHeadlessQaChecks(checks: {
         if (error instanceof Error && error.message === "QA_ARTIFACT_DIGEST_MISMATCH") return "artifact-digest-mismatch";
         if (error instanceof Error && error.message === "QA_ARTIFACT_UNSAFE") return "artifact-unsafe";
         if (error instanceof Error && error.message === "QA_ARTIFACT_CHANGED") return "artifact-changed";
+        if (error instanceof Error && error.message === "QA_PUBLISH_FIXTURE_MISMATCH") return "publisher-fixture-mismatch";
         return "artifact-check-failed";
       }
     }

@@ -6,14 +6,16 @@ import { inspectQaPublisherFromStore } from "./publisher-inspection.js";
 import { readQaPublisherFixtureEvidence, verifyQaPublisherFixture } from "./publisher-fixture-evidence.js";
 
 const [command, root, input, ...extra] = process.argv.slice(2);
-const commands = ["start", "inspect", "evidence", "record-authorization", "resume-headless", "verify-artifact", "artifact-evidence", "inspect-publisher-store", "verify-publisher-fixture", "publisher-fixture-evidence"];
-const expectsExtra = command === "record-authorization" || command === "verify-artifact" || command === "inspect-publisher-store" || command === "verify-publisher-fixture";
+const commands = ["start", "inspect", "evidence", "record-authorization", "resume-headless", "verify-artifact", "artifact-evidence", "inspect-publisher-store", "verify-publisher-fixture", "publisher-fixture-evidence", "start-publisher-fixture", "resume-publisher-fixture"];
+const expectsExtra = command === "record-authorization" || command === "verify-artifact" || command === "inspect-publisher-store" || command === "verify-publisher-fixture" || command === "start-publisher-fixture" || command === "resume-publisher-fixture";
 const allowsOptionalArtifact = command === "start" || command === "resume-headless";
 if (!root || !input || !commands.includes(command ?? "") || (expectsExtra ? extra.length !== 1 : allowsOptionalArtifact ? extra.length > 1 : extra.length !== 0)) throw new Error("QA_CLI_ARGUMENTS_INVALID");
 let result: unknown;
 if (command === "start") result = await startQaRun(root, JSON.parse(await readFile(input, "utf8")) as QaRunManifest, extra[0]);
+else if (command === "start-publisher-fixture") result = await startQaRun(root, JSON.parse(await readFile(input, "utf8")) as QaRunManifest, extra[0], { publisherFixture: true });
 else if (command === "inspect") result = await inspectRun(root, input);
 else if (command === "resume-headless") result = await resumeHeadlessQaRun(root, input, extra[0]);
+else if (command === "resume-publisher-fixture") result = await resumeHeadlessQaRun(root, input, extra[0], { publisherFixture: true });
 else if (command === "verify-artifact") result = await verifyQaArtifact(root, input, extra[0]!);
 else if (command === "artifact-evidence") result = await readQaArtifactEvidence(root, input);
 else if (command === "inspect-publisher-store") result = await inspectQaPublisherFromStore(root, input, extra[0]!);

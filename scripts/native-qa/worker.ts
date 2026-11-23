@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { inspectRun } from "./run-store.js";
 import { publishQaRecord } from "./atomic-record.js";
 import { verifyQaArtifact } from "./artifact-evidence.js";
+import { verifyQaPublisherFixture } from "./publisher-fixture-evidence.js";
 import { runHeadlessQaChecks } from "./headless-checks.js";
 import type { HeadlessEvidence } from "./supervisor.js";
 
@@ -21,7 +22,9 @@ for await (const chunk of process.stdin) {
 const input: unknown = JSON.parse(inputText);
 if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("QA_WORKER_INPUT_INVALID");
 const item = input as Record<string, unknown>;
-if (Object.keys(item).some(key => key !== "artifactPath") || (item.artifactPath !== undefined && (typeof item.artifactPath !== "string" || !isAbsolute(item.artifactPath) || item.artifactPath.length > 4096 || item.artifactPath.includes("\0")))) throw new Error("QA_WORKER_INPUT_INVALID");
+if (Object.keys(item).some(key => key !== "artifactPath" && key !== "publisherFixture") || (item.publisherFixture !== undefined && item.publisherFixture !== true)
+  || (item.publisherFixture === true && item.artifactPath === undefined)
+  || (item.artifactPath !== undefined && (typeof item.artifactPath !== "string" || !isAbsolute(item.artifactPath) || item.artifactPath.length > 4096 || item.artifactPath.includes("\0")))) throw new Error("QA_WORKER_INPUT_INVALID");
 const artifactPath = item.artifactPath as string | undefined;
 const run = await inspectRun(root, qaRunId);
 const directory = join(root, qaRunId);
@@ -43,7 +46,10 @@ const candidateMatches = async () => {
 };
 const result = await runHeadlessQaChecks({
   candidateMatches,
-  ...(artifactPath === undefined ? {} : { verifyArtifact: async () => { await verifyQaArtifact(root, qaRunId, artifactPath); } }),
+  ...(artifactPath === undefined ? {} : { verifyArtifact: async () => {
+    await verifyQaArtifact(root, qaRunId, artifactPath);
+    if (item.publisherFixture === true) await verifyQaPublisherFixture(root, qaRunId, artifactPath);
+  } }),
   runRenderContract: async () => {
     await execFileAsync(process.execPath, ["--import", "tsx", "--test", "tests/runtime/editing/render-contract.test.ts"], {
       cwd: checkout, timeout: 120000, maxBuffer: 1024 * 1024,
