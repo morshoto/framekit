@@ -1126,6 +1126,10 @@ test("publisher inspection reads a persisted fixture without changing its store"
     assert.equal(observed.nativeQuiescence, "unproven");
     assert.equal(observed.dispatchAllowed, false);
     assert.equal(JSON.stringify(observed).includes(sourcePath), false);
+    const cli = spawnSync(process.execPath, ["--import", "tsx", "scripts/native-qa/cli.ts", "inspect-publisher-store", root, bound.qaRunId, store], { encoding: "utf8", timeout: 10000 });
+    assert.equal(cli.status, 0, cli.stderr);
+    assert.deepEqual(JSON.parse(cli.stdout), observed);
+    assert.equal(cli.stdout.includes(store), false);
     assert.equal(await readFile(jobPath, "utf8"), before);
     assert.equal((await lstat(store)).mode, beforeMode);
   } finally { await rm(root, { recursive: true, force: true }); await rm(store, { recursive: true, force: true }); }
