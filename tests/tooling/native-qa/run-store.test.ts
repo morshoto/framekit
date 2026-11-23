@@ -4,7 +4,7 @@ import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createOrInspectRun, inspectRun, markDispatchUncertain } from "../../../scripts/native-qa/run-store.js";
+import { claimDispatchIntent, createOrInspectRun, inspectRun, markDispatchUncertain } from "../../../scripts/native-qa/run-store.js";
 
 const manifest = {
   qaRunId: "qa-fixture-1", candidateCommit: "a".repeat(40), candidateTree: "b".repeat(40),
@@ -167,5 +167,40 @@ test("uncertain state survives a separate process exit", async () => {
     assert.equal(observed.dispatch, "UNKNOWN_AFTER_DISPATCH");
     assert.equal(observed.verdict, "BLOCKED");
     assert.equal((await createOrInspectRun(root, manifest)).created, false);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+
+test("dispatch intent binds a publisher job before any receiver call", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-intent-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    const intent = await claimDispatchIntent(root, manifest, "publish-job-123");
+    assert.equal(intent.dispatch, "UNKNOWN_AFTER_DISPATCH");
+    assert.equal(intent.publishJobId, "publish-job-123");
+    assert.equal((await inspectRun(root, manifest.qaRunId)).publishJobId, "publish-job-123");
+    await assert.rejects(claimDispatchIntent(root, manifest, "publish-job-123"), /QA_DISPATCH_ALREADY_CLAIMED/);
+    await assert.rejects(claimDispatchIntent(root, manifest, "different-job"), /QA_DISPATCH_ALREADY_CLAIMED/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("competing dispatch intent claims have at most one winner", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-intent-race-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    const claims = await Promise.allSettled(Array.from({ length: 8 }, (_, i) => claimDispatchIntent(root, manifest, `job-${i}`)));
+    assert.equal(claims.filter(result => result.status === "fulfilled").length, 1);
+    assert.ok(claims.filter(result => result.status === "rejected").every(result => /QA_DISPATCH_ALREADY_CLAIMED/.test(String(result.reason))));
+    assert.match((await inspectRun(root, manifest.qaRunId)).publishJobId ?? "", /^job-[0-7]$/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("invalid job identity and stale authorization cannot claim dispatch", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-intent-invalid-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    await assert.rejects(claimDispatchIntent(root, manifest, "../secret"), /QA_PUBLISH_JOB_ID_INVALID/);
+    await assert.rejects(claimDispatchIntent(root, { ...manifest, authorizationDigest: "9".repeat(64) }, "job-1"), /QA_RUN_IDENTITY_MISMATCH/);
+    assert.equal((await inspectRun(root, manifest.qaRunId)).dispatch, "NOT_DISPATCHED");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
