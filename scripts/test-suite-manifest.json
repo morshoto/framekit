@@ -2564,6 +2564,23 @@
       "network": "none"
     },
     {
+      "path": "tests/runtime/planning/edit-decision-plan.test.ts",
+      "owner": "packages/runtime",
+      "tags": [
+        "unit"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "packages/runtime"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
       "path": "tests/runtime/planning/music-planning.test.ts",
       "owner": "packages/runtime",
       "tags": [
