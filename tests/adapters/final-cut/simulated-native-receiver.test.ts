@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { ScriptedNativeReceiver } from "../../support/simulated-native-receiver.js";
 
@@ -79,4 +80,20 @@ test("restoring a stalled receiver does not invent a terminal outcome", async ()
   assert.deepEqual(restored.inspect(request.operationId), { state: "rejected" });
   receiver.reply(request.operationId, "rejected");
   await pending;
+});
+
+
+test("a separate process restores uncertainty without dispatching again", async () => {
+  const receiver = new ScriptedNativeReceiver([{ kind: "lose-response" }]);
+  await receiver.dispatch(request);
+  const script = `import { ScriptedNativeReceiver } from "./tests/support/simulated-native-receiver.ts";
+    const data = JSON.parse(await new Promise(resolve => { let text = ""; process.stdin.setEncoding("utf8"); process.stdin.on("data", chunk => text += chunk); process.stdin.on("end", () => resolve(text)); }));
+    const receiver = ScriptedNativeReceiver.restore(data.snapshot);
+    const result = await receiver.dispatch(data.request);
+    process.stdout.write(JSON.stringify({ result, trace: receiver.trace() }));`;
+  const child = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], { input: JSON.stringify({ snapshot: receiver.snapshot(), request }), encoding: "utf8" });
+  assert.equal(child.status, 0, child.stderr);
+  const observed = JSON.parse(child.stdout);
+  assert.equal(observed.result.state, "uncertain");
+  assert.deepEqual(observed.trace.map((event: { kind: string }) => event.kind), ["dispatch", "response-lost"]);
 });
