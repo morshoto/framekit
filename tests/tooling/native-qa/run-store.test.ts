@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { chmod, lstat, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -36,19 +36,47 @@ const manifest = {
 };
 const cleanGitEnvironment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
 
+async function createQaPublisherFixture(root: string) {
+  const sources = join(root, ".publisher-sources");
+  await mkdir(sources);
+  const names = [["a", "clip-a.mp4"], ["b", "clip-b.mp4"], ["c", "clip-c.mp4"], ["m", "generated-music.wav"]] as const;
+    const entries = [];
+    for (const [mediaId, name] of names) {
+      const source = join(sources, name); const content = `synthetic-${mediaId}`;
+      await writeFile(source, content);
+      entries.push({ mediaId, source, sha256: createHash("sha256").update(content).digest("hex") });
+    }
+    const url = (name: string) => pathToFileURL(join(sources, name)).href;
+    const xml = `<?xml version="1.0"?><fcpxml version="1.11"><resources><format id="f" frameDuration="1/24s" width="1280" height="720"/>
+      <asset id="a" name="clip-a.mp4" src="${url("clip-a.mp4")}" duration="24s" hasVideo="1" format="f"/>
+      <asset id="b" name="clip-b.mp4" src="${url("clip-b.mp4")}" duration="15s" hasVideo="1" format="f"/>
+      <asset id="c" name="clip-c.mp4" src="${url("clip-c.mp4")}" duration="14s" hasVideo="1" format="f"/>
+      <asset id="m" name="generated-music.wav" src="${url("generated-music.wav")}" duration="30s" hasAudio="1"/>
+      <effect id="t" name="Basic Title" uid="basic"/></resources><library><event><project uid="p" name="Fixture"><sequence format="f" duration="30s"><spine>
+      <asset-clip ref="b" offset="0s" start="5s" duration="8s"><title ref="t" lane="1" offset="5s" duration="6s"><text>FrameKit MVP Test</text></title><asset-clip ref="m" lane="1" audioRole="music" offset="5s" start="0s" duration="30s"><adjust-volume amount="-12dB"/></asset-clip></asset-clip>
+      <asset-clip ref="a" offset="8s" start="10s" duration="12s"/><asset-clip ref="c" offset="20s" start="2s" duration="10s"/>
+      </spine></sequence></project></event></library></fcpxml>`;
+    const artifact = join(sources, "fixture.fcpxml"); await writeFile(artifact, xml);
+    const bound = { ...manifest, artifactDigest: createHash("sha256").update(xml).digest("hex"),
+      sourceDigest: createHash("sha256").update(JSON.stringify({ profile: "publisher-e2e-v1", sources: entries })).digest("hex") };
+    await createOrInspectRun(root, bound);
+  return { bound, artifact, entries, sources };
+}
+
 test("late simulated receiver acceptance does not trigger a second publisher dispatch", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-qa-late-receiver-"));
   try {
-    await createOrInspectRun(root, manifest);
+    const fixture = await createQaPublisherFixture(root);
+    const manifest = fixture.bound;
     const receiver = new ScriptedNativeReceiver([{ kind: "lose-response" }]);
     const identity = { operationId: "job-123", targetId: "fixture-target", sourceDigest: manifest.sourceDigest, desiredDigest: manifest.artifactDigest, revisionId: "revision-1" };
     const call = async (name: string) => {
-      if (name === "artifact.publish.preview") return { jobId: identity.operationId, state: "awaiting-confirmation", artifactDigest: manifest.artifactDigest, targetLibraryPath: "/fixture/library" };
+      if (name === "artifact.publish.preview") return { jobId: identity.operationId, state: "awaiting-confirmation", artifactDigest: manifest.artifactDigest, targetLibraryPath: "/fixture/library", sourceProof: { sourceMediaDigests: fixture.entries.map(({ source, sha256 }) => ({ source, sha256 })) } };
       receiver.recordPublisherCall();
       await receiver.dispatch(identity);
       throw new Error("simulated lost response");
     };
-    const input = { artifactPath: "/fixture/artifact", transactionId: "fixture", targetLibraryPath: "/fixture/library", artifactDigest: manifest.artifactDigest };
+    const input = { artifactPath: fixture.artifact, headlessExecutionId: "fixture-execution", targetLibraryPath: "/fixture/library", artifactDigest: manifest.artifactDigest };
     await assert.rejects(runSupervisedQaPublisher(root, manifest, input, call, async () => {}, publisherTarget), /PUBLISH_DISPATCH_UNCERTAIN/);
     const restarted = ScriptedNativeReceiver.restore(JSON.parse(JSON.stringify(receiver.snapshot())));
     restarted.reply(identity.operationId, "accepted");
@@ -94,6 +122,7 @@ test("publisher rejects a changed target before preview or dispatch", async () =
       await assert.rejects(runSupervisedQaPublisher(root, manifest, input, call, async () => {}, { ...publisherTarget, [field]: `${publisherTarget[field]}-changed` }), /QA_RUN_TARGET_MISMATCH/);
     }
     await assert.rejects(runSupervisedQaPublisher(root, manifest, { ...input, targetLibraryPath: "/fixture/other" }, call, async () => {}, publisherTarget), /QA_RUN_TARGET_MISMATCH/);
+    await assert.rejects(runSupervisedQaPublisher(root, manifest, input, call, async () => {}, publisherTarget), /QA_PUBLISH_EXECUTION_REQUIRED/);
     assert.equal(calls, 0);
     assert.equal((await inspectRun(root, manifest.qaRunId)).dispatch, "NOT_DISPATCHED");
   } finally { await rm(root, { recursive: true, force: true }); }
@@ -102,9 +131,10 @@ test("publisher rejects a changed target before preview or dispatch", async () =
 test("publisher snapshots the requested target before asynchronous checks", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-qa-target-snapshot-"));
   try {
-    await createOrInspectRun(root, manifest);
+    const fixture = await createQaPublisherFixture(root);
+    const manifest = fixture.bound;
     const target = { ...publisherTarget };
-    const input = { artifactPath: "/fixture/artifact", transactionId: "fixture", targetLibraryPath: target.libraryPath, artifactDigest: manifest.artifactDigest };
+    const input = { artifactPath: fixture.artifact, headlessExecutionId: "fixture-execution", targetLibraryPath: target.libraryPath, artifactDigest: manifest.artifactDigest };
     const call = async () => { throw new Error("preview reached"); };
     const running = runSupervisedQaPublisher(root, manifest, input, call, async () => {}, target);
     target.projectId = "changed-after-start";
@@ -116,10 +146,11 @@ test("publisher snapshots the requested target before asynchronous checks", asyn
 test("readiness gate receives the immutable approved target", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-qa-ready-target-"));
   try {
-    await createOrInspectRun(root, manifest);
-    const input = { artifactPath: "/fixture/artifact", transactionId: "fixture", targetLibraryPath: publisherTarget.libraryPath, artifactDigest: manifest.artifactDigest };
+    const fixture = await createQaPublisherFixture(root);
+    const manifest = fixture.bound;
+    const input = { artifactPath: fixture.artifact, headlessExecutionId: "fixture-execution", targetLibraryPath: publisherTarget.libraryPath, artifactDigest: manifest.artifactDigest };
     const call = async (name: string) => {
-      if (name === "artifact.publish.preview") return { jobId: "job-123", state: "awaiting-confirmation", artifactDigest: manifest.artifactDigest, targetLibraryPath: publisherTarget.libraryPath };
+      if (name === "artifact.publish.preview") return { jobId: "job-123", state: "awaiting-confirmation", artifactDigest: manifest.artifactDigest, targetLibraryPath: publisherTarget.libraryPath, sourceProof: { sourceMediaDigests: fixture.entries.map(({ source, sha256 }) => ({ source, sha256 })) } };
       throw new Error("stop after dispatch");
     };
     let seen: unknown;
@@ -157,14 +188,15 @@ test("evidence entry point returns persisted publisher observations without nati
 test("supervised publisher retains uncertain intent after a lost receiver response", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-supervised-publish-"));
   try {
-    await createOrInspectRun(root, manifest);
+    const fixture = await createQaPublisherFixture(root);
+    const manifest = fixture.bound;
     let dispatches = 0;
     const call = async (name: string) => {
-      if (name === "artifact.publish.preview") return { jobId: "job-123", state: "awaiting-confirmation", artifactDigest: manifest.artifactDigest, targetLibraryPath: "/fixture/library" };
+      if (name === "artifact.publish.preview") return { jobId: "job-123", state: "awaiting-confirmation", artifactDigest: manifest.artifactDigest, targetLibraryPath: "/fixture/library", sourceProof: { sourceMediaDigests: fixture.entries.map(({ source, sha256 }) => ({ source, sha256 })) } };
       dispatches++;
       throw new Error("simulated lost response");
     };
-    const input = { artifactPath: "/fixture/artifact", transactionId: "fixture", targetLibraryPath: "/fixture/library", artifactDigest: manifest.artifactDigest };
+    const input = { artifactPath: fixture.artifact, headlessExecutionId: "fixture-execution", targetLibraryPath: "/fixture/library", artifactDigest: manifest.artifactDigest };
     await assert.rejects(runSupervisedQaPublisher(root, manifest, input, call, async () => {}, publisherTarget), /PUBLISH_DISPATCH_UNCERTAIN/);
     assert.equal((await inspectRun(root, manifest.qaRunId)).dispatch, "UNKNOWN_AFTER_DISPATCH");
     assert.deepEqual((await readQaPublisherStages(root, manifest.qaRunId)).stages.map(value => value.stage), ["prepared"]);
@@ -176,13 +208,14 @@ test("supervised publisher retains uncertain intent after a lost receiver respon
 test("supervised publisher never dispatches when readiness fails", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-supervised-gate-"));
   try {
-    await createOrInspectRun(root, manifest);
+    const fixture = await createQaPublisherFixture(root);
+    const manifest = fixture.bound;
     let executions = 0;
     const call = async (name: string) => {
-      if (name === "artifact.publish.preview") return { jobId: "job-123", state: "awaiting-confirmation", artifactDigest: manifest.artifactDigest, targetLibraryPath: "/fixture/library" };
+      if (name === "artifact.publish.preview") return { jobId: "job-123", state: "awaiting-confirmation", artifactDigest: manifest.artifactDigest, targetLibraryPath: "/fixture/library", sourceProof: { sourceMediaDigests: fixture.entries.map(({ source, sha256 }) => ({ source, sha256 })) } };
       executions++; throw new Error("unexpected dispatch");
     };
-    const input = { artifactPath: "/fixture/artifact", transactionId: "fixture", targetLibraryPath: "/fixture/library", artifactDigest: manifest.artifactDigest };
+    const input = { artifactPath: fixture.artifact, headlessExecutionId: "fixture-execution", targetLibraryPath: "/fixture/library", artifactDigest: manifest.artifactDigest };
     await assert.rejects(runSupervisedQaPublisher(root, manifest, input, call, async () => { throw new Error("not ready"); }, publisherTarget), /not ready/);
     assert.equal(executions, 0);
     assert.equal((await inspectRun(root, manifest.qaRunId)).dispatch, "NOT_DISPATCHED");
@@ -192,13 +225,14 @@ test("supervised publisher never dispatches when readiness fails", async () => {
 test("concurrent supervised publisher attempts dispatch at most once", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-supervised-race-"));
   try {
-    await createOrInspectRun(root, manifest);
+    const fixture = await createQaPublisherFixture(root);
+    const manifest = fixture.bound;
     let executions = 0;
     const call = async (name: string) => {
-      if (name === "artifact.publish.preview") return { jobId: "job-123", state: "awaiting-confirmation", artifactDigest: manifest.artifactDigest, targetLibraryPath: "/fixture/library" };
+      if (name === "artifact.publish.preview") return { jobId: "job-123", state: "awaiting-confirmation", artifactDigest: manifest.artifactDigest, targetLibraryPath: "/fixture/library", sourceProof: { sourceMediaDigests: fixture.entries.map(({ source, sha256 }) => ({ source, sha256 })) } };
       executions++; throw new Error("simulated lost response");
     };
-    const input = { artifactPath: "/fixture/artifact", transactionId: "fixture", targetLibraryPath: "/fixture/library", artifactDigest: manifest.artifactDigest };
+    const input = { artifactPath: fixture.artifact, headlessExecutionId: "fixture-execution", targetLibraryPath: "/fixture/library", artifactDigest: manifest.artifactDigest };
     const outcomes = await Promise.allSettled(Array.from({ length: 6 }, () => runSupervisedQaPublisher(root, manifest, input, call, async () => {}, publisherTarget)));
     assert.ok(outcomes.every(outcome => outcome.status === "rejected"));
     assert.equal(executions, 1);
@@ -239,29 +273,8 @@ test("oversized start manifest is rejected before a run is created", async () =>
 
 test("publisher source evidence binds four file identities and bytes", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-qa-source-evidence-"));
-  const sources = await mkdtemp(join(tmpdir(), "framekit-qa-source-files-"));
-  const names = [["a", "clip-a.mp4"], ["b", "clip-b.mp4"], ["c", "clip-c.mp4"], ["m", "generated-music.wav"]] as const;
   try {
-    const entries = [];
-    for (const [mediaId, name] of names) {
-      const source = join(sources, name); const content = `synthetic-${mediaId}`;
-      await writeFile(source, content);
-      entries.push({ mediaId, source, sha256: createHash("sha256").update(content).digest("hex") });
-    }
-    const url = (name: string) => pathToFileURL(join(sources, name)).href;
-    const xml = `<?xml version="1.0"?><fcpxml version="1.11"><resources><format id="f" frameDuration="1/24s" width="1280" height="720"/>
-      <asset id="a" name="clip-a.mp4" src="${url("clip-a.mp4")}" duration="24s" hasVideo="1" format="f"/>
-      <asset id="b" name="clip-b.mp4" src="${url("clip-b.mp4")}" duration="15s" hasVideo="1" format="f"/>
-      <asset id="c" name="clip-c.mp4" src="${url("clip-c.mp4")}" duration="14s" hasVideo="1" format="f"/>
-      <asset id="m" name="generated-music.wav" src="${url("generated-music.wav")}" duration="30s" hasAudio="1"/>
-      <effect id="t" name="Basic Title" uid="basic"/></resources><library><event><project uid="p" name="Fixture"><sequence format="f" duration="30s"><spine>
-      <asset-clip ref="b" offset="0s" start="5s" duration="8s"><title ref="t" lane="1" offset="5s" duration="6s"><text>FrameKit MVP Test</text></title><asset-clip ref="m" lane="1" audioRole="music" offset="5s" start="0s" duration="30s"><adjust-volume amount="-12dB"/></asset-clip></asset-clip>
-      <asset-clip ref="a" offset="8s" start="10s" duration="12s"/><asset-clip ref="c" offset="20s" start="2s" duration="10s"/>
-      </spine></sequence></project></event></library></fcpxml>`;
-    const artifact = join(sources, "fixture.fcpxml"); await writeFile(artifact, xml);
-    const bound = { ...manifest, artifactDigest: createHash("sha256").update(xml).digest("hex"),
-      sourceDigest: createHash("sha256").update(JSON.stringify({ profile: "publisher-e2e-v1", sources: entries })).digest("hex") };
-    await createOrInspectRun(root, bound);
+    const { bound, artifact, entries, sources } = await createQaPublisherFixture(root);
     const evidence = await verifyQaPublisherSources(root, bound.qaRunId, artifact);
     assert.equal(evidence.sourceDigest, bound.sourceDigest);
     assert.equal(evidence.result, "matched"); assert.equal(evidence.scope, "snapshot-only");
@@ -274,7 +287,22 @@ test("publisher source evidence binds four file identities and bytes", async () 
     const verifyCli = spawnSync(process.execPath, ["--import", "tsx", "scripts/native-qa/cli.ts", "verify-publisher-sources", root, bound.qaRunId, artifact], { encoding: "utf8", timeout: 10000 });
     assert.equal(verifyCli.status, 0, verifyCli.stderr);
     assert.deepEqual(JSON.parse(verifyCli.stdout), evidence);
-    await writeFile(entries[0]!.source, "replaced bytes");
+    let executions = 0;
+    const input = { artifactPath: artifact, headlessExecutionId: "fixture-execution", targetLibraryPath: publisherTarget.libraryPath, artifactDigest: bound.artifactDigest };
+    const badProof = async () => ({ jobId: "job-123", state: "awaiting-confirmation", artifactDigest: bound.artifactDigest,
+      targetLibraryPath: publisherTarget.libraryPath, sourceProof: { sourceMediaDigests: entries.map(({ source, sha256 }, index) => ({ source, sha256: index === 0 ? "f".repeat(64) : sha256 })) } });
+    await assert.rejects(runSupervisedQaPublisher(root, bound, input, badProof, async () => {}, publisherTarget), /QA_PUBLISH_SOURCE_MISMATCH/);
+    assert.equal((await inspectRun(root, bound.qaRunId)).dispatch, "NOT_DISPATCHED");
+    const call = async (name: string) => {
+      if (name === "artifact.publish.preview") return { jobId: "job-123", state: "awaiting-confirmation", artifactDigest: bound.artifactDigest,
+        targetLibraryPath: publisherTarget.libraryPath, sourceProof: { sourceMediaDigests: entries.map(({ source, sha256 }) => ({ source, sha256 })) } };
+      executions++; throw new Error("unexpected dispatch");
+    };
+    await assert.rejects(runSupervisedQaPublisher(root, bound, input, call, async () => {
+      await writeFile(entries[0]!.source, "replaced bytes");
+    }, publisherTarget), /QA_SOURCE_DIGEST_MISMATCH/);
+    assert.equal(executions, 0);
+    assert.equal((await inspectRun(root, bound.qaRunId)).dispatch, "NOT_DISPATCHED");
     await assert.rejects(verifyQaPublisherSources(root, bound.qaRunId, artifact), /QA_SOURCE_DIGEST_MISMATCH/);
     await rm(entries[0]!.source);
     await assert.rejects(verifyQaPublisherSources(root, bound.qaRunId, artifact), /QA_SOURCE_UNSAFE/);
@@ -285,7 +313,7 @@ test("publisher source evidence binds four file identities and bytes", async () 
     const oversized = await open(entries[0]!.source, "wx");
     try { await oversized.truncate(512 * 1024 * 1024 + 1); } finally { await oversized.close(); }
     await assert.rejects(verifyQaPublisherSources(root, bound.qaRunId, artifact), /QA_SOURCE_UNSAFE/);
-  } finally { await rm(root, { recursive: true, force: true }); await rm(sources, { recursive: true, force: true }); }
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test("headless profile is bound to the original run across clients", async () => {
@@ -1292,19 +1320,20 @@ test("a crash while writing dispatch intent cannot expose a partial marker", asy
 
 test("simulated receiver acceptance survives a publisher process crash", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-qa-acceptance-crash-"));
+  const fixture = await createQaPublisherFixture(root);
   const script = `import { createOrInspectRun } from "./scripts/native-qa/run-store.ts";
     import { runSupervisedQaPublisher } from "./scripts/native-qa/publisher-supervision.ts";
     let text = ""; process.stdin.setEncoding("utf8"); for await (const chunk of process.stdin) text += chunk;
-    const manifest = JSON.parse(text); const root = process.argv[1]; await createOrInspectRun(root, manifest);
+    const { manifest, artifact, entries } = JSON.parse(text); const root = process.argv[1]; await createOrInspectRun(root, manifest);
     const call = async name => {
-      if (name === "artifact.publish.preview") return {jobId:"publish-job-fixture", state:"awaiting-confirmation", artifactDigest:manifest.artifactDigest, targetLibraryPath:"/fixture/library"};
+      if (name === "artifact.publish.preview") return {jobId:"publish-job-fixture", state:"awaiting-confirmation", artifactDigest:manifest.artifactDigest, targetLibraryPath:"/fixture/library", sourceProof: { sourceMediaDigests: entries.map(({source,sha256}) => ({source,sha256})) }};
       process.send({accepted:true}); await new Promise(() => {});
     };
-    await runSupervisedQaPublisher(root, manifest, {artifactPath:"fixture-artifact", transactionId:"fixture", targetLibraryPath:"/fixture/library", artifactDigest:manifest.artifactDigest}, call, async () => {}, { libraryPath:"/fixture/library", projectId:"fixture-project", sequenceId:"fixture-sequence", revisionId:"fixture-revision" });`;
+    await runSupervisedQaPublisher(root, manifest, {artifactPath:artifact, headlessExecutionId:"fixture-execution", targetLibraryPath:"/fixture/library", artifactDigest:manifest.artifactDigest}, call, async () => {}, { libraryPath:"/fixture/library", projectId:"fixture-project", sequenceId:"fixture-sequence", revisionId:"fixture-revision" });`;
   const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script, root], { stdio: ["pipe", "ignore", "pipe", "ipc"] });
   try {
     assert.ok(child.stdin);
-    child.stdin.end(JSON.stringify(manifest));
+    child.stdin.end(JSON.stringify({ manifest: fixture.bound, artifact: fixture.artifact, entries: fixture.entries }));
     const message = await Promise.race([
       once(child, "message").then(([value]) => value),
       once(child, "exit").then(() => { throw new Error("simulated receiver process exited before acceptance"); }),
@@ -1314,15 +1343,15 @@ test("simulated receiver acceptance survives a publisher process crash", async (
     const exited = once(child, "exit");
     child.kill("SIGKILL");
     await exited;
-    const observed = await inspectRun(root, manifest.qaRunId);
+    const observed = await inspectRun(root, fixture.bound.qaRunId);
     assert.equal(observed.dispatch, "UNKNOWN_AFTER_DISPATCH");
     assert.equal(observed.publishJobId, "publish-job-fixture");
     assert.equal(observed.verdict, "BLOCKED");
-    const stagesAfterCrash = await readQaPublisherStages(root, manifest.qaRunId);
+    const stagesAfterCrash = await readQaPublisherStages(root, fixture.bound.qaRunId);
     assert.deepEqual(stagesAfterCrash.stages.map((item) => item.stage), ["prepared"]);
     assert.equal(stagesAfterCrash.dispatch, "UNKNOWN_AFTER_DISPATCH");
-    assert.equal((await createOrInspectRun(root, manifest)).created, false);
-    await assert.rejects(claimDispatchIntent(root, manifest, "publish-job-fixture"), /QA_DISPATCH_ALREADY_CLAIMED/);
+    assert.equal((await createOrInspectRun(root, fixture.bound)).created, false);
+    await assert.rejects(claimDispatchIntent(root, fixture.bound, "publish-job-fixture"), /QA_DISPATCH_ALREADY_CLAIMED/);
   } finally {
     if (child.exitCode === null && child.signalCode === null) {
       const exited = once(child, "exit");

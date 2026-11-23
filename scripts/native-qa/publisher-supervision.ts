@@ -3,6 +3,7 @@ import { isAbsolute, resolve } from "node:path";
 import { runPublishStages } from "../final-cut-publisher-verification.mjs";
 import { claimDispatchIntent, inspectRun, type QaRunManifest } from "./run-store.js";
 import { recordQaPublisherStage, type PublisherStage } from "./publisher-stages.js";
+import { verifyQaPublisherSourcesWithEntries } from "./publisher-source-evidence.js";
 
 type PublisherInput = Parameters<typeof runPublishStages>[1];
 type PublisherCall = Parameters<typeof runPublishStages>[0];
@@ -39,7 +40,19 @@ export async function runSupervisedQaPublisher(
   if (JSON.stringify(run.manifest) !== JSON.stringify(bound) || request.artifactDigest !== bound.artifactDigest) throw new Error("QA_RUN_IDENTITY_MISMATCH");
   if (publisherTargetDigest(boundTarget) !== bound.targetDigest || request.targetLibraryPath !== boundTarget.libraryPath) throw new Error("QA_RUN_TARGET_MISMATCH");
   if (run.dispatch !== "NOT_DISPATCHED") throw new Error("QA_DISPATCH_ALREADY_CLAIMED");
+  if (typeof request.headlessExecutionId !== "string" || !request.headlessExecutionId.trim()) throw new Error("QA_PUBLISH_EXECUTION_REQUIRED");
+  const checked = await verifyQaPublisherSourcesWithEntries(root, bound.qaRunId, request.artifactPath);
+  const expected = checked.sourceDigests;
   return runPublishStages(call, request,
-    (stage, snapshot) => recordQaPublisherStage(root, bound.qaRunId, stage as PublisherStage, snapshot),
-    async jobId => { await assertReady(jobId, Object.freeze({ ...boundTarget })); await claimDispatchIntent(root, bound, jobId); });
+    async (stage, snapshot) => {
+      if (stage === "prepared") {
+        const observed = snapshot?.sourceProof?.sourceMediaDigests;
+        if (!Array.isArray(observed) || observed.length !== expected.length
+          || !expected.every(({ source, sha256 }) => observed.some((item: { source?: unknown; sha256?: unknown }) => item.source === source && item.sha256 === sha256))) {
+          throw new Error("QA_PUBLISH_SOURCE_MISMATCH");
+        }
+      }
+      await recordQaPublisherStage(root, bound.qaRunId, stage as PublisherStage, snapshot);
+    },
+    async jobId => { await assertReady(jobId, Object.freeze({ ...boundTarget })); await verifyQaPublisherSourcesWithEntries(root, bound.qaRunId, request.artifactPath); await claimDispatchIntent(root, bound, jobId); });
 }

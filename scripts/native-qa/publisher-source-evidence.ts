@@ -37,7 +37,7 @@ export async function readQaPublisherSourceEvidence(root: string, qaRunId: strin
 }
 
 /** Compare the four fixture sources with the separately supplied manifest digest, without authorizing native work. */
-export async function verifyQaPublisherSources(root: string, qaRunId: string, artifactPath: string) {
+export async function verifyQaPublisherSourcesWithEntries(root: string, qaRunId: string, artifactPath: string) {
   const run = await inspectRun(root, qaRunId);
   await assertQaJobIndex(root, run.manifest);
   const snapshot = await readVerifiedPublisherFixtureSnapshot(artifactPath, run.manifest.artifactDigest);
@@ -94,5 +94,10 @@ export async function verifyQaPublisherSources(root: string, qaRunId: string, ar
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
   const evidence = await readQaPublisherSourceEvidence(root, qaRunId);
   if (!evidence) throw new Error("QA_EVIDENCE_CORRUPT");
-  return evidence;
+  return { evidence, sourceDigests: entries.map(({ source, sha256 }) => ({ source, sha256 })) };
+}
+
+/** Persist only sanitized evidence; the internal verifier may also compare source identities. */
+export async function verifyQaPublisherSources(root: string, qaRunId: string, artifactPath: string) {
+  return (await verifyQaPublisherSourcesWithEntries(root, qaRunId, artifactPath)).evidence;
 }
