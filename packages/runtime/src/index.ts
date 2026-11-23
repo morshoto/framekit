@@ -38,3 +38,4 @@ export * from "./planning/music-planning.js";
 export * from "./planning/caption-planning.js";
 
 export * from "./planning/edit-decision-plan.js";
+export * from "./application/creative-brief-store.js";

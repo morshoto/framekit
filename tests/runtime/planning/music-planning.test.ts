@@ -70,29 +70,41 @@ test("source must exist in the current exact project and range", () => {
   assert.equal(planMusic({ ...request, placement: { start: 25, end: 35 } }).decision, "unsupported");
 });
 
-test("reviewed music proposal previews through the existing workflow without mutation", async () => {
+test("reviewed music proposal previews through the existing workflow without mutation", async (t) => {
   const { AgentVideoRuntime } = await import("../../../packages/runtime/src/runtime.js");
   const { InMemoryEditorAdapter } = await import("../../../packages/testkit/src/index.js");
   const { previewMusicPlan } = await import("../../../packages/runtime/src/planning/music-planning.js");
+  const { JsonCreativeBriefStore } = await import("../../../packages/runtime/src/application/creative-brief-store.js");
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const dir = await mkdtemp(join(tmpdir(), "framekit-music-brief-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const briefStore = new JsonCreativeBriefStore(join(dir, "brief.json"));
+  const draft = await briefStore.create("p", brief);
+  await briefStore.accept("p", draft.digest);
   const adapter = new InMemoryEditorAdapter({ projectId: "p", projectName: "Project", timelineId: "t", timelineName: "Main", clips: [{ id: "dialogue", name: "Dialogue", start: 0, duration: 30, track: 1 }], media: [registeredMusic] });
   const runtime = new AgentVideoRuntime(adapter);
   const before = await runtime.inspectProject();
   const liveRequest = { ...request, snapshot: before, revision: before.revision };
   const plan = planMusic(liveRequest);
-  const preview = await previewMusicPlan(runtime, liveRequest, plan, "music-clip", fixtureVerifySource);
+  const preview = await previewMusicPlan(runtime, liveRequest, plan, "music-clip", fixtureVerifySource, briefStore);
   assert.deepEqual(await runtime.inspectProject(), before);
   assert.equal(preview.operations.some((operation) => operation.type === "timeline.media.add" && operation.mediaId === "music"), true);
   assert.equal(preview.operations.some((operation) => operation.type === "set-gain" && operation.gainDb === -18), true);
-  await assert.rejects(() => previewMusicPlan(runtime, { ...liveRequest, context: { ...liveRequest.context, speech: "absent" } }, plan, "music-clip", fixtureVerifySource), /STALE/);
+  await assert.rejects(() => previewMusicPlan(runtime, { ...liveRequest, context: { ...liveRequest.context, speech: "absent" } }, plan, "music-clip", fixtureVerifySource, briefStore), /STALE/);
   const changedSnapshot = { ...before, timeline: { ...before.timeline, duration: before.timeline.duration + 1 } };
   const changedRuntime = { inspectProject: async () => changedSnapshot, previewMusic: runtime.previewMusic.bind(runtime) };
-  await assert.rejects(() => previewMusicPlan(changedRuntime, liveRequest, plan, "music-clip", fixtureVerifySource), /STALE/);
-  await assert.rejects(() => previewMusicPlan(runtime, liveRequest, plan, "different-clip", fixtureVerifySource), /STALE|INVALID/);
-  await assert.rejects(() => previewMusicPlan(runtime, liveRequest, plan, "music-clip", undefined as never), /UNAVAILABLE|INVALID/);
-  await assert.rejects(() => previewMusicPlan(runtime, liveRequest, plan, "music-clip", async () => { throw new Error("source changed"); }), /source changed/);
+  await assert.rejects(() => previewMusicPlan(changedRuntime, liveRequest, plan, "music-clip", fixtureVerifySource, briefStore), /STALE/);
+  await assert.rejects(() => previewMusicPlan(runtime, liveRequest, plan, "different-clip", fixtureVerifySource, briefStore), /STALE|INVALID/);
+  await assert.rejects(() => previewMusicPlan(runtime, liveRequest, plan, "music-clip", undefined as never, briefStore), /UNAVAILABLE|INVALID/);
+  await assert.rejects(() => previewMusicPlan(runtime, liveRequest, plan, "music-clip", async () => { throw new Error("source changed"); }, briefStore), /source changed/);
+  await assert.rejects(() => previewMusicPlan(runtime, liveRequest, plan, "music-clip", fixtureVerifySource, undefined as never), /UNAVAILABLE|INVALID/);
   const altered = { ...plan, placement: { ...plan.placement!, gainDb: -3 } };
-  await assert.rejects(() => previewMusicPlan(runtime, liveRequest, altered, "music-clip", fixtureVerifySource), /STALE|INVALID/);
-  await assert.rejects(() => previewMusicPlan(runtime, { ...liveRequest, revision: { ...before.revision, sequence: before.revision.sequence + 1 } }, plan, "music-clip", fixtureVerifySource), /STALE/);
+  await assert.rejects(() => previewMusicPlan(runtime, liveRequest, altered, "music-clip", fixtureVerifySource, briefStore), /STALE|INVALID/);
+  await assert.rejects(() => previewMusicPlan(runtime, { ...liveRequest, revision: { ...before.revision, sequence: before.revision.sequence + 1 } }, plan, "music-clip", fixtureVerifySource, briefStore), /STALE/);
+  await briefStore.revise("p", draft.digest, { ...brief, theme: "revised" });
+  await assert.rejects(() => previewMusicPlan(runtime, liveRequest, plan, "music-clip", fixtureVerifySource, briefStore), /STALE|NOT_ACCEPTED/);
 });
 
 test("invalid timeline duration and contradictory exact timing cannot produce a proposal", () => {
