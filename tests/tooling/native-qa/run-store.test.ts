@@ -538,3 +538,16 @@ test("a missing bound authorization index blocks inspection and claims", async (
     await assert.rejects(claimDispatchIntent(root, unapproved, "publish-job-1"), /QA_RUN_CORRUPT/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("a later authorized duplicate inspects the existing preflight run", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-later-duplicate-"));
+  try {
+    const unapproved = { ...manifest, authorizationDigest: null };
+    await createOrInspectRun(root, unapproved);
+    await bindQaAuthorization(root, unapproved, "9".repeat(64));
+    const duplicate = await createOrInspectRun(root, { ...manifest, qaRunId: "later-run", authorizationDigest: "9".repeat(64) });
+    assert.equal(duplicate.created, false);
+    assert.equal(duplicate.run.manifest.qaRunId, unapproved.qaRunId);
+    assert.equal(duplicate.run.authorizationBinding, "9".repeat(64));
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
