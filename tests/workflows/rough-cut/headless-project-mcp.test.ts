@@ -2689,10 +2689,11 @@ async function readAudioWindow(path: string, seconds: number): Promise<Float32Ar
   return new Float32Array(buffer.buffer, buffer.byteOffset, Math.floor(buffer.byteLength / 4));
 }
 
-function assertPixelDominates(frame: Buffer, color: "blue" | "green" | "yellow"): void {
+function assertPixelDominates(frame: Buffer, color: "red" | "blue" | "green" | "yellow"): void {
   assert.equal(frame.length, 320 * 180 * 3);
   const offset = (10 * 320 + 10) * 3;
   const [red, green, blue] = [frame[offset]!, frame[offset + 1]!, frame[offset + 2]!];
+  if (color === "red") assert.ok(red > blue + 100 && red > green + 100, `expected red source content, got RGB ${red},${green},${blue}`);
   if (color === "blue") assert.ok(blue > red + 100 && blue > green + 100, `expected blue source content, got RGB ${red},${green},${blue}`);
   if (color === "green") assert.ok(green > red + 50 && green > blue + 20, `expected green source content, got RGB ${red},${green},${blue}`);
   if (color === "yellow") assert.ok(red > blue + 100 && green > blue + 100, `expected yellow source content, got RGB ${red},${green},${blue}`);
@@ -2777,9 +2778,19 @@ test("same-session and fresh-session renders retain all frames after JSON and ga
       const outputPath = join(directory, `${label}.mp4`);
       const rendered = payload(await client!.callTool({ name: "headless.render", arguments: { projectId, sequenceId, expectedRevision: revision, parameters: { outputPath, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } } }));
       assert.equal(rendered.status, "passed", JSON.stringify(rendered.outcome));
-      const probe = JSON.parse((await execFileAsync("ffprobe", ["-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames,avg_frame_rate", "-of", "json", outputPath])).stdout);
+      const probe = JSON.parse((await execFileAsync("ffprobe", ["-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames,r_frame_rate,avg_frame_rate,duration:format=duration", "-of", "json", outputPath])).stdout);
       assert.equal(Number(probe.streams[0].nb_read_frames), 1017, label);
       assert.equal(probe.streams[0].avg_frame_rate, "30/1", label);
+      assert.equal(probe.streams[0].r_frame_rate, "30/1", label);
+      assert.ok(Math.abs(Number(probe.streams[0].duration) - 33.9) < 0.001, label);
+      assert.ok(Math.abs(Number(probe.format.duration) - 33.9) < 0.001, label);
+      let startFrame = 0;
+      for (const [index, clip] of clips.entries()) {
+        const durationFrames = Number(clip.durationTime.value);
+        const sample = (startFrame + Math.floor(durationFrames / 2)) / 30;
+        assertPixelDominates(await readVideoFrame(outputPath, sample), index % 2 ? "blue" : "red");
+        startFrame += durationFrames;
+      }
     }
   } finally {
     await client?.close();
