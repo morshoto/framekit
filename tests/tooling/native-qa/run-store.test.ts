@@ -567,3 +567,27 @@ test("CLI records a separate digest without claiming consent or dispatch", async
     assert.equal(value.run.dispatch, "NOT_DISPATCHED");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("unapproved duplicate starts inspect the original job across run IDs", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-preflight-duplicate-"));
+  try {
+    const first = { ...manifest, authorizationDigest: null };
+    const second = { ...first, qaRunId: "second-preflight" };
+    assert.equal((await createOrInspectRun(root, first)).created, true);
+    const duplicate = await createOrInspectRun(root, second);
+    assert.equal(duplicate.created, false);
+    assert.equal(duplicate.run.manifest.qaRunId, first.qaRunId);
+    const changed = { ...second, targetDigest: "a".repeat(64) };
+    assert.equal((await createOrInspectRun(root, changed)).created, true);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("competing unapproved starts create at most one job", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-preflight-race-"));
+  try {
+    const results = await Promise.allSettled(Array.from({ length: 8 }, (_, i) => createOrInspectRun(root, { ...manifest, qaRunId: `preflight-${i}`, authorizationDigest: null })));
+    const created = results.filter(result => result.status === "fulfilled" && result.value.created);
+    assert.equal(created.length, 1);
+    for (const result of results) if (result.status === "rejected") assert.match(String(result.reason), /QA_RUN_NOT_FOUND_OR_INCOMPLETE/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
