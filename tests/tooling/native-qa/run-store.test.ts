@@ -22,15 +22,16 @@ import { inspectQaPublisher, inspectQaPublisherFromStore } from "../../../script
 import { verifyQaPublisherFixture, readQaPublisherFixtureEvidence } from "../../../scripts/native-qa/publisher-fixture-evidence.js";
 import { verifyQaPublisherSources, readQaPublisherSourceEvidence } from "../../../scripts/native-qa/publisher-source-evidence.js";
 import { recordQaPublisherStage, readQaPublisherStages } from "../../../scripts/native-qa/publisher-stages.js";
-import { runSupervisedQaPublisher } from "../../../scripts/native-qa/publisher-supervision.js";
+import { publisherTargetDigest, runSupervisedQaPublisher } from "../../../scripts/native-qa/publisher-supervision.js";
 import { readQaEvidenceBundle } from "../../../scripts/native-qa/evidence-bundle.js";
 import { readQaPublisherObservation, startQaPublisherObservation } from "../../../scripts/native-qa/publisher-observation.js";
 import { ScriptedNativeReceiver } from "../../support/simulated-native-receiver.js";
 
+const publisherTarget = { libraryPath: "/fixture/library", projectId: "fixture-project", sequenceId: "fixture-sequence", revisionId: "fixture-revision" };
 const manifest = {
   qaRunId: "qa-fixture-1", candidateCommit: "a".repeat(40), candidateTree: "b".repeat(40),
   packageDigest: "1".repeat(64), mcpDigest: "8".repeat(64), pluginDigest: "2".repeat(64), extensionDigest: "3".repeat(64),
-  artifactDigest: "4".repeat(64), sourceDigest: "5".repeat(64), targetDigest: "6".repeat(64),
+  artifactDigest: "4".repeat(64), sourceDigest: "5".repeat(64), targetDigest: publisherTargetDigest(publisherTarget),
   operation: "rough-cut-publish" as const, authorizationDigest: "7".repeat(64),
 };
 const cleanGitEnvironment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
@@ -48,11 +49,11 @@ test("late simulated receiver acceptance does not trigger a second publisher dis
       throw new Error("simulated lost response");
     };
     const input = { artifactPath: "/fixture/artifact", transactionId: "fixture", targetLibraryPath: "/fixture/library", artifactDigest: manifest.artifactDigest };
-    await assert.rejects(runSupervisedQaPublisher(root, manifest, input, call, async () => {}), /PUBLISH_DISPATCH_UNCERTAIN/);
+    await assert.rejects(runSupervisedQaPublisher(root, manifest, input, call, async () => {}, publisherTarget), /PUBLISH_DISPATCH_UNCERTAIN/);
     const restarted = ScriptedNativeReceiver.restore(JSON.parse(JSON.stringify(receiver.snapshot())));
     restarted.reply(identity.operationId, "accepted");
     assert.equal(restarted.inspect(identity.operationId)?.state, "accepted");
-    await assert.rejects(runSupervisedQaPublisher(root, manifest, input, call, async () => {}), /QA_DISPATCH_ALREADY_CLAIMED/);
+    await assert.rejects(runSupervisedQaPublisher(root, manifest, input, call, async () => {}, publisherTarget), /QA_DISPATCH_ALREADY_CLAIMED/);
     assert.equal(receiver.publisherCalls(), 1);
     assert.equal(restarted.trace().filter(event => event.kind === "dispatch").length, 1);
     const status = await inspectRun(root, manifest.qaRunId);
@@ -72,12 +73,63 @@ test("publisher refuses each changed or missing run identity before contacting r
     for (const field of fields) {
       const original = manifest[field];
       const changed = { ...manifest, [field]: (original[0] === "f" ? "e" : "f") + original.slice(1) };
-      await assert.rejects(runSupervisedQaPublisher(root, changed, input, call, async () => {}), /QA_RUN_IDENTITY_MISMATCH/, field);
+      await assert.rejects(runSupervisedQaPublisher(root, changed, input, call, async () => {}, publisherTarget), /QA_RUN_IDENTITY_MISMATCH/, field);
       const missing = { ...manifest } as Partial<typeof manifest>;
       delete missing[field];
-      await assert.rejects(runSupervisedQaPublisher(root, missing as typeof manifest, input, call, async () => {}), /QA_RUN_IDENTITY_MISMATCH/, field);
+      await assert.rejects(runSupervisedQaPublisher(root, missing as typeof manifest, input, call, async () => {}, publisherTarget), /QA_RUN_IDENTITY_MISMATCH/, field);
     }
     assert.equal(calls, 0);
+    assert.equal((await inspectRun(root, manifest.qaRunId)).dispatch, "NOT_DISPATCHED");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("publisher rejects a changed target before preview or dispatch", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-target-binding-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    let calls = 0;
+    const call = async () => { calls++; throw new Error("unexpected publisher call"); };
+    const input = { artifactPath: "/fixture/artifact", transactionId: "fixture", targetLibraryPath: publisherTarget.libraryPath, artifactDigest: manifest.artifactDigest };
+    for (const field of ["libraryPath", "projectId", "sequenceId", "revisionId"] as const) {
+      await assert.rejects(runSupervisedQaPublisher(root, manifest, input, call, async () => {}, { ...publisherTarget, [field]: `${publisherTarget[field]}-changed` }), /QA_RUN_TARGET_MISMATCH/);
+    }
+    await assert.rejects(runSupervisedQaPublisher(root, manifest, { ...input, targetLibraryPath: "/fixture/other" }, call, async () => {}, publisherTarget), /QA_RUN_TARGET_MISMATCH/);
+    assert.equal(calls, 0);
+    assert.equal((await inspectRun(root, manifest.qaRunId)).dispatch, "NOT_DISPATCHED");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("publisher snapshots the requested target before asynchronous checks", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-target-snapshot-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    const target = { ...publisherTarget };
+    const input = { artifactPath: "/fixture/artifact", transactionId: "fixture", targetLibraryPath: target.libraryPath, artifactDigest: manifest.artifactDigest };
+    const call = async () => { throw new Error("preview reached"); };
+    const running = runSupervisedQaPublisher(root, manifest, input, call, async () => {}, target);
+    target.projectId = "changed-after-start";
+    await assert.rejects(running, /preview reached/);
+    assert.equal((await inspectRun(root, manifest.qaRunId)).dispatch, "NOT_DISPATCHED");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("readiness gate receives the immutable approved target", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-ready-target-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    const input = { artifactPath: "/fixture/artifact", transactionId: "fixture", targetLibraryPath: publisherTarget.libraryPath, artifactDigest: manifest.artifactDigest };
+    const call = async (name: string) => {
+      if (name === "artifact.publish.preview") return { jobId: "job-123", state: "awaiting-confirmation", artifactDigest: manifest.artifactDigest, targetLibraryPath: publisherTarget.libraryPath };
+      throw new Error("stop after dispatch");
+    };
+    let seen: unknown;
+    await assert.rejects(runSupervisedQaPublisher(root, manifest, input, call, async (_jobId, target) => {
+      seen = target;
+      assert.deepEqual(target, publisherTarget);
+      assert.equal(Object.isFrozen(target), true);
+      throw new Error("stop before dispatch");
+    }, publisherTarget), /stop before dispatch/);
+    assert.deepEqual(seen, publisherTarget);
     assert.equal((await inspectRun(root, manifest.qaRunId)).dispatch, "NOT_DISPATCHED");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
@@ -113,10 +165,10 @@ test("supervised publisher retains uncertain intent after a lost receiver respon
       throw new Error("simulated lost response");
     };
     const input = { artifactPath: "/fixture/artifact", transactionId: "fixture", targetLibraryPath: "/fixture/library", artifactDigest: manifest.artifactDigest };
-    await assert.rejects(runSupervisedQaPublisher(root, manifest, input, call, async () => {}), /PUBLISH_DISPATCH_UNCERTAIN/);
+    await assert.rejects(runSupervisedQaPublisher(root, manifest, input, call, async () => {}, publisherTarget), /PUBLISH_DISPATCH_UNCERTAIN/);
     assert.equal((await inspectRun(root, manifest.qaRunId)).dispatch, "UNKNOWN_AFTER_DISPATCH");
     assert.deepEqual((await readQaPublisherStages(root, manifest.qaRunId)).stages.map(value => value.stage), ["prepared"]);
-    await assert.rejects(runSupervisedQaPublisher(root, manifest, input, call, async () => {}), /QA_DISPATCH_ALREADY_CLAIMED/);
+    await assert.rejects(runSupervisedQaPublisher(root, manifest, input, call, async () => {}, publisherTarget), /QA_DISPATCH_ALREADY_CLAIMED/);
     assert.equal(dispatches, 1);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
@@ -131,7 +183,7 @@ test("supervised publisher never dispatches when readiness fails", async () => {
       executions++; throw new Error("unexpected dispatch");
     };
     const input = { artifactPath: "/fixture/artifact", transactionId: "fixture", targetLibraryPath: "/fixture/library", artifactDigest: manifest.artifactDigest };
-    await assert.rejects(runSupervisedQaPublisher(root, manifest, input, call, async () => { throw new Error("not ready"); }), /not ready/);
+    await assert.rejects(runSupervisedQaPublisher(root, manifest, input, call, async () => { throw new Error("not ready"); }, publisherTarget), /not ready/);
     assert.equal(executions, 0);
     assert.equal((await inspectRun(root, manifest.qaRunId)).dispatch, "NOT_DISPATCHED");
   } finally { await rm(root, { recursive: true, force: true }); }
@@ -147,7 +199,7 @@ test("concurrent supervised publisher attempts dispatch at most once", async () 
       executions++; throw new Error("simulated lost response");
     };
     const input = { artifactPath: "/fixture/artifact", transactionId: "fixture", targetLibraryPath: "/fixture/library", artifactDigest: manifest.artifactDigest };
-    const outcomes = await Promise.allSettled(Array.from({ length: 6 }, () => runSupervisedQaPublisher(root, manifest, input, call, async () => {})));
+    const outcomes = await Promise.allSettled(Array.from({ length: 6 }, () => runSupervisedQaPublisher(root, manifest, input, call, async () => {}, publisherTarget)));
     assert.ok(outcomes.every(outcome => outcome.status === "rejected"));
     assert.equal(executions, 1);
     assert.equal((await inspectRun(root, manifest.qaRunId)).dispatch, "UNKNOWN_AFTER_DISPATCH");
@@ -1245,10 +1297,10 @@ test("simulated receiver acceptance survives a publisher process crash", async (
     let text = ""; process.stdin.setEncoding("utf8"); for await (const chunk of process.stdin) text += chunk;
     const manifest = JSON.parse(text); const root = process.argv[1]; await createOrInspectRun(root, manifest);
     const call = async name => {
-      if (name === "artifact.publish.preview") return {jobId:"publish-job-fixture", state:"awaiting-confirmation", artifactDigest:manifest.artifactDigest, targetLibraryPath:"fixture-target"};
+      if (name === "artifact.publish.preview") return {jobId:"publish-job-fixture", state:"awaiting-confirmation", artifactDigest:manifest.artifactDigest, targetLibraryPath:"/fixture/library"};
       process.send({accepted:true}); await new Promise(() => {});
     };
-    await runSupervisedQaPublisher(root, manifest, {artifactPath:"fixture-artifact", transactionId:"fixture", targetLibraryPath:"fixture-target", artifactDigest:manifest.artifactDigest}, call, async () => {});`;
+    await runSupervisedQaPublisher(root, manifest, {artifactPath:"fixture-artifact", transactionId:"fixture", targetLibraryPath:"/fixture/library", artifactDigest:manifest.artifactDigest}, call, async () => {}, { libraryPath:"/fixture/library", projectId:"fixture-project", sequenceId:"fixture-sequence", revisionId:"fixture-revision" });`;
   const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script, root], { stdio: ["pipe", "ignore", "pipe", "ipc"] });
   try {
     assert.ok(child.stdin);
