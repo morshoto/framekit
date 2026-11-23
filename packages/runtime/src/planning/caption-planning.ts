@@ -91,7 +91,7 @@ export async function planCaptionGroups(
     if (!snapshot || !request.projectId?.trim() || !request.timelineId?.trim() || !request.occurrenceId?.trim()
       || snapshot.projectId !== request.projectId || snapshot.timeline.id !== request.timelineId
       || !sameRevision(snapshot.revision, request.revision) || !sameRevision(current.revision, request.revision)
-      || !sameRevision(ref.analysisRevision, request.revision) || current.kind !== "speech") {
+      || current.kind !== "speech") {
       return { status: "unavailable", reason: "Current project, timeline, revision or speech evidence does not match." };
     }
     const clips = snapshot.timeline.clips.filter((clip) => clip.id === request.occurrenceId);
@@ -114,7 +114,10 @@ export async function planCaptionGroups(
     const record = JSON.parse(Buffer.from(bytes).toString("utf8")) as MediaUnderstanding;
     if (!record.speech) return { status: "unavailable", reason: "Pinned transcript is missing." };
     await verifySource(current.source);
-    const analysis = bindSpeechAnalysis(record.speech, { input: { project: snapshot, media: current.source }, provider: current.provider });
+    const original = bindSpeechAnalysis(record.speech, {
+      input: { project: { ...snapshot, revision: ref.analysisRevision }, media: current.source }, provider: current.provider,
+    });
+    const analysis = { ...original, revision: structuredClone(request.revision) };
     const mapping = mapSpeechAnalysisToOccurrence(analysis, {
       occurrenceId: clip.id, mediaId: current.source.mediaId, revision: request.revision, sourceRange,
       sequenceRange: { start: clip.start, end: clip.start + clip.duration, startTime: clip.startTime, durationTime: clip.durationTime },

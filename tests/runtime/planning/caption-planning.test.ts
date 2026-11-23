@@ -29,7 +29,7 @@ async function fixture(words = [{ text: "Hello", start: 1, end: 1.4, confidence:
   const snapshot = { projectId: "p", projectName: "P", revision, media: [source], timeline: { id: "t", name: "T", duration: 30, frameDuration: { value: "1", timescale: "10" },
     clips: [{ id: "clip", mediaId: "m", name: "Interview", start: 20, duration: 10, sourceStart: 0, sourceStartTime: { value: "0", timescale: "1" }, startTime: { value: "20", timescale: "1" }, durationTime: { value: "10", timescale: "1" }, track: 1 }], storyElements: [], captions: [], markers: [] } };
   const request = { snapshot, projectId: "p", timelineId: "t", revision, occurrenceId: "clip", style: "basic" as const, maxWordsPerGroup: 2, maxCharsPerLine: 20, maxLines: 2, emphasisWordIndices: [0] };
-  return { dir, path, source, ref, current, artifacts, snapshot, request };
+  return { dir, path, source, ref, current, artifacts, snapshot, request, index };
 }
 
 test("known words produce read-only frame-mapped caption groups and traceable emphasis", async () => {
@@ -60,6 +60,27 @@ test("stale source and unsupported animation never produce a caption plan", asyn
     assert.equal((await planCaptionGroups(stale, f.ref, f.current, f.artifacts, verifyLocalMediaSource)).status, "unavailable");
     await writeFile(f.path, "changed source");
     assert.equal((await planCaptionGroups(f.request, f.ref, f.current, f.artifacts, verifyLocalMediaSource)).status, "unavailable");
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test("repinned source speech is remapped for a changed timeline revision", async () => {
+  const f = await fixture();
+  try {
+    const next = { ...revision, id: "r2", sequence: 2 };
+    const current = { ...f.current, revision: next };
+    const ref = await pinAnalysisEvidence(f.index, f.artifacts, current, verifyLocalMediaSource);
+    const moved = { ...f.snapshot.timeline.clips[0]!, start: 5, startTime: { value: "5", timescale: "1" } };
+    const snapshot = { ...f.snapshot, revision: next, timeline: { ...f.snapshot.timeline, clips: [moved] } };
+    const result = await planCaptionGroups({ ...f.request, snapshot, revision: next }, ref, current, f.artifacts, verifyLocalMediaSource);
+    assert.equal(result.status, "available");
+    if (result.status === "available") {
+      assert.equal(result.plan.groups[0]!.words[0]!.sequenceRange.start, 6);
+      assert.equal(result.plan.revision.id, "r2");
+      assert.equal(result.plan.analysisRef.analysisRevision.id, "r1");
+    }
+    assert.equal((await planCaptionGroups({ ...f.request, snapshot, revision: next }, f.ref, current, f.artifacts, verifyLocalMediaSource)).status, "unavailable");
+    await writeFile(f.path, "changed");
+    assert.equal((await planCaptionGroups({ ...f.request, snapshot, revision: next }, ref, current, f.artifacts, verifyLocalMediaSource)).status, "unavailable");
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
