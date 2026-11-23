@@ -171,6 +171,17 @@ test("clean package analyzes registered headless media with configured providers
     const combined = await invoke("media.understand", { projectId, mediaId });
     assert.equal(combined.speech.words[0].text, "fixture");
     assert.equal(combined.audio.signalScope, "source");
+    const unregisteredTimeline = structuredClone(created.timeline);
+    unregisteredTimeline.project.id = "unregistered-analysis";
+    unregisteredTimeline.sequence.id = "unregistered-sequence";
+    const unregistered = structuredClone(registered.resource); delete unregistered.sourceKind;
+    unregisteredTimeline.resources = [unregistered];
+    await invoke("headless.project.create", { timeline: unregisteredTimeline });
+    for (const name of ["speech.analyze", "audio.analyze", "media.understand"]) {
+      const result = await client.callTool({ name, arguments: { projectId: unregisteredTimeline.project.id, mediaId } });
+      assert.equal(result.isError, true);
+      assert.match(JSON.stringify(result.content), /MEDIA_NOT_REGISTERED/);
+    }
     const original = await readFile(source);
     await writeFile(source, "changed");
     for (const name of ["speech.analyze", "audio.analyze", "media.understand"]) {
@@ -193,6 +204,17 @@ test("clean package analyzes registered headless media with configured providers
     assert.equal(unavailable.isError, true);
     assert.match(JSON.stringify(unavailable.content), /SPEECH_ANALYZER_SETUP_REQUIRED/);
     assert.doesNotMatch(JSON.stringify(unavailable.content), /\n\s+at /);
+    await client.close(); await transport.close();
+    const fakePython = join(directory, "fake-python"); await mkdir(fakePython);
+    await writeFile(join(fakePython, "mlx_whisper.py"), "# Importable stub; no inference is invoked.\n");
+    transport = new StdioClientTransport({ command: executable, args: ["mcp", "--editor", "final-cut-live", "--headless"], cwd: directory,
+      env: { ...environment, FRAMEKIT_SPEECH_BACKEND: join(runtime, "whisper-speech-backend.py"), FRAMEKIT_WHISPER_BACKEND: "mlx-whisper",
+        FRAMEKIT_WHISPER_MODEL: "", FRAMEKIT_SPEECH_REQUIRE_VAD: "0", FRAMEKIT_SILERO_VAD_MODEL: "", PYTHONPATH: fakePython }, stderr: "pipe" });
+    client = new Client({ name: "package-analysis-missing-model", version: "1" }); await client.connect(transport);
+    const noModel = await client.callTool({ name: "speech.analyze", arguments: { projectId, mediaId } });
+    assert.equal(noModel.isError, true);
+    assert.match(JSON.stringify(noModel.content), /WHISPER_SETUP_REQUIRED.*FRAMEKIT_WHISPER_MODEL/);
+    assert.doesNotMatch(JSON.stringify(noModel.content), /Traceback|\n\s+at /);
   } finally { await client?.close(); await transport?.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
