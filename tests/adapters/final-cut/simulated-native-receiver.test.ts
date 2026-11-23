@@ -57,7 +57,7 @@ test("a lost response can arrive late without another dispatch", async () => {
   assert.equal(receiver.trace().filter(event => event.kind === "dispatch").length, 1);
 });
 
-test("serialized receiver state survives a fresh process without replaying dispatch", async () => {
+test("serialized receiver state restores without replaying dispatch", async () => {
   const receiver = new ScriptedNativeReceiver([{ kind: "lose-response" }]);
   await receiver.dispatch(request);
   const persisted = JSON.stringify(receiver.snapshot());

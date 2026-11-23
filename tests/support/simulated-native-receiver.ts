@@ -12,6 +12,7 @@ type State = "accepted" | "rejected" | "uncertain" | "not-dispatched";
 type Step = { kind: "accept" | "reject" | "lose-response" | "stall" | "disconnect-before-dispatch" };
 type Event = SimulatedIdentity & { tick: number; kind: "dispatch" | "accepted" | "rejected" | "response-lost" | "stalled" | "disconnected" };
 type Entry = { identity: SimulatedIdentity; state: State; awaitingLateReply?: boolean; resolve?: (result: { state: State }) => void };
+type Snapshot = { version: 1; tick: number; events: Event[]; entries: Array<{ identity: SimulatedIdentity; state: State; awaitingLateReply: boolean }>; script: Step[] };
 type Storage = { tick: number; events: Event[]; entries: Map<string, Entry>; script: Step[] };
 
 export class ScriptedNativeReceiver {
@@ -20,6 +21,22 @@ export class ScriptedNativeReceiver {
 
   public constructor(script: Step[], storage?: Storage) {
     this.storage = storage ?? { tick: 0, events: [], entries: new Map(), script: [...script] };
+  }
+
+  public snapshot(): Snapshot {
+    return {
+      version: 1,
+      tick: this.storage.tick,
+      events: this.trace(),
+      entries: [...this.storage.entries.values()].map(entry => ({ identity: { ...entry.identity }, state: entry.state, awaitingLateReply: Boolean(entry.resolve || entry.awaitingLateReply) })),
+      script: this.storage.script.map(step => ({ ...step })),
+    };
+  }
+
+  public static restore(snapshot: Snapshot): ScriptedNativeReceiver {
+    if (snapshot.version !== 1) throw new Error("SIMULATED_SNAPSHOT_VERSION_UNSUPPORTED");
+    const entries = new Map(snapshot.entries.map(entry => [entry.identity.operationId, { identity: { ...entry.identity }, state: entry.state, awaitingLateReply: entry.awaitingLateReply }]));
+    return new ScriptedNativeReceiver([], { tick: snapshot.tick, events: snapshot.events.map(event => ({ ...event })), entries, script: snapshot.script.map(step => ({ ...step })) });
   }
 
   public trace(): Event[] {
