@@ -114,7 +114,8 @@ export function rankNarrativeCuts(request: NarrativeCutRequest): NarrativeCutPla
     if (!validRange(pause) || pause.end - pause.start < MIN_PAUSE_SECONDS) continue;
     if (words.some((entry) => overlaps(entry.sourceRange, pause)) || protectedRanges.some((entry) => overlaps(entry.sourceRange, pause))) continue;
     const silence = vad.find((entry) => entry.segment.kind === "silence" && entry.sourceRange.start <= pause.start && entry.sourceRange.end >= pause.end);
-    if (!silence || vad.some((entry) => entry.segment.kind !== "silence" && overlaps(entry.sourceRange, pause))) continue;
+    const speechOnlyGap = !silence && vad.every((entry) => entry.segment.kind === "speech");
+    if ((!silence && !speechOnlyGap) || vad.some((entry) => entry.segment.kind !== "silence" && overlaps(entry.sourceRange, pause))) continue;
     const rawStart = request.sequenceRange.start + (pause.start - request.sourceRange.start) + PAD_SECONDS;
     const rawEnd = request.sequenceRange.start + (pause.end - request.sourceRange.start) - PAD_SECONDS;
     const firstFrame = Math.ceil(rawStart / frameSeconds + 1e-8);
@@ -131,13 +132,14 @@ export function rankNarrativeCuts(request: NarrativeCutRequest): NarrativeCutPla
       startTime: addRationalTimes(request.sourceRange.startTime!, subtractRationalTimes(sequenceStart, request.sequenceRange.startTime!)),
       durationTime: duration,
     };
-    const evidence = ["Sentence-ending transcript boundary", "VAD silence covers the pause", "Speech margins retained"];
-    if (silence.segment.confidence === undefined && !result.warnings.includes("VAD silence confidence is unavailable.")) result.warnings.push("VAD silence confidence is unavailable.");
+    const evidence = ["Sentence-ending transcript boundary", silence ? "VAD silence covers the pause" : "VAD suggests a non-speech gap", "Speech margins retained"];
+    if (speechOnlyGap && !result.warnings.includes("Non-speech gaps remain uncertain and require listening.")) result.warnings.push("Non-speech gaps remain uncertain and require listening.");
+    if (silence?.segment.confidence === undefined && !result.warnings.includes("VAD silence confidence is unavailable.")) result.warnings.push("VAD silence confidence is unavailable.");
     if (gaps.every(validRange) && gaps.some((gap) => gap.start <= sourceRange.start && gap.end >= sourceRange.end)) evidence.push("Unverified visual gap hint overlaps the proposed interval");
     result.candidates.push({
       occurrenceId: request.occurrenceId, sourceRange,
       sequenceRange: { start, end, startTime: sequenceStart, durationTime: { ...duration } },
-      confidence: Math.min(previous.word.confidence, next.word.confidence, silence.segment.confidence ?? 0.5),
+      confidence: Math.min(previous.word.confidence, next.word.confidence, silence?.segment.confidence ?? 0.5),
       rationale: "A pause follows a sentence-ending word; review the surrounding thought and pacing before editing.",
       evidence, reviewRequired: true,
     });
