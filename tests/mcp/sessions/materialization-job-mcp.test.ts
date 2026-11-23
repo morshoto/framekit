@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -1096,6 +1097,9 @@ test("simulated lost reply retains a reservation through MCP reconnect", async (
     assert.equal(result.recoveryReservation.reason, "native-quiescence-unproven");
     assert.equal(receiver.trace().filter(event => event.kind === "dispatch").length, 1);
     assert.equal(receiver.trace()[0]?.operationId, result.jobId);
+    const sources = result.desired.resources.map((resource: { id: string; source?: string }) => [resource.id, resource.source ?? null]).sort(([a]: string[], [b]: string[]) => a.localeCompare(b));
+    assert.equal(receiver.trace()[0]?.sourceDigest, createHash("sha256").update(JSON.stringify(sources)).digest("hex"));
+    assert.equal(receiver.trace()[0]?.desiredDigest, result.desiredDigest);
     await first.client.close();
     await first.server.close();
     const second = await connect(directory, simulatedMaterializationPublisher(receiver.restart()), undefined, "default", new FileCanonicalRecoveryGuard(path));
