@@ -1717,6 +1717,16 @@ test("plugin observation binds a clean candidate and installed directory without
     await createOrInspectRun(root, ignoredTarget);
     await assert.rejects(() => verifyQaPluginIdentity(root, ignoredTarget.qaRunId, { checkout, codexHome, installedPath: installed }), /QA_CANDIDATE_MISMATCH/);
     await rm(join(source, "ignored.txt")); await rm(join(installed, "ignored.txt"));
+    execFileSync("git", ["-C", checkout, "update-index", "--assume-unchanged", "plugins/framekit/plugin.txt"]);
+    await writeFile(join(source, "plugin.txt"), "untracked modification"); await writeFile(join(installed, "plugin.txt"), "untracked modification");
+    const assumedTarget = { ...target, qaRunId: "assumed-plugin", authorizationDigest: null, pluginDigest: await digestCodexPluginDirectory(source) };
+    await createOrInspectRun(root, assumedTarget);
+    await assert.rejects(() => verifyQaPluginIdentity(root, assumedTarget.qaRunId, { checkout, codexHome, installedPath: installed }), /QA_CANDIDATE_MISMATCH/);
+    await writeFile(join(source, "plugin.txt"), "candidate plugin"); await writeFile(join(installed, "plugin.txt"), "candidate plugin");
+    execFileSync("git", ["-C", checkout, "update-index", "--no-assume-unchanged", "plugins/framekit/plugin.txt"]);
+    await chmod(join(installed, "plugin.txt"), 0o755);
+    await assert.rejects(() => verifyQaPluginIdentity(root, target.qaRunId, { checkout, codexHome, installedPath: installed }), /QA_CANDIDATE_MISMATCH/);
+    await chmod(join(installed, "plugin.txt"), 0o644);
     const spec = join(parent, "plugin-input.json");
     await writeFile(spec, JSON.stringify({ checkout, codexHome, installedPath: installed }));
     const viaCli = spawnSync(process.execPath, ["--import", "tsx", "scripts/native-qa/cli.ts", "verify-plugin", root, target.qaRunId, spec], { encoding: "utf8", timeout: 10000 });

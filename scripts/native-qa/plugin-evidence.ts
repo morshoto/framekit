@@ -33,8 +33,8 @@ export async function readQaPluginEvidence(root: string, qaRunId: string) {
   }
 }
 
-async function digestDirectory(root: string): Promise<string> {
-  const entries: Array<{ path: string; size: number; sha256: string }> = [];
+async function digestDirectory(root: string): Promise<{ digest: string; files: Array<{ path: string; blob: string; executable: boolean }> }> {
+  const entries: Array<{ path: string; size: number; sha256: string; blob: string; executable: boolean }> = [];
   let total = 0; let nodes = 0;
   const walk = async (dir: string, depth: number): Promise<void> => {
     if (depth > 64) throw new Error("QA_PLUGIN_UNSAFE");
@@ -51,17 +51,18 @@ async function digestDirectory(root: string): Promise<string> {
       try {
         const before = await handle.stat({ bigint: true });
         if (!before.isFile() || before.dev !== item.dev || before.ino !== item.ino || before.size !== item.size || before.mtimeNs !== item.mtimeNs || before.ctimeNs !== item.ctimeNs) throw new Error("QA_PLUGIN_CHANGED");
-        const hash = createHash("sha256"); const buffer = Buffer.allocUnsafe(65536); let count = 0;
-        while (true) { const { bytesRead } = await handle.read(buffer, 0, buffer.length, null); if (!bytesRead) break; count += bytesRead; if (count > Number(item.size)) throw new Error("QA_PLUGIN_CHANGED"); hash.update(buffer.subarray(0, bytesRead)); }
+        const hash = createHash("sha256"); const blob = createHash("sha1").update(`blob ${item.size}\0`); const buffer = Buffer.allocUnsafe(65536); let count = 0;
+        while (true) { const { bytesRead } = await handle.read(buffer, 0, buffer.length, null); if (!bytesRead) break; count += bytesRead; if (count > Number(item.size)) throw new Error("QA_PLUGIN_CHANGED"); hash.update(buffer.subarray(0, bytesRead)); blob.update(buffer.subarray(0, bytesRead)); }
         const after = await handle.stat({ bigint: true });
         if (count !== Number(item.size) || after.size !== item.size || after.mtimeNs !== item.mtimeNs || after.ctimeNs !== item.ctimeNs) throw new Error("QA_PLUGIN_CHANGED");
-        entries.push({ path: relative(root, path).split(sep).join("/"), size: count, sha256: hash.digest("hex") });
+        entries.push({ path: relative(root, path).split(sep).join("/"), size: count, sha256: hash.digest("hex"), blob: blob.digest("hex"), executable: (item.mode & 0o111n) !== 0n });
       } finally { await handle.close(); }
     }
   };
   await walk(root, 0); if (!entries.length) throw new Error("QA_PLUGIN_UNSAFE");
   entries.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
-  return createHash("sha256").update(JSON.stringify(entries)).digest("hex");
+  const digest = createHash("sha256").update(JSON.stringify(entries.map(({ path, size, sha256 }) => ({ path, size, sha256 })))).digest("hex");
+  return { digest, files: entries.map(({ path, blob, executable }) => ({ path, blob, executable })) };
 }
 
 /** Compare two bounded directory snapshots against a clean candidate; no native state is observed. */
@@ -93,8 +94,17 @@ async function verifyQaPluginIdentityInner(root: string, qaRunId: string, input:
   const source = join(sourceParent, "framekit");
   const first = await Promise.all([digestDirectory(source), digestDirectory(installed)]);
   const second = await Promise.all([digestDirectory(source), digestDirectory(installed)]);
-  if (first[0] !== second[0] || first[1] !== second[1]) throw new Error("QA_PLUGIN_CHANGED");
-  if (second[0] !== run.manifest.pluginDigest || second[1] !== run.manifest.pluginDigest) throw new Error("QA_PLUGIN_MISMATCH");
+  if (JSON.stringify(first) !== JSON.stringify(second)) throw new Error("QA_PLUGIN_CHANGED");
+  if (second[0]!.digest !== run.manifest.pluginDigest || second[1]!.digest !== run.manifest.pluginDigest) throw new Error("QA_PLUGIN_MISMATCH");
+  const tree = await exec("git", ["ls-tree", "-rz", "--full-tree", "HEAD", "--", "plugins/framekit"],
+    { cwd: checkout, timeout: 10000, maxBuffer: 1024 * 1024 });
+  const tracked = tree.stdout.split("\0").filter(Boolean).map((line) => {
+    const match = /^(100644|100755) blob ([a-f0-9]{40})\tplugins\/framekit\/(.+)$/s.exec(line);
+    if (!match) throw new Error("QA_CANDIDATE_MISMATCH");
+    return { path: match[3]!, blob: match[2]!, executable: match[1] === "100755" };
+  }).sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+  if (!tracked.length || JSON.stringify(tracked) !== JSON.stringify(second[0]!.files)
+    || JSON.stringify(tracked) !== JSON.stringify(second[1]!.files)) throw new Error("QA_CANDIDATE_MISMATCH");
   if (!await candidateMatches()) throw new Error("QA_CANDIDATE_MISMATCH");
   const current = await inspectRun(root, qaRunId); await assertQaJobIndex(root, current.manifest);
   if (JSON.stringify(current) !== JSON.stringify(run)) throw new Error("QA_RUN_IDENTITY_MISMATCH");
