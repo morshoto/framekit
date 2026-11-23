@@ -3415,7 +3415,9 @@
       "dependsOn": [
         "scripts"
       ],
-      "requires": [],
+      "requires": [
+        "mkfifo"
+      ],
       "platforms": [
         "darwin",
         "linux"

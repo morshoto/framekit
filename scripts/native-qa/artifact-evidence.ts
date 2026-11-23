@@ -43,7 +43,7 @@ export async function verifyQaArtifact(root: string, qaRunId: string, artifactPa
   await assertQaJobIndex(root, run.manifest);
   if (typeof artifactPath !== "string" || !isAbsolute(artifactPath)) throw new Error("QA_ARTIFACT_UNSAFE");
   let file;
-  try { file = await open(artifactPath, constants.O_RDONLY | constants.O_NOFOLLOW); }
+  try { file = await open(artifactPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
   catch { throw new Error("QA_ARTIFACT_UNSAFE"); }
   let actualDigest: string;
   try {
