@@ -213,14 +213,15 @@ export type EvidenceBoundNarrativePlan =
   | { status: "available"; plan: NarrativeCutPlan; analysisRef: AnalysisRef }
   | { status: "unavailable"; reason: string };
 
-/** Verify pinned VAD and rank its stored words; the caller must reverify before any write. */
-export async function rankNarrativeCutsWithEvidence(
+type EvidenceLoad = { status: "available"; request: NarrativeCutRequest } | { status: "unavailable"; reason: string };
+
+async function loadVerifiedRequest(
   request: Omit<NarrativeCutRequest, "analysis">,
   ref: AnalysisRef,
   current: AnalysisEvidenceContext,
   artifacts: AnalysisArtifactStore,
   verifySource: AnalysisSourceVerifier,
-): Promise<EvidenceBoundNarrativePlan> {
+): Promise<EvidenceLoad> {
   try {
     if (current.kind !== "vad" || !sameMediaSourceIdentity(request.source, current.source)
       || !sameRevision(request.revision, current.revision) || !sameRevision(ref.analysisRevision, current.revision)
@@ -237,9 +238,48 @@ export async function rankNarrativeCutsWithEvidence(
     const record = JSON.parse(Buffer.from(bytes).toString("utf8")) as MediaUnderstanding;
     if (!record.speech) return { status: "unavailable", reason: "Pinned speech analysis is unavailable." };
     await verifySource(current.source);
-    const plan = rankNarrativeCuts({ ...request, analysis: record.speech as RevisionBoundSpeechAnalysis });
-    return { status: "available", plan, analysisRef: structuredClone(ref) };
+    return { status: "available", request: { ...request, analysis: record.speech as RevisionBoundSpeechAnalysis } };
   } catch (error) {
     return { status: "unavailable", reason: error instanceof Error ? error.message : "Evidence could not be verified." };
+  }
+}
+
+/** Verify pinned VAD and rank its stored words; reverify before any write. */
+export async function rankNarrativeCutsWithEvidence(
+  request: Omit<NarrativeCutRequest, "analysis">,
+  ref: AnalysisRef,
+  current: AnalysisEvidenceContext,
+  artifacts: AnalysisArtifactStore,
+  verifySource: AnalysisSourceVerifier,
+): Promise<EvidenceBoundNarrativePlan> {
+  const loaded = await loadVerifiedRequest(request, ref, current, artifacts, verifySource);
+  if (loaded.status !== "available") return loaded;
+  try {
+    return { status: "available", plan: rankNarrativeCuts(loaded.request), analysisRef: structuredClone(ref) };
+  } catch (error) {
+    return { status: "unavailable", reason: error instanceof Error ? error.message : "Candidate planning failed." };
+  }
+}
+
+export type EvidenceBoundNarrativeAdjustment =
+  | { status: "available"; candidate: NarrativeCutCandidate; analysisRef: AnalysisRef }
+  | { status: "unavailable"; reason: string };
+
+/** Reverify the artifact and recompute the safe envelope before adjusting a proposal. */
+export async function adjustNarrativeCutWithEvidence(
+  request: Omit<NarrativeCutRequest, "analysis">,
+  ref: AnalysisRef,
+  current: AnalysisEvidenceContext,
+  artifacts: AnalysisArtifactStore,
+  verifySource: AnalysisSourceVerifier,
+  candidate: NarrativeCutCandidate,
+  adjusted: TimeRange,
+): Promise<EvidenceBoundNarrativeAdjustment> {
+  const loaded = await loadVerifiedRequest(request, ref, current, artifacts, verifySource);
+  if (loaded.status !== "available") return loaded;
+  try {
+    return { status: "available", candidate: adjustNarrativeCut(loaded.request, candidate, adjusted), analysisRef: structuredClone(ref) };
+  } catch (error) {
+    return { status: "unavailable", reason: error instanceof Error ? error.message : "Candidate adjustment failed." };
   }
 }
