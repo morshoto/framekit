@@ -112,3 +112,16 @@ test("an empty transcript is reported and never creates placeholder captions", a
     }
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
+
+test("frame rounding is exposed alongside original word timing", async () => {
+  const f = await fixture([{ text: "First", start: 1.01, end: 1.04, confidence: 0.9 }]);
+  try {
+    const result = await planCaptionGroups(f.request, f.ref, f.current, f.artifacts, verifyLocalMediaSource);
+    assert.equal(result.status, "available");
+    if (result.status === "available") {
+      const word = result.plan.groups[0]!.words[0]!;
+      assert.notEqual(word.sequenceRange.start, word.frameAlignedRange.start);
+      assert.ok(result.plan.warnings.some((warning) => /round/i.test(warning)));
+    }
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
