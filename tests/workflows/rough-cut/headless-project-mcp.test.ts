@@ -1467,6 +1467,7 @@ test("headless transcript cuts bind approval to source and stored analysis", asy
     assert.equal(offGrid.isError, true); assert.match(toolErrorText(offGrid), /not frame aligned/);
     const preview = payload(await client.callTool({ name: "headless.speech.cut.preview", arguments: request }));
     assert.equal(preview.artifactDigest, transcript.digest);
+    assert.deepEqual(preview.word, transcript.transcript[0]);
     assert.deepEqual(preview.command.operations[0].splitOffsetTime, { value: "1", timescale: "4" });
     assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, placed.after.timeline);
     const bypass = await client.callTool({ name: "headless.edit.approved-execute", arguments: { projectId, sequenceId, previewToken: preview.previewToken, approved: true } });
