@@ -89,7 +89,7 @@ import {
   type HeadlessRoughCutRequest,
 } from "@framekit/headless-application";
 import { projectSnapshotFromTimelineIr } from "./headless-project-snapshot.js";
-import type { HeadlessDecisionPlanService } from "./headless-decision-plan.js";
+import type { HeadlessDecisionPlanService, HeadlessDecisionRequest } from "./headless-decision-plan.js";
 import { chooseTimelineReadback } from "./readback-policy.js";
 import { registerSkillTools, skillPreviewResult } from "./tools/skills/register.js";
 
@@ -2446,10 +2446,8 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return options.headlessDecisionPlans.plan(input);
   }));
 
-  registerValidatedTool(server, "headless.decision.preview-music", {
-    description: "Preview the exact reviewed music proposal in the Framekit-owned headless timeline. This does not approve or execute an edit.",
-    inputSchema: { ...decisionPlanSchema, planDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/) },
-  }, async ({ planDigest, ...input }) => sessionResult(async () => {
+  const decisionMusicApprovals = new Map<string, { input: HeadlessDecisionRequest; planDigest: string; editToken: string; expiresAt: number }>();
+  const previewDecisionMusic = async (input: HeadlessDecisionRequest, planDigest: string) => {
     const plans = options.headlessDecisionPlans;
     if (!plans) throw new Error("DECISION_PLAN_UNAVAILABLE: headless planning is not configured");
     const initial = await plans.plan(input);
@@ -2478,6 +2476,57 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     const after = await requireHeadlessProjects().open(input.projectId);
     if (timelineIrDigest(after.timeline) !== timelineIrDigest(preview.before.timeline)) throw new Error("STALE_DECISION_PLAN: project changed during preview");
     return { scope: "headless-preview", planDigest, preview, notice: "Review only; this is not approval, native placement, or proof of dialogue audibility." };
+  };
+  registerValidatedTool(server, "headless.decision.preview-music", {
+    description: "Preview the exact reviewed music proposal in the Framekit-owned headless timeline. This does not approve or execute an edit.",
+    inputSchema: { ...decisionPlanSchema, planDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/) },
+  }, async ({ planDigest, ...input }) => sessionResult(() => previewDecisionMusic(input, planDigest)));
+
+  registerValidatedTool(server, "headless.decision.approved-preview-music", {
+    description: "Prepare a single-use headless music preview bound to the reviewed decision plan; execution requires separate approval.",
+    inputSchema: { ...decisionPlanSchema, planDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/) },
+  }, async ({ planDigest, ...input }) => sessionResult(async () => {
+    const reviewed = await previewDecisionMusic(input, planDigest);
+    const approved = await requireHeadlessProjects().previewApprovedEdit(input.projectId, {
+      schemaVersion: 1, expectedRevision: input.revision, operations: reviewed.preview.command.operations,
+    }, input.timelineId);
+    if (timelineIrDigest(approved.before.timeline) !== timelineIrDigest(reviewed.preview.before.timeline)
+      || timelineIrDigest(approved.after.timeline) !== timelineIrDigest(reviewed.preview.after.timeline)) throw new Error("STALE_DECISION_PLAN: approved preview differs from the reviewed proposal");
+    await previewDecisionMusic(input, planDigest);
+    const now = Date.now();
+    for (const [token, entry] of decisionMusicApprovals) if (entry.expiresAt <= now) decisionMusicApprovals.delete(token);
+    while (decisionMusicApprovals.size >= 256) decisionMusicApprovals.delete(decisionMusicApprovals.keys().next().value!);
+    const previewToken = `decision-music-${randomUUID()}`;
+    decisionMusicApprovals.set(previewToken, { input: structuredClone(input), planDigest, editToken: approved.previewToken, expiresAt: now + 10 * 60 * 1000 });
+    return { ...reviewed, previewToken };
+  }));
+
+  registerValidatedTool(server, "headless.decision.approved-execute-music", {
+    description: "Execute one separately approved, decision-bound headless music preview; native Final Cut is not used.",
+    inputSchema: { projectId: z.string().min(1), sequenceId: z.string().min(1), previewToken: z.string().min(1), approved: z.literal(true) },
+  }, async ({ projectId, sequenceId, previewToken }) => sessionResult(async () => {
+    const entry = decisionMusicApprovals.get(previewToken);
+    if (!entry || entry.expiresAt <= Date.now() || entry.input.projectId !== projectId || entry.input.timelineId !== sequenceId) {
+      throw new Error("DECISION_PREVIEW_INVALID: token is unknown, expired or belongs to another target");
+    }
+    decisionMusicApprovals.delete(previewToken);
+    const plans = options.headlessDecisionPlans;
+    if (!plans) throw new Error("DECISION_PLAN_UNAVAILABLE: headless planning is not configured");
+    let committed: Awaited<ReturnType<ReturnType<typeof requireHeadlessProjects>["executeApprovedEdit"]>> | undefined;
+    try {
+      return await plans.withAcceptedPlan(entry.input, entry.planDigest, async (plan) => {
+        if (!entry.input.music.music) throw new Error("MUSIC_PREVIEW_UNAVAILABLE: registered music is required");
+        await verifyLocalMediaSource(entry.input.music.music);
+        committed = await requireHeadlessProjects().executeApprovedEdit(projectId, sequenceId, entry.editToken);
+        await plans.recheckEvidence(entry.input, plan);
+        return { status: "applied" as const, edit: committed, planDigest: entry.planDigest,
+          notice: "Headless edit only; evidence checks are point-in-time and do not establish native execution or dialogue audibility." };
+      });
+    } catch (error) {
+      if (!committed) throw error;
+      return { status: "applied-unverified" as const, edit: committed, planDigest: entry.planDigest,
+        notice: "The edit committed, but a post-edit evidence or lock check failed; inspect the project and Undo before continuing." };
+    }
   }));
 
   registerValidatedTool(server, "headless.analysis.pin", {

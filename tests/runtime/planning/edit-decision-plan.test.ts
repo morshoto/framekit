@@ -281,6 +281,11 @@ test("headless decision service loads current project and brief and rejects proj
     const { snapshot: _snapshot, brief: _brief, accepted: _accepted, speechContext, vadContext, ...input } = f.request;
     const result = await service.plan(input);
     assert.equal(result.status, "available");
+    if (result.status !== "available") return;
+    await service.recheckEvidence(input, result.plan);
+    await writeFile(f.path, "changed after edit");
+    await assert.rejects(service.recheckEvidence(input, result.plan), /MEDIA_CHANGED/);
+    await writeFile(f.path, "source bytes");
     const { AgentVideoRuntime } = await import("../../../packages/runtime/src/index.js");
     const { InMemoryEditorAdapter } = await import("../../../packages/testkit/src/index.js");
     const { createMcpServer } = await import("../../../apps/mcp-server/src/server.js");

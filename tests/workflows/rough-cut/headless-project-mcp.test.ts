@@ -73,12 +73,36 @@ test("reviewed music decision previews the exact headless placement without chan
     const changed = await client.callTool({ name: "headless.decision.preview-music", arguments: { ...input, planDigest: decision.plan.planDigest } });
     assert.equal(changed.isError, true);
     await writeFile(musicPath, musicBytes);
-    // The generic approval path is deliberately separate: this demonstrates the
-    // handoff, not evidence-bound native execution or atomic brief approval.
-    const approval = payload(await client.callTool({ name: "headless.edit.approved-preview", arguments: { projectId, sequenceId, expectedRevision: revision, operations: preview.preview.command.operations } }));
-    assert.deepEqual(approval.command.operations, preview.preview.command.operations);
+    const approval = payload(await client.callTool({ name: "headless.decision.approved-preview-music", arguments: { ...input, planDigest: decision.plan.planDigest } }));
+    assert.deepEqual(approval.preview.command.operations, preview.preview.command.operations);
     assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, before.timeline);
-    const applied = payload(await client.callTool({ name: "headless.edit.approved-execute", arguments: { projectId, sequenceId, previewToken: approval.previewToken, approved: true } }));
+    const revised = payload(await client.callTool({ name: "headless.brief.revise", arguments: { ...target, expectedDigest: draft.record.digest, brief: { ...brief, theme: "revised" } } }));
+    const rejectedApproval = await client.callTool({ name: "headless.decision.approved-execute-music", arguments: { projectId, sequenceId, previewToken: approval.previewToken, approved: true } });
+    assert.equal(rejectedApproval.isError, true);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, before.timeline);
+    const replay = await client.callTool({ name: "headless.decision.approved-execute-music", arguments: { projectId, sequenceId, previewToken: approval.previewToken, approved: true } });
+    assert.equal(replay.isError, true);
+    payload(await client.callTool({ name: "headless.brief.accept", arguments: { ...target, expectedDigest: revised.record.digest, confirmed: true } }));
+    const replanned = payload(await client.callTool({ name: "headless.decision.plan", arguments: input }));
+    assert.equal(replanned.status, "available", replanned.reason);
+    const staleSource = payload(await client.callTool({ name: "headless.decision.approved-preview-music", arguments: { ...input, planDigest: replanned.plan.planDigest } }));
+    await writeFile(musicPath, "changed after preview");
+    const rejectedSource = await client.callTool({ name: "headless.decision.approved-execute-music", arguments: { projectId, sequenceId, previewToken: staleSource.previewToken, approved: true } });
+    assert.equal(rejectedSource.isError, true);
+    await writeFile(musicPath, musicBytes);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, before.timeline);
+    const sourceReplay = await client.callTool({ name: "headless.decision.approved-execute-music", arguments: { projectId, sequenceId, previewToken: staleSource.previewToken, approved: true } });
+    assert.equal(sourceReplay.isError, true);
+    const approved = payload(await client.callTool({ name: "headless.decision.approved-preview-music", arguments: { ...input, planDigest: replanned.plan.planDigest } }));
+    const declined = await client.callTool({ name: "headless.decision.approved-execute-music", arguments: { projectId, sequenceId, previewToken: approved.previewToken, approved: false } });
+    assert.equal(declined.isError, true);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, before.timeline);
+    const attempts = await Promise.all([0, 1].map(() => client.callTool({ name: "headless.decision.approved-execute-music", arguments: { projectId, sequenceId, previewToken: approved.previewToken, approved: true } })));
+    assert.equal(attempts.filter((result) => result.isError !== true).length, 1);
+    assert.equal(attempts.filter((result) => result.isError === true).length, 1);
+    const appliedResult = payload(attempts.find((result) => result.isError !== true)!);
+    assert.equal(appliedResult.status, "applied");
+    const applied = appliedResult.edit;
     const outputPath = join(directory, "music-output.mp4");
     const rendered = payload(await client.callTool({ name: "headless.render", arguments: { projectId, sequenceId, expectedRevision: applied.after.timeline.revision,
       parameters: { outputPath, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } } }));

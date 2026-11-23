@@ -139,6 +139,18 @@ timeline preview. This preview neither approves nor executes an edit. Native
 edit support remains unavailable, and the digest is not edit authorization.
 Source audio analysis does not verify the resulting mix or dialogue audibility.
 
+To execute this supported **headless** placement, call
+`headless.decision.approved-preview-music` with the same inputs and plan digest,
+review its returned preview, then call `headless.decision.approved-execute-music`
+with the project and sequence IDs, returned `previewToken`, and `approved: true`.
+The token is single-use and expires after ten minutes or a server restart. The
+server rechecks the plan and holds the brief's cooperative writer lock during
+execution. If it returns `applied-unverified`, the edit committed but a later
+source or analysis check failed: inspect the returned edit and Undo information
+before continuing. These checks are point-in-time; they do not lock media files
+or establish native execution, dialogue audibility, or crash-atomic updates
+across project, brief and analysis stores.
+
 For later Timeline IR revisions that require explicit approval, call
 `headless.edit.approved-preview` with the project, sequence, current revision
 and operations. Review the result, then call `headless.edit.approved-execute`

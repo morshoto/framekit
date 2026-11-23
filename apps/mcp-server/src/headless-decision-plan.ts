@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import { assertCurrentAcceptedBrief, createEditDecisionPlan, sameAnalyzerDescriptor } from "@framekit/runtime";
-import type { AnalysisArtifactStore, AnalysisEvidenceContext, AnalysisRef, AnalysisSourceVerifier, CreativeBriefStore, EditDecisionPlanRequest, EditDecisionPlanResult, ProjectSnapshot, SemanticMediaIndexStore, MediaUnderstanding, AnalyzerDescriptor } from "@framekit/runtime";
+import { assertBriefSourceCoverage, assertCurrentAcceptedBrief, createEditDecisionPlan, sameAnalyzerDescriptor } from "@framekit/runtime";
+import type { AnalysisArtifactStore, AnalysisEvidenceContext, AnalysisRef, AnalysisSourceVerifier, CreativeBriefStore, EditDecisionPlan, EditDecisionPlanRequest, EditDecisionPlanResult, ProjectSnapshot, SemanticMediaIndexStore, MediaUnderstanding, AnalyzerDescriptor } from "@framekit/runtime";
 
 export type HeadlessDecisionRequest = Omit<EditDecisionPlanRequest, "snapshot" | "brief" | "accepted" | "speechContext" | "vadContext" | "audioContext">;
 
@@ -38,6 +38,34 @@ export class HeadlessDecisionPlanService {
     } catch (error) {
       return { status: "unavailable", reason: error instanceof Error ? error.message : "Headless decision planning failed" };
     }
+  }
+
+  /** Hold the cooperating brief-writer lock through the bound operation. */
+  async withAcceptedPlan<T>(input: HeadlessDecisionRequest, digest: string, operation: (plan: EditDecisionPlan) => Promise<T>): Promise<T> {
+    const store = this.options.storeForProject(input.projectId);
+    const brief = await store.read(input.projectId);
+    if (brief.state !== "accepted") throw new Error("BRIEF_NOT_ACCEPTED: the current brief requires review");
+    return store.withAcceptedBrief(input.projectId, brief.accepted, async () => {
+      const current = await this.plan(input);
+      if (current.status !== "available" || current.plan.planDigest !== digest) throw new Error("STALE_DECISION_PLAN: inputs changed after review");
+      return operation(current.plan);
+    });
+  }
+
+  /** Recheck point-in-time source and analysis observations after a committed edit. */
+  async recheckEvidence(input: HeadlessDecisionRequest, plan: EditDecisionPlan): Promise<void> {
+    const store = this.options.storeForProject(input.projectId);
+    const brief = await store.read(input.projectId);
+    if (brief.state !== "accepted") throw new Error("BRIEF_NOT_ACCEPTED: the current brief requires review");
+    await assertCurrentAcceptedBrief(store, input.projectId, plan.acceptedBrief);
+    const snapshot = await this.options.readProject(input.projectId);
+    assertBriefSourceCoverage(plan.acceptedBrief, brief.brief, snapshot.media);
+    await this.assertCurrentEvidence(input);
+    const sources = [plan.source, ...brief.brief.sourceCoverage.map((item) => snapshot.media.find((source) => source.mediaId === item.sourceId)!),
+      ...[input.speechRef, input.vadRef, input.audioRef].flatMap((ref) => ref ? [ref.source] : []), ...(input.music.music ? [input.music.music] : [])];
+    for (const source of sources) await this.options.verifySource(source);
+    await this.assertCurrentEvidence(input);
+    await assertCurrentAcceptedBrief(store, input.projectId, plan.acceptedBrief);
   }
 
   private async assertCurrentEvidence(input: HeadlessDecisionRequest): Promise<void> {
