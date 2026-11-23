@@ -8,7 +8,7 @@ import { createOrInspectRun, inspectRun, markDispatchUncertain } from "../../../
 
 const manifest = {
   qaRunId: "qa-fixture-1", candidateCommit: "a".repeat(40), candidateTree: "b".repeat(40),
-  packageDigest: "1".repeat(64), pluginDigest: "2".repeat(64), extensionDigest: "3".repeat(64),
+  packageDigest: "1".repeat(64), mcpDigest: "8".repeat(64), pluginDigest: "2".repeat(64), extensionDigest: "3".repeat(64),
   artifactDigest: "4".repeat(64), sourceDigest: "5".repeat(64), targetDigest: "6".repeat(64),
   operation: "rough-cut-publish" as const, authorizationDigest: "7".repeat(64),
 };
@@ -31,7 +31,7 @@ test("changed candidate, target or authorization is rejected", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-qa-store-"));
   try {
     await createOrInspectRun(root, manifest);
-    for (const changed of [{ candidateCommit: "c".repeat(40) }, { targetDigest: "8".repeat(64) }, { authorizationDigest: "9".repeat(64) }]) {
+    for (const changed of [{ candidateCommit: "c".repeat(40) }, { targetDigest: "8".repeat(64) }, { mcpDigest: "9".repeat(64) }, { authorizationDigest: "9".repeat(64) }]) {
       await assert.rejects(createOrInspectRun(root, { ...manifest, ...changed }), /QA_RUN_IDENTITY_MISMATCH/);
     }
   } finally { await rm(root, { recursive: true, force: true }); }

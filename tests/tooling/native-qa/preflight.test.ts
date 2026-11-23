@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { assessQaPreflight, type QaPreflightObservation } from "../../../scripts/native-qa/preflight.js";
 
-const identity = { candidateCommit: "a".repeat(40), candidateTree: "b".repeat(40), packageDigest: "1".repeat(64), pluginDigest: "2".repeat(64), extensionDigest: "3".repeat(64) };
+const identity = { candidateCommit: "a".repeat(40), candidateTree: "b".repeat(40), packageDigest: "1".repeat(64), mcpDigest: "8".repeat(64), pluginDigest: "2".repeat(64), extensionDigest: "3".repeat(64) };
 const ready: QaPreflightObservation = { headlessPassed: true, expected: identity, observed: { ...identity }, console: "unlocked", finalCut: "frontmost", recovery: "clear" };
 
 test("reports separate authorization as the next step without dispatch", () => {
@@ -35,4 +35,12 @@ test("unresolved recovery, missing observations and failed headless checks fail 
     assert.equal(result.state, "BLOCKED");
     assert.equal(result.dispatchAllowed, false);
   }
+});
+
+
+test("a mismatched MCP fingerprint blocks even when other identities match", () => {
+  const result = assessQaPreflight({ ...ready, observed: { ...identity, mcpDigest: "9".repeat(64) } });
+  assert.equal(result.state, "BLOCKED");
+  assert.equal(result.nextAction, "resolve-identity-mismatch");
+  assert.equal(result.dispatchAllowed, false);
 });
