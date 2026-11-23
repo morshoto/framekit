@@ -741,6 +741,46 @@ test("simultaneous worker-start records have one winner", async () => {
 });
 
 
+test("a crash while writing dispatch intent cannot expose a partial marker", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-intent-crash-"));
+  const script = `import { createOrInspectRun, claimDispatchIntent } from "./scripts/native-qa/run-store.ts";
+    import { open, readdir, stat } from "node:fs/promises"; import { join } from "node:path";
+    let text = ""; process.stdin.setEncoding("utf8"); for await (const chunk of process.stdin) text += chunk;
+    const manifest = JSON.parse(text); const root = process.argv[1]; await createOrInspectRun(root, manifest);
+    const directory = join(root, manifest.qaRunId); const probe = await open(join(directory, "test-probe"), "wx");
+    const proto = Object.getPrototypeOf(probe); const original = proto.writeFile; await probe.close();
+    proto.writeFile = async function(...args) {
+      const current = await this.stat();
+      for (const name of await readdir(directory)) {
+        if (!name.startsWith("dispatch-uncertain")) continue;
+        const candidate = await stat(join(directory, name)).catch(() => undefined);
+        if (candidate && candidate.ino === current.ino && candidate.dev === current.dev) {
+          process.send({ writing: true }); await new Promise(() => {});
+        }
+      }
+      return original.apply(this, args);
+    };
+    await claimDispatchIntent(root, manifest, "publish-job-fixture");`;
+  const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script, root], { stdio: ["pipe", "ignore", "pipe", "ipc"] });
+  try {
+    child.stdin!.end(JSON.stringify(manifest));
+    const message = await Promise.race([
+      once(child, "message").then(([value]) => value),
+      once(child, "exit").then(() => { throw new Error("intent process exited before write"); }),
+      new Promise<never>((_, reject) => { const timer = setTimeout(() => reject(new Error("intent write timed out")), 10000); timer.unref(); }),
+    ]);
+    assert.deepEqual(message, { writing: true });
+    const exited = once(child, "exit"); child.kill("SIGKILL"); await exited;
+    const run = await inspectRun(root, manifest.qaRunId);
+    assert.equal(run.dispatch, "NOT_DISPATCHED");
+    assert.equal(run.publishJobId, undefined);
+    assert.equal((await createOrInspectRun(root, manifest)).created, false);
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("simulated receiver acceptance survives a publisher process crash", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-qa-acceptance-crash-"));
   const script = `import { createOrInspectRun, claimDispatchIntent } from "./scripts/native-qa/run-store.ts";
