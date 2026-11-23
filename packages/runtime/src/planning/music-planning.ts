@@ -109,6 +109,10 @@ export async function previewMusicPlan(
   await assertCurrentAcceptedBrief(briefStore, request.projectId, request.accepted);
   const current = await runtime.inspectProject();
   assertBriefSourceCoverage(request.accepted, request.brief, current.media);
+  if (typeof verifySource !== "function") throw new Error("CAPABILITY_UNAVAILABLE: source verification is required");
+  for (const id of new Set(request.brief.sourceCoverage.map((coverage) => coverage.sourceId))) {
+    await verifySource(current.media.find((source) => source.mediaId === id)!);
+  }
   const recomputed = planMusic({ ...request, snapshot: current });
   if (recomputed.decision !== "propose-music" || !recomputed.placement || !isDeepStrictEqual(recomputed, reviewed)) {
     throw new Error("STALE_MUSIC_PLAN: reviewed proposal no longer matches current inputs");
@@ -124,6 +128,9 @@ export async function previewMusicPlan(
   await verifySource(request.music);
   const after = await runtime.inspectProject();
   assertBriefSourceCoverage(request.accepted, request.brief, after.media);
+  for (const id of new Set(request.brief.sourceCoverage.map((coverage) => coverage.sourceId))) {
+    await verifySource(after.media.find((source) => source.mediaId === id)!);
+  }
   await assertCurrentAcceptedBrief(briefStore, request.projectId, request.accepted);
   return preview;
 }
