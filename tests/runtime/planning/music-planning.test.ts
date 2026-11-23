@@ -110,6 +110,9 @@ test("reviewed music proposal previews through the existing workflow without mut
   const wrongPreview = { inspectProject: runtime.inspectProject.bind(runtime), previewMusic: async () => ({ ...preview,
     target: { kind: "editor.timeline" as const, projectId: "other", sequenceId: "other" } }) };
   await assert.rejects(() => previewMusicPlan(wrongPreview, liveRequest, plan, "music-clip", fixtureVerifySource, briefStore), /STALE|TARGET/);
+  const wrongOperations = { inspectProject: runtime.inspectProject.bind(runtime), previewMusic: async () => ({ ...preview,
+    operations: preview.operations.map((operation) => operation.type === "set-gain" ? { ...operation, gainDb: -3 } : operation) }) };
+  await assert.rejects(() => previewMusicPlan(wrongOperations, liveRequest, plan, "music-clip", fixtureVerifySource, briefStore), /STALE|MISMATCH/);
   const racingRuntime = {
     inspectProject: runtime.inspectProject.bind(runtime),
     previewMusic: async (input: Parameters<typeof runtime.previewMusic>[0]) => {
