@@ -1053,7 +1053,8 @@
       ],
       "evidence": "fixture",
       "dependsOn": [
-        "adapters/final-cut/typescript"
+        "adapters/final-cut/typescript",
+        "scripts"
       ],
       "requires": [],
       "platforms": [

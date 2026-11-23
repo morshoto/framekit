@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { ScriptedNativeReceiver } from "../../support/simulated-native-receiver.js";
+import { loadNativeEditingManifest, summarizeHeadedEvidence } from "../../../scripts/release/gate/native-editing.js";
 
 const request = {
   operationId: "operation-1", targetId: "target-1", sourceDigest: "a".repeat(64), desiredDigest: "c".repeat(64), revisionId: "revision-1",
@@ -117,4 +118,14 @@ test("simulated-native: partial writes remain distinct from acceptance", async (
   assert.deepEqual(await receiver.dispatch(request), { state: "partial" });
   assert.deepEqual(receiver.trace().map(event => event.kind), ["dispatch", "partial"]);
   assert.deepEqual(await receiver.dispatch(request), { state: "partial" });
+});
+
+
+test("simulated-native: successful simulation is not headed release evidence", async () => {
+  const receiver = new ScriptedNativeReceiver([{ kind: "accept" }]);
+  assert.deepEqual(await receiver.dispatch(request), { state: "accepted" });
+  const evidence = receiver.evidence({ scenario: "successful-dispatch", seed: 0, candidate: "a".repeat(40) });
+  const workflow = loadNativeEditingManifest().workflows.find(item => item.id === "picture-in-picture");
+  assert.ok(workflow);
+  assert.throws(() => summarizeHeadedEvidence(evidence, workflow), /headed evidence did not pass/);
 });
