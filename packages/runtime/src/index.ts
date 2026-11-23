@@ -30,5 +30,6 @@ export * from "./speech/filler-detector.js";
 export * from "./speech/safe-cut-resolver.js";
 export * from "./speech/analysis.js";
 export * from "./speech/transcript-artifact.js";
+export * from "./timeline/rational-time.js";
 export * from "./application/speech-transcript-store.js";
 export * from "./speech/mapping.js";

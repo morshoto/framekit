@@ -1459,7 +1459,7 @@ test("headless transcript cuts bind approval to source and stored analysis", asy
     const registered = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath, expectedRevision: created.timeline.revision } }));
     const placed = payload(await client.callTool({ name: "headless.edit.execute", arguments: {
       projectId, sequenceId, expectedRevision: registered.project.timeline.revision,
-      operations: [{ type: "insert-occurrence", placement: "append", occurrence: { ...occurrence("speech", registered.resource.id), durationTime: { value: "5", timescale: "1" } } }],
+      operations: [{ type: "insert-occurrence", placement: "append", occurrence: { ...occurrence("speech", registered.resource.id), sourceStartTime: { value: "1", timescale: "4" }, durationTime: { value: "4", timescale: "1" } } }],
     } }));
     const transcript = payload(await client.callTool({ name: "headless.speech.transcript", arguments: { projectId, mediaId: registered.resource.id } }));
     const request = { projectId, sequenceId, expectedRevision: placed.after.timeline.revision, occurrenceId: "speech", newOccurrenceId: "speech-right", digest: transcript.digest, wordIndex: 0, boundary: "start" };
@@ -1467,17 +1467,31 @@ test("headless transcript cuts bind approval to source and stored analysis", asy
     assert.equal(offGrid.isError, true); assert.match(toolErrorText(offGrid), /not frame aligned/);
     const preview = payload(await client.callTool({ name: "headless.speech.cut.preview", arguments: request }));
     assert.equal(preview.artifactDigest, transcript.digest);
-    assert.deepEqual(preview.command.operations[0].splitOffsetTime, { value: "1", timescale: "2" });
+    assert.deepEqual(preview.command.operations[0].splitOffsetTime, { value: "1", timescale: "4" });
     assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, placed.after.timeline);
+    const bypass = await client.callTool({ name: "headless.edit.approved-execute", arguments: { projectId, sequenceId, previewToken: preview.previewToken, approved: true } });
+    assert.equal(bypass.isError, true);
+    const originalSource = await readFile(sourcePath); await writeFile(sourcePath, "replacement");
+    const changed = await client.callTool({ name: "headless.speech.cut.execute", arguments: { projectId, sequenceId, previewToken: preview.previewToken, approved: true } });
+    assert.equal(changed.isError, true); assert.match(toolErrorText(changed), /MEDIA_CHANGED/);
+    await writeFile(sourcePath, originalSource);
+    const beforeDeletion = payload(await client.callTool({ name: "headless.speech.cut.preview", arguments: request }));
     const record = join(stateDirectory, "analysis-artifacts", `${transcript.digest}.json`);
     const saved = await readFile(record); await rm(record);
-    const missing = await client.callTool({ name: "headless.speech.cut.execute", arguments: { projectId, sequenceId, previewToken: preview.previewToken, approved: true } });
+    const missing = await client.callTool({ name: "headless.speech.cut.execute", arguments: { projectId, sequenceId, previewToken: beforeDeletion.previewToken, approved: true } });
     assert.equal(missing.isError, true); assert.match(toolErrorText(missing), /ANALYSIS_ARTIFACT_NOT_FOUND/);
     await writeFile(record, saved);
-    const retry = await client.callTool({ name: "headless.speech.cut.execute", arguments: { projectId, sequenceId, previewToken: preview.previewToken, approved: true } });
+    const retry = await client.callTool({ name: "headless.speech.cut.execute", arguments: { projectId, sequenceId, previewToken: beforeDeletion.previewToken, approved: true } });
     assert.equal(retry.isError, true);
+    const beforeRestart = payload(await client.callTool({ name: "headless.speech.cut.preview", arguments: request }));
+    await client.close(); await transport.close();
+    ({ client, transport } = await connectProductionClient(here, environment));
+    const expired = await client.callTool({ name: "headless.speech.cut.execute", arguments: { projectId, sequenceId, previewToken: beforeRestart.previewToken, approved: true } });
+    assert.equal(expired.isError, true);
     const approved = payload(await client.callTool({ name: "headless.speech.cut.preview", arguments: request }));
-    const result = payload(await client.callTool({ name: "headless.speech.cut.execute", arguments: { projectId, sequenceId, previewToken: approved.previewToken, approved: true } }));
+    const attempts = await Promise.all([0, 1].map(() => client!.callTool({ name: "headless.speech.cut.execute", arguments: { projectId, sequenceId, previewToken: approved.previewToken, approved: true } })));
+    assert.equal(attempts.filter((item) => !item.isError).length, 1);
+    const result = payload(attempts.find((item) => !item.isError));
     const right = result.after.timeline.sequence.occurrences.find((item: any) => item.id === "speech-right");
     assert.deepEqual(right.sourceStartTime, { value: "1", timescale: "2" });
     const replay = await client.callTool({ name: "headless.speech.cut.execute", arguments: { projectId, sequenceId, previewToken: approved.previewToken, approved: true } });

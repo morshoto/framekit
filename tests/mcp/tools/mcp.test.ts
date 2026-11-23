@@ -295,6 +295,8 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "headless.media.search",
         "headless.speech.transcript",
         "headless.speech.transcript.get",
+        "headless.speech.cut.preview",
+        "headless.speech.cut.execute",
         "headless.edit-json.preview",
         "headless.edit-json.execute",
         "headless.edit.preview",

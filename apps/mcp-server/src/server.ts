@@ -11,6 +11,7 @@ import {
   canonicalSnapshotDigest,
   createSpeechTranscriptArtifact,
   sameMediaSourceIdentity,
+  subtractRationalTimes,
   createCapabilityPreflight,
   resolveEditingIntent,
   serializeCapabilityUnavailableError,
@@ -1030,6 +1031,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     { instructions: options.headlessProjects ? HEADLESS_FIRST_MCP_INSTRUCTIONS : EDITOR_FIRST_MCP_INSTRUCTIONS },
   );
   const nativeTransitionAssets = new Map<string, NativeFinalCutTransitionMatch>();
+  const speechCutPreviews = new Map<string, { innerToken: string; projectId: string; sequenceId: string; mediaId: string; digest: string; expiresAt: number }>();
   const sessions = options.sessionDirectory
     ? new EditingSessionRepository(options.sessionDirectory, options.sessionChangeSource)
     : undefined;
@@ -2410,10 +2412,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return artifact;
   }));
 
-  registerValidatedTool(server, "headless.speech.transcript.get", {
-    description: "Retrieve a stored transcript by digest after checking that it belongs to unchanged registered media.",
-    inputSchema: { projectId: z.string().min(1), mediaId: z.string().min(1), digest: z.string().regex(/^[a-f0-9]{64}$/) },
-  }, async ({ projectId, mediaId, digest }) => sessionResult(async () => {
+  const loadSpeechTranscript = async (projectId: string, mediaId: string, digest: string) => {
     const projects = requireHeadlessProjects();
     if (!options.transcriptArtifacts) throw new Error("ANALYSIS_STORAGE_UNAVAILABLE: transcript storage is not configured");
     const project = await projects.open(projectId);
@@ -2430,7 +2429,55 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     if (JSON.stringify(current.timeline.revision) !== JSON.stringify(project.timeline.revision)) {
       throw new Error("STALE_CONTEXT: project changed during transcript retrieval");
     }
-    return artifact;
+    return { artifact, project };
+  };
+
+  registerValidatedTool(server, "headless.speech.transcript.get", {
+    description: "Retrieve a stored transcript by digest after checking that it belongs to unchanged registered media.",
+    inputSchema: { projectId: z.string().min(1), mediaId: z.string().min(1), digest: z.string().regex(/^[a-f0-9]{64}$/) },
+  }, async ({ projectId, mediaId, digest }) => sessionResult(async () => (await loadSpeechTranscript(projectId, mediaId, digest)).artifact));
+
+  registerValidatedTool(server, "headless.speech.cut.preview", {
+    description: "Preview a split at a stored transcript word boundary and issue a single-use approval token.",
+    inputSchema: {
+      projectId: z.string().min(1), sequenceId: z.string().min(1), expectedRevision: revisionValueSchema,
+      occurrenceId: z.string().min(1), newOccurrenceId: z.string().min(1), digest: z.string().regex(/^[a-f0-9]{64}$/),
+      wordIndex: z.number().int().nonnegative(), boundary: z.enum(["start", "end"]),
+    },
+  }, async ({ projectId, sequenceId, expectedRevision, occurrenceId, newOccurrenceId, digest, wordIndex, boundary }) => sessionResult(async () => {
+    const service = requireHeadlessProjects();
+    const project = await service.open(projectId);
+    const occurrence = project.timeline.sequence.occurrences.find((entry) => entry.id === occurrenceId);
+    if (!occurrence?.mediaId) throw new Error("ANALYSIS_TARGET_INVALID: occurrence has no registered source");
+    const { artifact } = await loadSpeechTranscript(projectId, occurrence.mediaId, digest);
+    const word = artifact.transcript[wordIndex];
+    if (!word) throw new Error("ANALYSIS_WORD_NOT_FOUND: transcript word index is unavailable");
+    const splitOffsetTime = subtractRationalTimes(boundary === "start" ? word.startTime : word.endTime,
+      occurrence.sourceStartTime ?? { value: "0", timescale: "1" }, "ANALYSIS_TARGET_INVALID");
+    const preview = await service.previewApprovedEdit(projectId, {
+      schemaVersion: 1, expectedRevision,
+      operations: [{ type: "split-occurrence", occurrenceId, newOccurrenceId, splitOffsetTime }],
+    }, sequenceId);
+    const { previewToken: innerToken, ...result } = preview;
+    const now = Date.now();
+    for (const [token, entry] of speechCutPreviews) if (entry.expiresAt <= now) speechCutPreviews.delete(token);
+    while (speechCutPreviews.size >= 256) speechCutPreviews.delete(speechCutPreviews.keys().next().value!);
+    const previewToken = `speech-cut-${randomUUID()}`;
+    speechCutPreviews.set(previewToken, { innerToken, projectId, sequenceId, mediaId: occurrence.mediaId, digest, expiresAt: now + 10 * 60 * 1000 });
+    return { ...result, artifactDigest: digest, wordIndex, boundary, previewToken };
+  }));
+
+  registerValidatedTool(server, "headless.speech.cut.execute", {
+    description: "Execute an explicitly approved, single-use transcript-bound split after rechecking its stored analysis and source.",
+    inputSchema: { projectId: z.string().min(1), sequenceId: z.string().min(1), previewToken: z.string().min(1), approved: z.literal(true) },
+  }, async ({ projectId, sequenceId, previewToken }) => sessionResult(async () => {
+    const entry = speechCutPreviews.get(previewToken);
+    if (!entry || entry.expiresAt <= Date.now() || entry.projectId !== projectId || entry.sequenceId !== sequenceId) {
+      throw new Error("ANALYSIS_PREVIEW_INVALID: transcript preview is unknown, expired or belongs to another target");
+    }
+    speechCutPreviews.delete(previewToken);
+    await loadSpeechTranscript(projectId, entry.mediaId, entry.digest);
+    return requireHeadlessProjects().executeApprovedEdit(projectId, sequenceId, entry.innerToken);
   }));
 
   registerValidatedTool(server, "rough-cut.plan", {

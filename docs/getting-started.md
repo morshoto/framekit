@@ -319,9 +319,15 @@ Its word boundaries are rational representations of the provider's decimal
 times; they are not automatically aligned to video frames. The response includes
 the analyzer and Framekit versions and a digest of the transcript evidence.
 `headless.speech.transcript.get` retrieves it by project ID, media ID and digest,
-after verifying the stored record and current registered source. The artifact
-does not authorize a timeline edit; source checks do not prevent concurrent
-changes between observations.
+after verifying the stored record and current registered source.
+`headless.speech.cut.preview` selects a zero-based word index and its `start` or
+`end` boundary for a split of a specific occurrence. It returns a single-use
+approval token bound to that transcript; `headless.speech.cut.execute` requires
+that token and explicit approval, then rechecks the artifact and source before
+using the existing approved edit flow. Boundaries are not rounded: the same
+split and known frame-grid checks as manual edits apply. Tokens expire after ten
+minutes or a server restart. Source and artifact checks do not prevent
+concurrent changes between observations.
 
 For source-file loudness in a checkout, the optional
 `apps/mcp-server/runtime/ffmpeg-audio-backend.py` command requires Python 3,
