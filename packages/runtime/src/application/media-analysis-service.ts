@@ -198,6 +198,14 @@ export class MediaAnalysisService {
       settle(() => this.options.visualAnalyzer?.analyze(input)),
       settle(() => this.options.metadataAnalyzer?.analyze(input)),
     ]);
+    // A source identity failure invalidates every result from this batch, including
+    // successful results from other analyzers. Never publish them under stale bytes.
+    for (const result of [speechResult, audioResult, noiseResult, visualResult, metadataResult]) {
+      if (result?.status === "rejected" && result.reason instanceof Error
+        && /^(ANALYZER_SOURCE_CHANGED|ANALYZER_MEDIA_UNAVAILABLE|MEDIA_CHANGED|MEDIA_MISSING):/.test(result.reason.message)) {
+        throw result.reason;
+      }
+    }
     const speech = fulfilledValue(speechResult);
     const audio = fulfilledValue(audioResult);
     const noise = fulfilledValue(noiseResult);

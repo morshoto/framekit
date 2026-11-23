@@ -346,11 +346,9 @@ for (const kind of ["speech", "audio"] as const) {
     assert.equal(indexed.some((entry) => entry.analysis.some((status) => status.status === "analyzed")), false);
     const attachedIndex = await originalRuntime.indexMedia();
     assert.equal(attachedIndex.some((entry) => entry.analysis.some((status) => status.status === "analyzed")), false);
-    const second = await runtime().understandMedia("media-1");
-    assert.equal(second[kind], undefined);
-    const status = second.analysis.find((entry) => entry.capability === kind);
-    assert.equal(status?.status, "unavailable");
-    assert.match(status?.reason ?? "", /ANALYZER_SOURCE_CHANGED/);
+    const originalIndex = await readFile(storePath, "utf8");
+    await assert.rejects(runtime().understandMedia("media-1"), /ANALYZER_SOURCE_CHANGED/);
+    assert.equal(await readFile(storePath, "utf8"), originalIndex);
   });
 }
 

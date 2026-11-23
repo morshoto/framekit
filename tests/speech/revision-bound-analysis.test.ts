@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import {
   AgentVideoRuntime,
   bindSpeechAnalysis,
+  createSpeechTranscriptArtifact,
+  SpeechTranscriptArtifactStore,
   type AnalysisInput,
   type AnalyzerDescriptor,
   type MediaSourceIdentity,
@@ -42,6 +47,41 @@ const provider: AnalyzerDescriptor = {
   provider: "local-wrapper",
   version: "2.1.0",
 };
+
+test("speech transcript artifacts bind exact word timing and provenance", () => {
+  const boundInput = { ...input, media: { ...input.media, sourceDigest: "a".repeat(64) } };
+  const analysis = { words: [{ text: "hello", start: 0.125, end: 0.3, confidence: 0.98 }] };
+  const first = createSpeechTranscriptArtifact(analysis, { input: boundInput, provider, producerVersion: "0.2.6" });
+  assert.deepEqual(first.transcript[0], { text: "hello", startTime: { value: "1", timescale: "8" }, endTime: { value: "3", timescale: "10" }, confidence: 0.98 });
+  assert.match(first.digest, /^[a-f0-9]{64}$/);
+  assert.deepEqual(first, createSpeechTranscriptArtifact(analysis, { input: boundInput, provider: { version: provider.version, provider: provider.provider, id: provider.id }, producerVersion: "0.2.6" }));
+  assert.notEqual(first.digest, createSpeechTranscriptArtifact(analysis, { input: boundInput, provider: { ...provider, version: "other" }, producerVersion: "0.2.6" }).digest);
+  assert.notEqual(first.digest, createSpeechTranscriptArtifact(analysis, { input: boundInput, provider, producerVersion: "other" }).digest);
+  assert.notEqual(first.digest, createSpeechTranscriptArtifact({ words: [{ ...analysis.words[0]!, text: "goodbye" }] }, { input: boundInput, provider, producerVersion: "0.2.6" }).digest);
+  assert.notEqual(first.digest, createSpeechTranscriptArtifact(analysis, { input: { ...boundInput, media: { ...boundInput.media, sourceDigest: "b".repeat(64) } }, provider, producerVersion: "0.2.6" }).digest);
+  assert.throws(() => createSpeechTranscriptArtifact({ words: [{ ...analysis.words[0]!, end: -1 }] }, { input: boundInput, provider, producerVersion: "0.2.6" }), /ANALYSIS_INVALID/);
+  assert.throws(() => createSpeechTranscriptArtifact(analysis, { input, provider, producerVersion: "0.2.6" }), /ANALYSIS_SOURCE_DIGEST_REQUIRED/);
+  assert.throws(() => createSpeechTranscriptArtifact(analysis, { input: boundInput, provider: { id: "unknown", provider: "unknown" }, producerVersion: "0.2.6" }), /ANALYSIS_PROVIDER_VERSION_REQUIRED/);
+});
+
+test("transcript artifacts survive restart and reject corrupt or linked records", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-speech-artifact-"));
+  try {
+    const boundInput = { ...input, media: { ...input.media, sourceDigest: "a".repeat(64) } };
+    const artifact = createSpeechTranscriptArtifact({ words: [{ text: "hello", start: 0.125, end: 0.3, confidence: 0.98 }] }, { input: boundInput, provider, producerVersion: "0.2.6" });
+    const store = new SpeechTranscriptArtifactStore(directory);
+    await Promise.all([store.save(artifact), store.save(artifact)]);
+    assert.deepEqual(await new SpeechTranscriptArtifactStore(directory).load(artifact.digest), artifact);
+    await assert.rejects(store.load("../invalid"), /ANALYSIS_ARTIFACT_INVALID/);
+    await assert.rejects(store.load("0".repeat(64)), /ANALYSIS_ARTIFACT_NOT_FOUND/);
+    await writeFile(join(directory, `${artifact.digest}.json`), "{}");
+    await assert.rejects(store.load(artifact.digest), /ANALYSIS_ARTIFACT_CORRUPT/);
+    await assert.rejects(store.save(artifact), /ANALYSIS_ARTIFACT_CORRUPT/);
+    await rm(join(directory, `${artifact.digest}.json`));
+    await symlink(join(directory, "missing"), join(directory, `${artifact.digest}.json`));
+    await assert.rejects(store.load(artifact.digest), /ANALYSIS_ARTIFACT_CORRUPT/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
 
 test("speech binding retains an unavailable VAD reason without inventing activity", () => {
   const result = bindSpeechAnalysis({ words: [], vadUnavailableReason: "SILERO_VAD_MODEL_MISMATCH" }, { input, provider });
