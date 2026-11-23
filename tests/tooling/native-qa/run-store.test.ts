@@ -59,6 +59,27 @@ test("late simulated receiver acceptance does not trigger a second publisher dis
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("publisher refuses each changed or missing run identity before contacting receiver", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-identity-fields-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    const fields = ["candidateCommit", "candidateTree", "packageDigest", "mcpDigest", "pluginDigest", "extensionDigest", "targetDigest", "artifactDigest", "sourceDigest", "authorizationDigest"] as const;
+    const input = { artifactPath: "/fixture/artifact", transactionId: "fixture", targetLibraryPath: "/fixture/library", artifactDigest: manifest.artifactDigest };
+    let calls = 0;
+    const call = async () => { calls++; throw new Error("unexpected publisher call"); };
+    for (const field of fields) {
+      const original = manifest[field];
+      const changed = { ...manifest, [field]: (original[0] === "f" ? "e" : "f") + original.slice(1) };
+      await assert.rejects(runSupervisedQaPublisher(root, changed, input, call, async () => {}), /QA_RUN_IDENTITY_MISMATCH/, field);
+      const missing = { ...manifest } as Partial<typeof manifest>;
+      delete missing[field];
+      await assert.rejects(runSupervisedQaPublisher(root, missing as typeof manifest, input, call, async () => {}), /QA_RUN_IDENTITY_MISMATCH/, field);
+    }
+    assert.equal(calls, 0);
+    assert.equal((await inspectRun(root, manifest.qaRunId)).dispatch, "NOT_DISPATCHED");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("evidence entry point returns persisted publisher observations without native proof", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-qa-bundle-"));
   try {
