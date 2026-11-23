@@ -180,6 +180,10 @@ test("pinned VAD evidence is verified before ranking and changed artifacts fail 
     const adjusted = { start: 21.5, end: 22.5, startTime: { value: "215", timescale: "10" }, durationTime: { value: "10", timescale: "10" } };
     const adjustment = await adjustNarrativeCutWithEvidence(localRequest, ref, evidenceContext, artifacts, verifyLocalMediaSource, candidate, adjusted);
     assert.equal(adjustment.status, "available");
+    await index.save({ ...record, semantic: { ...record.semantic, moods: [{ value: "changed", confidence: 0.9 }] } });
+    const alternateRef = await pinAnalysisEvidence(index, artifacts, evidenceContext, verifyLocalMediaSource);
+    assert.notEqual(alternateRef.artifactDigest, ref.artifactDigest);
+    assert.notEqual((await adjustNarrativeCutWithEvidence(localRequest, alternateRef, evidenceContext, artifacts, verifyLocalMediaSource, candidate, adjusted)).status, "available");
     const original = await artifacts.get(ref.artifactDigest);
     let reads = 0;
     const changedBetweenReads = { get: async () => ++reads === 1 ? original : Buffer.from("{}"), put: async () => {} };
