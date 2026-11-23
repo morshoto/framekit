@@ -29,6 +29,25 @@ const manifest = {
   operation: "rough-cut-publish" as const, authorizationDigest: "7".repeat(64),
 };
 
+test("oversized QA records fail closed without weakening uncertain dispatch", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-oversized-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    const directory = join(root, manifest.qaRunId);
+    const runPath = join(directory, "run.json");
+    const original = await readFile(runPath, "utf8");
+    await writeFile(runPath, original + " ".repeat(128 * 1024));
+    await assert.rejects(inspectRun(root, manifest.qaRunId), /QA_RUN_CORRUPT/);
+    await writeFile(runPath, original);
+    await writeFile(join(directory, "headless-started"), JSON.stringify({ schemaVersion: 1, startedAt: "2026-01-01T00:00:00.000Z" }) + " ".repeat(128 * 1024));
+    await assert.rejects(readQaEvidence(root, manifest.qaRunId), /QA_EVIDENCE_CORRUPT/);
+    await writeFile(join(directory, "dispatch-uncertain"), JSON.stringify({ publishJobId: "job-1" }) + " ".repeat(128 * 1024));
+    const uncertain = await inspectRun(root, manifest.qaRunId);
+    assert.equal(uncertain.dispatch, "UNKNOWN_AFTER_DISPATCH");
+    assert.equal(uncertain.publishJobId, undefined);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("publisher source evidence binds four file identities and bytes", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-qa-source-evidence-"));
   const sources = await mkdtemp(join(tmpdir(), "framekit-qa-source-files-"));
