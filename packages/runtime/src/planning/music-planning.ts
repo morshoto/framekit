@@ -129,6 +129,14 @@ export async function previewMusicPlan(
     || preview.target.sequenceId !== request.timelineId || !isDeepStrictEqual(preview.baseRevision, recomputed.revision)) {
     throw new Error("STALE_MUSIC_PREVIEW: preview target or revision differs from the reviewed proposal");
   }
+  const expectedOperations = [
+    { type: "timeline.media.add", occurrenceId, mediaId: recomputed.placement.mediaId, role: "music", start: recomputed.placement.range.start,
+      duration: recomputed.placement.range.end - recomputed.placement.range.start, targetLane: recomputed.placement.targetLane },
+    { type: "set-gain", clipId: occurrenceId, gainDb: recomputed.placement.gainDb },
+  ];
+  if (!isDeepStrictEqual(preview.operations, expectedOperations)) {
+    throw new Error("MUSIC_PREVIEW_MISMATCH: operations differ from the reviewed proposal");
+  }
   await verifySource(request.music);
   const after = await runtime.inspectProject();
   assertBriefSourceCoverage(request.accepted, request.brief, after.media);
