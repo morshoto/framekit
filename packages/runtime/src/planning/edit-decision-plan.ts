@@ -82,6 +82,10 @@ export async function createEditDecisionPlan(request: EditDecisionPlanRequest, a
       return { status: "unavailable", reason: "Target, revision or analysis reference pair is invalid." };
     }
     assertBriefSourceCoverage(request.accepted, request.brief, snapshot.media);
+    if (typeof verifySource !== "function") return { status: "unavailable", reason: "Source verification is required." };
+    const coveredSources = [...new Set(request.brief.sourceCoverage.map((coverage) => coverage.sourceId))]
+      .map((id) => snapshot.media.find((source) => source.mediaId === id)!);
+    for (const source of coveredSources) await verifySource(source);
     if (snapshot.timeline.frameGridOrigin && parseRational(snapshot.timeline.frameGridOrigin, "ANALYSIS_INVALID").value !== 0n) {
       return { status: "unavailable", reason: "Nonzero sequence frame-grid origins are not supported by the current planners." };
     }
@@ -157,6 +161,7 @@ export async function createEditDecisionPlan(request: EditDecisionPlanRequest, a
       reviewRequired: true as const, decisions, warnings: [...cutWarnings, ...captionWarnings, ...music.warnings,
         ...(request.music.context.audioEvidence === "available" ? ["Supplied audio context is unverified because no pinned audio reference was provided."] : []),
         "Native operation mapping, separate approval and independent verification are not yet available for these proposals."] };
+    for (const source of coveredSources) await verifySource(source);
     await assertCurrentAcceptedBrief(briefStore, request.projectId, request.accepted);
     return { status: "available", plan: { ...content, planDigest: digest(content) } };
   } catch (error) {

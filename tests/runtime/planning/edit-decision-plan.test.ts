@@ -214,6 +214,13 @@ test("decision planning verifies bytes of every brief-covered source", async () 
     const draft = await store.create("p", brief); await store.accept("p", draft.digest);
     const input = { ...f.request, brief, accepted: acceptCreativeBrief(brief), snapshot: { ...f.request.snapshot, media: [...f.request.snapshot.media, extra] } };
     assert.equal((await createEditDecisionPlan(input, f.artifacts, verifyLocalMediaSource, store)).status, "available");
+    let checks = 0;
+    const changeBetweenChecks = async (source: MediaSourceIdentity) => {
+      if (source.mediaId === "other" && ++checks === 2) await writeFile(path, "changed");
+      await verifyLocalMediaSource(source);
+    };
+    assert.equal((await createEditDecisionPlan(input, f.artifacts, changeBetweenChecks, store)).status, "unavailable");
+    assert.equal(checks, 2);
     await writeFile(path, "changed");
     assert.equal((await createEditDecisionPlan(input, f.artifacts, verifyLocalMediaSource, store)).status, "unavailable");
   } finally { await rm(f.dir, { recursive: true, force: true }); }
