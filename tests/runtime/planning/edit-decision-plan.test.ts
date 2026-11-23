@@ -249,6 +249,15 @@ test("music decisions retain verified source audio evidence and reject changed a
     assert.ok(result.plan.warnings.some((warning) => /mix|audib/i.test(warning)));
     const missing = new InMemoryAnalysisArtifactStore();
     assert.equal((await createEditDecisionPlan(input, missing, verifyLocalMediaSource, f.briefStore)).status, "unavailable");
+    let reads = 0;
+    const changingArtifacts = { put: f.artifacts.put.bind(f.artifacts), get: async (digest: string) => {
+      if (digest === audioRef.artifactDigest && ++reads === 2) return Buffer.from("tampered");
+      return f.artifacts.get(digest);
+    } };
+    assert.equal((await createEditDecisionPlan(input, changingArtifacts, verifyLocalMediaSource, f.briefStore)).status, "unavailable");
+    assert.equal(reads, 2);
+    const partial = { ...input, audioContext: { ...context, range: { start: 1, end: 9 } } };
+    assert.equal((await createEditDecisionPlan(partial, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "unavailable");
     const wrongRevision = { ...input, audioContext: { ...context, revision: { ...revision, sequence: 2 } } };
     assert.equal((await createEditDecisionPlan(wrongRevision, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "unavailable");
     const missingPair = { ...input, audioContext: undefined };
