@@ -46,3 +46,27 @@ test("corrupt state and invalid run identifiers fail closed", async () => {
     await assert.rejects(createOrInspectRun(root, manifest), /QA_RUN_CORRUPT/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("concurrent identical starts create at most one record", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-race-"));
+  try {
+    const attempts = await Promise.allSettled(Array.from({ length: 8 }, () => createOrInspectRun(root, manifest)));
+    const created = attempts.filter(result => result.status === "fulfilled" && result.value.created);
+    assert.equal(created.length, 1);
+    for (const result of attempts) {
+      if (result.status === "rejected") assert.match(String(result.reason), /QA_RUN_NOT_FOUND_OR_INCOMPLETE/);
+      else assert.equal(result.value.run.dispatch, "NOT_DISPATCHED");
+    }
+    assert.equal((await createOrInspectRun(root, manifest)).created, false);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("incomplete initialization is never treated as a new run", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-incomplete-"));
+  try {
+    const { mkdir } = await import("node:fs/promises");
+    await mkdir(join(root, manifest.qaRunId));
+    await assert.rejects(createOrInspectRun(root, manifest), /QA_RUN_NOT_FOUND_OR_INCOMPLETE/);
+    await assert.rejects(inspectRun(root, manifest.qaRunId), /QA_RUN_NOT_FOUND_OR_INCOMPLETE/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
