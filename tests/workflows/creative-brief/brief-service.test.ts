@@ -92,3 +92,30 @@ test("a concurrent brief revision cannot be reported as the accepted result", as
     assert.equal((await store.read("p")).state, "draft");
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test("MCP exposes project-bound review and explicit acceptance without timeline mutation", async () => {
+  const { AgentVideoRuntime } = await import("../../../packages/runtime/src/index.js");
+  const { InMemoryEditorAdapter } = await import("../../../packages/testkit/src/index.js");
+  const { createMcpServer } = await import("../../../apps/mcp-server/src/server.js");
+  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+  const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+  const f = await fixture();
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({ projectId: "fixture", projectName: "Fixture", timelineId: "sequence", timelineName: "Main", clips: [] }));
+  const server = createMcpServer(runtime, { headlessBriefs: f.service });
+  const client = new Client({ name: "brief-test", version: "1" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  try {
+    await server.connect(serverTransport); await client.connect(clientTransport);
+    const before = await runtime.inspectProject();
+    const created = await client.callTool({ name: "headless.brief.create", arguments: { ...target, brief } });
+    assert.notEqual(created.isError, true);
+    const response = JSON.parse((created.content as Array<{ text: string }>)[0]!.text);
+    assert.equal(response.record.state, "draft");
+    const denied = await client.callTool({ name: "headless.brief.accept", arguments: { ...target, expectedDigest: response.record.digest, confirmed: false } });
+    assert.equal(denied.isError, true);
+    const accepted = await client.callTool({ name: "headless.brief.accept", arguments: { ...target, expectedDigest: response.record.digest, confirmed: true } });
+    assert.notEqual(accepted.isError, true);
+    assert.equal(JSON.parse((accepted.content as Array<{ text: string }>)[0]!.text).record.state, "accepted");
+    assert.deepEqual(await runtime.inspectProject(), before);
+  } finally { await client.close(); await server.close(); await rm(f.dir, { recursive: true, force: true }); }
+});
