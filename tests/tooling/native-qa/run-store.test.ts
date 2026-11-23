@@ -256,7 +256,7 @@ test("a separate run cannot reuse an operation authorization", async () => {
     assert.equal(duplicate.run.manifest.qaRunId, manifest.qaRunId);
     assert.equal((await createOrInspectRun(root, { ...manifest, qaRunId: "another-run" })).run.manifest.qaRunId, manifest.qaRunId);
     await assert.rejects(createOrInspectRun(root, { ...manifest, qaRunId: "changed-run", targetDigest: "9".repeat(64) }), /QA_RUN_IDENTITY_MISMATCH/);
-    const separate = await createOrInspectRun(root, { ...manifest, qaRunId: "separate-run", authorizationDigest: "a".repeat(64) });
+    const separate = await createOrInspectRun(root, { ...manifest, qaRunId: "separate-run", targetDigest: "b".repeat(64), authorizationDigest: "a".repeat(64) });
     assert.equal(separate.created, true);
     assert.equal(separate.run.verdict, "BLOCKED");
   } finally { await rm(root, { recursive: true, force: true }); }
@@ -590,5 +590,20 @@ test("competing unapproved starts create at most one job", async () => {
     const created = results.filter(result => result.status === "fulfilled" && result.value.created);
     assert.equal(created.length, 1);
     for (const result of results) if (result.status === "rejected") assert.match(String(result.reason), /QA_RUN_NOT_FOUND_OR_INCOMPLETE/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+
+test("an authorized start cannot bypass the existing unapproved job", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-cross-form-"));
+  try {
+    const first = { ...manifest, authorizationDigest: null };
+    const authorized = { ...manifest, qaRunId: "other-start", authorizationDigest: "9".repeat(64) };
+    await createOrInspectRun(root, first);
+    await assert.rejects(createOrInspectRun(root, authorized), /QA_RUN_IDENTITY_MISMATCH/);
+    await bindQaAuthorization(root, first, "9".repeat(64));
+    const duplicate = await createOrInspectRun(root, authorized);
+    assert.equal(duplicate.created, false);
+    assert.equal(duplicate.run.manifest.qaRunId, first.qaRunId);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
