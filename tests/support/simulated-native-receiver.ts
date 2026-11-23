@@ -23,6 +23,21 @@ export class ScriptedNativeReceiver {
     this.storage = storage ?? { tick: 0, events: [], entries: new Map(), script: [...script] };
   }
 
+  public evidence(input: { scenario: string; seed: number; candidate: string }) {
+    if (!/^[a-f0-9]{40}$/.test(input.candidate)) throw new Error("SIMULATED_CANDIDATE_INVALID");
+    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(input.scenario) || !Number.isSafeInteger(input.seed) || input.seed < 0) throw new Error("SIMULATED_SCENARIO_INVALID");
+    const digest = (value: string) => createHash("sha256").update(value).digest("hex");
+    return {
+      tier: this.evidenceTier,
+      ...input,
+      events: this.storage.events.map(event => ({
+        tick: event.tick, kind: event.kind,
+        operationId: digest(event.operationId), targetId: digest(event.targetId),
+        sourceDigest: digest(event.sourceDigest), desiredDigest: digest(event.desiredDigest), revisionId: digest(event.revisionId),
+      })),
+    };
+  }
+
   public snapshot(): Snapshot {
     return {
       version: 1,
