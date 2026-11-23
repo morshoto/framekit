@@ -174,7 +174,7 @@ export async function createEditDecisionPlan(request: EditDecisionPlanRequest, a
       revision: structuredClone(request.revision), acceptedBrief: structuredClone(request.accepted), inputDigest: digest(request),
       reviewRequired: true as const, decisions, warnings: [...cutWarnings, ...captionWarnings, ...music.warnings,
         ...(request.music.context.audioEvidence === "available" && !request.audioRef ? ["Supplied audio context is unverified because no pinned audio reference was provided."] : []),
-        ...(request.audioRef ? ["Source audio evidence does not verify the edited mix or dialogue audibility."] : []),
+        ...(request.audioRef ? ["Source audio evidence does not verify the edited mix or dialogue audibility; supplied speech context is not derived from this evidence."] : []),
         "Native operation mapping, separate approval and independent verification are not yet available for these proposals."] };
     for (const source of coveredSources) await verifySource(source);
     if (request.audioRef && request.audioContext) {
