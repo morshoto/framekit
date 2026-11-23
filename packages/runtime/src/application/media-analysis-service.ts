@@ -225,8 +225,8 @@ export class MediaAnalysisService {
       ...(visual ? { visual } : {}),
       semantic: semanticFromAnalyses(speech, audio, visual, metadata),
       analysis: [
-        analysisStatus("speech", this.options.speechAnalyzer, sourceIdentity, Boolean(speech), [], failureReason(speechResult)),
-        analysisStatus("audio", this.options.audioAnalyzer, sourceIdentity, Boolean(audio), [], failureReason(audioResult)),
+        analysisStatus("speech", this.options.speechAnalyzer, sourceIdentity, Boolean(speech), speech?.observedRange ? [speech.observedRange] : [], failureReason(speechResult)),
+        analysisStatus("audio", this.options.audioAnalyzer, sourceIdentity, Boolean(audio), audio?.measuredRange ? [audio.measuredRange] : [], failureReason(audioResult)),
         analysisStatus("noise", this.options.noiseAnalyzer, sourceIdentity, Boolean(noise), noise?.affectedRanges, failureReason(noiseResult)),
         analysisStatus("visual", this.options.visualAnalyzer, sourceIdentity, Boolean(visual), [], failureReason(visualResult)),
         analysisStatus("metadata", this.options.metadataAnalyzer, sourceIdentity, Boolean(metadata), metadata?.usableRanges, failureReason(metadataResult)),

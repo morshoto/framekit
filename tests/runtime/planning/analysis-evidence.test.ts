@@ -160,7 +160,7 @@ test("command analysis can be pinned from the persisted semantic index", async (
     const mediaPath = join(dir, "source.wav");
     await writeFile(mediaPath, "media");
     const command = join(dir, "provider.mjs");
-    await writeFile(command, `#!/usr/bin/env node\nfor await (const _ of process.stdin) {}\nprocess.stdout.write(JSON.stringify({words:[{text:'hello',start:1,end:2,confidence:0.9}],vadSegments:[{kind:'speech',start:1,end:2}],sourceTimebase:{value:'1',timescale:'1000'}}));\n`);
+    await writeFile(command, `#!/usr/bin/env node\nfor await (const _ of process.stdin) {}\nprocess.stdout.write(JSON.stringify({words:[{text:'hello',start:1,end:2,confidence:0.9}],vadSegments:[{kind:'speech',start:1,end:2}],sourceTimebase:{value:'1',timescale:'1000'},requestedRange:{start:0,end:10},observedRange:{start:0,end:10}}));\n`);
     await chmod(command, 0o755);
     const media = { mediaId: "media-1", source: mediaPath, sourceDigest: createHash("sha256").update("media").digest("hex"), mediaKind: "audio" as const, duration: 10 };
     const adapter = new InMemoryEditorAdapter({ projectId: "p", projectName: "p", timelineId: "t", timelineName: "t", clips: [], media: [media] });
