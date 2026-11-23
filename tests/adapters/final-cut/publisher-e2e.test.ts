@@ -285,3 +285,37 @@ test("publisher QA records readback but blocks acceptance while recovery is requ
   assert.deepEqual(calls, ["artifact.publish.preview", "artifact.publish.execute", "artifact.publish.execute"]);
   assert.deepEqual(stages, ["prepared", "dispatched", "verification-recovery-required"]);
 });
+
+test("publisher waits for asynchronous stage recording before proceeding", async () => {
+  const recorded: string[] = [];
+  const calls: string[] = [];
+  const result = await runPublishStages(async (name, args) => {
+    calls.push(name);
+    if (name === "artifact.publish.preview") return { jobId: "job-1", state: "awaiting-confirmation", artifactDigest: "a".repeat(64), targetLibraryPath: "/tmp/new.fcpbundle" };
+    if (!args.confirmVerification) {
+      assert.deepEqual(recorded, ["prepared"]);
+      return { jobId: "job-1", state: "verification-pending", nextAction: "confirm-verification", delivery: { status: "dispatched" } };
+    }
+    assert.deepEqual(recorded, ["prepared", "dispatched"]);
+    return { jobId: "job-1", state: "verified", result: { verified: true } };
+  }, { artifactPath: "/tmp/source.fcpxml", transactionId: "txn-1", targetLibraryPath: "/tmp/new.fcpbundle", artifactDigest: "a".repeat(64) }, async stage => {
+    await new Promise<void>(resolve => setImmediate(resolve));
+    recorded.push(stage);
+  });
+  assert.equal(result.state, "verified");
+  assert.deepEqual(recorded, ["prepared", "dispatched", "verified"]);
+  assert.equal(calls.length, 3);
+});
+
+test("publisher never starts verification when recording dispatch fails", async () => {
+  const calls: string[] = [];
+  await assert.rejects(runPublishStages(async name => {
+    calls.push(name);
+    if (name === "artifact.publish.preview") return { jobId: "job-1", state: "awaiting-confirmation", artifactDigest: "a".repeat(64), targetLibraryPath: "/tmp/new.fcpbundle" };
+    return { jobId: "job-1", state: "verification-pending", nextAction: "confirm-verification", delivery: { status: "dispatched" } };
+  }, { artifactPath: "/tmp/source.fcpxml", transactionId: "txn-1", targetLibraryPath: "/tmp/new.fcpbundle", artifactDigest: "a".repeat(64) }, async stage => {
+    await new Promise<void>(resolve => setImmediate(resolve));
+    if (stage === "dispatched") throw new Error("QA_STAGE_PERSISTENCE_FAILED");
+  }), /QA_STAGE_PERSISTENCE_FAILED/);
+  assert.deepEqual(calls, ["artifact.publish.preview", "artifact.publish.execute"]);
+});
