@@ -313,6 +313,13 @@ analysis. Providers may report `sourceTimebase` as a positive rational clock and
 nonempty `channelLayout`. Declared range timing and format are validated and
 retained; absent technical metadata is not inferred.
 
+`headless.speech.transcript` returns a source-digest-bound transcript snapshot
+for registered headless media when a versioned speech analyzer is configured.
+Its word boundaries are rational representations of the provider's decimal
+times; they are not automatically aligned to video frames. The response includes
+the analyzer and Framekit versions and a digest of the transcript evidence. It
+does not persist an independent artifact or authorize a timeline edit.
+
 For source-file loudness in a checkout, the optional
 `apps/mcp-server/runtime/ffmpeg-audio-backend.py` command requires Python 3,
 `ffmpeg` and `ffprobe` on `PATH`. Select it with `FRAMEKIT_AUDIO_ANALYZER` and

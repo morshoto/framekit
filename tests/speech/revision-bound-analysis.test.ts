@@ -53,6 +53,9 @@ test("speech transcript artifacts bind exact word timing and provenance", () => 
   assert.deepEqual(first, createSpeechTranscriptArtifact(analysis, { input: boundInput, provider: { version: provider.version, provider: provider.provider, id: provider.id }, producerVersion: "0.2.6" }));
   assert.notEqual(first.digest, createSpeechTranscriptArtifact(analysis, { input: boundInput, provider: { ...provider, version: "other" }, producerVersion: "0.2.6" }).digest);
   assert.notEqual(first.digest, createSpeechTranscriptArtifact(analysis, { input: boundInput, provider, producerVersion: "other" }).digest);
+  assert.notEqual(first.digest, createSpeechTranscriptArtifact({ words: [{ ...analysis.words[0]!, text: "goodbye" }] }, { input: boundInput, provider, producerVersion: "0.2.6" }).digest);
+  assert.notEqual(first.digest, createSpeechTranscriptArtifact(analysis, { input: { ...boundInput, media: { ...boundInput.media, sourceDigest: "b".repeat(64) } }, provider, producerVersion: "0.2.6" }).digest);
+  assert.throws(() => createSpeechTranscriptArtifact({ words: [{ ...analysis.words[0]!, end: -1 }] }, { input: boundInput, provider, producerVersion: "0.2.6" }), /ANALYSIS_INVALID/);
   assert.throws(() => createSpeechTranscriptArtifact(analysis, { input, provider, producerVersion: "0.2.6" }), /ANALYSIS_SOURCE_DIGEST_REQUIRED/);
   assert.throws(() => createSpeechTranscriptArtifact(analysis, { input: boundInput, provider: { id: "unknown", provider: "unknown" }, producerVersion: "0.2.6" }), /ANALYSIS_PROVIDER_VERSION_REQUIRED/);
 });

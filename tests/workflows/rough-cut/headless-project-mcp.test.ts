@@ -1343,6 +1343,24 @@ test("headless project media can be understood and planned without a Final Cut c
     assert.deepEqual((executed.fcpxml as any).provenance.revision, executed.after.timeline.revision);
     const projects = payload(await client.callTool({ name: "headless.project.list", arguments: {} }));
     assert.ok(projects.some((project: any) => project.projectId === projectId));
+    const unregisteredTimeline = structuredClone(created.timeline);
+    unregisteredTimeline.project.id = "unregistered-transcript-project";
+    unregisteredTimeline.sequence.id = "unregistered-transcript-sequence";
+    const unregisteredResource = structuredClone(registered.resource);
+    delete unregisteredResource.sourceKind;
+    unregisteredTimeline.resources = [unregisteredResource];
+    payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: unregisteredTimeline } }));
+    const unregistered = await client.callTool({ name: "headless.speech.transcript", arguments: {
+      projectId: unregisteredTimeline.project.id, mediaId: unregisteredResource.id,
+    } });
+    assert.equal(unregistered.isError, true);
+    assert.match(toolErrorText(unregistered), /MEDIA_NOT_REGISTERED/);
+    await writeFile(sourcePath, "replacement source");
+    const staleTranscript = await client.callTool({ name: "headless.speech.transcript", arguments: {
+      projectId, mediaId: registered.resource.id,
+    } });
+    assert.equal(staleTranscript.isError, true);
+    assert.match(toolErrorText(staleTranscript), /MEDIA_CHANGED/);
   } finally {
     await client?.close();
     await transport?.close();

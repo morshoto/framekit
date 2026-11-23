@@ -9,6 +9,7 @@ import { z } from "zod/v4";
 import {
   AgentVideoRuntime,
   canonicalSnapshotDigest,
+  createSpeechTranscriptArtifact,
   createCapabilityPreflight,
   resolveEditingIntent,
   serializeCapabilityUnavailableError,
@@ -2374,6 +2375,31 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       return runtime.understandMediaInProject(mediaId, projectSnapshotFromTimelineIr(project.timeline));
     });
   });
+
+  registerValidatedTool(server, "headless.speech.transcript", {
+    description: "Return a digest-bound transcript snapshot with rational word times for registered headless media; does not edit the timeline or persist an independent artifact.",
+    inputSchema: { projectId: z.string().min(1), mediaId: z.string().min(1) },
+  }, async ({ projectId, mediaId }) => sessionResult(async () => {
+    const projects = requireHeadlessProjects();
+    const project = await projects.open(projectId);
+    const resource = project.timeline.resources.find((entry) => entry.id === mediaId);
+    if (!resource || resource.sourceKind !== "local-file" || !resource.sourceDigest) {
+      throw new Error("MEDIA_NOT_REGISTERED: transcript analysis requires registered local media");
+    }
+    const snapshot = projectSnapshotFromTimelineIr(project.timeline);
+    const media = snapshot.media.find((entry) => entry.mediaId === mediaId);
+    if (!media) throw new Error("MEDIA_NOT_FOUND: registered media is unavailable");
+    const understanding = await runtime.understandMediaInProject(mediaId, snapshot);
+    if (!understanding.speech?.provider) throw new Error("CAPABILITY_UNAVAILABLE: versioned speech analysis is unavailable");
+    const artifact = createSpeechTranscriptArtifact(understanding.speech, {
+      input: { project: snapshot, media }, provider: understanding.speech.provider, producerVersion: FRAMEKIT_VERSION,
+    });
+    const current = await projects.open(projectId);
+    if (JSON.stringify(current.timeline.revision) !== JSON.stringify(project.timeline.revision)) {
+      throw new Error("STALE_CONTEXT: project changed during transcript analysis");
+    }
+    return artifact;
+  }));
 
   registerValidatedTool(server, "rough-cut.plan", {
     description: "Create a deterministic, explainable, read-only shot plan from analyzed editor or named headless project media; does not mutate the timeline.",
