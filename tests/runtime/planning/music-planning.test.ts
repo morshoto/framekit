@@ -94,3 +94,9 @@ test("reviewed music proposal previews through the existing workflow without mut
   await assert.rejects(() => previewMusicPlan(runtime, liveRequest, altered, "music-clip", fixtureVerifySource), /STALE|INVALID/);
   await assert.rejects(() => previewMusicPlan(runtime, { ...liveRequest, revision: { ...before.revision, sequence: before.revision.sequence + 1 } }, plan, "music-clip", fixtureVerifySource), /STALE/);
 });
+
+test("invalid timeline duration and contradictory exact timing cannot produce a proposal", () => {
+  assert.equal(planMusic({ ...request, snapshot: { ...snapshot, timeline: { ...snapshot.timeline, duration: Number.NaN } } }).decision, "unsupported");
+  const contradictory = { start: 0, end: 30, startTime: { value: "2", timescale: "1" }, durationTime: { value: "30", timescale: "1" } };
+  assert.equal(planMusic({ ...request, placement: contradictory }).decision, "unsupported");
+});
