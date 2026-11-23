@@ -123,10 +123,13 @@ export function rankNarrativeCuts(request: NarrativeCutRequest): NarrativeCutPla
   if (gaps.some((gap) => !validRange(gap))) {
     result.warnings.push("Visual gap evidence is invalid; no visual observations were used.");
   }
+  let lowConfidenceBoundary = false;
+  let shortObservedPause = false;
   for (let index = 0; index < words.length - 1; index++) {
     const previous = words[index]!;
     const next = words[index + 1]!;
-    if (!END_OF_SENTENCE.test(previous.word.text.trim()) || previous.word.confidence < MIN_WORD_CONFIDENCE || next.word.confidence < MIN_WORD_CONFIDENCE) continue;
+    if (!END_OF_SENTENCE.test(previous.word.text.trim())) continue;
+    if (previous.word.confidence < MIN_WORD_CONFIDENCE || next.word.confidence < MIN_WORD_CONFIDENCE) { lowConfidenceBoundary = true; continue; }
     const corroboration = (range: TimeRange) => {
       const spans = vad.filter((entry) => entry.segment.kind === "speech" && overlaps(entry.sourceRange, range));
       const minimum = Math.min(0.2, (range.end - range.start) / 2);
@@ -138,7 +141,7 @@ export function rankNarrativeCuts(request: NarrativeCutRequest): NarrativeCutPla
     // Retain both observations: no suggested interval may include either word or its overlapping VAD speech.
     const pause = { start: Math.max(previous.sourceRange.end, ...before.spans.map((entry) => entry.sourceRange.end)),
       end: Math.min(next.sourceRange.start, ...after.spans.map((entry) => entry.sourceRange.start)) };
-    if (!validRange(pause) || pause.end - pause.start < MIN_PAUSE_SECONDS) continue;
+    if (!validRange(pause) || pause.end - pause.start < MIN_PAUSE_SECONDS) { shortObservedPause = true; continue; }
     if (words.some((entry) => overlaps(entry.sourceRange, pause)) || protectedRanges.some((entry) => overlaps(entry.sourceRange, pause))) continue;
     const silence = vad.find((entry) => entry.segment.kind === "silence" && entry.sourceRange.start <= pause.start && entry.sourceRange.end >= pause.end);
     const speechOnlyGap = !silence && vad.every((entry) => entry.segment.kind === "speech");
@@ -174,6 +177,10 @@ export function rankNarrativeCuts(request: NarrativeCutRequest): NarrativeCutPla
       rationale: "A pause follows a sentence-ending word; review the surrounding thought and pacing before editing.",
       evidence, reviewRequired: true,
     });
+  }
+  if (result.candidates.length === 0) {
+    if (lowConfidenceBoundary) result.warnings.push("No safe candidates were issued at some sentence boundaries because word confidence was low; review the transcript.");
+    if (shortObservedPause) result.warnings.push("No safe candidates were issued at some sentence boundaries because the VAD-bounded pause was too short.");
   }
   result.candidates.sort((a, b) => b.confidence - a.confidence || Number(b.evidence.some((item) => item.startsWith("Unverified visual"))) - Number(a.evidence.some((item) => item.startsWith("Unverified visual"))) || a.sourceRange.start - b.sourceRange.start);
   return result;
