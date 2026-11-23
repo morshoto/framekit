@@ -18,6 +18,7 @@ import { readQaEvidence, resumeHeadlessQaRun, startQaRun } from "../../../script
 import { publishQaRecord } from "../../../scripts/native-qa/atomic-record.js";
 import { readQaArtifactEvidence, verifyQaArtifact } from "../../../scripts/native-qa/artifact-evidence.js";
 import { inspectQaPublisher, inspectQaPublisherFromStore } from "../../../scripts/native-qa/publisher-inspection.js";
+import { verifyQaPublisherFixture, readQaPublisherFixtureEvidence } from "../../../scripts/native-qa/publisher-fixture-evidence.js";
 
 const manifest = {
   qaRunId: "qa-fixture-1", candidateCommit: "a".repeat(40), candidateTree: "b".repeat(40),
@@ -25,6 +26,47 @@ const manifest = {
   artifactDigest: "4".repeat(64), sourceDigest: "5".repeat(64), targetDigest: "6".repeat(64),
   operation: "rough-cut-publish" as const, authorizationDigest: "7".repeat(64),
 };
+
+test("publisher fixture evidence binds the artifact bytes and expected edit", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-fixture-evidence-"));
+  const artifacts = await mkdtemp(join(tmpdir(), "framekit-qa-fixture-artifacts-"));
+  const xml = `<?xml version="1.0" encoding="UTF-8"?><fcpxml version="1.11"><resources>
+  <format id="f" frameDuration="1/24s" width="1280" height="720"/>
+  <asset id="a" name="clip-a.mp4" src="file:///fixture/clip-a.mp4" duration="24s" hasVideo="1" format="f"/>
+  <asset id="b" name="clip-b.mp4" src="file:///fixture/clip-b.mp4" duration="15s" hasVideo="1" format="f"/>
+  <asset id="c" name="clip-c.mp4" src="file:///fixture/clip-c.mp4" duration="14s" hasVideo="1" format="f"/>
+  <asset id="m" name="generated-music.wav" src="file:///fixture/generated-music.wav" duration="30s" hasAudio="1"/>
+  <effect id="t" name="Basic Title" uid="basic"/></resources><library><event><project uid="p" name="Fixture"><sequence format="f" duration="30s"><spine>
+  <asset-clip ref="b" offset="0s" start="5s" duration="8s"><title ref="t" lane="1" offset="5s" duration="6s"><text>FrameKit MVP Test</text></title><asset-clip ref="m" lane="1" audioRole="music" offset="5s" start="0s" duration="30s"><adjust-volume amount="-12dB"/></asset-clip></asset-clip>
+  <asset-clip ref="a" offset="8s" start="10s" duration="12s"/><asset-clip ref="c" offset="20s" start="2s" duration="10s"/>
+  </spine></sequence></project></event></library></fcpxml>`;
+  try {
+    const path = join(artifacts, "fixture.fcpxml");
+    const digest = (value: string) => createHash("sha256").update(value).digest("hex");
+    await writeFile(path, xml);
+    const bound = { ...manifest, artifactDigest: digest(xml) };
+    await createOrInspectRun(root, bound);
+    const evidence = await verifyQaPublisherFixture(root, bound.qaRunId, path);
+    assert.equal(evidence.result, "matched");
+    assert.equal(evidence.artifactDigest, bound.artifactDigest);
+    assert.equal(evidence.dispatchAllowed, false);
+    assert.equal(evidence.nativeQuiescence, "unproven");
+    assert.equal(JSON.stringify(evidence).includes(artifacts), false);
+    assert.deepEqual(await readQaPublisherFixtureEvidence(root, bound.qaRunId), evidence);
+    const cli = spawnSync(process.execPath, ["--import", "tsx", "scripts/native-qa/cli.ts", "publisher-fixture-evidence", root, bound.qaRunId], { encoding: "utf8", timeout: 10000 });
+    assert.equal(cli.status, 0, cli.stderr);
+    assert.deepEqual(JSON.parse(cli.stdout), evidence);
+    await writeFile(path, xml.replace('start="5s" duration="8s"', 'start="4s" duration="8s"'));
+    await assert.rejects(verifyQaPublisherFixture(root, bound.qaRunId, path), /QA_ARTIFACT_DIGEST_MISMATCH/);
+    const altered = await readFile(path, "utf8");
+    const changed = { ...manifest, qaRunId: "qa-fixture-changed", artifactDigest: digest(altered) };
+    await createOrInspectRun(root, changed);
+    await assert.rejects(verifyQaPublisherFixture(root, changed.qaRunId, path), /QA_PUBLISH_FIXTURE_MISMATCH/);
+    assert.equal(await readQaPublisherFixtureEvidence(root, changed.qaRunId), null);
+    const linked = join(artifacts, "linked.fcpxml"); await symlink(path, linked);
+    await assert.rejects(verifyQaPublisherFixture(root, changed.qaRunId, linked), /QA_ARTIFACT_UNSAFE/);
+  } finally { await rm(root, { recursive: true, force: true }); await rm(artifacts, { recursive: true, force: true }); }
+});
 
 test("initial creation and identical restart are inspect-only", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-qa-store-"));
