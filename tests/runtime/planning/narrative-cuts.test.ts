@@ -103,3 +103,13 @@ test("narrative ranking is exposed through the runtime package", async () => {
   const runtime = await import("../../../packages/runtime/src/index.js");
   assert.equal(typeof (runtime as Record<string, unknown>).rankNarrativeCuts, "function");
 });
+
+test("supports speech-only VAD with complete observed coverage as an uncertain review suggestion", () => {
+  const speechOnly = { ...input, analysis: { ...input.analysis, vadSegments: input.analysis.vadSegments.filter((segment) => segment.kind === "speech") } };
+  const result = rankNarrativeCuts(speechOnly);
+  assert.equal(result.candidates.length, 1);
+  assert.ok(result.candidates[0]!.evidence.some((item) => /non-speech/i.test(item)));
+  assert.ok(result.warnings.some((item) => /uncertain/i.test(item)));
+  const incomplete = { ...speechOnly, analysis: { ...speechOnly.analysis, vadCoverage: [{ status: "unavailable" as const, start: 0, end: 10, reason: "detector failed" }] } };
+  assert.equal(rankNarrativeCuts(incomplete).candidates.length, 0);
+});
