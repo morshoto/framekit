@@ -98,3 +98,8 @@ test("ranks visual context only among speech-safe suggestions and reports uncert
   assert.ok(result.warnings.some((warning) => /confidence/i.test(warning)));
   assert.ok(result.candidates.every((candidate) => candidate.reviewRequired));
 });
+
+test("narrative ranking is exposed through the runtime package", async () => {
+  const runtime = await import("../../../packages/runtime/src/index.js");
+  assert.equal(typeof (runtime as Record<string, unknown>).rankNarrativeCuts, "function");
+});
