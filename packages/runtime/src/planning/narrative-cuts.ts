@@ -28,6 +28,8 @@ export interface NarrativeCutRequest {
 export interface NarrativeCutCandidate {
   /** Change detector for the proposal inputs, not an approval or source-byte proof. */
   inputDigest: string;
+  /** Present only when the proposal was generated from a verified analysis reference. */
+  analysisRefDigest?: string;
   occurrenceId: string;
   sourceRange: TimeRange;
   sequenceRange: TimeRange;
@@ -51,6 +53,13 @@ const MIN_PAUSE_SECONDS = 0.8;
 const MIN_WORD_CONFIDENCE = 0.8;
 const END_OF_SENTENCE = /[.!?。！？]["'”’）)]*$/u;
 
+function digestValue(value: unknown): string {
+  const serialized = JSON.stringify(value, (_key, item: unknown) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+    return Object.fromEntries(Object.entries(item).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0));
+  });
+  return `sha256:${createHash("sha256").update(serialized).digest("hex")}`;
+}
 function validRange(value: TimeRange | undefined): value is TimeRange {
   return !!value && Number.isFinite(value.start) && Number.isFinite(value.end) && value.start >= 0 && value.end > value.start;
 }
@@ -105,11 +114,7 @@ export function rankNarrativeCuts(request: NarrativeCutRequest): NarrativeCutPla
     result.warnings.push("VAD coverage is partial or unavailable.");
     return result;
   }
-  const serialized = JSON.stringify(request, (_key, value: unknown) => {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return value;
-    return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0));
-  });
-  const inputDigest = `sha256:${createHash("sha256").update(serialized).digest("hex")}`;
+  const inputDigest = digestValue(request);
   const words = [...mapping.words].sort((a, b) => a.sourceRange.start - b.sourceRange.start);
   const vad = mapping.vadSegments;
   const protectedRanges = mapping.protectedSegments ?? [];
@@ -255,7 +260,10 @@ export async function rankNarrativeCutsWithEvidence(
   const loaded = await loadVerifiedRequest(request, ref, current, artifacts, verifySource);
   if (loaded.status !== "available") return loaded;
   try {
-    return { status: "available", plan: rankNarrativeCuts(loaded.request), analysisRef: structuredClone(ref) };
+    const plan = rankNarrativeCuts(loaded.request);
+    const analysisRefDigest = digestValue(ref);
+    plan.candidates = plan.candidates.map((candidate) => ({ ...candidate, analysisRefDigest }));
+    return { status: "available", plan, analysisRef: structuredClone(ref) };
   } catch (error) {
     return { status: "unavailable", reason: error instanceof Error ? error.message : "Candidate planning failed." };
   }
@@ -278,7 +286,10 @@ export async function adjustNarrativeCutWithEvidence(
   const loaded = await loadVerifiedRequest(request, ref, current, artifacts, verifySource);
   if (loaded.status !== "available") return loaded;
   try {
-    return { status: "available", candidate: adjustNarrativeCut(loaded.request, candidate, adjusted), analysisRef: structuredClone(ref) };
+    const analysisRefDigest = digestValue(ref);
+    if (candidate.analysisRefDigest !== analysisRefDigest) return { status: "unavailable", reason: "STALE_CANDIDATE: pinned analysis reference changed." };
+    const { analysisRefDigest: _refDigest, ...unboundCandidate } = candidate;
+    return { status: "available", candidate: { ...adjustNarrativeCut(loaded.request, unboundCandidate, adjusted), analysisRefDigest }, analysisRef: structuredClone(ref) };
   } catch (error) {
     return { status: "unavailable", reason: error instanceof Error ? error.message : "Candidate adjustment failed." };
   }
