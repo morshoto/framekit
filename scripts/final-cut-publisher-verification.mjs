@@ -81,7 +81,7 @@ export async function runPublishStages(call, input, onStage, beforeDispatch = as
     throw new Error("PUBLISH_SOURCE_PROOF_INCOMPLETE: the fixture requires four distinct hashed media sources");
   }
   onStage("prepared", preview);
-  await beforeDispatch();
+  await beforeDispatch(preview.jobId);
   let dispatched;
   try {
     dispatched = await call("artifact.publish.execute", { jobId: preview.jobId, confirm: true });
