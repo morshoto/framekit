@@ -9,7 +9,7 @@ const brief: CreativeBrief = {
   durationSeconds: { min: 30, max: 60 },
   aspectRatio: "9:16", theme: "warm", visualDirection: "natural",
   requiredContent: ["introduction"], excludedContent: ["private details"],
-  speechPolicy: "preserve meaning", musicPolicy: "none", captionPolicy: "review",
+  speechPolicy: { kind: "specified", value: "preserve meaning" }, musicPolicy: { kind: "specified", value: "none" }, captionPolicy: { kind: "specified", value: "review" },
   sourceCoverage: [{ requirement: "introduction", sourceId: "camera", start: 0, end: 10 }],
   inferences: [{ field: "pacing", value: "measured", reason: "interview", accepted: true }],
   reviewPrompts: ["Is the tone warm enough?"],
@@ -18,7 +18,7 @@ const brief: CreativeBrief = {
 test("acceptance binds every brief field and rejects subsequent changes", () => {
   const accepted = acceptCreativeBrief(brief);
   assertBriefBinding(accepted, structuredClone(brief));
-  assert.throws(() => assertBriefBinding(accepted, { ...brief, musicPolicy: "background" }), /STALE_BRIEF/);
+  assert.throws(() => assertBriefBinding(accepted, { ...brief, musicPolicy: { kind: "specified", value: "background" } }), /STALE_BRIEF/);
   assert.throws(() => assertBriefBinding(accepted, { ...brief, version: 2 }), /STALE_BRIEF/);
 });
 
@@ -45,7 +45,7 @@ test("review exposes missing coverage and pending inferences before acceptance",
 test("revision preserves identity, advances version and invalidates prior approval", async () => {
   const { reviseCreativeBrief } = await import("../../../packages/runtime/src/planning/creative-brief.js");
   const accepted = acceptCreativeBrief(brief);
-  const revised = reviseCreativeBrief(brief, { ...brief, musicPolicy: "background" });
+  const revised = reviseCreativeBrief(brief, { ...brief, musicPolicy: { kind: "specified", value: "background" } });
   assert.equal(revised.id, brief.id);
   assert.equal(revised.version, 2);
   assert.throws(() => assertBriefBinding(accepted, revised), /STALE_BRIEF/);

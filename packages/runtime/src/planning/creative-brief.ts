@@ -15,9 +15,9 @@ export interface CreativeBrief {
   visualDirection: string;
   requiredContent: string[];
   excludedContent: string[];
-  speechPolicy: string;
-  musicPolicy: string;
-  captionPolicy: string;
+  speechPolicy: BriefChoice;
+  musicPolicy: BriefChoice;
+  captionPolicy: BriefChoice;
   sourceCoverage: { requirement: string; sourceId: string; start: number; end: number }[];
   inferences: { field: string; value: string; reason: string; accepted: boolean }[];
   reviewPrompts: string[];
@@ -53,12 +53,12 @@ export interface CreativeBriefReview {
 /** Review is read-only and makes outstanding decisions visible before acceptance. */
 export function reviewCreativeBrief(brief: CreativeBrief): CreativeBriefReview {
   if (!brief || brief.schemaVersion !== 1 || !nonempty(brief.id) || !Number.isSafeInteger(brief.version) || brief.version < 1) throw new Error("INVALID_BRIEF: identity and version are required");
-  for (const choice of [brief.purpose, brief.audience]) {
-    if (!choice || (choice.kind !== "no-preference" && (choice.kind !== "specified" || !nonempty(choice.value)))) throw new Error("INVALID_BRIEF: purpose and audience require explicit choices");
+  for (const choice of [brief.purpose, brief.audience, brief.speechPolicy, brief.musicPolicy, brief.captionPolicy]) {
+    if (!choice || (choice.kind !== "no-preference" && (choice.kind !== "specified" || !nonempty(choice.value)))) throw new Error("INVALID_BRIEF: purpose, audience and policies require explicit choices");
   }
   const duration = brief.durationSeconds;
   if (!duration || !Number.isFinite(duration.min) || !Number.isFinite(duration.max) || duration.min <= 0 || duration.max < duration.min) throw new Error("INVALID_BRIEF: invalid duration");
-  if (![brief.aspectRatio, brief.theme, brief.visualDirection, brief.speechPolicy, brief.musicPolicy, brief.captionPolicy].every(nonempty)) throw new Error("INVALID_BRIEF: format and policies are required");
+  if (![brief.aspectRatio, brief.theme, brief.visualDirection].every(nonempty)) throw new Error("INVALID_BRIEF: format and policies are required");
   if (!Array.isArray(brief.requiredContent) || !Array.isArray(brief.excludedContent) || !Array.isArray(brief.reviewPrompts) || !Array.isArray(brief.sourceCoverage) || !Array.isArray(brief.inferences)) throw new Error("INVALID_BRIEF: content and review lists are required");
   if (![...brief.requiredContent, ...brief.excludedContent, ...brief.reviewPrompts].every(nonempty)) throw new Error("INVALID_BRIEF: empty content or review prompt");
   for (const coverage of brief.sourceCoverage) {
