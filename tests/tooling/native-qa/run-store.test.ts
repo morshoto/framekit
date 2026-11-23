@@ -344,7 +344,7 @@ test("detached headless preflight persists evidence after the client exits", asy
   const manifestPath = join(root, "manifest.json");
   const cli = ["--import", "tsx", "scripts/native-qa/cli.ts"];
   try {
-    await writeFile(manifestPath, JSON.stringify(manifest));
+    await writeFile(manifestPath, JSON.stringify({ ...manifest, authorizationDigest: null }));
     const start = spawnSync(process.execPath, [...cli, "start", root, manifestPath], { encoding: "utf8", timeout: 10000 });
     assert.equal(start.status, 0, start.stderr);
     const created = JSON.parse(start.stdout);
