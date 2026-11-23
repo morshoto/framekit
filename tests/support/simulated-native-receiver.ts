@@ -70,9 +70,11 @@ export class ScriptedNativeReceiver {
   }
 
   public async dispatch(request: SimulatedIdentity): Promise<{ state: State }> {
+    const keys: Array<keyof SimulatedIdentity> = ["operationId", "targetId", "sourceDigest", "desiredDigest", "revisionId"];
+    if (Object.keys(request).length !== keys.length || keys.some(key => typeof request[key] !== "string" || !request[key])) throw new Error("SIMULATED_IDENTITY_MISMATCH");
     const previous = this.storage.entries.get(request.operationId);
     if (previous) {
-      if (Object.keys(request).some(key => request[key as keyof SimulatedIdentity] !== previous.identity[key as keyof SimulatedIdentity])) {
+      if (keys.some(key => request[key] !== previous.identity[key])) {
         throw new Error("SIMULATED_IDENTITY_MISMATCH");
       }
       return { state: previous.state };
@@ -121,13 +123,18 @@ export class ScriptedNativeReceiver {
   }
 }
 
+/** Encode the four target components without delimiter collisions. */
+export function simulatedTargetIdentity(target: readonly [string, string, string, string]): string {
+  return JSON.stringify(target);
+}
+
 /** Inject the fake at the production materialization publisher boundary. */
 export function simulatedMaterializationPublisher(receiver: ScriptedNativeReceiver): import("../../apps/mcp-server/src/materialization-jobs.js").SessionMaterializationPublisher {
   return {
     async publish(request) {
       const result = await receiver.dispatch({
         operationId: request.jobId,
-        targetId: [request.target.libraryUid, request.target.eventUid, request.destination.projectUid, request.destination.sequenceUid].join("/"),
+        targetId: simulatedTargetIdentity([request.target.libraryUid, request.target.eventUid, request.destination.projectUid, request.destination.sequenceUid]),
         // Hash source references without exposing paths; this is not a media-content digest.
         sourceDigest: createHash("sha256").update(JSON.stringify(request.desired.resources.map(resource => [resource.id, resource.source ?? null]).sort(([a], [b]) => String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0))).digest("hex"),
         desiredDigest: request.desiredDigest,
