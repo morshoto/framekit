@@ -228,3 +228,18 @@ test("simulated lost acknowledgement retains the publisher job and prevents redi
     assert.equal(deliveries, 1);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("publisher job identity survives a separate process exit", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-job-process-"));
+  try {
+    const script = `import { createOrInspectRun, claimDispatchIntent } from "./scripts/native-qa/run-store.ts";
+      let text = ""; process.stdin.setEncoding("utf8"); for await (const chunk of process.stdin) text += chunk;
+      const manifest = JSON.parse(text); await createOrInspectRun(process.argv[1], manifest); await claimDispatchIntent(process.argv[1], manifest, "publish-job-fixture");`;
+    const child = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script, root], { input: JSON.stringify(manifest), encoding: "utf8" });
+    assert.equal(child.status, 0, child.stderr);
+    const observed = await inspectRun(root, manifest.qaRunId);
+    assert.equal(observed.dispatch, "UNKNOWN_AFTER_DISPATCH");
+    assert.equal(observed.publishJobId, "publish-job-fixture");
+    await assert.rejects(claimDispatchIntent(root, manifest, "publish-job-fixture"), /QA_DISPATCH_ALREADY_CLAIMED/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
