@@ -20,6 +20,7 @@ export interface QaRun {
   manifest: QaRunManifest;
   dispatch: "NOT_DISPATCHED" | "UNKNOWN_AFTER_DISPATCH";
   verdict: "BLOCKED";
+  publishJobId?: string;
 }
 
 const digestFields = ["packageDigest", "mcpDigest", "pluginDigest", "extensionDigest", "artifactDigest", "sourceDigest", "targetDigest", "authorizationDigest"] as const;
@@ -59,7 +60,15 @@ export async function inspectRun(root: string, qaRunId: string): Promise<QaRun> 
     try {
       const marker = await lstat(join(root, qaRunId, "dispatch-uncertain"));
       if (!marker.isFile() || marker.isSymbolicLink()) throw new Error("QA_RUN_UNSAFE_PATH");
-      return { ...run, dispatch: "UNKNOWN_AFTER_DISPATCH" };
+      let publishJobId: string | undefined;
+      try {
+        const intent: unknown = JSON.parse(await readFile(join(root, qaRunId, "dispatch-uncertain"), "utf8"));
+        if (intent && typeof intent === "object" && !Array.isArray(intent)) {
+          const record = intent as Record<string, unknown>;
+          if (Object.keys(record).length === 1 && typeof record.publishJobId === "string" && /^[a-z0-9][a-z0-9-]{0,127}$/.test(record.publishJobId)) publishJobId = record.publishJobId;
+        }
+      } catch { /* An incomplete marker still blocks dispatch and replay. */ }
+      return { ...run, dispatch: "UNKNOWN_AFTER_DISPATCH", ...(publishJobId ? { publishJobId } : {}) };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
@@ -108,6 +117,26 @@ export async function markDispatchUncertain(root: string, manifest: QaRunManifes
     throw error;
   }
   try { await marker.writeFile("uncertain\n"); await marker.sync(); }
+  finally { await marker.close(); }
+  await syncDirectory(directory);
+  return inspectRun(root, bound.qaRunId);
+}
+
+/** Persist one conservative publisher intent; this never dispatches or authorizes native work. */
+export async function claimDispatchIntent(root: string, manifest: QaRunManifest, publishJobId: string): Promise<QaRun> {
+  const bound = structuredClone(manifest);
+  validateManifest(bound);
+  if (typeof publishJobId !== "string" || !/^[a-z0-9][a-z0-9-]{0,127}$/.test(publishJobId)) throw new Error("QA_PUBLISH_JOB_ID_INVALID");
+  const existing = await inspectRun(root, bound.qaRunId);
+  if (manifestFields.some(key => existing.manifest[key] !== bound[key])) throw new Error("QA_RUN_IDENTITY_MISMATCH");
+  const directory = join(root, bound.qaRunId);
+  let marker;
+  try { marker = await open(join(directory, "dispatch-uncertain"), "wx", 0o600); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error("QA_DISPATCH_ALREADY_CLAIMED");
+    throw error;
+  }
+  try { await marker.writeFile(JSON.stringify({ publishJobId }) + "\n"); await marker.sync(); }
   finally { await marker.close(); }
   await syncDirectory(directory);
   return inspectRun(root, bound.qaRunId);
