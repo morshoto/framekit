@@ -3085,6 +3085,8 @@
   "recordedAtCommit": "37a92fa1",
   "addedTestNames": {
     "tests/integration/publisher-e2e.test.ts": [
+      "\"publisher handles a missing dispatch response without permitting retry\"",
+      "\"publisher handles a missing verification response without permitting retry\"",
       "\"publisher binds inputs before asynchronous preview\"",
       "\"publisher stage recorder cannot change the prepared job identity\"",
       "\"publisher stage recorder cannot erase a recovery reservation\"",

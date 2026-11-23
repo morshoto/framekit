@@ -379,3 +379,24 @@ test("publisher stage recorder cannot erase a recovery reservation", async () =>
     return { jobId: "job-1", state: "verified", result: { verified: true } };
   }, { artifactPath: "/tmp/source.fcpxml", transactionId: "txn-1", targetLibraryPath: "/tmp/new.fcpbundle", artifactDigest: "a".repeat(64) }, (_stage, snapshot) => { delete snapshot.recoveryReservation; }), /PUBLISH_RECOVERY_REQUIRED/);
 });
+
+test("publisher handles a missing dispatch response without permitting retry", async () => {
+  const calls: string[] = [];
+  await assert.rejects(runPublishStages(async name => {
+    calls.push(name);
+    if (name === "artifact.publish.preview") return { jobId: "job-1", state: "awaiting-confirmation", artifactDigest: "a".repeat(64), targetLibraryPath: "/tmp/new.fcpbundle" };
+    return null;
+  }, { artifactPath: "/tmp/source.fcpxml", transactionId: "txn-1", targetLibraryPath: "/tmp/new.fcpbundle", artifactDigest: "a".repeat(64) }, () => {}), /PUBLISH_DISPATCH_INCOMPLETE:.*do not redispatch/);
+  assert.deepEqual(calls, ["artifact.publish.preview", "artifact.publish.execute"]);
+});
+
+test("publisher handles a missing verification response without permitting retry", async () => {
+  const calls: string[] = [];
+  await assert.rejects(runPublishStages(async (name, args) => {
+    calls.push(name);
+    if (name === "artifact.publish.preview") return { jobId: "job-1", state: "awaiting-confirmation", artifactDigest: "a".repeat(64), targetLibraryPath: "/tmp/new.fcpbundle" };
+    if (!args.confirmVerification) return { jobId: "job-1", state: "verification-pending", nextAction: "confirm-verification", delivery: { status: "dispatched" } };
+    return null;
+  }, { artifactPath: "/tmp/source.fcpxml", transactionId: "txn-1", targetLibraryPath: "/tmp/new.fcpbundle", artifactDigest: "a".repeat(64) }, () => {}), /PUBLISH_VERIFICATION_INCOMPLETE:.*without redispatching/);
+  assert.equal(calls.filter(name => name === "artifact.publish.execute").length, 2);
+});
