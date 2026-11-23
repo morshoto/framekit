@@ -394,3 +394,27 @@ test("headless evidence rejects unsanitized fields and reversed timestamps", asy
     await assert.rejects(readQaEvidence(root, manifest.qaRunId), /QA_EVIDENCE_CORRUPT/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("interrupted headless work retains its original start timestamp", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-start-evidence-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    const startedAt = "2026-01-01T00:00:00.000Z";
+    await writeFile(join(root, manifest.qaRunId, "headless-started"), JSON.stringify({ schemaVersion: 1, startedAt }) + "\n");
+    const pending = await readQaEvidence(root, manifest.qaRunId);
+    assert.equal(pending.result, "pending-or-interrupted");
+    assert.equal(pending.startedAt, startedAt);
+    assert.equal(pending.verdict, "BLOCKED");
+    await writeFile(join(root, manifest.qaRunId, "headless-result.json"), JSON.stringify({ schemaVersion: 1, tier: "headless", result: "render-contract-passed", startedAt: "2026-01-02T00:00:00.000Z", finishedAt: "2026-01-02T00:00:01.000Z" }));
+    await assert.rejects(readQaEvidence(root, manifest.qaRunId), /QA_EVIDENCE_CORRUPT/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("corrupt headless start evidence stays blocked", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-start-corrupt-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    await writeFile(join(root, manifest.qaRunId, "headless-started"), "{");
+    await assert.rejects(readQaEvidence(root, manifest.qaRunId), /QA_EVIDENCE_CORRUPT/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
