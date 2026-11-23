@@ -17,16 +17,15 @@ test('does not assert an unspecified repository license', async () => {
   assert.doesNotMatch(await read('../content/docs/en/your-first-video.mdx'), /under its license/i);
 });
 
-test('separates published plugin smoke from the real-render evidence', async () => {
+test('records the real-media installed-plugin run and isolation conditions', async () => {
   const guide = await read('../content/docs/en/your-first-video.mdx');
-  assert.match(guide, /published[^\n]*fixture backend/i);
-  assert.match(guide, /fixture[^\n]*does not verify[^\n]*render/i);
+  assert.match(guide, /installed[^\n]*v0\.2\.6[^\n]*actual approval/i);
+  assert.match(guide, /state directory[^\n]*socket[^\n]*isolat/i);
 });
 
-test('identifies published real-media verification as scripted MCP evidence', async () => {
+test('distinguishes the scripted workflow from the plugin prompt run', async () => {
   const guide = await read('../content/docs/en/your-first-video.mdx');
-  assert.match(guide, /published[^\n]*real-media/i);
-  assert.match(guide, /scripted[^\n]*not[^\n]*prompt/i);
+  assert.match(guide, /scripted[^\n]*separate[^\n]*plugin/i);
 });
 
 test('shows how to inspect before and after timeline evidence', async () => {
@@ -89,8 +88,9 @@ test('explains that registered media is checked before preview', async () => {
   assert.match(guide, /registered[^\n]*digest[^\n]*before preview/i);
 });
 
-test('distinguishes manual prompt exercise from installed-plugin verification', async () => {
+test('publishes the verified prompt and describes observed calls', async () => {
   const guide = await read('../content/docs/en/your-first-video.mdx');
-  assert.match(guide, /manually[^\n]*direct MCP[^\n]*simulated approval/i);
-  assert.match(guide, /does not[^\n]*installed Codex plugin/i);
+  assert.match(guide, /headless\.edit\.approved-preview[^\n]*headless\.edit\.approved-execute[^\n]*headless\.render/);
+  assert.doesNotMatch(guide, /not yet been verified/i);
+  assert.match(await read('../src/lib/docs/source.ts'), /slug: 'your-first-video'[^\n]*status: 'ready'/);
 });
