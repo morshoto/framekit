@@ -45,6 +45,14 @@ function digest(brief: CreativeBrief): string {
   return createHash("sha256").update(canonical(brief)).digest("hex");
 }
 
+/** Content identity for a reviewed or incomplete draft; this is not acceptance. */
+export function creativeBriefDigest(brief: CreativeBrief): string {
+  reviewCreativeBrief(brief);
+  const json = JSON.stringify(brief);
+  if (json === undefined || canonical(brief) !== canonical(JSON.parse(json))) throw new Error("INVALID_BRIEF: draft must be JSON-safe");
+  return digest(brief);
+}
+
 export interface CreativeBriefReview {
   missingCoverage: string[];
   pendingInferences: string[];

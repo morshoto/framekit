@@ -34,3 +34,4 @@ export * from "./speech/mapping.js";
 export * from "./planning/creative-brief.js";
 
 export * from "./planning/music-planning.js";
+export * from "./application/creative-brief-store.js";
