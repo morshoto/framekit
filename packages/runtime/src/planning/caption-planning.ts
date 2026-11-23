@@ -20,12 +20,15 @@ export interface CaptionPlanRequest {
   maxCharsPerLine: number;
   maxLines: number;
   emphasisWordIndices?: number[];
+  /** Review-supplied text, keyed to the pinned transcript; never changes source evidence or timing. */
+  wordCorrections?: Array<{ wordIndex: number; text: string }>;
   /** Explicit separator allows scripts that do not use spaces between words. */
   wordSeparator?: " " | "";
 }
 export interface CaptionWord {
   wordIndex: number;
   text: string;
+  originalText?: string;
   confidence: number;
   sourceRange: TimeRange;
   sequenceRange: TimeRange;
@@ -122,14 +125,24 @@ export async function planCaptionGroups(
       occurrenceId: clip.id, mediaId: current.source.mediaId, revision: request.revision, sourceRange,
       sequenceRange: { start: clip.start, end: clip.start + clip.duration, startTime: clip.startTime, durationTime: clip.durationTime },
     }, { sequenceFrameDuration: snapshot.timeline.frameDuration });
+    const corrections = request.wordCorrections ?? [];
+    if (!Array.isArray(corrections) || corrections.length > 500 || corrections.some((item) => !item || !Number.isSafeInteger(item.wordIndex)
+      || item.wordIndex < 0 || item.wordIndex >= analysis.words.length || typeof item.text !== "string" || !item.text.trim()
+      || item.text !== item.text.trim() || /[\r\n\u0000-\u001f]/u.test(item.text) || count(item.text) > request.maxCharsPerLine)
+      || new Set(corrections.map((item) => item.wordIndex)).size !== corrections.length) {
+      return { status: "unsupported", reason: "Caption corrections must identify unique transcript words and valid replacement text." };
+    }
     const selected = request.emphasisWordIndices ?? [];
     if (!Array.isArray(selected) || new Set(selected).size !== selected.length || selected.some((n) => !Number.isSafeInteger(n) || n < 0 || n >= analysis.words.length)) return { status: "unsupported", reason: "Emphasis must identify unique transcript words." };
     const mapped = mapping.words.map((item) => {
       const index = analysis.words.findIndex((word) => sameWord(word, item.word));
       if (index < 0) throw new Error("ANALYSIS_INVALID: transcript word identity is ambiguous");
-      return { wordIndex: index, text: item.word.text, confidence: item.word.confidence, sourceRange: item.sourceRange, sequenceRange: item.sequenceRange, frameAlignedRange: item.frameAlignedRange };
+      const correction = corrections.find((entry) => entry.wordIndex === index);
+      return { wordIndex: index, text: correction?.text ?? item.word.text, ...(correction ? { originalText: item.word.text } : {}),
+        confidence: item.word.confidence, sourceRange: item.sourceRange, sequenceRange: item.sequenceRange, frameAlignedRange: item.frameAlignedRange };
     }).sort((a, b) => a.sequenceRange.start - b.sequenceRange.start);
     if (selected.some((index) => !mapped.some((word) => word.wordIndex === index))) return { status: "unavailable", reason: "An emphasized word is outside the mapped occurrence." };
+    if (corrections.some((item) => !mapped.some((word) => word.wordIndex === item.wordIndex))) return { status: "unavailable", reason: "A corrected word is outside the mapped occurrence." };
     const separator = request.wordSeparator ?? " ";
     const grouped: CaptionWord[][] = [];
     let currentWords: CaptionWord[] = [];
@@ -144,6 +157,7 @@ export async function planCaptionGroups(
     }
     if (currentWords.length) grouped.push(currentWords);
     const warnings = ["Transcript and emphasis require human review; native editable title support is not established."];
+    if (corrections.length) warnings.push("User-supplied caption corrections require review and do not alter the pinned transcript.");
     if (mapped.some((word) => Math.abs(word.sequenceRange.start - word.frameAlignedRange.start) > 1e-9 || Math.abs(word.sequenceRange.end - word.frameAlignedRange.end) > 1e-9)) warnings.push("Word timing was rounded outward to the sequence frame grid.");
     if (mapped.length === 0) warnings.push("No transcript words are available in this occurrence.");
     if (mapped.some((word) => word.confidence < 0.8)) warnings.push("Low-confidence transcript words require correction before use.");
