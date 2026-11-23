@@ -50,3 +50,46 @@ test("reports which identities differ without exposing fingerprint values", () =
   assert.deepEqual(result.mismatchedIdentities, ["mcpDigest", "pluginDigest"]);
   assert.equal(JSON.stringify(result).includes("9".repeat(64)), false);
 });
+
+test("headless orchestration checks candidate and artifact before render", async () => {
+  const { runHeadlessQaChecks } = await import("../../../scripts/native-qa/headless-checks.js");
+  const calls: string[] = [];
+  const result = await runHeadlessQaChecks({
+    candidateMatches: async () => { calls.push("candidate"); return true; },
+    verifyArtifact: async () => { calls.push("artifact"); },
+    runRenderContract: async () => { calls.push("render"); },
+  });
+  assert.equal(result, "render-contract-passed");
+  assert.deepEqual(calls, ["candidate", "artifact", "render", "candidate"]);
+});
+
+test("failed candidate or artifact checks never run the render test", async () => {
+  const { runHeadlessQaChecks } = await import("../../../scripts/native-qa/headless-checks.js");
+  let renderCalls = 0;
+  let artifactCalls = 0;
+  const mismatch = await runHeadlessQaChecks({
+    candidateMatches: async () => false,
+    verifyArtifact: async () => { artifactCalls++; },
+    runRenderContract: async () => { renderCalls++; },
+  });
+  assert.equal(mismatch, "candidate-mismatch");
+  assert.equal(artifactCalls, 0);
+  const invalidArtifact = await runHeadlessQaChecks({
+    candidateMatches: async () => true,
+    verifyArtifact: async () => { throw new Error("QA_ARTIFACT_DIGEST_MISMATCH"); },
+    runRenderContract: async () => { renderCalls++; },
+  });
+  assert.equal(invalidArtifact, "artifact-digest-mismatch");
+  assert.equal(renderCalls, 0);
+});
+
+test("a changed candidate invalidates the completed headless check", async () => {
+  const { runHeadlessQaChecks } = await import("../../../scripts/native-qa/headless-checks.js");
+  let calls = 0;
+  const result = await runHeadlessQaChecks({
+    candidateMatches: async () => ++calls === 1,
+    verifyArtifact: async () => {},
+    runRenderContract: async () => {},
+  });
+  assert.equal(result, "candidate-changed");
+});
