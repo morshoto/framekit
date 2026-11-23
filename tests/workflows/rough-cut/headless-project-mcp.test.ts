@@ -1292,6 +1292,15 @@ test("headless project media can be understood and planned without a Final Cut c
     assert.equal(understanding.audio.integratedLufs, -18);
     assert.ok(understanding.analysis.every((status: any) => status.status === "analyzed" || status.status === "unavailable"));
 
+    const transcript = payload(await client.callTool({ name: "headless.speech.transcript", arguments: {
+      projectId, mediaId: registered.resource.id,
+    } }));
+    assert.equal(transcript.sourceIdentity.sourceDigest, registered.resource.sourceDigest);
+    assert.match(transcript.digest, /^[a-f0-9]{64}$/);
+    assert.equal(transcript.analyzer.version, "test-vad@1");
+    assert.deepEqual(transcript.transcript[0].startTime, { value: "1", timescale: "2" });
+    assert.deepEqual(transcript.transcript[0].endTime, { value: "7", timescale: "5" });
+
     const plan = payload(await client.callTool({ name: "rough-cut.plan", arguments: {
       projectId,
       query: "highlight",
