@@ -1234,7 +1234,7 @@ test("simulated-native: concurrent clients cannot dispatch twice", async () => {
 test("simulated-native: separate MCP process restart never replays lost dispatch", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-simulated-process-"));
   async function startClient() {
-    const transport = new StdioClientTransport({ command: process.execPath, args: ["--import", "tsx", join(process.cwd(), "tests/support/simulated-native-mcp-child.ts"), directory], stderr: "pipe" });
+    const transport = new StdioClientTransport({ command: process.execPath, args: ["--import", "tsx", join(process.cwd(), "tests/support/simulated-native-mcp-child.ts"), directory], env: Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === "string")), stderr: "pipe" });
     const client = new Client({ name: "simulated-restart", version: "1" });
     await client.connect(transport);
     return client;
@@ -1255,6 +1255,7 @@ test("simulated-native: separate MCP process restart never replays lost dispatch
     await second.callTool({ name: "session.materialize.retry", arguments: { jobId: result.jobId } });
     assert.deepEqual(JSON.parse(await readFile(join(directory, "receiver.json"), "utf8")), before);
     await assert.rejects(new FileCanonicalRecoveryGuard(join(directory, "recovery.json")).assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await writeSimulatedEvidence(ScriptedNativeReceiver.restore(before), "mcp-process-restart", { noReplay: true, reservationRetained: true, headedNative: false });
   } finally {
     await first?.close(); await second?.close();
     await rm(directory, { recursive: true, force: true });
