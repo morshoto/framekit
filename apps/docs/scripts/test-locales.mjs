@@ -29,8 +29,8 @@ try {
       await page.reload({ waitUntil:'networkidle' });
     }
     await page.goto(`${origin}${base}/`, { waitUntil:'networkidle' });
-    await page.getByRole('link', { name:'Explore the documentation' }).click();
-    await page.waitForURL(`**${base}/en/docs/introduction/`);
+    await page.getByRole('link', { name:'Get started' }).click();
+    await page.waitForURL(`**${base}/en/docs/installation/`);
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
     await page.goto(`${origin}${base}/en/docs/getting-started/`, { waitUntil:'networkidle' });
     await page.getByRole('button', { name:'Copy code' }).first().click();

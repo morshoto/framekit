@@ -1,6 +1,6 @@
 # Framekit Docs
 
-This private workspace is a static documentation-site foundation. Its copy is placeholder content; the maintained engineering documentation remains in the repository's top-level `docs/` directory.
+This workspace publishes the English and Japanese Framekit documentation. Detailed engineering references are in the top-level `docs/` directory.
 
 Use the repository's pinned Node and pnpm versions, then run:
 
@@ -22,9 +22,9 @@ Run `pnpm --filter @framekit/docs test`, `pnpm --filter @framekit/docs storybook
 
 For each shared visual component, create a directory containing `Component.tsx`, `Component.module.scss`, `Component.stories.tsx`, `Component.test.tsx`, and `index.ts`. Export the component and its props through the barrel; consumers should use that public entry. Write behavior and accessible-name tests and add stories for meaningful interactive states. `IconButton` requires a descriptive `label`; `Button` disables activation while loading.
 
-## Mock localized content
+## Localized content
 
-The files in `content/docs/en` and `content/docs/ja` are synthetic test content. `pnpm --filter @framekit/docs check:content` checks local article links, anchors and images and runs as part of the build. Register each document and its available locales in the content registry as well as adding its content file. `pnpm --filter @framekit/docs test:locales` exercises a built export using Chromium. Set `DOCS_SITE_ORIGIN` at build time when publishing under a different origin; combine it with `DOCS_BASE_PATH` for canonical and language-alternate URLs.
+The files in `content/docs/en` and `content/docs/ja` contain the English and Japanese articles. `pnpm --filter @framekit/docs check:content` checks local article links, anchors and images and runs as part of the build. Register each document and its available locales in the content registry as well as adding its content file. `pnpm --filter @framekit/docs test:locales` exercises a built export using Chromium. Set `DOCS_SITE_ORIGIN` at build time when publishing under a different origin; combine it with `DOCS_BASE_PATH` for canonical and language-alternate URLs.
 
 ## Static search
 
@@ -70,8 +70,8 @@ The command requires `gh` authentication and a Playwright Chromium installation.
 
 ## Content registry and drafts
 
-`src/lib/docs/source.ts` is the registry for stable slugs, section order, localized titles and editorial status. To add a page, choose a URL-safe slug and a unique nonnegative order within its section, add a registry entry, and add an MDX file under each locale listed in its `titles`. Add a translation by adding its localized title and corresponding file; locales may be omitted. The content check rejects missing or unregistered files and broken links. Reorder pages by changing their order values; the sidebar, breadcrumbs and pager follow the registry. Existing `getting-started` and `examples` routes are retained as synthetic QA fixtures.
+`src/lib/docs/source.ts` is the registry for stable slugs, section order, localized titles and editorial status. To add a page, choose a URL-safe slug and a unique nonnegative order within its section, add a registry entry, and add an MDX file under each locale listed in its `titles`. Add a translation by adding its localized title and corresponding file; locales may be omitted. The content check rejects missing or unregistered files and broken links. Reorder pages by changing their order values; the sidebar, breadcrumbs and pager follow the registry.
 
-Draft pages are navigable for design review, visibly labeled, marked `noindex`, and excluded from Pagefind. They have no edit link and there is currently no sitemap; any future sitemap must omit drafts. Change a page to `ready` only after its content and translations have been reviewed. Readiness describes editorial state and does not establish native Final Cut capabilities. Missing translations link to the locale overview with a visible fallback notice. Run `check:content`, `test`, and both root and project-path builds and export checks after content changes.
+Draft pages are navigable for design review, visibly labeled, marked `noindex`, and excluded from Pagefind. The sitemap excludes drafts. Change a page to `ready` only after its content and translations have been reviewed. Readiness describes editorial state and does not establish native Final Cut capabilities. Missing translations link to the locale overview with a visible fallback notice. Run `check:content`, `test`, and both root and project-path builds and export checks after content changes.
 
 To review error-reference coverage, run `pnpm --filter @framekit/docs report:error-reference` from the repository root. The report lists literal error-message prefixes and structured `code` values in server-side TypeScript that have no matching reference heading. It is a review aid: dynamic codes, other error construction patterns, internal paths, and false positives require manual inspection. Add entries only after checking the operation's commit state and recovery behavior.

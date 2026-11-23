@@ -1,1 +1,13 @@
-内容は準備中です。
+## インストールして接続する
+
+```sh
+codex plugin marketplace add morshoto/framekit
+```
+
+Codex で `/plugins` を開き、**Framekit** をインストールして、新しいセッションを開始します。`codex plugin add framekit@framekit` でもインストールできます。プラグインは `npx` で公開パッケージを起動します。Final Cut Workflow Extension は別途インストールが必要です。
+
+## 編集前に確認する
+
+`connection.status` で接続を診断し、`editor.inspect` でバックエンドと利用可能な機能を確認します。`editing.route` は指定した操作の実行経路を返します。ヘッドレス経路の場合は、プロジェクトを確認して変更をプレビューしてから実行してください。公開プラグインはヘッドレスで動作します。ブリッジに接続しただけで Final Cut Pro のタイムラインに書き込めるようにはなりません。
+
+拡張の設定は [Final Cut Pro](/ja/docs/final-cut-pro/)、ツールの調べ方は [MCP ツール](/ja/docs/mcp-tools/)を参照してください。

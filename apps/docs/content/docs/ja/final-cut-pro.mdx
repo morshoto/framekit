@@ -1,1 +1,15 @@
-内容は準備中です。
+## Workflow Extension を接続する
+
+Codex プラグインと Final Cut Workflow Extension は個別に配布されています。ライブ接続が必要な場合は、対応する [GitHub リリース](https://github.com/morshoto/framekit/releases)から署名済みの拡張をインストールし、接続状態を診断します。
+
+```sh
+npx -y @morshoto/framekit doctor finalcut
+```
+
+詳細は `connection.status` と `editor.inspect` で確認できます。メタデータ専用のブリッジは、接続が正常でもエディタ情報の取得に限られ、タイムラインの確定状態の取得や書き込みには使えません。FCPXML はデータ交換用のファイルです。ファイルを編集しても、Final Cut Pro で開いているプロジェクトへの反映は確認できません。
+
+## Final Cut Pro の画面で編集する
+
+画面を操作する経路を明示的に選び、別途承認を得てください。対象のプロジェクト、シーケンス、オカレンス、リビジョンを特定してプレビューします。実行後は同じ対象の状態を読み戻して結果を確認し、Undo またはロールバックによる復元も検証してください。必要な機能や確認手段がない場合は操作を中止します。
+
+結果が確定できない場合、後続の操作がブロックされることがあります。再起動や状態ディレクトリの変更だけでは復旧を確認できません。[リビジョンと安全性](/ja/docs/revisions-and-safety/)と[アーキテクチャの詳細](https://github.com/morshoto/framekit/blob/main/docs/architecture.md)を参照してください。

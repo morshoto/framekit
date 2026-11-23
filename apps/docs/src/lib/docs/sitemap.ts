@@ -8,6 +8,7 @@ export function sitemapEntries(documents: DocumentMeta[], site: string): Metadat
   const url = (doc: DocumentMeta) => `${site}/${doc.locale}/docs/${doc.slug}/`;
   return [
     { url: `${site}/en/` },
+    { url: `${site}/ja/` },
     ...ready.map(doc => ({
       url: url(doc),
       alternates: { languages: Object.fromEntries(ready.filter(other => other.slug === doc.slug).map(other => [other.locale, url(other)])) },
