@@ -56,3 +56,27 @@ test("a lost response can arrive late without another dispatch", async () => {
   assert.deepEqual(receiver.inspect(request.operationId), { state: "accepted" });
   assert.equal(receiver.trace().filter(event => event.kind === "dispatch").length, 1);
 });
+
+test("serialized receiver state survives a fresh process without replaying dispatch", async () => {
+  const receiver = new ScriptedNativeReceiver([{ kind: "lose-response" }]);
+  await receiver.dispatch(request);
+  const persisted = JSON.stringify(receiver.snapshot());
+  const restored = ScriptedNativeReceiver.restore(JSON.parse(persisted));
+  assert.deepEqual(restored.inspect(request.operationId), { state: "uncertain" });
+  assert.deepEqual(await restored.dispatch(request), { state: "uncertain" });
+  assert.deepEqual(restored.trace().map(event => event.kind), ["dispatch", "response-lost"]);
+  restored.reply(request.operationId, "accepted");
+  assert.equal(restored.trace().filter(event => event.kind === "dispatch").length, 1);
+});
+
+test("restoring a stalled receiver does not invent a terminal outcome", async () => {
+  const receiver = new ScriptedNativeReceiver([{ kind: "stall" }]);
+  const pending = receiver.dispatch(request);
+  const restored = ScriptedNativeReceiver.restore(JSON.parse(JSON.stringify(receiver.snapshot())));
+  assert.deepEqual(restored.inspect(request.operationId), { state: "uncertain" });
+  assert.deepEqual(await restored.dispatch(request), { state: "uncertain" });
+  restored.reply(request.operationId, "rejected");
+  assert.deepEqual(restored.inspect(request.operationId), { state: "rejected" });
+  receiver.reply(request.operationId, "rejected");
+  await pending;
+});
