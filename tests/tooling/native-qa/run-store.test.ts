@@ -249,8 +249,11 @@ test("a separate run cannot reuse an operation authorization", async () => {
   try {
     await createOrInspectRun(root, manifest);
     assert.equal((await createOrInspectRun(root, manifest)).created, false);
-    await assert.rejects(createOrInspectRun(root, { ...manifest, qaRunId: "another-run" }), /QA_AUTHORIZATION_ALREADY_BOUND/);
-    await assert.rejects(createOrInspectRun(root, { ...manifest, qaRunId: "changed-run", targetDigest: "9".repeat(64) }), /QA_AUTHORIZATION_ALREADY_BOUND/);
+    const duplicate = await createOrInspectRun(root, { ...manifest, qaRunId: "another-run" });
+    assert.equal(duplicate.created, false);
+    assert.equal(duplicate.run.manifest.qaRunId, manifest.qaRunId);
+    assert.equal((await createOrInspectRun(root, { ...manifest, qaRunId: "another-run" })).run.manifest.qaRunId, manifest.qaRunId);
+    await assert.rejects(createOrInspectRun(root, { ...manifest, qaRunId: "changed-run", targetDigest: "9".repeat(64) }), /QA_RUN_IDENTITY_MISMATCH/);
     const separate = await createOrInspectRun(root, { ...manifest, qaRunId: "separate-run", authorizationDigest: "a".repeat(64) });
     assert.equal(separate.created, true);
     assert.equal(separate.run.verdict, "BLOCKED");
@@ -261,8 +264,15 @@ test("concurrent different run IDs cannot consume the same authorization", async
   const root = await mkdtemp(join(tmpdir(), "framekit-qa-auth-race-"));
   try {
     const results = await Promise.allSettled(Array.from({ length: 8 }, (_, i) => createOrInspectRun(root, { ...manifest, qaRunId: `run-${i}` })));
-    assert.equal(results.filter(result => result.status === "fulfilled").length, 1);
-    assert.ok(results.filter(result => result.status === "rejected").every(result => /QA_AUTHORIZATION_ALREADY_BOUND/.test(String(result.reason))));
+    assert.equal(results.filter(result => result.status === "fulfilled" && result.value.created).length, 1);
+    assert.ok(results.filter(result => result.status === "rejected").every(result => /QA_RUN_NOT_FOUND_OR_INCOMPLETE/.test(String(result.reason))));
+    const owner = results.find(result => result.status === "fulfilled" && result.value.created);
+    assert.ok(owner && owner.status === "fulfilled");
+    for (let i = 0; i < 8; i++) {
+      const duplicate = await createOrInspectRun(root, { ...manifest, qaRunId: `run-${i}` });
+      assert.equal(duplicate.created, false);
+      assert.equal(duplicate.run.manifest.qaRunId, owner.value.run.manifest.qaRunId);
+    }
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
