@@ -1,4 +1,4 @@
-import { mkdir, open, readFile } from "node:fs/promises";
+import { lstat, mkdir, open, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export interface QaRunManifest {
@@ -39,6 +39,10 @@ function validateManifest(value: unknown): asserts value is QaRunManifest {
 export async function inspectRun(root: string, qaRunId: string): Promise<QaRun> {
   validateId(qaRunId);
   try {
+    const directory = await lstat(join(root, qaRunId));
+    if (!directory.isDirectory() || directory.isSymbolicLink()) throw new Error("QA_RUN_UNSAFE_PATH");
+    const file = await lstat(join(root, qaRunId, "run.json"));
+    if (!file.isFile() || file.isSymbolicLink()) throw new Error("QA_RUN_UNSAFE_PATH");
     const value: unknown = JSON.parse(await readFile(join(root, qaRunId, "run.json"), "utf8"));
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid");
     const run = value as QaRun;
@@ -47,6 +51,7 @@ export async function inspectRun(root: string, qaRunId: string): Promise<QaRun> 
     if (run.manifest.qaRunId !== qaRunId) throw new Error("invalid");
     return run;
   } catch (error) {
+    if (error instanceof Error && error.message === "QA_RUN_UNSAFE_PATH") throw error;
     if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new Error("QA_RUN_NOT_FOUND_OR_INCOMPLETE");
     throw new Error("QA_RUN_CORRUPT");
   }
