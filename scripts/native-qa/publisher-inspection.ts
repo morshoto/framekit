@@ -32,7 +32,7 @@ export async function inspectQaPublisher(root: string, qaRunId: string, callStat
     || current.publishJobId !== jobId || current.authorizationBinding !== run.authorizationBinding) throw new Error("QA_PUBLISH_STATUS_IDENTITY_MISMATCH");
   if (unavailable || !value || typeof value !== "object" || Array.isArray(value)) return { ...base, nextAction: "status-unavailable" as const };
   const item = value as Record<string, unknown>;
-  if (item.jobId !== jobId) throw new Error("QA_PUBLISH_STATUS_IDENTITY_MISMATCH");
+  if (item.jobId !== jobId || item.artifactDigest !== run.manifest.artifactDigest) throw new Error("QA_PUBLISH_STATUS_IDENTITY_MISMATCH");
   if (!states.includes(item.state as PublisherState)) return { ...base, nextAction: "status-unavailable" as const };
   return { ...base, jobId, observedState: item.state as PublisherState, nextAction: "inspect-recovery" as const };
 }

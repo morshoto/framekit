@@ -1479,7 +1479,7 @@ function normalizePersistedPublishJob(value: unknown, filename: string): Persist
 }
 
 /** Read a stored job status without constructing a publisher or changing the store. */
-export async function readPersistedFinalCutPublishJobStatus(directory: string, jobId: string, signal?: AbortSignal): Promise<{ jobId: string; state: FinalCutProjectPublishJobState }> {
+export async function readPersistedFinalCutPublishJobStatus(directory: string, jobId: string, signal?: AbortSignal): Promise<{ jobId: string; state: FinalCutProjectPublishJobState; artifactDigest: string }> {
   if (!isAbsolute(directory) || !/^publish-job-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(jobId)) throw new Error("PUBLISH_JOB_STORE_INVALID");
   const root = await lstat(directory);
   if (!root.isDirectory() || root.isSymbolicLink()) throw new Error("PUBLISH_JOB_STORE_INVALID");
@@ -1517,11 +1517,12 @@ export async function readPersistedFinalCutPublishJobStatus(directory: string, j
   } finally { await file.close(); }
   const value: unknown = JSON.parse(text);
   if (filename === legacy) {
-    if (!isVerifiedPublishJob(value, jobId)) throw new Error("PUBLISH_JOB_STORE_INVALID");
-    return { jobId, state: value.state };
+    if (!isVerifiedPublishJob(value, jobId) || !/^[a-f0-9]{64}$/.test(value.artifactDigest ?? "")) throw new Error("PUBLISH_JOB_STORE_INVALID");
+    return { jobId, state: value.state, artifactDigest: value.artifactDigest };
   }
   const record = normalizePersistedPublishJob(value, filename);
-  return { jobId: record.job.jobId, state: record.job.state };
+  if (!/^[a-f0-9]{64}$/.test(record.job.artifactDigest ?? "")) throw new Error("PUBLISH_JOB_STORE_INVALID");
+  return { jobId: record.job.jobId, state: record.job.state, artifactDigest: record.job.artifactDigest };
 }
 
 function clonePublishJob(job: FinalCutProjectPublishJob): FinalCutProjectPublishJob {
