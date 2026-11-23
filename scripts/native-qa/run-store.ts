@@ -120,7 +120,12 @@ export async function createOrInspectRun(root: string, manifest: QaRunManifest):
   const directory = join(root, bound.qaRunId);
   const inspectMatching = async (runId: string): Promise<{ created: false; run: QaRun }> => {
     const run = await inspectRun(root, runId);
-    if (manifestFields.some(key => key !== "qaRunId" && run.manifest[key] !== bound[key])) throw new Error("QA_RUN_IDENTITY_MISMATCH");
+    const changed = manifestFields.some(key => key !== "qaRunId" && key !== "authorizationDigest" && run.manifest[key] !== bound[key]);
+    const recordedDigest = run.manifest.authorizationDigest ?? run.authorizationBinding ?? null;
+    const authorizationChanged = bound.authorizationDigest === null
+      ? run.manifest.authorizationDigest !== null
+      : recordedDigest !== bound.authorizationDigest;
+    if (changed || authorizationChanged) throw new Error("QA_RUN_IDENTITY_MISMATCH");
     return { created: false, run };
   };
   try {
