@@ -1097,6 +1097,7 @@ test("simulated-native: lost reply retains a reservation through MCP reconnect",
     assert.equal(result.evidence.headedNative, false);
     assert.equal(result.recoveryReservation.reason, "native-quiescence-unproven");
     assertSingleSimulatedDispatch(receiver.trace(), result.jobId);
+    assert.equal(receiver.publisherCalls(), 1);
     assert.equal(receiver.trace()[0]?.operationId, result.jobId);
     const sources = result.desired.resources.map((resource: { id: string; source?: string }) => [resource.id, resource.source ?? null]).sort(([a]: string[], [b]: string[]) => a < b ? -1 : a > b ? 1 : 0);
     assert.equal(receiver.trace()[0]?.sourceDigest, createHash("sha256").update(JSON.stringify(sources)).digest("hex"));
@@ -1111,6 +1112,7 @@ test("simulated-native: lost reply retains a reservation through MCP reconnect",
       assert.equal(status.recoveryReservation.reason, "native-quiescence-unproven");
       await second.client.callTool({ name: "session.materialize.retry", arguments: { jobId: result.jobId } });
       assert.equal(receiver.trace().filter(event => event.kind === "dispatch").length, 1);
+      assert.equal(receiver.publisherCalls(), 1);
       await assert.rejects(new FileCanonicalRecoveryGuard(path).assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
       await writeSimulatedEvidence(receiver, "lost-reply", { failed: status.state === "failed", noReplay: true, reservationRetained: true, headedNative: false });
     } finally { await second.client.close(); await second.server.close(); }
@@ -1250,6 +1252,7 @@ test("simulated-native: separate MCP process restart never replays lost dispatch
     await first.close(); first = undefined;
     const before = JSON.parse(await readFile(join(directory, "receiver.json"), "utf8"));
     assert.equal(before.events.filter((event: { kind: string }) => event.kind === "dispatch").length, 1);
+    assert.equal(before.publisherCalls, 1);
     second = await startClient();
     const status = payload(await second.callTool({ name: "session.materialize.status", arguments: { jobId: result.jobId } }));
     assert.equal(status.recoveryReservation.reason, "native-quiescence-unproven");

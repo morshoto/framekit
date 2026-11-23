@@ -162,3 +162,14 @@ test("simulated-native: incomplete duplicate identity is rejected", async () => 
 test("simulated-native: target tuple encoding is unambiguous", () => {
   assert.notEqual(simulatedTargetIdentity(["a/b", "c", "d", "e"]), simulatedTargetIdentity(["a", "b/c", "d", "e"]));
 });
+
+test("simulated-native: publisher-call count exposes duplicate delivery", async () => {
+  const receiver = new ScriptedNativeReceiver([{ kind: "lose-response" }]);
+  receiver.recordPublisherCall();
+  await receiver.dispatch(request);
+  receiver.recordPublisherCall();
+  await receiver.dispatch(request);
+  assertSingleSimulatedDispatch(receiver.trace(), request.operationId);
+  assert.equal(receiver.publisherCalls(), 2);
+  assert.equal(ScriptedNativeReceiver.restore(JSON.parse(JSON.stringify(receiver.snapshot()))).publisherCalls(), 2);
+});
