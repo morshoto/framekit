@@ -111,3 +111,10 @@ test("simulated-native: evidence binds candidate and redacts identifiers", async
   assert.doesNotMatch(JSON.stringify(evidence), /private|example\.mov/);
   assert.throws(() => receiver.evidence({ scenario: "lost-reply", seed: 42, candidate: "unknown" }), /CANDIDATE/);
 });
+
+test("simulated-native: partial writes remain distinct from acceptance", async () => {
+  const receiver = new ScriptedNativeReceiver([{ kind: "partial-write" }]);
+  assert.deepEqual(await receiver.dispatch(request), { state: "partial" });
+  assert.deepEqual(receiver.trace().map(event => event.kind), ["dispatch", "partial"]);
+  assert.deepEqual(await receiver.dispatch(request), { state: "partial" });
+});

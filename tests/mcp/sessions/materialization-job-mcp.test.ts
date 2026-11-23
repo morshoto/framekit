@@ -1150,3 +1150,21 @@ test("simulated-native: wrong canonical target cannot become a verified success"
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("simulated-native: partial write fails canonical verification", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-simulated-partial-"));
+  const receiver = new ScriptedNativeReceiver([{ kind: "partial-write" }]);
+  const connected = await connect(directory, simulatedMaterializationPublisher(receiver));
+  try {
+    await connected.client.callTool({ name: "session.create", arguments: { sessionId: "simulated-partial", provider: { id: "final-cut" }, base: timeline() } });
+    const result = payload(await connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "simulated-partial", target, confirm: true } }));
+    assert.equal(result.state, "failed");
+    assert.equal(result.error.code, "MATERIALIZATION_READBACK_MISMATCH");
+    assert.equal(result.verification.status, "failed");
+    assert.equal(result.evidence.headedNative, false);
+    assert.deepEqual(receiver.trace().map(event => event.kind), ["dispatch", "partial"]);
+  } finally {
+    await connected.client.close(); await connected.server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
