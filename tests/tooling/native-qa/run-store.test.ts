@@ -1041,10 +1041,12 @@ test("publisher status inspection has a bounded wait", async () => {
   try {
     await createOrInspectRun(root, manifest);
     await claimDispatchIntent(root, manifest, "publish-job-1");
+    let signal: AbortSignal | undefined;
     const result = await Promise.race([
-      inspectQaPublisher(root, manifest.qaRunId, async () => await new Promise(() => {}), { timeoutMs: 20 }),
+      inspectQaPublisher(root, manifest.qaRunId, async (_name, _args, options) => { signal = options.signal; return await new Promise(() => {}); }, { timeoutMs: 20 }),
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error("status inspection did not time out")), 500)),
     ]);
+    assert.equal(signal?.aborted, true);
     assert.equal(result.nextAction, "status-unavailable");
     assert.equal(result.verdict, "BLOCKED");
     assert.equal(result.dispatchAllowed, false);
