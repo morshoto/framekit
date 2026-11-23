@@ -103,7 +103,16 @@ test("reviewed music proposal previews through the existing workflow without mut
   const altered = { ...plan, placement: { ...plan.placement!, gainDb: -3 } };
   await assert.rejects(() => previewMusicPlan(runtime, liveRequest, altered, "music-clip", fixtureVerifySource, briefStore), /STALE|INVALID/);
   await assert.rejects(() => previewMusicPlan(runtime, { ...liveRequest, revision: { ...before.revision, sequence: before.revision.sequence + 1 } }, plan, "music-clip", fixtureVerifySource, briefStore), /STALE/);
-  await briefStore.revise("p", draft.digest, { ...brief, theme: "revised" });
+  const racingRuntime = {
+    inspectProject: runtime.inspectProject.bind(runtime),
+    previewMusic: async (input: Parameters<typeof runtime.previewMusic>[0]) => {
+      const result = await runtime.previewMusic(input);
+      await briefStore.revise("p", draft.digest, { ...brief, theme: "revised" });
+      return result;
+    },
+  };
+  await assert.rejects(() => previewMusicPlan(racingRuntime, liveRequest, plan, "music-clip", fixtureVerifySource, briefStore), /STALE|NOT_ACCEPTED/);
+  assert.deepEqual(await runtime.inspectProject(), before);
   await assert.rejects(() => previewMusicPlan(runtime, liveRequest, plan, "music-clip", fixtureVerifySource, briefStore), /STALE|NOT_ACCEPTED/);
 });
 
