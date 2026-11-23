@@ -156,3 +156,10 @@ export function simulatedUndoWorkflow(receiver: ScriptedNativeReceiver) {
     },
   };
 }
+
+/** Assert the dispatch contract against a complete simulated event trace. */
+export function assertSingleSimulatedDispatch(events: readonly Event[], operationId: string): void {
+  const count = events.filter(event => event.kind === "dispatch" && event.operationId === operationId).length;
+  if (count > 1) throw new Error("SIMULATED_DUPLICATE_DISPATCH");
+  if (count !== 1) throw new Error("SIMULATED_DISPATCH_MISSING");
+}
