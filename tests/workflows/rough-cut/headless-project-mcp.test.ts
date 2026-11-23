@@ -1300,6 +1300,12 @@ test("headless project media can be understood and planned without a Final Cut c
     assert.equal(transcript.analyzer.version, "test-vad@1");
     assert.deepEqual(transcript.transcript[0].startTime, { value: "1", timescale: "2" });
     assert.deepEqual(transcript.transcript[0].endTime, { value: "7", timescale: "5" });
+    await client.close(); await transport.close();
+    ({ client, transport } = await connectProductionClient(here, environment));
+    const reopenedTranscript = payload(await client.callTool({ name: "headless.speech.transcript.get", arguments: {
+      projectId, mediaId: registered.resource.id, digest: transcript.digest,
+    } }));
+    assert.deepEqual(reopenedTranscript, transcript);
 
     const plan = payload(await client.callTool({ name: "rough-cut.plan", arguments: {
       projectId,
@@ -1361,6 +1367,11 @@ test("headless project media can be understood and planned without a Final Cut c
     } });
     assert.equal(staleTranscript.isError, true);
     assert.match(toolErrorText(staleTranscript), /MEDIA_CHANGED/);
+    const staleStored = await client.callTool({ name: "headless.speech.transcript.get", arguments: {
+      projectId, mediaId: registered.resource.id, digest: transcript.digest,
+    } });
+    assert.equal(staleStored.isError, true);
+    assert.match(toolErrorText(staleStored), /MEDIA_CHANGED/);
   } finally {
     await client?.close();
     await transport?.close();
