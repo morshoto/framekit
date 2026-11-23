@@ -1097,7 +1097,7 @@ test("simulated lost reply retains a reservation through MCP reconnect", async (
     assert.equal(result.recoveryReservation.reason, "native-quiescence-unproven");
     assert.equal(receiver.trace().filter(event => event.kind === "dispatch").length, 1);
     assert.equal(receiver.trace()[0]?.operationId, result.jobId);
-    const sources = result.desired.resources.map((resource: { id: string; source?: string }) => [resource.id, resource.source ?? null]).sort(([a]: string[], [b]: string[]) => a.localeCompare(b));
+    const sources = result.desired.resources.map((resource: { id: string; source?: string }) => [resource.id, resource.source ?? null]).sort(([a]: string[], [b]: string[]) => a < b ? -1 : a > b ? 1 : 0);
     assert.equal(receiver.trace()[0]?.sourceDigest, createHash("sha256").update(JSON.stringify(sources)).digest("hex"));
     assert.equal(receiver.trace()[0]?.desiredDigest, result.desiredDigest);
     await first.client.close();

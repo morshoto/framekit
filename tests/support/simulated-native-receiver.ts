@@ -1,8 +1,11 @@
+import { createHash } from "node:crypto";
+
 /** Test-only receiver: its observations never establish native terminality. */
 export type SimulatedIdentity = {
   operationId: string;
   targetId: string;
   sourceDigest: string;
+  desiredDigest: string;
   revisionId: string;
 };
 type State = "accepted" | "rejected" | "uncertain" | "not-dispatched";
@@ -87,7 +90,9 @@ export function simulatedMaterializationPublisher(receiver: ScriptedNativeReceiv
       const result = await receiver.dispatch({
         operationId: request.jobId,
         targetId: [request.target.libraryUid, request.target.eventUid, request.destination.projectUid, request.destination.sequenceUid].join("/"),
-        sourceDigest: request.desiredDigest,
+        // Hash source references without exposing paths; this is not a media-content digest.
+        sourceDigest: createHash("sha256").update(JSON.stringify(request.desired.resources.map(resource => [resource.id, resource.source ?? null]).sort(([a], [b]) => String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0))).digest("hex"),
+        desiredDigest: request.desiredDigest,
         revisionId: request.baseRevision.id,
       });
       if (result.state === "uncertain") throw new Error("SIMULATED_RESPONSE_LOST");

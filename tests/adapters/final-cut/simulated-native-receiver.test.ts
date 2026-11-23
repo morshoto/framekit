@@ -3,7 +3,7 @@ import test from "node:test";
 import { ScriptedNativeReceiver } from "../../support/simulated-native-receiver.js";
 
 const request = {
-  operationId: "operation-1", targetId: "target-1", sourceDigest: "a".repeat(64), revisionId: "revision-1",
+  operationId: "operation-1", targetId: "target-1", sourceDigest: "a".repeat(64), desiredDigest: "c".repeat(64), revisionId: "revision-1",
 };
 
 test("simulation records deterministic identity and ordered dispatch events", async () => {
