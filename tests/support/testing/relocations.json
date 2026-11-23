@@ -3178,6 +3178,8 @@
       "'only failed required CI, conflicts, or behind branches select Pending'",
       "'issue references include Refs and closing links but exclude other repositories'",
       "'missing reference targets are skipped without hiding real API failures'",
+      "'project reads retry transient gateway failures but do not retry writes or permanent errors'",
+      "'project GraphQL queries retry gateway failures without retrying mutations'",
       "'PR source paginates links/checks, uses current heads and test-merge results, and skips closed PRs'",
       "'PR source fails before status writes if GitHub cannot return complete state'",
       "'reconciliation uses current PR state, keeps closed issues Done, and combines related PRs'",

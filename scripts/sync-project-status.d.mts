@@ -51,6 +51,7 @@ export function createProjectStatusClient(options: {
 	projectNumber?: number;
 	apiUrl?: string;
 	fetchImpl?: typeof fetch;
+	sleep?: (ms: number) => Promise<void>;
 }): ProjectStatusClient;
 
 export function syncIssueEvent(options: {
