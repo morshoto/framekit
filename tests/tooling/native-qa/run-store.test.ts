@@ -1679,3 +1679,33 @@ test("publisher inspection rejects a status for a different artifact", async () 
     assert.equal((await inspectRun(root, manifest.qaRunId)).dispatch, "UNKNOWN_AFTER_DISPATCH");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("plugin observation binds a clean candidate and installed directory without authorizing dispatch", async () => {
+  const { mkdir, cp } = await import("node:fs/promises");
+  const { digestCodexPluginDirectory } = await import("../../../scripts/codex-plugin-identity.mjs");
+  const { verifyQaPluginIdentity, readQaPluginEvidence } = await import("../../../scripts/native-qa/plugin-evidence.js");
+  const parent = await mkdtemp(join(tmpdir(), "framekit-qa-plugin-"));
+  const root = join(parent, "runs"); const checkout = join(parent, "checkout");
+  const source = join(checkout, "plugins", "framekit"); const codexHome = join(parent, "codex"); const installed = join(codexHome, "plugins", "framekit");
+  try {
+    await mkdir(root, { mode: 0o700 }); await mkdir(join(source, ".codex-plugin"), { recursive: true });
+    await writeFile(join(source, ".codex-plugin", "plugin.json"), JSON.stringify({ name: "framekit", version: "1.2.3" }));
+    await writeFile(join(source, "plugin.txt"), "candidate plugin");
+    execFileSync("git", ["init", "-q", checkout]);
+    execFileSync("git", ["-C", checkout, "add", "."]);
+    execFileSync("git", ["-C", checkout, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"]);
+    const git = (arg: string) => execFileSync("git", ["-C", checkout, "rev-parse", arg], { encoding: "utf8" }).trim();
+    await mkdir(join(codexHome, "plugins"), { recursive: true }); await cp(source, installed, { recursive: true });
+    const target = { ...manifest, candidateCommit: git("HEAD"), candidateTree: git("HEAD^{tree}"), pluginDigest: await digestCodexPluginDirectory(source) };
+    await createOrInspectRun(root, target);
+    const evidence = await verifyQaPluginIdentity(root, target.qaRunId, { checkout, codexHome, installedPath: installed });
+    assert.equal(evidence.result, "digest-matched");
+    assert.equal(evidence.dispatchAllowed, false);
+    assert.equal(evidence.scope, "directory-snapshot");
+    assert.equal(JSON.stringify(evidence).includes(parent), false);
+    assert.deepEqual(await readQaPluginEvidence(root, target.qaRunId), evidence);
+    await writeFile(join(installed, "plugin.txt"), "changed");
+    await assert.rejects(() => verifyQaPluginIdentity(root, target.qaRunId, { checkout, codexHome, installedPath: installed }), /QA_PLUGIN_MISMATCH/);
+    assert.equal((await inspectRun(root, target.qaRunId)).dispatch, "NOT_DISPATCHED");
+  } finally { await rm(parent, { recursive: true, force: true }); }
+});
