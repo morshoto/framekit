@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { chmod, lstat, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
@@ -889,5 +889,21 @@ test("corrupt artifact evidence cannot be reused or silently overwritten", async
     await assert.rejects(readQaArtifactEvidence(root, unapproved.qaRunId), /QA_EVIDENCE_CORRUPT/);
     await assert.rejects(verifyQaArtifact(root, unapproved.qaRunId, path), /QA_EVIDENCE_CORRUPT/);
     assert.equal(await readFile(evidencePath, "utf8"), "{");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+
+test("artifact verification rejects a named pipe without waiting for a writer", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-artifact-fifo-"));
+  try {
+    const path = join(root, "artifact-pipe");
+    execFileSync("mkfifo", [path]);
+    const unapproved = { ...manifest, authorizationDigest: null };
+    await createOrInspectRun(root, unapproved);
+    const result = spawnSync(process.execPath, ["--import", "tsx", "scripts/native-qa/cli.ts", "verify-artifact", root, unapproved.qaRunId, path], { encoding: "utf8", timeout: 5000 });
+    assert.equal(result.error, undefined, "verification timed out opening a named pipe");
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /QA_ARTIFACT_UNSAFE/);
+    assert.equal(await readQaArtifactEvidence(root, unapproved.qaRunId), null);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
