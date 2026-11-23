@@ -3370,6 +3370,23 @@
       "network": "none"
     },
     {
+      "path": "tests/tooling/native-qa/run-store.test.ts",
+      "owner": "scripts",
+      "reviewed": true,
+      "tags": [
+        "unit"
+      ],
+      "evidence": "fixture",
+      "dependsOn": [
+        "scripts"
+      ],
+      "requires": [],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
       "path": "tests/tooling/skills/agents-playbooks.test.ts",
       "owner": "scripts",
       "tags": [

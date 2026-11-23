@@ -9,7 +9,7 @@ const manifest = {
   qaRunId: "qa-fixture-1", candidateCommit: "a".repeat(40), candidateTree: "b".repeat(40),
   packageDigest: "1".repeat(64), pluginDigest: "2".repeat(64), extensionDigest: "3".repeat(64),
   artifactDigest: "4".repeat(64), sourceDigest: "5".repeat(64), targetDigest: "6".repeat(64),
-  operation: "rough-cut-publish", authorizationDigest: "7".repeat(64),
+  operation: "rough-cut-publish" as const, authorizationDigest: "7".repeat(64),
 };
 
 test("initial creation and identical restart are inspect-only", async () => {
