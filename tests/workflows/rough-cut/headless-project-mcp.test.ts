@@ -1304,6 +1304,13 @@ test("headless project media can be understood and planned without a Final Cut c
       assert.equal(rejected.isError, true);
       assert.match(toolErrorText(rejected), /ANALYSIS.*(PROVIDER|STALE)/);
     } finally { await changedProvider.client.close(); await changedProvider.transport.close(); }
+    const missingProvider = await connectProductionClient(here, { ...environment, FRAMEKIT_SPEECH_ANALYZER: "" });
+    try {
+      const rejected = await missingProvider.client.callTool({ name: "headless.analysis.pin", arguments: pinArgs });
+      assert.equal(rejected.isError, true);
+      assert.match(toolErrorText(rejected), /ANALYSIS.*(PROVIDER|STALE)/);
+    } finally { await missingProvider.client.close(); await missingProvider.transport.close(); }
+
 
     const stale = await client.callTool({ name: "headless.analysis.pin", arguments: { ...pinArgs, expectedRevision: { ...pinArgs.expectedRevision, sequence: 999 } } });
     assert.equal(stale.isError, true);

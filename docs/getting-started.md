@@ -301,7 +301,7 @@ To pin existing provider-reported analysis, call `headless.analysis.pin` with
 `projectId`, `sequenceId`, the current `expectedRevision`, registered `mediaId`,
 `kind` (`speech`, `vad`, or `audio`), and a source-relative `range`. The tool
 returns a content-addressed `ref` containing source, provider, revision, range,
-and artifact identities. It checks the registered source and current project;
+and artifact identities. It checks the registered source, current project, and configured analyzer descriptor;
 missing, incomplete, inferred, or conflicting analysis is rejected. Re-analyze when the source, provider, or coverage changes; pin again for the
 current project revision.
 Pinning is not an edit approval, native occurrence proof, or proof of an edited

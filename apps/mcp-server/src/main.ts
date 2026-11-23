@@ -321,7 +321,8 @@ const server = createMcpServer(runtime, {
   sessionChangeSource: createCanonicalSessionChangeSource(() => runtime.inspectProject()),
   materializationDirectory: join(framekitStateDirectory, "materializations"),
   headlessProjects,
-  analysisEvidence: { index: semanticMediaIndexStore, artifacts: new FileAnalysisArtifactStore(join(framekitStateDirectory, "analysis-artifacts")) },
+  analysisEvidence: { index: semanticMediaIndexStore, artifacts: new FileAnalysisArtifactStore(join(framekitStateDirectory, "analysis-artifacts")),
+    currentProvider: (kind) => (kind === "audio" ? analyzers.audioAnalyzer : analyzers.speechAnalyzer)?.descriptor },
 });
 const transport = new StdioServerTransport();
 let shuttingDown = false;
