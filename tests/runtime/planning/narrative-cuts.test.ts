@@ -5,7 +5,7 @@ import { rankNarrativeCuts } from "../../../packages/runtime/src/planning/narrat
 const revision = { id: "rev-1", sequence: 1, timestamp: "2026-01-01T00:00:00.000Z" };
 const source = { mediaId: "source", source: "source.mov", sourceDigest: "sha256:source", duration: 10 };
 const input = {
-  source, revision, occurrenceId: "clip-1", sourceRange: { start: 0, end: 10, startTime: { value: "0", timescale: "1" }, durationTime: { value: "10", timescale: "1" } }, sequenceRange: { start: 20, end: 30, startTime: { value: "20", timescale: "1" }, durationTime: { value: "10", timescale: "1" } },
+  source, revision, projectId: "project-1", timelineId: "sequence-1", occurrenceId: "clip-1", sourceRange: { start: 0, end: 10, startTime: { value: "0", timescale: "1" }, durationTime: { value: "10", timescale: "1" } }, sequenceRange: { start: 20, end: 30, startTime: { value: "20", timescale: "1" }, durationTime: { value: "10", timescale: "1" } },
   sequenceFrameDuration: { value: "1", timescale: "10" },
   analysis: {
     schemaVersion: 1 as const, mediaId: source.mediaId, sourceIdentity: source, revision,
@@ -31,6 +31,8 @@ test("ranks a review-only pause between complete thoughts with source and sequen
   assert.ok(candidate.rationale);
   assert.ok(candidate.evidence.length > 0);
   assert.deepEqual(result.revision, revision);
+  assert.equal(result.projectId, "project-1");
+  assert.equal(result.timelineId, "sequence-1");
 });
 
 test("does not recommend ambiguous speech, protected content or unobserved silence", () => {
@@ -76,4 +78,10 @@ test("preserves exact source and sequence timing for fractional frame candidates
   assert.ok(Math.abs(seconds(cut.sourceRange.startTime) - cut.sourceRange.start) < 1e-9);
   assert.ok(Math.abs(seconds(cut.sequenceRange.startTime) - cut.sequenceRange.start) < 1e-9);
   assert.ok(Math.abs(seconds(cut.sourceRange.durationTime) - (cut.sourceRange.end - cut.sourceRange.start)) < 1e-9);
+});
+
+
+test("requires exact project and timeline identities", () => {
+  assert.throws(() => rankNarrativeCuts({ ...input, projectId: "" }), /TARGET/);
+  assert.throws(() => rankNarrativeCuts({ ...input, timelineId: "" }), /TARGET/);
 });
