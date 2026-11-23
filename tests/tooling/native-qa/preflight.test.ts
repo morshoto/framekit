@@ -83,6 +83,18 @@ test("failed candidate or artifact checks never run the render test", async () =
   assert.equal(renderCalls, 0);
 });
 
+test("publisher fixture mismatch stops before headless render", async () => {
+  const { runHeadlessQaChecks } = await import("../../../scripts/native-qa/headless-checks.js");
+  let renders = 0;
+  const result = await runHeadlessQaChecks({
+    candidateMatches: async () => true,
+    verifyArtifact: async () => { throw new Error("QA_PUBLISH_FIXTURE_MISMATCH"); },
+    runRenderContract: async () => { renders++; },
+  });
+  assert.equal(result, "publisher-fixture-mismatch");
+  assert.equal(renders, 0);
+});
+
 test("a changed candidate invalidates the completed headless check", async () => {
   const { runHeadlessQaChecks } = await import("../../../scripts/native-qa/headless-checks.js");
   let calls = 0;

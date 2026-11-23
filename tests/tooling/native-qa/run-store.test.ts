@@ -27,6 +27,28 @@ const manifest = {
   operation: "rough-cut-publish" as const, authorizationDigest: "7".repeat(64),
 };
 
+test("publisher fixture worker requires an explicit artifact", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-fixture-worker-"));
+  try {
+    const input = join(root, "manifest.json");
+    await writeFile(input, JSON.stringify({ ...manifest, authorizationDigest: null }));
+    const result = spawnSync(process.execPath, ["--import", "tsx", "scripts/native-qa/cli.ts", "start-publisher-fixture", root, input], { encoding: "utf8", timeout: 10000 });
+    assert.notEqual(result.status, 0);
+    await assert.rejects(inspectRun(root, manifest.qaRunId), /QA_RUN_NOT_FOUND_OR_INCOMPLETE/);
+    const artifact = join(root, "fixture.fcpxml"); await writeFile(artifact, "fixture");
+    const start = spawnSync(process.execPath, ["--import", "tsx", "scripts/native-qa/cli.ts", "start-publisher-fixture", root, input, artifact], { encoding: "utf8", timeout: 10000 });
+    assert.equal(start.status, 0, start.stderr);
+    let evidence;
+    for (let i = 0; i < 100; i++) {
+      evidence = await readQaEvidence(root, manifest.qaRunId);
+      if (evidence.result !== "pending-or-interrupted") break;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.equal(evidence?.result, "candidate-mismatch");
+    assert.equal(await readQaPublisherFixtureEvidence(root, manifest.qaRunId), null);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("publisher fixture evidence binds the artifact bytes and expected edit", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-qa-fixture-evidence-"));
   const artifacts = await mkdtemp(join(tmpdir(), "framekit-qa-fixture-artifacts-"));
