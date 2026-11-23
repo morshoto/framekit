@@ -316,6 +316,20 @@ test("publisher never starts verification when recording dispatch fails", async 
   }, { artifactPath: "/tmp/source.fcpxml", transactionId: "txn-1", targetLibraryPath: "/tmp/new.fcpbundle", artifactDigest: "a".repeat(64) }, async stage => {
     await new Promise<void>(resolve => setImmediate(resolve));
     if (stage === "dispatched") throw new Error("QA_STAGE_PERSISTENCE_FAILED");
-  }), /QA_STAGE_PERSISTENCE_FAILED/);
+  }), /PUBLISH_DISPATCH_UNCERTAIN:.*do not redispatch/);
   assert.deepEqual(calls, ["artifact.publish.preview", "artifact.publish.execute"]);
+});
+
+
+test("publisher never treats failed verified-stage recording as permission to redispatch", async () => {
+  const calls: string[] = [];
+  await assert.rejects(runPublishStages(async (name, args) => {
+    calls.push(name);
+    if (name === "artifact.publish.preview") return { jobId: "job-1", state: "awaiting-confirmation", artifactDigest: "a".repeat(64), targetLibraryPath: "/tmp/new.fcpbundle" };
+    if (!args.confirmVerification) return { jobId: "job-1", state: "verification-pending", nextAction: "confirm-verification", delivery: { status: "dispatched" } };
+    return { jobId: "job-1", state: "verified", result: { verified: true } };
+  }, { artifactPath: "/tmp/source.fcpxml", transactionId: "txn-1", targetLibraryPath: "/tmp/new.fcpbundle", artifactDigest: "a".repeat(64) }, async stage => {
+    if (stage === "verified") throw new Error("QA_STAGE_PERSISTENCE_FAILED");
+  }), /PUBLISH_EVIDENCE_INCOMPLETE:.*do not redispatch/);
+  assert.equal(calls.filter(name => name === "artifact.publish.execute").length, 2);
 });
