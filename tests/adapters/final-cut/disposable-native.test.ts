@@ -10,6 +10,7 @@ import {
   type NativeFinalCutUndoResult,
 } from "@framekit/final-cut";
 import type { ProjectSnapshot, RuntimeCapabilities } from "@framekit/runtime";
+import { writeSimulatedStageEvidence } from "../../support/simulated-native-receiver.js";
 
 const canonicalCapabilities: RuntimeCapabilities = {
   editor: {
@@ -178,6 +179,7 @@ test("simulated-native: disposable native execute rejects a stale preview before
 
   await assert.rejects(workflow.execute(preview.previewToken), /STALE_CONTEXT/);
   assert.equal(state.nativeEditCalls, 0);
+  await writeSimulatedStageEvidence("stale-preview", { operationId: preview.previewToken, targetId: preview.target.clipId, sourceDigest: "fixture-media-1", desiredDigest: "fixture-rename", revisionId: preview.baseRevision.id }, ["preview-issued", "revision-changed", "execute-rejected", "no-dispatch"]);
 });
 
 test("simulated-native: disposable native execute rejects changed native targets before mutation", async () => {
