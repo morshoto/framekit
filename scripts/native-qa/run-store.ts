@@ -113,6 +113,31 @@ async function assertAuthorizationBinding(root: string, manifest: QaRunManifest)
   } catch { throw new Error("QA_AUTHORIZATION_BINDING_INVALID"); }
 }
 
+async function reserveIndex(root: string, name: string, runId: string): Promise<string | undefined> {
+  const directory = join(root, name);
+  try { await mkdir(directory, { mode: 0o700 }); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    try {
+      const index = await lstat(directory);
+      const binding = await lstat(join(directory, "run-id"));
+      if (!index.isDirectory() || index.isSymbolicLink() || !binding.isFile() || binding.isSymbolicLink()) throw new Error("QA_RUN_UNSAFE_PATH");
+      const content = await readFile(join(directory, "run-id"), "utf8");
+      if (!/^[a-z0-9][a-z0-9-]{0,63}\n$/.test(content)) throw new Error("QA_RUN_NOT_FOUND_OR_INCOMPLETE");
+      return content.slice(0, -1);
+    } catch (bindingError) {
+      if ((bindingError as NodeJS.ErrnoException).code === "ENOENT") throw new Error("QA_RUN_NOT_FOUND_OR_INCOMPLETE");
+      throw bindingError;
+    }
+  }
+  const file = await open(join(directory, "run-id"), "wx", 0o600);
+  try { await file.writeFile(`${runId}\n`); await file.sync(); }
+  finally { await file.close(); }
+  await syncDirectory(directory);
+  await syncDirectory(root);
+  return undefined;
+}
+
 /** Creates only a blocked record. It never initiates or resumes a native operation. */
 export async function createOrInspectRun(root: string, manifest: QaRunManifest): Promise<{ created: boolean; run: QaRun }> {
   const bound = structuredClone(manifest);
@@ -135,34 +160,13 @@ export async function createOrInspectRun(root: string, manifest: QaRunManifest):
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
-  {
-    const identity = manifestFields.filter(key => key !== "qaRunId" && key !== "authorizationDigest").map(key => bound[key]);
-    const indexName = bound.authorizationDigest === null
-      ? `.preflight-${createHash("sha256").update(JSON.stringify(identity)).digest("hex")}`
-      : `.authorization-${bound.authorizationDigest}`;
-    const authorizationDirectory = join(root, indexName);
-    try { await mkdir(authorizationDirectory, { mode: 0o700 }); }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      let owner: string;
-      try {
-        const bindingDir = await lstat(authorizationDirectory);
-        const bindingFile = await lstat(join(authorizationDirectory, "run-id"));
-        if (!bindingDir.isDirectory() || bindingDir.isSymbolicLink() || !bindingFile.isFile() || bindingFile.isSymbolicLink()) throw new Error("QA_RUN_UNSAFE_PATH");
-        const content = await readFile(join(authorizationDirectory, "run-id"), "utf8");
-        if (!/^[a-z0-9][a-z0-9-]{0,63}\n$/.test(content)) throw new Error("QA_RUN_NOT_FOUND_OR_INCOMPLETE");
-        owner = content.slice(0, -1);
-      } catch (bindingError) {
-        if ((bindingError as NodeJS.ErrnoException).code === "ENOENT") throw new Error("QA_RUN_NOT_FOUND_OR_INCOMPLETE");
-        throw bindingError;
-      }
-      return inspectMatching(owner);
-    }
-    const binding = await open(join(authorizationDirectory, "run-id"), "wx", 0o600);
-    try { await binding.writeFile(`${bound.qaRunId}\n`); await binding.sync(); }
-    finally { await binding.close(); }
-    await syncDirectory(authorizationDirectory);
-    await syncDirectory(root);
+  const identity = manifestFields.filter(key => key !== "qaRunId" && key !== "authorizationDigest").map(key => bound[key]);
+  const jobIndex = `.job-${createHash("sha256").update(JSON.stringify(identity)).digest("hex")}`;
+  const existingJob = await reserveIndex(root, jobIndex, bound.qaRunId);
+  if (existingJob) return inspectMatching(existingJob);
+  if (bound.authorizationDigest !== null) {
+    const existingApproval = await reserveIndex(root, `.authorization-${bound.authorizationDigest}`, bound.qaRunId);
+    if (existingApproval) return inspectMatching(existingApproval);
   }
   try { await mkdir(directory, { mode: 0o700 }); }
   catch (error) {

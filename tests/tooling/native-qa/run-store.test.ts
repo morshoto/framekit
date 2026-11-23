@@ -365,9 +365,12 @@ test("detached headless preflight persists evidence after the client exits", asy
     assert.equal(result.verdict, "BLOCKED");
     assert.equal(result.dispatch, "NOT_DISPATCHED");
     assert.match(result.finishedAt, /^\d{4}-\d{2}-\d{2}T/);
+    await writeFile(manifestPath, JSON.stringify({ ...manifest, qaRunId: "different-client-run", authorizationDigest: null }));
     const duplicate = spawnSync(process.execPath, [...cli, "start", root, manifestPath], { encoding: "utf8", timeout: 10000 });
     assert.equal(duplicate.status, 0, duplicate.stderr);
     assert.equal(JSON.parse(duplicate.stdout).created, false);
+    assert.equal(JSON.parse(duplicate.stdout).run.manifest.qaRunId, manifest.qaRunId);
+    await assert.rejects(lstat(join(root, "different-client-run")), (error: NodeJS.ErrnoException) => error.code === "ENOENT");
     assert.equal((await inspectRun(root, manifest.qaRunId)).dispatch, "NOT_DISPATCHED");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
@@ -605,5 +608,16 @@ test("an authorized start cannot bypass the existing unapproved job", async () =
     const duplicate = await createOrInspectRun(root, authorized);
     assert.equal(duplicate.created, false);
     assert.equal(duplicate.run.manifest.qaRunId, first.qaRunId);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("racing authorized and unapproved starts create at most one job", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-cross-form-race-"));
+  try {
+    const unapproved = { ...manifest, qaRunId: "without-approval", authorizationDigest: null };
+    const authorized = { ...manifest, qaRunId: "with-approval" };
+    const results = await Promise.allSettled([createOrInspectRun(root, unapproved), createOrInspectRun(root, authorized)]);
+    assert.equal(results.filter(result => result.status === "fulfilled" && result.value.created).length, 1);
+    for (const result of results) if (result.status === "rejected") assert.match(String(result.reason), /QA_RUN_NOT_FOUND_OR_INCOMPLETE|QA_RUN_IDENTITY_MISMATCH/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
