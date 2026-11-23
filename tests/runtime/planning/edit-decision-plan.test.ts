@@ -264,3 +264,33 @@ test("music decisions retain verified source audio evidence and reject changed a
     assert.equal((await createEditDecisionPlan(missingPair, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "unavailable");
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
+
+test("headless decision service loads current project and brief and rejects project drift", async () => {
+  const f = await fixture();
+  try {
+    const { HeadlessDecisionPlanService } = await import("../../../apps/mcp-server/src/headless-decision-plan.js");
+    let snapshot = structuredClone(f.request.snapshot);
+    const service = new HeadlessDecisionPlanService({
+      readProject: async () => structuredClone(snapshot),
+      storeForProject: () => f.briefStore,
+      artifacts: f.artifacts,
+      verifySource: verifyLocalMediaSource,
+    });
+    const { snapshot: _snapshot, brief: _brief, accepted: _accepted, speechContext, vadContext, ...input } = f.request;
+    const result = await service.plan(input);
+    assert.equal(result.status, "available");
+    const racing = new HeadlessDecisionPlanService({ readProject: async () => {
+      const observed = structuredClone(snapshot);
+      snapshot = { ...snapshot, revision: { ...snapshot.revision, sequence: 2 } };
+      return observed;
+    }, storeForProject: () => f.briefStore, artifacts: f.artifacts, verifySource: verifyLocalMediaSource });
+    const stale = await racing.plan(input);
+    assert.equal(stale.status, "unavailable");
+    assert.match(stale.reason, /STALE/);
+    await f.briefStore.revise("p", f.draft.digest, { ...f.request.brief, theme: "changed" });
+    snapshot = structuredClone(f.request.snapshot);
+    assert.equal((await service.plan(input)).status, "unavailable");
+    assert.deepEqual(f.request.speechContext, speechContext);
+    assert.deepEqual(f.request.vadContext, vadContext);
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
