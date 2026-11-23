@@ -551,3 +551,19 @@ test("a later authorized duplicate inspects the existing preflight run", async (
     assert.equal(duplicate.run.authorizationBinding, "9".repeat(64));
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("CLI records a separate digest without claiming consent or dispatch", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-cli-binding-"));
+  try {
+    const unapproved = { ...manifest, authorizationDigest: null };
+    await createOrInspectRun(root, unapproved);
+    const result = spawnSync(process.execPath, ["--import", "tsx", "scripts/native-qa/cli.ts", "record-authorization", root, unapproved.qaRunId, "9".repeat(64)], { encoding: "utf8", timeout: 10000 });
+    assert.equal(result.status, 0, result.stderr);
+    const value = JSON.parse(result.stdout);
+    assert.equal(value.bound, true);
+    assert.equal(value.run.authorizationBinding, "9".repeat(64));
+    assert.equal(value.authorizationVerified, false);
+    assert.equal(value.dispatchAllowed, false);
+    assert.equal(value.run.dispatch, "NOT_DISPATCHED");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
