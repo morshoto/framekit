@@ -162,3 +162,26 @@ test("caption planning fails closed if pinned bytes change between reads", async
     assert.equal(result.status, "unavailable");
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
+
+test("reviewers can correct caption words without changing transcript evidence or timing", async () => {
+  const f = await fixture();
+  try {
+    const original = await planCaptionGroups(f.request, f.ref, f.current, f.artifacts, verifyLocalMediaSource);
+    const request = { ...f.request, wordCorrections: [{ wordIndex: 0, text: "Welcome" }] };
+    const corrected = await planCaptionGroups(request, f.ref, f.current, f.artifacts, verifyLocalMediaSource);
+    assert.equal(original.status, "available"); assert.equal(corrected.status, "available");
+    if (original.status !== "available" || corrected.status !== "available") return;
+    const oldWord = original.plan.groups[0]!.words[0]!; const newWord = corrected.plan.groups[0]!.words[0]!;
+    assert.equal(newWord.text, "Welcome"); assert.equal(newWord.originalText, "Hello");
+    assert.deepEqual(newWord.sourceRange, oldWord.sourceRange); assert.deepEqual(newWord.sequenceRange, oldWord.sequenceRange);
+    assert.equal(corrected.plan.analysisRef.artifactDigest, f.ref.artifactDigest);
+    assert.notEqual(corrected.plan.inputDigest, original.plan.inputDigest);
+    assert.ok(corrected.plan.warnings.some((warning) => /correction.*review/i.test(warning)));
+    for (const wordCorrections of [[{ wordIndex: 99, text: "bad" }], [{ wordIndex: 0, text: "" }],
+      [{ wordIndex: 0, text: "one" }, { wordIndex: 0, text: "two" }], [{ wordIndex: 0, text: "bad\ntext" }]]) {
+      assert.notEqual((await planCaptionGroups({ ...f.request, wordCorrections }, f.ref, f.current, f.artifacts, verifyLocalMediaSource)).status, "available");
+    }
+    await writeFile(f.path, "changed source");
+    assert.equal((await planCaptionGroups(request, f.ref, f.current, f.artifacts, verifyLocalMediaSource)).status, "unavailable");
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
