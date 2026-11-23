@@ -65,3 +65,15 @@ test("requires exact timeline identity and reports unavailable evidence", () => 
   const result = rankNarrativeCuts({ ...input, analysis: { ...input.analysis, vadSegments: undefined } });
   assert.ok(result.warnings.length > 0);
 });
+
+test("preserves exact source and sequence timing for fractional frame candidates", () => {
+  const result = rankNarrativeCuts({ ...input, sequenceRange: { start: 0, end: 10, startTime: { value: "0", timescale: "1" }, durationTime: { value: "10", timescale: "1" } }, sequenceFrameDuration: { value: "1001", timescale: "24000" } });
+  assert.equal(result.candidates.length, 1);
+  const cut = result.candidates[0]!;
+  assert.ok(cut.sourceRange.startTime && cut.sourceRange.durationTime);
+  assert.ok(cut.sequenceRange.startTime && cut.sequenceRange.durationTime);
+  const seconds = (time: { value: string; timescale: string }) => Number(time.value) / Number(time.timescale);
+  assert.ok(Math.abs(seconds(cut.sourceRange.startTime) - cut.sourceRange.start) < 1e-9);
+  assert.ok(Math.abs(seconds(cut.sequenceRange.startTime) - cut.sequenceRange.start) < 1e-9);
+  assert.ok(Math.abs(seconds(cut.sourceRange.durationTime) - (cut.sourceRange.end - cut.sourceRange.start)) < 1e-9);
+});
