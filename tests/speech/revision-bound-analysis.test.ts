@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import {
   AgentVideoRuntime,
   bindSpeechAnalysis,
   createSpeechTranscriptArtifact,
+  SpeechTranscriptArtifactStore,
   type AnalysisInput,
   type AnalyzerDescriptor,
   type MediaSourceIdentity,
@@ -58,6 +62,23 @@ test("speech transcript artifacts bind exact word timing and provenance", () => 
   assert.throws(() => createSpeechTranscriptArtifact({ words: [{ ...analysis.words[0]!, end: -1 }] }, { input: boundInput, provider, producerVersion: "0.2.6" }), /ANALYSIS_INVALID/);
   assert.throws(() => createSpeechTranscriptArtifact(analysis, { input, provider, producerVersion: "0.2.6" }), /ANALYSIS_SOURCE_DIGEST_REQUIRED/);
   assert.throws(() => createSpeechTranscriptArtifact(analysis, { input: boundInput, provider: { id: "unknown", provider: "unknown" }, producerVersion: "0.2.6" }), /ANALYSIS_PROVIDER_VERSION_REQUIRED/);
+});
+
+test("transcript artifacts survive restart and reject corrupt or linked records", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-speech-artifact-"));
+  try {
+    const boundInput = { ...input, media: { ...input.media, sourceDigest: "a".repeat(64) } };
+    const artifact = createSpeechTranscriptArtifact({ words: [{ text: "hello", start: 0.125, end: 0.3, confidence: 0.98 }] }, { input: boundInput, provider, producerVersion: "0.2.6" });
+    const store = new SpeechTranscriptArtifactStore(directory);
+    await Promise.all([store.save(artifact), store.save(artifact)]);
+    assert.deepEqual(await new SpeechTranscriptArtifactStore(directory).load(artifact.digest), artifact);
+    await assert.rejects(store.load("../invalid"), /ANALYSIS_ARTIFACT_INVALID/);
+    await writeFile(join(directory, `${artifact.digest}.json`), "{}");
+    await assert.rejects(store.load(artifact.digest), /ANALYSIS_ARTIFACT_CORRUPT/);
+    await rm(join(directory, `${artifact.digest}.json`));
+    await symlink(join(directory, "missing"), join(directory, `${artifact.digest}.json`));
+    await assert.rejects(store.load(artifact.digest), /ANALYSIS_ARTIFACT_CORRUPT/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
 test("speech binding retains an unavailable VAD reason without inventing activity", () => {
