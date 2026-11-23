@@ -496,9 +496,10 @@ test("publisher recovery reservation cannot be hidden by a verified stage", asyn
     const jobId = "publish-job-123";
     await recordQaPublisherStage(root, manifest.qaRunId, "prepared", { jobId, state: "awaiting-confirmation", artifactDigest: manifest.artifactDigest });
     await claimDispatchIntent(root, manifest, jobId);
-    await recordQaPublisherStage(root, manifest.qaRunId, "dispatched", { jobId, state: "verification-pending", nextAction: "confirm-verification", delivery: { status: "dispatched" } });
+    await recordQaPublisherStage(root, manifest.qaRunId, "dispatched", { jobId, state: "verification-pending", nextAction: "confirm-verification", delivery: { status: "dispatched" }, recoveryReservation: { retained: true } });
     const response = { jobId, state: "verified", result: { verified: true }, recoveryReservation: { retained: true } };
     await assert.rejects(recordQaPublisherStage(root, manifest.qaRunId, "verified", response), /QA_STAGE_OBSERVATION_INVALID/);
+    await assert.rejects(recordQaPublisherStage(root, manifest.qaRunId, "verified", { jobId, state: "verified", result: { verified: true } }), /QA_STAGE_OBSERVATION_INVALID/);
     await recordQaPublisherStage(root, manifest.qaRunId, "verification-recovery-required", response);
     const observed = await readQaPublisherStages(root, manifest.qaRunId);
     assert.equal(observed.stages[2]!.stage, "verification-recovery-required");
