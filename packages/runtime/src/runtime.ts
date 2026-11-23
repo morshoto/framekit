@@ -305,8 +305,8 @@ export class AgentVideoRuntime {
     return this.media.understandMedia(mediaId);
   }
 
-  public async understandMediaInProject(mediaId: string, project: ProjectSnapshot): Promise<MediaUnderstanding> {
-    return this.media.understandMediaInProject(mediaId, project);
+  public async understandMediaInProject(mediaId: string, project: ProjectSnapshot, validateBeforePublish?: () => Promise<void>): Promise<MediaUnderstanding> {
+    return this.media.understandMediaInProject(mediaId, project, false, validateBeforePublish);
   }
 
   public planDuration(request: DurationPolicyRequest): DurationPolicyPlan {

@@ -2375,10 +2375,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       if (!project.timeline.resources.some((resource) => resource.id === mediaId && resource.sourceKind === "local-file" && resource.sourceDigest)) {
         throw new Error("MEDIA_NOT_REGISTERED: analysis requires registered local media");
       }
-      const result = await runtime.understandMediaInProject(mediaId, projectSnapshotFromTimelineIr(project.timeline));
-      const current = await projects.open(projectId);
-      if (JSON.stringify(current.timeline.revision) !== JSON.stringify(project.timeline.revision)) throw new Error("STALE_CONTEXT: project changed during media analysis");
-      return result;
+      return runtime.understandMediaInProject(mediaId, projectSnapshotFromTimelineIr(project.timeline), async () => {
+        const current = await projects.open(projectId);
+        if (JSON.stringify(current.timeline.revision) !== JSON.stringify(project.timeline.revision)) throw new Error("STALE_CONTEXT: project changed during media analysis");
+      });
     });
   });
 

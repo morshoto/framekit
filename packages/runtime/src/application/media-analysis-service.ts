@@ -184,10 +184,12 @@ export class MediaAnalysisService {
     mediaId: string,
     project: ProjectSnapshot,
     attachToLiveContext = false,
+    validateBeforePublish?: () => Promise<void>,
   ): Promise<MediaUnderstanding> {
     const media = findMedia(project, mediaId);
     const cached = await this.loadCachedUnderstanding(project, media);
     if (cached) {
+      await validateBeforePublish?.();
       if (attachToLiveContext) this.context.attachMediaUnderstanding(cached);
       return structuredClone(cached);
     }
@@ -231,6 +233,7 @@ export class MediaAnalysisService {
       ],
       analysisRevision: project.revision,
     };
+    await validateBeforePublish?.();
     if (attachToLiveContext) this.context.attachMediaUnderstanding(understanding);
     await this.options.semanticMediaIndexStore?.save(understanding);
     return structuredClone(understanding);

@@ -294,7 +294,7 @@ For a Framekit-owned headless project, pass its `projectId` and a registered
 `mediaId` to `speech.analyze`, `audio.analyze`, or `media.understand`. Speech
 and audio also accept an optional source-relative `range`. The project is
 reopened before and after analysis, so an observed missing or changed source or
-project revision fails the request. This is a source-file check, not proof of
+project revision fails the request before a new understanding is saved. This is a source-file check, not proof of
 native Final Cut occurrence identity or continuous filesystem fencing.
 
 Pin speech and audio provider/model revisions with
