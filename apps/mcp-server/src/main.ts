@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -27,8 +28,8 @@ import {
   isFinalCutVideoProbeAvailable,
 } from "@framekit/final-cut";
 import { FixtureAudioAnalyzer, FixtureMetadataAnalyzer, FixtureSpeechAnalyzer, FixtureVisualAnalyzer } from "@framekit/testkit";
-import { AgentVideoRuntime, JsonSemanticMediaIndexStore } from "@framekit/runtime";
-import { HeadlessProjectService } from "@framekit/headless-application";
+import { AgentVideoRuntime, JsonCreativeBriefStore, JsonSemanticMediaIndexStore } from "@framekit/runtime";
+import { HeadlessCreativeBriefService, HeadlessProjectService } from "@framekit/headless-application";
 import { createMcpServer } from "./server.js";
 import { createCanonicalSessionChangeSource } from "./headless-sessions.js";
 import { createCanonicalNativeSnapshotReader } from "./canonical-native-snapshot.js";
@@ -319,6 +320,10 @@ const server = createMcpServer(runtime, {
   sessionChangeSource: createCanonicalSessionChangeSource(() => runtime.inspectProject()),
   materializationDirectory: join(framekitStateDirectory, "materializations"),
   headlessProjects,
+  headlessBriefs: new HeadlessCreativeBriefService({
+    openProject: (projectId) => headlessProjects.open(projectId),
+    storeForProject: (projectId) => new JsonCreativeBriefStore(join(framekitStateDirectory, "creative-briefs", `${createHash("sha256").update(projectId).digest("hex")}.json`)),
+  }),
 });
 const transport = new StdioServerTransport();
 let shuttingDown = false;

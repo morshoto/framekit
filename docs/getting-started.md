@@ -100,6 +100,21 @@ ffprobe to register local sources. Start the MCP server in headless mode, then:
    `headless.fcpxml.export`; provide a new output path and an explicit Final Cut
    target with `materialization: "versioned"`.
 
+To review a creative brief for a headless project, call `headless.brief.create`
+with `projectId`, `sequenceId`, the current `expectedRevision`, and `brief`.
+For each required content item, provide source coverage with the registered
+resource ID, its SHA-256 `sourceDigest`, and a start and end time in seconds.
+Use `headless.brief.inspect` to review missing decisions and coverage. Once the
+user has reviewed and explicitly confirmed the brief, call `headless.brief.accept`
+with the same target, the returned `record.digest` as `expectedDigest`, and
+`confirmed: true`. Use `headless.brief.revise` with the current digest and the
+updated brief to return it to draft. If a source or revision changes, inspect
+and revise against the current project before accepting again.
+
+A matching source digest establishes source identity, not that the footage
+satisfies the requirement; review the content separately. Brief acceptance does
+not authorize or apply timeline edits and is not evidence of a Final Cut import.
+
 For later Timeline IR revisions that require explicit approval, call
 `headless.edit.approved-preview` with the project, sequence, current revision
 and operations. Review the result, then call `headless.edit.approved-execute`

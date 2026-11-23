@@ -10,7 +10,7 @@ const brief: CreativeBrief = {
   aspectRatio: "9:16", theme: "warm", visualDirection: "natural",
   requiredContent: ["introduction"], excludedContent: ["private details"],
   speechPolicy: { kind: "specified", value: "preserve meaning" }, musicPolicy: { kind: "specified", value: "none" }, captionPolicy: { kind: "specified", value: "review" },
-  sourceCoverage: [{ requirement: "introduction", sourceId: "camera", start: 0, end: 10 }],
+  sourceCoverage: [{ requirement: "introduction", sourceId: "camera", sourceDigest: "a".repeat(64), start: 0, end: 10 }],
   inferences: [{ field: "pacing", value: "measured", reason: "interview", accepted: true }],
   reviewPrompts: ["Is the tone warm enough?"],
 };
@@ -83,7 +83,7 @@ test("an inference cannot override an explicit user policy", () => {
 test("review examples cover different purposes and identify uncovered requirements", async () => {
   const { reviewCreativeBrief } = await import("../../../packages/runtime/src/planning/creative-brief.js");
   for (const purpose of ["talking-head interview", "highlights", "product demo"]) {
-    const example = { ...brief, purpose: { kind: "specified" as const, value: purpose }, requiredContent: ["opening", "ending"], sourceCoverage: [{ requirement: "opening", sourceId: "source", start: 0, end: 1 }] };
+    const example = { ...brief, purpose: { kind: "specified" as const, value: purpose }, requiredContent: ["opening", "ending"], sourceCoverage: [{ requirement: "opening", sourceId: "source", sourceDigest: "b".repeat(64), start: 0, end: 1 }] };
     assert.deepEqual(reviewCreativeBrief(example).missingCoverage, ["ending"]);
     assert.throws(() => acceptCreativeBrief(example), /coverage/i);
   }
@@ -92,4 +92,19 @@ test("review examples cover different purposes and identify uncovered requiremen
 test("brief workflow is available to runtime consumers", async () => {
   const runtime = await import("../../../packages/runtime/src/index.js");
   assert.equal(typeof (runtime as Record<string, unknown>).reviewCreativeBrief, "function");
+});
+
+
+test("accepted source coverage is pinned and rechecked against registered media", async () => {
+  const { assertBriefSourceCoverage, reviewCreativeBrief } = await import("../../../packages/runtime/src/planning/creative-brief.js");
+  const missingDigest = { ...brief, sourceCoverage: [{ requirement: "introduction", sourceId: "camera", start: 0, end: 10 }] };
+  assert.deepEqual(reviewCreativeBrief(missingDigest).missingCoverage, ["introduction"]);
+  assert.throws(() => acceptCreativeBrief(missingDigest), /coverage/i);
+  const accepted = acceptCreativeBrief(brief);
+  const media = [{ mediaId: "camera", source: "source.mov", sourceDigest: "a".repeat(64), duration: 12 }];
+  assert.doesNotThrow(() => assertBriefSourceCoverage(accepted, brief, media));
+  assert.throws(() => assertBriefSourceCoverage(accepted, brief, []), /COVERAGE/);
+  assert.throws(() => assertBriefSourceCoverage(accepted, brief, [{ ...media[0]!, sourceDigest: "b".repeat(64) }]), /COVERAGE/);
+  assert.throws(() => assertBriefSourceCoverage(accepted, brief, [{ ...media[0]!, duration: 5 }]), /COVERAGE/);
+  assert.throws(() => assertBriefSourceCoverage(accepted, brief, [media[0]!, media[0]!]), /COVERAGE/);
 });
