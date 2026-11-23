@@ -5,7 +5,7 @@ describe('document manifest', () => {
   it('provides ordered, unique documents for both locales', () => {
     for (const locale of ['en', 'ja'] as const) {
       const docs = documents.filter(doc => doc.locale === locale);
-      expect(docs).toHaveLength(17);
+      expect(docs).toHaveLength(locale === 'en' ? 19 : 17);
       expect(new Set(docs.map(doc => doc.slug)).size).toBe(docs.length);
       const expected = sections.flatMap(section => docs.filter(doc => doc.section === section.key).sort((a, b) => a.order - b.order)).map(doc => `/${locale}/docs/${doc.slug}/`);
       expect(getNavigation(locale).map(item => item.href)).toEqual(expected);

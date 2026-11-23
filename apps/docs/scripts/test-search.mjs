@@ -46,6 +46,32 @@ try {
     await page.close();
   }
   {
+    const page = await browser.newPage({ viewport: { width: 320, height: 800 } });
+    await page.goto(`${origin}${base}/en/docs/editing-capabilities/`, { waitUntil:'networkidle' });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'capability guide overflows mobile viewport');
+    const matrix = page.getByRole('region', { name: 'Editing capability comparison' });
+    assert.equal(await matrix.getAttribute('tabindex'), '0');
+    assert.equal(await matrix.evaluate(el => el.scrollWidth > el.clientWidth), true, 'matrix should scroll on mobile');
+    assert.ok(await page.locator('table th').first().evaluate(el => el.getBoundingClientRect().width >= 120), 'matrix columns must remain readable');
+    await matrix.focus();
+    await page.keyboard.press('ArrowRight');
+    await page.waitForFunction(() => document.querySelector('[aria-label="Editing capability comparison"]')?.scrollLeft > 0, null, { timeout: 5000 });
+    await page.close();
+  }
+  {
+    const page = await browser.newPage({ viewport: { width: 375, height: 800 } });
+    await page.goto(`${origin}${base}/en/docs/troubleshooting/`, { waitUntil:'networkidle' });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    for (const query of ['cannot connect', 'bridge', 'media not found', 'preview rejected', 'render export', 'timed out', 'undo recovery']) {
+      await page.getByRole('button', { name:'Search docs' }).click();
+      await page.getByRole('combobox').fill(query);
+      const result = page.locator('[role=option][href*="/en/docs/troubleshooting/"]').first();
+      await result.waitFor();
+      await page.keyboard.press('Escape');
+    }
+    await page.close();
+  }
+  {
     const page = await browser.newPage();
     await page.goto(`${origin}${base}/`);
     await page.waitForURL(`${origin}${base}/en/`);
