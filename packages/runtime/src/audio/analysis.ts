@@ -7,6 +7,7 @@ export function validateAudioAnalysisPayload(value: unknown): void {
     throw new Error("ANALYSIS_INVALID: audio analysis must be an object");
   }
   const analysis = value as Record<string, unknown>;
+  if (analysis.coverageProvenance !== undefined && analysis.coverageProvenance !== "provider" && analysis.coverageProvenance !== "inferred") throw new Error("ANALYSIS_INVALID: invalid audio coverage provenance");
   if (analysis.signalScope !== undefined && analysis.signalScope !== "source" && analysis.signalScope !== "occurrence") {
     throw new Error("ANALYSIS_INVALID: unsupported audio signal scope");
   }

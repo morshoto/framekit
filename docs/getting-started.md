@@ -321,7 +321,8 @@ reports audio unavailable while preserving successful transcription and other
 analysis. Providers may report `sourceTimebase` as a positive rational clock and
 `signalFormat` with positive integer `sampleRate`/`channels` and an optional
 nonempty `channelLayout`. Declared range timing and format are validated and
-retained; absent technical metadata is not inferred.
+retained. `coverageProvenance` distinguishes provider-reported coverage from
+a runtime-inferred range; inferred coverage does not establish observed evidence.
 
 For source-file loudness in a checkout, the optional
 `apps/mcp-server/runtime/ffmpeg-audio-backend.py` command requires Python 3,

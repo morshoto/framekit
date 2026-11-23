@@ -130,19 +130,19 @@ function validateRecord(record: MediaUnderstanding, context: AnalysisEvidenceCon
   }
   if (capability === "speech") {
     const speech = record.speech;
-    if (!speech || !speech.provider || !speech.sourceIdentity || !speech.revision || !speech.sourceTimebase
-      || !covers(speech.requestedRange, context.range) || !covers(speech.observedRange, context.range)) throw new Error("ANALYSIS_INVALID: incomplete speech evidence");
+    if (!speech || speech.coverageProvenance !== "provider" || !speech.provider || !speech.sourceIdentity || !speech.revision || !speech.sourceTimebase
+      || !covers(speech.requestedRange, context.range) || !covers(speech.observedRange, context.range)) throw new Error("ANALYSIS_INVALID: speech coverage is incomplete or not provider-reported");
     const bound = bindSpeechAnalysis(speech, {
       input: { project: { revision: record.analysisRevision } as ProjectSnapshot, media: context.source }, provider: context.provider,
     });
     if (context.kind === "vad" && (!bound.vadSegments || bound.capability !== "transcription-plus-vad")) throw new Error("ANALYSIS_INVALID: VAD unavailable or partial");
   } else {
     const audio = record.audio;
-    if (!audio || !audio.provider || !audio.sourceIdentity || !audio.revision || audio.valid === false
+    if (!audio || audio.coverageProvenance !== "provider" || !audio.provider || !audio.sourceIdentity || !audio.revision || audio.valid === false
       || (audio.signalScope ?? "source") !== "source" || audio.mediaId !== context.source.mediaId
       || !sameMediaSourceIdentity(audio.sourceIdentity, context.source) || !sameAnalyzerDescriptor(audio.provider, context.provider)
       || !sameRevision(audio.revision, record.analysisRevision)
-      || !covers(audio.requestedRange, context.range) || !covers(audio.measuredRange, context.range)) throw new Error("ANALYSIS_INVALID: incomplete or conflicting audio evidence");
+      || !covers(audio.requestedRange, context.range) || !covers(audio.measuredRange, context.range)) throw new Error("ANALYSIS_INVALID: audio coverage is incomplete, inferred or conflicting");
     validateAudioAnalysisPayload(audio);
   }
 }

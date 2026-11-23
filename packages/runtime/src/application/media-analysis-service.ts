@@ -583,6 +583,7 @@ export class MediaAnalysisService {
     }
     return {
       ...structuredClone(analysis),
+      coverageProvenance: analysis.measuredRange === undefined || analysis.coverageProvenance === "inferred" ? "inferred" : "provider",
       signalScope: analysis.signalScope ?? "source",
       schemaVersion: 1,
       mediaId: media.mediaId,
@@ -669,6 +670,7 @@ function mergeSpeechAnalyses(
   const { vadSegments: _segments, vadUnavailableReason: _reason, vadCoverage: _coverage, capability: _capability, ...latestWithoutVad } = latest;
   return bindSpeechAnalysis({
     ...latestWithoutVad,
+    coverageProvenance: (!previous || previous.coverageProvenance === "provider") && analyses.every((item) => item.coverageProvenance === "provider") ? "provider" : "inferred",
     requestedRange,
     observedRange,
     capability: completeVad ? "transcription-plus-vad" : "transcription-only",
