@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { lstat, readFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertQaJobIndex, createOrInspectRun, inspectRun, type QaRunManifest } from "./run-store.js";
 import { headlessResults, type HeadlessResult } from "./headless-checks.js";
@@ -16,34 +16,44 @@ export interface HeadlessEvidence {
   finishedAt: string;
 }
 
-async function launchHeadlessWorker(root: string, qaRunId: string): Promise<void> {
+function workerInput(artifactPath: string | undefined): string {
+  if (artifactPath !== undefined && (typeof artifactPath !== "string" || !isAbsolute(artifactPath) || artifactPath.length > 4096 || artifactPath.includes("\0"))) throw new Error("QA_ARTIFACT_UNSAFE");
+  return JSON.stringify(artifactPath === undefined ? {} : { artifactPath });
+}
+async function launchHeadlessWorker(root: string, qaRunId: string, input: string): Promise<void> {
   const child = spawn(process.execPath, ["--import", "tsx", worker, root, qaRunId], {
-    cwd: checkout, detached: true, stdio: "ignore",
+    cwd: checkout, detached: true, stdio: ["pipe", "ignore", "ignore"],
   });
   await new Promise<void>((resolve, reject) => {
     child.once("error", reject);
-    child.once("spawn", resolve);
+    child.once("spawn", () => {
+      if (!child.stdin) { reject(new Error("QA_WORKER_INPUT_UNAVAILABLE")); return; }
+      child.stdin.once("error", reject);
+      child.stdin.end(input, resolve);
+    });
   });
   child.unref();
 }
 
 /** Start one bounded headless check only. A duplicate start never creates a worker. */
-export async function startQaRun(root: string, manifest: QaRunManifest) {
+export async function startQaRun(root: string, manifest: QaRunManifest, artifactPath?: string) {
+  const input = workerInput(artifactPath);
   const boundRoot = resolve(root);
   const outcome = await createOrInspectRun(boundRoot, manifest);
-  if (outcome.created) await launchHeadlessWorker(boundRoot, outcome.run.manifest.qaRunId);
+  if (outcome.created) await launchHeadlessWorker(boundRoot, outcome.run.manifest.qaRunId, input);
   return outcome;
 }
 
 /** Explicitly reschedule only a not-yet-started headless check, never a native operation. */
-export async function resumeHeadlessQaRun(root: string, qaRunId: string) {
+export async function resumeHeadlessQaRun(root: string, qaRunId: string, artifactPath?: string) {
+  const input = workerInput(artifactPath);
   const boundRoot = resolve(root);
   const run = await inspectRun(boundRoot, qaRunId);
   if (run.dispatch !== "NOT_DISPATCHED") throw new Error("QA_DISPATCH_ALREADY_CLAIMED");
   await assertQaJobIndex(boundRoot, run.manifest);
   const evidence = await readQaEvidence(boundRoot, qaRunId);
   if (evidence.result !== "pending-or-interrupted" || evidence.startedAt) return { scheduled: false, dispatchAllowed: false };
-  await launchHeadlessWorker(boundRoot, qaRunId);
+  await launchHeadlessWorker(boundRoot, qaRunId, input);
   return { scheduled: true, dispatchAllowed: false };
 }
 

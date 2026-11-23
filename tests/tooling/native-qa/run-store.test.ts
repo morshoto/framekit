@@ -8,7 +8,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { bindQaAuthorization, claimDispatchIntent, createOrInspectRun, inspectRun, markDispatchUncertain } from "../../../scripts/native-qa/run-store.js";
 import { runPublishStages } from "../../../scripts/final-cut-publisher-verification.mjs";
-import { readQaEvidence, resumeHeadlessQaRun } from "../../../scripts/native-qa/supervisor.js";
+import { readQaEvidence, resumeHeadlessQaRun, startQaRun } from "../../../scripts/native-qa/supervisor.js";
 import { publishQaRecord } from "../../../scripts/native-qa/atomic-record.js";
 import { readQaArtifactEvidence, verifyQaArtifact } from "../../../scripts/native-qa/artifact-evidence.js";
 
@@ -929,5 +929,15 @@ test("detached headless input keeps artifact paths out of output and records", a
     assert.equal(await readQaArtifactEvidence(root, manifest.qaRunId), null);
     const files = await readdir(join(root, manifest.qaRunId));
     for (const name of files) assert.equal((await readFile(join(root, manifest.qaRunId, name), "utf8")).includes(artifactPath), false);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+
+test("invalid worker artifact input is rejected before creating a run", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-invalid-worker-input-"));
+  try {
+    const unapproved = { ...manifest, authorizationDigest: null };
+    await assert.rejects(startQaRun(root, unapproved, "relative.fcpxml"), /QA_ARTIFACT_UNSAFE/);
+    await assert.rejects(lstat(join(root, unapproved.qaRunId)), (error: NodeJS.ErrnoException) => error.code === "ENOENT");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
