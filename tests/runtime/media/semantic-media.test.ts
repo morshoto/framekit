@@ -720,6 +720,38 @@ test("semantic media index persists source-bound understanding and reuses matchi
   }
 });
 
+test("cached and indexed speech reject contradictory original provenance", async (t) => {
+  for (const field of ["source", "provider", "revision"] as const) {
+    await t.test(field, async (caseT) => {
+      const fixture = semanticFixture();
+      const store = new InMemorySemanticMediaIndexStore();
+      const delegate = new FixtureSpeechAnalyzer();
+      let calls = 0;
+      const analyzer = {
+        descriptor: delegate.descriptor,
+        capabilities: delegate.capabilities,
+        analyze: async (...args: Parameters<FixtureSpeechAnalyzer["analyze"]>) => { calls++; return delegate.analyze(...args); },
+      };
+      const first = new AgentVideoRuntime(fixture.adapter, { speechAnalyzer: analyzer, semanticMediaIndexStore: store });
+      const evidence = await first.understandMedia("media-semantic-1");
+      assert.ok(evidence.speech?.sourceIdentity && evidence.speech.provider && evidence.speech.revision);
+      if (field === "source") evidence.speech.sourceIdentity.source = "/different.mov";
+      if (field === "provider") evidence.speech.provider.version = "different";
+      if (field === "revision") evidence.speech.revision.timestamp = new Date(1).toISOString();
+      await store.save(evidence);
+      const fresh = semanticFixture();
+      const runtime = new AgentVideoRuntime(fresh.adapter, { speechAnalyzer: analyzer, semanticMediaIndexStore: store });
+      await caseT.test("index rejects evidence", async () => {
+        assert.equal((await runtime.indexMedia({ query: "hello" })).length, 0);
+      });
+      await caseT.test("understanding reruns analyzer", async () => {
+        await runtime.understandMedia("media-semantic-1");
+        assert.equal(calls, 2);
+      });
+    });
+  }
+});
+
 test("semantic media index invalidates when analyzer provenance changes", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-semantic-index-"));
   try {
