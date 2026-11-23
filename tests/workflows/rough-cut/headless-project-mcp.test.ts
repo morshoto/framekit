@@ -23,6 +23,57 @@ import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer,
 
 const execFileAsync = promisify(execFile);
 
+test("reviewed music decision previews the exact headless placement without changing the project", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-music-decision-"));
+  const here = dirname(fileURLToPath(import.meta.url));
+  const environment = { ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1", FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
+    FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"), FRAMEKIT_STATE_DIR: join(directory, "state") };
+  let connection: { client: Client; transport: StdioClientTransport } | undefined;
+  try {
+    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory]);
+    const musicPath = join(directory, "music.wav");
+    await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=220:duration=2", "-y", musicPath]);
+    connection = await connectProductionClient(here, environment);
+    const client = connection.client;
+    const created = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: emptyTimeline() } }));
+    const projectId = created.timeline.project.id; const sequenceId = created.timeline.sequence.id;
+    const video = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: join(directory, "fixture-red-440hz.mp4"), expectedRevision: created.timeline.revision } }));
+    const music = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: musicPath, expectedRevision: video.project.timeline.revision } }));
+    const placed = payload(await client.callTool({ name: "headless.edit.execute", arguments: { projectId, sequenceId, expectedRevision: music.project.timeline.revision,
+      operations: [{ type: "insert-occurrence", occurrence: { id: "interview", name: "Interview", mediaId: video.resource.id, startTime: { value: "0", timescale: "1" }, durationTime: { value: "2", timescale: "1" }, sourceStartTime: { value: "0", timescale: "1" }, track: 0, role: "video" } }] } }));
+    const revision = placed.after.timeline.revision;
+    const target = { projectId, sequenceId, expectedRevision: revision };
+    const brief = { schemaVersion: 1, id: "music-brief", version: 1, purpose: { kind: "specified", value: "interview" }, audience: { kind: "no-preference" }, durationSeconds: { min: 1, max: 2 }, aspectRatio: "9:16", theme: "natural", visualDirection: "natural", requiredContent: [], excludedContent: [], sourceCoverage: [], speechPolicy: { kind: "specified", value: "preserve" }, musicPolicy: { kind: "specified", value: "background" }, captionPolicy: { kind: "specified", value: "none" }, inferences: [], reviewPrompts: [] };
+    const draft = payload(await client.callTool({ name: "headless.brief.create", arguments: { ...target, brief } }));
+    payload(await client.callTool({ name: "headless.brief.accept", arguments: { ...target, expectedDigest: draft.record.digest, confirmed: true } }));
+    const duration = music.resource.metadata.durationTime;
+    const input = { projectId, timelineId: sequenceId, revision, occurrenceId: "interview", caption: { style: "basic", maxWordsPerGroup: 3, maxCharsPerLine: 20, maxLines: 2 },
+      music: { occurrenceId: "music-track", music: { mediaId: music.resource.id, source: musicPath, sourceDigest: music.resource.sourceDigest, mediaKind: "audio", duration: Number(duration.value) / Number(duration.timescale) },
+        placement: { start: 0, end: 1, startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" } }, gainDb: -18, targetLane: 1,
+        context: { speech: "unknown", audioEvidence: "unavailable" }, capabilities: { staticMusicPreview: true, ducking: false, fades: false } } };
+    const decision = payload(await client.callTool({ name: "headless.decision.plan", arguments: input }));
+    assert.equal(decision.status, "available", decision.reason);
+    const before = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
+    const preview = payload(await client.callTool({ name: "headless.decision.preview-music", arguments: { ...input, planDigest: decision.plan.planDigest } }));
+    assert.equal(preview.scope, "headless-preview");
+    const inserted = preview.preview.after.timeline.sequence.occurrences.find((entry: any) => entry.id === "music-track");
+    assert.equal(inserted.mediaId, music.resource.id); assert.equal(inserted.gainDb, -18); assert.equal(inserted.track, 1);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, before.timeline);
+    const stale = await client.callTool({ name: "headless.decision.preview-music", arguments: { ...input, planDigest: "sha256:" + "0".repeat(64) } });
+    assert.equal(stale.isError, true);
+    const unaligned = { ...input, music: { ...input.music, placement: { start: 0, end: 1.01, startTime: { value: "0", timescale: "1" }, durationTime: { value: "101", timescale: "100" } } } };
+    const unalignedPlan = payload(await client.callTool({ name: "headless.decision.plan", arguments: unaligned }));
+    assert.equal(unalignedPlan.status, "available", unalignedPlan.reason);
+    const rejectedTiming = await client.callTool({ name: "headless.decision.preview-music", arguments: { ...unaligned, planDigest: unalignedPlan.plan.planDigest } });
+    assert.equal(rejectedTiming.isError, true);
+    assert.match(toolErrorText(rejectedTiming), /frame grid/i);
+    await writeFile(musicPath, "changed");
+    const changed = await client.callTool({ name: "headless.decision.preview-music", arguments: { ...input, planDigest: decision.plan.planDigest } });
+    assert.equal(changed.isError, true);
+  } finally { await connection?.client.close(); await connection?.transport.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test("headless edit reports primary gaps in preview and execution", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-edit-consequences-"));
   try {

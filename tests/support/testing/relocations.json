@@ -3150,6 +3150,7 @@
     ],
     "tests/integration/headless-project-mcp.test.ts": [
       "\"production decision planning pins real FFmpeg source audio\"",
+      "\"reviewed music decision previews the exact headless placement without changing the project\"",
       "\"production MCP persists creative brief review across restarts\"",
       "\"production rough-cut renders without FCPXML and rejects changed export intent\"",
       "\"approved headless edit tokens expire without mutation\"",

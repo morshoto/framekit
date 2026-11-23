@@ -2446,6 +2446,40 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return options.headlessDecisionPlans.plan(input);
   }));
 
+  registerValidatedTool(server, "headless.decision.preview-music", {
+    description: "Preview the exact reviewed music proposal in the Framekit-owned headless timeline. This does not approve or execute an edit.",
+    inputSchema: { ...decisionPlanSchema, planDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/) },
+  }, async ({ planDigest, ...input }) => sessionResult(async () => {
+    const plans = options.headlessDecisionPlans;
+    if (!plans) throw new Error("DECISION_PLAN_UNAVAILABLE: headless planning is not configured");
+    const initial = await plans.plan(input);
+    if (initial.status !== "available" || initial.plan.planDigest !== planDigest) throw new Error("STALE_DECISION_PLAN: review the current plan before previewing");
+    const decision = initial.plan.decisions.find((item) => item.kind === "music-proposal");
+    const placement = decision?.kind === "music-proposal" && decision.musicPlan.decision === "propose-music" ? decision.musicPlan.placement : undefined;
+    const source = input.music.music;
+    if (!placement || !source || !placement.range.startTime || !placement.range.durationTime || placement.targetLane < 1) {
+      throw new Error("MUSIC_PREVIEW_UNAVAILABLE: an exact rational range and a positive headless audio track are required");
+    }
+    await verifyLocalMediaSource(source);
+    const preview = await requireHeadlessProjects().previewEdit(input.projectId, {
+      schemaVersion: 1, expectedRevision: input.revision, operations: [{ type: "insert-occurrence", occurrence: {
+        id: placement.occurrenceId, name: placement.occurrenceId, mediaId: placement.mediaId, role: "music", track: placement.targetLane,
+        startTime: placement.range.startTime, durationTime: placement.range.durationTime,
+        sourceStartTime: { value: "0", timescale: "1" }, gainDb: placement.gainDb,
+      } }],
+    }, input.timelineId);
+    const frame = preview.before.timeline.sequence.frameDuration;
+    const aligned = (time: { value: string; timescale: string }) =>
+      (BigInt(time.value) * BigInt(frame.timescale)) % (BigInt(time.timescale) * BigInt(frame.value)) === 0n;
+    if (!aligned(placement.range.startTime) || !aligned(placement.range.durationTime)) throw new Error("MUSIC_PREVIEW_UNAVAILABLE: placement must align to the sequence frame grid");
+    await verifyLocalMediaSource(source);
+    const current = await plans.plan(input);
+    if (current.status !== "available" || current.plan.planDigest !== planDigest) throw new Error("STALE_DECISION_PLAN: inputs changed during preview");
+    const after = await requireHeadlessProjects().open(input.projectId);
+    if (timelineIrDigest(after.timeline) !== timelineIrDigest(preview.before.timeline)) throw new Error("STALE_DECISION_PLAN: project changed during preview");
+    return { scope: "headless-preview", planDigest, preview, notice: "Review only; this is not approval, native placement, or proof of dialogue audibility." };
+  }));
+
   registerValidatedTool(server, "headless.analysis.pin", {
     description: "Pin existing provider-reported source analysis for a headless project. This read-only reference does not approve or authorize an edit.",
     inputSchema: { projectId: z.string().min(1), sequenceId: z.string().min(1), expectedRevision: revisionValueSchema,

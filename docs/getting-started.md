@@ -130,9 +130,14 @@ the correction itself still requires review and changes the plan digest.
 Music capability and speech-presence inputs are caller-supplied context, not
 independent capability discovery or verified speech detection.
 
-This proposal does not preview or execute timeline operations. Its native edit
-support remains unavailable, and its digest is not edit authorization. Source
-audio analysis does not verify the resulting mix or dialogue audibility.
+For a proposed background-music placement, call
+`headless.decision.preview-music` with the same planning inputs and returned
+`planDigest`. Supply frame-aligned rational `startTime` and `durationTime` in
+the placement and a positive headless audio track. The server rechecks the
+accepted brief, evidence, project and music source and returns the headless
+timeline preview. This preview neither approves nor executes an edit. Native
+edit support remains unavailable, and the digest is not edit authorization.
+Source audio analysis does not verify the resulting mix or dialogue audibility.
 
 For later Timeline IR revisions that require explicit approval, call
 `headless.edit.approved-preview` with the project, sequence, current revision
