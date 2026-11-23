@@ -35,3 +35,4 @@ export * from "./planning/narrative-cuts.js";
 export * from "./planning/analysis-evidence.js";
 export * from "./planning/creative-brief.js";
 export * from "./planning/music-planning.js";
+export * from "./planning/caption-planning.js";
