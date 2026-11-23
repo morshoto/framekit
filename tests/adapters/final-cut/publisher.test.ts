@@ -2481,9 +2481,9 @@ test("pending dispatch wins over a verified legacy record on restart", async () 
     assert.equal((await restarted.loadPublishJob(fixture.job.jobId)).state, "verification-pending");
     await assert.rejects(restarted.verifyCreatedTarget(fixture.job.jobId), /FINAL_CUT_PUBLISH_TARGET_UNVERIFIED/);
     assert.equal((await restarted.executePublishJob(fixture.job.jobId, true)).state, "verification-pending");
-    assert.deepEqual(await readPersistedFinalCutPublishJobStatus(fixture.publishJobsDirectory, fixture.job.jobId), { jobId: fixture.job.jobId, state: "verification-pending" });
+    assert.deepEqual(await readPersistedFinalCutPublishJobStatus(fixture.publishJobsDirectory, fixture.job.jobId), { jobId: fixture.job.jobId, state: "verification-pending", artifactDigest: fixture.job.artifactDigest });
     await rm(path);
-    assert.deepEqual(await readPersistedFinalCutPublishJobStatus(fixture.publishJobsDirectory, fixture.job.jobId), { jobId: fixture.job.jobId, state: "verified" });
+    assert.deepEqual(await readPersistedFinalCutPublishJobStatus(fixture.publishJobsDirectory, fixture.job.jobId), { jobId: fixture.job.jobId, state: "verified", artifactDigest: fixture.job.artifactDigest });
     assert.equal(fixture.deliveryCalls(), 1);
   } finally {
     await rm(fixture.directory, { recursive: true, force: true });

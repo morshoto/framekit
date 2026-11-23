@@ -968,7 +968,7 @@ test("publisher inspection reads only status and sanitizes private fields", asyn
     const calls: Array<{ name: string; args: unknown }> = [];
     const observed = await inspectQaPublisher(root, manifest.qaRunId, async (name, args) => {
       calls.push({ name, args });
-      return { jobId: "publish-job-1", state: "verification-pending", nextAction: "confirm-verification", sourcePath: "sensitive-value", result: { verified: true } };
+      return { jobId: "publish-job-1", state: "verification-pending", artifactDigest: manifest.artifactDigest, nextAction: "confirm-verification", sourcePath: "sensitive-value", result: { verified: true } };
     });
     assert.deepEqual(calls, [{ name: "artifact.publish.status", args: { jobId: "publish-job-1" } }]);
     assert.equal(observed.dispatch, "UNKNOWN_AFTER_DISPATCH");
@@ -988,7 +988,7 @@ test("publisher status never makes verified or failed observations replayable", 
     await createOrInspectRun(root, manifest);
     await claimDispatchIntent(root, manifest, "publish-job-1");
     for (const state of ["awaiting-confirmation", "awaiting-final-cut", "verified", "failed"]) {
-      const result = await inspectQaPublisher(root, manifest.qaRunId, async () => ({ jobId: "publish-job-1", state }));
+      const result = await inspectQaPublisher(root, manifest.qaRunId, async () => ({ jobId: "publish-job-1", state, artifactDigest: manifest.artifactDigest }));
       assert.equal(result.dispatch, "UNKNOWN_AFTER_DISPATCH");
       assert.equal(result.verdict, "BLOCKED");
       assert.equal(result.nextAction, "inspect-recovery");
@@ -1002,7 +1002,7 @@ test("publisher inspection rejects mismatched identity and handles unavailable s
   try {
     await createOrInspectRun(root, manifest);
     await claimDispatchIntent(root, manifest, "publish-job-1");
-    await assert.rejects(inspectQaPublisher(root, manifest.qaRunId, async () => ({ jobId: "other-job", state: "verified" })), /QA_PUBLISH_STATUS_IDENTITY_MISMATCH/);
+    await assert.rejects(inspectQaPublisher(root, manifest.qaRunId, async () => ({ jobId: "other-job", state: "verified", artifactDigest: manifest.artifactDigest })), /QA_PUBLISH_STATUS_IDENTITY_MISMATCH/);
     const unavailable = await inspectQaPublisher(root, manifest.qaRunId, async () => { throw new Error("sensitive-value"); });
     assert.equal(unavailable.nextAction, "status-unavailable");
     assert.equal(unavailable.verdict, "BLOCKED");
@@ -1037,7 +1037,7 @@ test("publisher status inspection rejects run identity changes during the call",
     });
     await started;
     await writeFile(join(root, manifest.qaRunId, "run.json"), JSON.stringify({ schemaVersion: 1, manifest: { ...manifest, sourceDigest: "a".repeat(64) }, dispatch: "NOT_DISPATCHED", verdict: "BLOCKED" }));
-    release({ jobId: "publish-job-1", state: "verified" });
+    release({ jobId: "publish-job-1", state: "verified", artifactDigest: manifest.artifactDigest });
     await assert.rejects(pending, /QA_PUBLISH_STATUS_IDENTITY_MISMATCH/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
@@ -1068,7 +1068,7 @@ test("publisher inspection uses the production MCP status tool without executing
   const root = await mkdtemp(join(tmpdir(), "framekit-qa-status-mcp-"));
   const calls: string[] = [];
   const publisher = {
-    loadPublishJob: async (jobId: string) => { calls.push(`status:${jobId}`); return { jobId, state: "verification-pending", sourcePath: "sensitive-value" }; },
+    loadPublishJob: async (jobId: string) => { calls.push(`status:${jobId}`); return { jobId, state: "verification-pending", artifactDigest: manifest.artifactDigest, sourcePath: "sensitive-value" }; },
     executePublishJob: async () => { calls.push("execute"); throw new Error("unexpected execution"); },
     isAvailable: () => false,
   };
@@ -1165,4 +1165,15 @@ test("publisher inspection rejects corrupt or linked persisted job files", async
     assert.equal((await inspectQaPublisherFromStore(root, manifest.qaRunId, store)).nextAction, "status-unavailable");
     assert.equal(await readFile(target, "utf8"), "fixture");
   } finally { await rm(root, { recursive: true, force: true }); await rm(store, { recursive: true, force: true }); }
+});
+
+
+test("publisher inspection rejects a status for a different artifact", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-status-artifact-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    await claimDispatchIntent(root, manifest, "publish-job-1");
+    await assert.rejects(inspectQaPublisher(root, manifest.qaRunId, async () => ({ jobId: "publish-job-1", state: "verified", artifactDigest: "a".repeat(64) })), /QA_PUBLISH_STATUS_IDENTITY_MISMATCH/);
+    assert.equal((await inspectRun(root, manifest.qaRunId)).dispatch, "UNKNOWN_AFTER_DISPATCH");
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
