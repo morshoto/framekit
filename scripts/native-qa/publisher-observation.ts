@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
+import { lstat } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { publishQaRecord } from "./atomic-record.js";
@@ -90,6 +91,23 @@ export async function readQaPublisherObservation(root: string, runId: string, id
       : (item.nextAction !== "status-unavailable" && item.nextAction !== "identity-mismatch") || item.observedState !== undefined)) throw new Error("QA_OBSERVATION_CORRUPT");
   return { ...item as unknown as Result, status: "recorded" as const, jobId: run.publishJobId!, dispatch: run.dispatch, verdict: "BLOCKED" as const,
     scope: "historical-publisher-store" as const, nativeQuiescence: "unproven" as const, dispatchAllowed: false as const };
+}
+
+/** Recover the bounded set of historical observations without knowing the client request IDs. */
+export async function readQaPublisherObservations(root: string, runId: string) {
+  await inspectRun(root, runId);
+  const exists = async (path: string) => {
+    try { await lstat(path); return true; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return false; throw error; }
+  };
+  const observations: Awaited<ReturnType<typeof readQaPublisherObservation>>[] = [];
+  for (let index = 0; index < 32; index++) {
+    const id = `status-${index}`;
+    const [request, result] = await Promise.all([exists(requestPath(root, runId, id)), exists(resultPath(root, runId, id))]);
+    if (!request && result) throw new Error("QA_OBSERVATION_CORRUPT");
+    if (request) observations.push(await readQaPublisherObservation(root, runId, id));
+  }
+  return observations;
 }
 
 /** Worker entry: read one store record and publish a sanitized, immutable observation. */

@@ -1666,6 +1666,12 @@ test("detached publisher observation survives its client and never redispatches"
     assert.equal(observed.verdict, "BLOCKED");
     assert.equal(observed.dispatchAllowed, false);
     assert.equal(JSON.stringify(observed).includes(store), false);
+    const recovered = await readQaEvidenceBundle(root, bound.qaRunId);
+    assert.deepEqual(recovered.publisherObservations, [observed]);
+    const recoveredCli = spawnSync(process.execPath, ["--import", "tsx", "scripts/native-qa/cli.ts", "evidence-bundle", root, bound.qaRunId], { encoding: "utf8", timeout: 10000 });
+    assert.equal(recoveredCli.status, 0, recoveredCli.stderr);
+    assert.deepEqual(JSON.parse(recoveredCli.stdout).publisherObservations, [observed]);
+    assert.equal(JSON.stringify(recovered).includes(store), false);
     assert.equal((await startQaPublisherObservation(root, bound.qaRunId, "status-1", store)).scheduled, false);
     await assert.rejects(startQaPublisherObservation(root, bound.qaRunId, "status-1", root), /IDENTITY_MISMATCH/);
     assert.equal(await readFile(jobPath, "utf8"), before);
@@ -1683,7 +1689,18 @@ test("detached publisher observation survives its client and never redispatches"
     assert.equal(await readFile(jobPath, "utf8"), changedStore);
     await writeFile(join(root, bound.qaRunId, "publisher-observation-status-1.result.json"), "corrupt");
     await assert.rejects(readQaPublisherObservation(root, bound.qaRunId, "status-1"), /QA_OBSERVATION_CORRUPT/);
+    await assert.rejects(readQaEvidenceBundle(root, bound.qaRunId), /QA_OBSERVATION_CORRUPT/);
   } finally { await rm(root, { recursive: true, force: true }); await rm(store, { recursive: true, force: true }); }
+});
+
+test("evidence bundle rejects an orphaned publisher observation result", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-orphan-observation-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    await writeFile(join(root, manifest.qaRunId, "publisher-observation-status-0.result.json"), "{}");
+    await assert.rejects(readQaEvidenceBundle(root, manifest.qaRunId), /QA_OBSERVATION_CORRUPT/);
+    assert.equal((await inspectRun(root, manifest.qaRunId)).dispatch, "NOT_DISPATCHED");
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test("concurrent observation requests schedule once and preserve a missing store", async () => {
