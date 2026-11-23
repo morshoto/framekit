@@ -127,3 +127,21 @@ test("current source bytes are revalidated when pinning and verifying", async ()
     await assert.rejects(() => pinAnalysisEvidence(index, artifacts, localContext, verifyLocalMediaSource), /MEDIA_CHANGED/);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test("command speech analyzer exposes its declared model identity", async () => {
+  const { CommandSpeechAnalyzer } = await import("../../../../adapters/final-cut/typescript/src/analyzers.js");
+  const a = new CommandSpeechAnalyzer({ command: "fixture", providerVersion: "1", modelIdentity: "model@sha256:a", environment: {} });
+  const b = new CommandSpeechAnalyzer({ command: "fixture", providerVersion: "1", modelIdentity: "model@sha256:b", environment: {} });
+  assert.equal(a.descriptor.model, "model@sha256:a");
+  assert.notEqual(a.descriptor.configurationDigest, b.descriptor.configurationDigest);
+});
+
+test("source verification is required and brackets evidence access", async () => {
+  const { index, artifacts } = await fixture();
+  await assert.rejects(() => pinAnalysisEvidence(index, artifacts, context, undefined as never), /ANALYSIS_UNAVAILABLE/);
+  const ref = await pinAnalysisEvidence(index, artifacts, context, fixtureVerifier);
+  assert.equal((await verifyAnalysisEvidence(artifacts, ref, context, undefined as never)).status, "unavailable");
+  let calls = 0;
+  const changedDuringRead = async () => { if (++calls === 2) throw new Error("source changed"); };
+  assert.equal((await verifyAnalysisEvidence(artifacts, ref, context, changedDuringRead)).status, "invalid");
+});
