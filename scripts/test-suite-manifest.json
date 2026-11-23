@@ -3417,7 +3417,8 @@
       ],
       "requires": [],
       "platforms": [
-        "any"
+        "darwin",
+        "linux"
       ],
       "network": "none"
     },
