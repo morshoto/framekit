@@ -826,6 +826,7 @@ test("artifact verification records a sanitized digest snapshot without authoriz
     const evidence = await verifyQaArtifact(root, unapproved.qaRunId, path);
     assert.equal(evidence.result, "digest-matched");
     assert.equal(evidence.tier, "artifact");
+    assert.equal(evidence.scope, "snapshot-only");
     assert.equal(evidence.artifactDigest, unapproved.artifactDigest);
     assert.equal(evidence.dispatchAllowed, false);
     assert.equal(JSON.stringify(evidence).includes(path), false);
