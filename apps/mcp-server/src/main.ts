@@ -28,7 +28,7 @@ import {
   isFinalCutVideoProbeAvailable,
 } from "@framekit/final-cut";
 import { FixtureAudioAnalyzer, FixtureMetadataAnalyzer, FixtureSpeechAnalyzer, FixtureVisualAnalyzer } from "@framekit/testkit";
-import { AgentVideoRuntime, JsonCreativeBriefStore, JsonSemanticMediaIndexStore } from "@framekit/runtime";
+import { AgentVideoRuntime, FileAnalysisArtifactStore, JsonCreativeBriefStore, JsonSemanticMediaIndexStore } from "@framekit/runtime";
 import { HeadlessCreativeBriefService, HeadlessProjectService } from "@framekit/headless-application";
 import { createMcpServer } from "./server.js";
 import { createCanonicalSessionChangeSource } from "./headless-sessions.js";
@@ -220,9 +220,10 @@ const analyzers = liveMode
       metadataAnalyzer: new FixtureMetadataAnalyzer(),
     };
 
+const semanticMediaIndexStore = new JsonSemanticMediaIndexStore(join(framekitStateDirectory, "semantic-media-index.json"));
 const runtime = new AgentVideoRuntime(editor, {
   ...analyzers,
-  semanticMediaIndexStore: new JsonSemanticMediaIndexStore(join(framekitStateDirectory, "semantic-media-index.json")),
+  semanticMediaIndexStore,
 });
 const headlessProjects = new HeadlessProjectService({
   directory: join(framekitStateDirectory, "projects"),
@@ -325,6 +326,7 @@ const server = createMcpServer(runtime, {
     openProject: (projectId) => headlessProjects.open(projectId),
     storeForProject: (projectId) => new JsonCreativeBriefStore(join(framekitStateDirectory, "creative-briefs", `${createHash("sha256").update(projectId).digest("hex")}.json`)),
   }),
+  analysisEvidence: { index: semanticMediaIndexStore, artifacts: new FileAnalysisArtifactStore(join(framekitStateDirectory, "analysis-artifacts")) },
 });
 const transport = new StdioServerTransport();
 let shuttingDown = false;

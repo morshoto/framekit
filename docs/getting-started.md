@@ -312,6 +312,16 @@ reopened before and after analysis, so an observed missing or changed source or
 project revision fails the request before a new understanding is saved. This is a source-file check, not proof of
 native Final Cut occurrence identity or continuous filesystem fencing.
 
+To pin existing provider-reported analysis, call `headless.analysis.pin` with
+`projectId`, `sequenceId`, the current `expectedRevision`, registered `mediaId`,
+`kind` (`speech`, `vad`, or `audio`), and a source-relative `range`. The tool
+returns a content-addressed `ref` containing source, provider, revision, range,
+and artifact identities. It checks the registered source and current project;
+missing, incomplete, inferred, or conflicting analysis is rejected. Re-analyze
+and pin again when the source, provider, range, or project revision changes.
+Pinning is not an edit approval, native occurrence proof, or proof of an edited
+mix; editing workflows must verify the reference again at their own boundary.
+
 Pin speech and audio provider/model revisions with
 `FRAMEKIT_SPEECH_ANALYZER_VERSION` and `FRAMEKIT_AUDIO_ANALYZER_VERSION`.
 To include model identity in speech provenance, set

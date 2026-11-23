@@ -1274,6 +1274,7 @@ test("headless project media can be understood and planned without a Final Cut c
     FRAMEKIT_STATE_DIR: stateDirectory,
     FRAMEKIT_SPEECH_ANALYZER: speechAnalyzer,
     FRAMEKIT_SPEECH_ANALYZER_VERSION: "test-vad@1",
+    FRAMEKIT_SPEECH_ANALYZER_MODEL_ID: "fixture-model",
     FRAMEKIT_SPEECH_REQUIRE_VAD: "1",
     FRAMEKIT_AUDIO_ANALYZER: audioAnalyzer,
   };
@@ -1326,6 +1327,16 @@ test("headless project media can be understood and planned without a Final Cut c
     assert.equal(understanding.sourceIdentity.sourceDigest, registered.resource.sourceDigest);
     assert.equal(understanding.speech.capability, "transcription-plus-vad");
     assert.equal(understanding.audio.integratedLufs, -18);
+    const pinArgs = { projectId, sequenceId: created.timeline.sequence.id, expectedRevision: registered.project.timeline.revision,
+      mediaId: registered.resource.id, kind: "vad", range: { start: 0, end: 2 } };
+    const pinned = payload(await client.callTool({ name: "headless.analysis.pin", arguments: pinArgs }));
+    assert.equal(pinned.ref.kind, "vad");
+    assert.equal(pinned.ref.provider.model, "fixture-model");
+    assert.equal(pinned.ref.source.sourceDigest, registered.resource.sourceDigest);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.analysis.pin", arguments: pinArgs })).ref, pinned.ref);
+    const stale = await client.callTool({ name: "headless.analysis.pin", arguments: { ...pinArgs, expectedRevision: { ...pinArgs.expectedRevision, sequence: 999 } } });
+    assert.equal(stale.isError, true);
+
     assert.ok(understanding.analysis.every((status: any) => status.status === "analyzed" || status.status === "unavailable"));
 
     const directSpeech = payload(await client.callTool({ name: "speech.analyze", arguments: {
@@ -1385,6 +1396,9 @@ test("headless project media can be understood and planned without a Final Cut c
     const projects = payload(await client.callTool({ name: "headless.project.list", arguments: {} }));
     assert.ok(projects.some((project: any) => project.projectId === projectId));
     await writeFile(sourcePath, "replaced source");
+    const changedPin = await client.callTool({ name: "headless.analysis.pin", arguments: pinArgs });
+    assert.equal(changedPin.isError, true);
+    assert.match(toolErrorText(changedPin), /MEDIA_CHANGED/);
     for (const name of ["speech.analyze", "audio.analyze"]) {
       const changed = await client.callTool({ name, arguments: { projectId, mediaId: registered.resource.id } });
       assert.equal(changed.isError, true);
