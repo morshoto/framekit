@@ -56,6 +56,21 @@ test("integrates verified speech cuts, captions and explicit music omission with
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
+test("integrated plans explain withheld speech candidates", async () => {
+  const f = await fixture();
+  try {
+    const speech = { ...f.record.speech, words: [f.record.speech.words[0]!, { ...f.record.speech.words[1]!, confidence: 0.71 }] };
+    await f.index.save({ ...f.record, speech });
+    const speechRef = await pinAnalysisEvidence(f.index, f.artifacts, f.request.speechContext, verifyLocalMediaSource);
+    const vadRef = await pinAnalysisEvidence(f.index, f.artifacts, f.request.vadContext, verifyLocalMediaSource);
+    const result = await createEditDecisionPlan({ ...f.request, speechRef, vadRef }, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(result.status, "available");
+    if (result.status !== "available") return;
+    assert.equal(result.plan.decisions.some((decision) => decision.kind === "cut"), false);
+    assert.ok(result.plan.warnings.some((warning) => /confidence.*review/i.test(warning)));
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
 test("changes to the approved brief, target, source or evidence reject the plan", async () => {
   const f = await fixture();
   try {
