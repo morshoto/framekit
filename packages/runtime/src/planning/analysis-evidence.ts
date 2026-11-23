@@ -106,7 +106,7 @@ function validateContext(context: AnalysisEvidenceContext): void {
   if (!context || !["speech", "vad", "audio"].includes(context.kind)
     || !context.source || !nonempty(context.source.mediaId) || !nonempty(context.source.source) || !nonempty(context.source.sourceDigest)
     || !context.provider || !nonempty(context.provider.id) || !nonempty(context.provider.provider)
-    || !nonempty(context.provider.version) || !nonempty(context.provider.model) || !nonempty(context.provider.configurationDigest)
+    || !nonempty(context.provider.version) || (context.kind !== "audio" && !nonempty(context.provider.model)) || !nonempty(context.provider.configurationDigest)
     || !context.revision || !nonempty(context.revision.id) || !Number.isSafeInteger(context.revision.sequence) || context.revision.sequence < 0
     || !Number.isFinite(Date.parse(context.revision.timestamp)) || !validRange(context.range)) {
     throw new Error("ANALYSIS_INVALID: complete source, provider, revision and range are required");

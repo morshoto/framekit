@@ -204,6 +204,7 @@ const analyzers = liveMode
   ? createCommandAnalyzers({
       speechCommand: process.env.FRAMEKIT_SPEECH_ANALYZER,
       speechProviderVersion: process.env.FRAMEKIT_SPEECH_ANALYZER_VERSION,
+      speechModelIdentity: process.env.FRAMEKIT_SPEECH_ANALYZER_MODEL_ID,
       speechRequireVad: process.env.FRAMEKIT_SPEECH_REQUIRE_VAD === "1",
       audioCommand: process.env.FRAMEKIT_AUDIO_ANALYZER,
       audioProviderVersion: process.env.FRAMEKIT_AUDIO_ANALYZER_VERSION,

@@ -299,6 +299,9 @@ native Final Cut occurrence identity or continuous filesystem fencing.
 
 Pin speech and audio provider/model revisions with
 `FRAMEKIT_SPEECH_ANALYZER_VERSION` and `FRAMEKIT_AUDIO_ANALYZER_VERSION`.
+To include model identity in speech provenance, set
+`FRAMEKIT_SPEECH_ANALYZER_MODEL_ID` to the exact model identity and revision. This is a declared identity; update it
+when the model changes. Source verification does not independently verify model files.
 Command providers capture their execution environment and report a
 `configurationDigest` derived from that environment, executable path and
 declared provider version. Configuration changes invalidate incompatible cached
@@ -360,6 +363,7 @@ export FRAMEKIT_AUDIO_ANALYZER="$runtime/ffmpeg-audio-backend.py"
 export FRAMEKIT_WHISPER_BACKEND=mlx-whisper
 export FRAMEKIT_WHISPER_MODEL="/absolute/path/to/prepared-local-model"
 export FRAMEKIT_SPEECH_ANALYZER_VERSION="mlx-whisper-0.4.3:YOUR_MODEL_REVISION:silero-6.3"
+export FRAMEKIT_SPEECH_ANALYZER_MODEL_ID="YOUR_MODEL_REVISION"
 export FRAMEKIT_AUDIO_ANALYZER_VERSION="YOUR_FFMPEG_AND_BACKEND_VERSION"
 export FRAMEKIT_SILERO_VAD_MODEL="$(python -c 'import importlib.util,pathlib; print(pathlib.Path(importlib.util.find_spec("silero_vad").origin).parent / "data/silero_vad.jit")')"
 export FRAMEKIT_SILERO_VAD_SHA256="$(shasum -a 256 "$FRAMEKIT_SILERO_VAD_MODEL" | cut -d ' ' -f 1)"

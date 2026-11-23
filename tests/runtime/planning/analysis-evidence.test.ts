@@ -63,10 +63,11 @@ test("VAD requires complete available segments and audio requires measured sourc
   assert.equal((await verifyAnalysisEvidence(artifacts, ref, vadContext, fixtureVerifier)).status, "verified");
   const noVad = await fixture({ ...understanding, speech: { ...understanding.speech!, capability: "transcription-only", vadSegments: undefined } });
   await assert.rejects(() => pinAnalysisEvidence(noVad.index, noVad.artifacts, vadContext, fixtureVerifier), /ANALYSIS_/);
-  const audio = { mediaId: source.mediaId, sourceIdentity: source, provider, revision, requestedRange: { start: 0, end: 10 }, measuredRange: { start: 0, end: 10 }, integratedLufs: -20, truePeakDb: -2, silenceMs: 10, valid: true };
-  const audioRecord: MediaUnderstanding = { ...understanding, audio, analysis: [{ capability: "audio", status: "analyzed", provenance: { source, analyzer: provider, ranges: [{ start: 0, end: 10 }] } }] };
+  const { model: _model, ...audioProvider } = provider;
+  const audio = { mediaId: source.mediaId, sourceIdentity: source, provider: audioProvider, revision, requestedRange: { start: 0, end: 10 }, measuredRange: { start: 0, end: 10 }, integratedLufs: -20, truePeakDb: -2, silenceMs: 10, valid: true };
+  const audioRecord: MediaUnderstanding = { ...understanding, audio, analysis: [{ capability: "audio", status: "analyzed", provenance: { source, analyzer: audioProvider, ranges: [{ start: 0, end: 10 }] } }] };
   const audioFixture = await fixture(audioRecord);
-  const audioContext = { ...context, kind: "audio" as const };
+  const audioContext = { ...context, kind: "audio" as const, provider: audioProvider };
   const audioRef = await pinAnalysisEvidence(audioFixture.index, audioFixture.artifacts, audioContext, fixtureVerifier);
   assert.equal((await verifyAnalysisEvidence(audioFixture.artifacts, audioRef, audioContext, fixtureVerifier)).status, "verified");
   const invalid = await fixture({ ...audioRecord, audio: { ...audio, valid: false } });
@@ -129,7 +130,7 @@ test("current source bytes are revalidated when pinning and verifying", async ()
 });
 
 test("command speech analyzer exposes its declared model identity", async () => {
-  const { CommandSpeechAnalyzer } = await import("../../../../adapters/final-cut/typescript/src/analyzers.js");
+  const { CommandSpeechAnalyzer } = await import("../../../adapters/final-cut/typescript/src/analyzers.js");
   const a = new CommandSpeechAnalyzer({ command: "fixture", providerVersion: "1", modelIdentity: "model@sha256:a", environment: {} });
   const b = new CommandSpeechAnalyzer({ command: "fixture", providerVersion: "1", modelIdentity: "model@sha256:b", environment: {} });
   assert.equal(a.descriptor.model, "model@sha256:a");

@@ -21,6 +21,7 @@ export interface CommandAnalyzerOptions {
   command: string;
   timeoutMs?: number;
   providerVersion?: string;
+  modelIdentity?: string;
   requireVad?: boolean;
   /** Captured at construction and used for both execution and configuration identity. */
   environment?: Record<string, string | undefined>;
@@ -33,6 +34,7 @@ interface AnalyzerRequest extends AnalysisInput {
 export function createCommandAnalyzers(options: {
   speechCommand?: string;
   speechProviderVersion?: string;
+  speechModelIdentity?: string;
   speechRequireVad?: boolean;
   audioCommand?: string;
   audioProviderVersion?: string;
@@ -51,6 +53,7 @@ export function createCommandAnalyzers(options: {
         command: options.speechCommand,
         timeoutMs: options.timeoutMs,
         ...(options.speechProviderVersion ? { providerVersion: options.speechProviderVersion } : {}),
+        ...(options.speechModelIdentity ? { modelIdentity: options.speechModelIdentity } : {}),
         ...(options.speechRequireVad ? { requireVad: true } : {}),
       }),
     } : {}),
@@ -140,11 +143,12 @@ function commandDescriptor(options: CommandAnalyzerOptions, kind: string): Analy
     .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
   const configurationDigest = createHash("sha256").update(JSON.stringify({
     command: options.command, environment, requireVad: options.requireVad === true,
-    providerVersion: options.providerVersion,
+    providerVersion: options.providerVersion, modelIdentity: options.modelIdentity,
   })).digest("hex");
   return {
     id: `command.${kind}`, provider: "command",
     ...(options.providerVersion ? { version: options.providerVersion } : {}),
+    ...(options.modelIdentity ? { model: options.modelIdentity } : {}),
     configurationDigest,
   };
 }

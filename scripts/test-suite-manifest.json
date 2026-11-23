@@ -2519,7 +2519,8 @@
       "reviewed": true,
       "evidence": "unit",
       "dependsOn": [
-        "packages/runtime"
+        "packages/runtime",
+        "adapters/final-cut/typescript"
       ],
       "platforms": [
         "any"
