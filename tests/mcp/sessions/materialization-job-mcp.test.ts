@@ -1100,6 +1100,7 @@ test("simulated-native: lost reply retains a reservation through MCP reconnect",
     const sources = result.desired.resources.map((resource: { id: string; source?: string }) => [resource.id, resource.source ?? null]).sort(([a]: string[], [b]: string[]) => a < b ? -1 : a > b ? 1 : 0);
     assert.equal(receiver.trace()[0]?.sourceDigest, createHash("sha256").update(JSON.stringify(sources)).digest("hex"));
     assert.equal(receiver.trace()[0]?.desiredDigest, result.desiredDigest);
+
     await first.client.close();
     await first.server.close();
     const second = await connect(directory, simulatedMaterializationPublisher(receiver.restart()), undefined, "default", new FileCanonicalRecoveryGuard(path));
@@ -1110,6 +1111,12 @@ test("simulated-native: lost reply retains a reservation through MCP reconnect",
       await second.client.callTool({ name: "session.materialize.retry", arguments: { jobId: result.jobId } });
       assert.equal(receiver.trace().filter(event => event.kind === "dispatch").length, 1);
       await assert.rejects(new FileCanonicalRecoveryGuard(path).assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+      if (process.env.FRAMEKIT_SIMULATION_EVIDENCE_DIR) {
+        const candidate = process.env.FRAMEKIT_SIMULATION_CANDIDATE_SHA ?? "";
+        const evidence = { ...receiver.evidence({ scenario: "lost-reply", seed: 0, candidate }), outcomes: { jobState: status.state, noReplay: true, reservationRetained: true, headedNative: false } };
+        await mkdir(process.env.FRAMEKIT_SIMULATION_EVIDENCE_DIR, { recursive: true });
+        await writeFile(join(process.env.FRAMEKIT_SIMULATION_EVIDENCE_DIR, "lost-reply.json"), JSON.stringify(evidence, null, 2) + "\n");
+      }
     } finally { await second.client.close(); await second.server.close(); }
   } finally {
     await first.client.close().catch(() => undefined);
