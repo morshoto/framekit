@@ -102,6 +102,7 @@ export function rankNarrativeCuts(request: NarrativeCutRequest): NarrativeCutPla
   const vad = mapping.vadSegments;
   const protectedRanges = mapping.protectedSegments ?? [];
   const gaps = request.visualGaps ?? [];
+  if (request.visualGaps === undefined) result.warnings.push("Visual context is unavailable; ranking uses speech evidence only.");
   if (gaps.some((gap) => !validRange(gap))) {
     result.warnings.push("Visual gap evidence is invalid; no visual observations were used.");
   }
@@ -131,15 +132,16 @@ export function rankNarrativeCuts(request: NarrativeCutRequest): NarrativeCutPla
       durationTime: duration,
     };
     const evidence = ["Sentence-ending transcript boundary", "VAD silence covers the pause", "Speech margins retained"];
-    if (gaps.every(validRange) && gaps.some((gap) => gap.start <= sourceRange.start && gap.end >= sourceRange.end)) evidence.push("Visual gap overlaps the proposed interval");
+    if (silence.segment.confidence === undefined && !result.warnings.includes("VAD silence confidence is unavailable.")) result.warnings.push("VAD silence confidence is unavailable.");
+    if (gaps.every(validRange) && gaps.some((gap) => gap.start <= sourceRange.start && gap.end >= sourceRange.end)) evidence.push("Unverified visual gap hint overlaps the proposed interval");
     result.candidates.push({
       occurrenceId: request.occurrenceId, sourceRange,
       sequenceRange: { start, end, startTime: sequenceStart, durationTime: { ...duration } },
-      confidence: Math.min(previous.word.confidence, next.word.confidence),
+      confidence: Math.min(previous.word.confidence, next.word.confidence, silence.segment.confidence ?? 0.5),
       rationale: "A pause follows a sentence-ending word; review the surrounding thought and pacing before editing.",
       evidence, reviewRequired: true,
     });
   }
-  result.candidates.sort((a, b) => b.confidence - a.confidence || a.sourceRange.start - b.sourceRange.start);
+  result.candidates.sort((a, b) => b.confidence - a.confidence || Number(b.evidence.some((item) => item.startsWith("Unverified visual"))) - Number(a.evidence.some((item) => item.startsWith("Unverified visual"))) || a.sourceRange.start - b.sourceRange.start);
   return result;
 }
