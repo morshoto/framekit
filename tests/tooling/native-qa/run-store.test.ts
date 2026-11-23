@@ -506,12 +506,13 @@ test("duplicate later authorization returns the original run without a new claim
     const first = { ...manifest, authorizationDigest: null };
     const second = { ...first, qaRunId: "second-run" };
     await createOrInspectRun(root, first);
-    await createOrInspectRun(root, second);
+    const preflight = await createOrInspectRun(root, second);
+    assert.equal(preflight.created, false);
     await bindQaAuthorization(root, first, "9".repeat(64));
-    const duplicate = await bindQaAuthorization(root, second, "9".repeat(64));
+    const duplicate = await bindQaAuthorization(root, preflight.run.manifest, "9".repeat(64));
     assert.equal(duplicate.bound, false);
     assert.equal(duplicate.run.manifest.qaRunId, first.qaRunId);
-    await assert.rejects(claimDispatchIntent(root, second, "publish-job-2"), /QA_AUTHORIZATION_REQUIRED/);
+    await assert.rejects(claimDispatchIntent(root, second, "publish-job-2"), /QA_RUN_NOT_FOUND_OR_INCOMPLETE/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

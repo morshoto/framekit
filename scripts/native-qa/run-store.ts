@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { lstat, mkdir, open, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { publishQaRecord } from "./atomic-record.js";
@@ -134,8 +135,12 @@ export async function createOrInspectRun(root: string, manifest: QaRunManifest):
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
-  if (bound.authorizationDigest !== null) {
-    const authorizationDirectory = join(root, `.authorization-${bound.authorizationDigest}`);
+  {
+    const identity = manifestFields.filter(key => key !== "qaRunId" && key !== "authorizationDigest").map(key => bound[key]);
+    const indexName = bound.authorizationDigest === null
+      ? `.preflight-${createHash("sha256").update(JSON.stringify(identity)).digest("hex")}`
+      : `.authorization-${bound.authorizationDigest}`;
+    const authorizationDirectory = join(root, indexName);
     try { await mkdir(authorizationDirectory, { mode: 0o700 }); }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
