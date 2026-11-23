@@ -499,3 +499,42 @@ test("one authorization cannot bind different target identities", async () => {
     await assert.rejects(claimDispatchIntent(root, other, "publish-job-2"), /QA_AUTHORIZATION_REQUIRED/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("duplicate later authorization returns the original run without a new claim", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-bind-duplicate-"));
+  try {
+    const first = { ...manifest, authorizationDigest: null };
+    const second = { ...first, qaRunId: "second-run" };
+    await createOrInspectRun(root, first);
+    await createOrInspectRun(root, second);
+    await bindQaAuthorization(root, first, "9".repeat(64));
+    const duplicate = await bindQaAuthorization(root, second, "9".repeat(64));
+    assert.equal(duplicate.bound, false);
+    assert.equal(duplicate.run.manifest.qaRunId, first.qaRunId);
+    await assert.rejects(claimDispatchIntent(root, second, "publish-job-2"), /QA_AUTHORIZATION_REQUIRED/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("concurrent authorization bindings have at most one owner", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-bind-race-"));
+  try {
+    const unapproved = { ...manifest, authorizationDigest: null };
+    await createOrInspectRun(root, unapproved);
+    const results = await Promise.allSettled(Array.from({ length: 8 }, () => bindQaAuthorization(root, unapproved, "9".repeat(64))));
+    assert.equal(results.filter(result => result.status === "fulfilled" && result.value.bound).length, 1);
+    assert.ok(results.filter(result => result.status === "rejected").every(result => /QA_AUTHORIZATION_BINDING_INCOMPLETE/.test(String(result.reason))));
+    assert.equal((await inspectRun(root, unapproved.qaRunId)).authorizationBinding, "9".repeat(64));
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("a missing bound authorization index blocks inspection and claims", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-bind-missing-"));
+  try {
+    const unapproved = { ...manifest, authorizationDigest: null };
+    await createOrInspectRun(root, unapproved);
+    await bindQaAuthorization(root, unapproved, "9".repeat(64));
+    await rm(join(root, `.authorization-${"9".repeat(64)}`), { recursive: true });
+    await assert.rejects(inspectRun(root, unapproved.qaRunId), /QA_RUN_CORRUPT/);
+    await assert.rejects(claimDispatchIntent(root, unapproved, "publish-job-1"), /QA_RUN_CORRUPT/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

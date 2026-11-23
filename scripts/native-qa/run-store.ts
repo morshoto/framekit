@@ -1,5 +1,6 @@
 import { lstat, mkdir, open, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { publishQaRecord } from "./atomic-record.js";
 
 export interface QaRunManifest {
   qaRunId: string;
@@ -21,6 +22,7 @@ export interface QaRun {
   dispatch: "NOT_DISPATCHED" | "UNKNOWN_AFTER_DISPATCH";
   verdict: "BLOCKED";
   publishJobId?: string;
+  authorizationBinding?: string;
 }
 
 const digestFields = ["packageDigest", "mcpDigest", "pluginDigest", "extensionDigest", "artifactDigest", "sourceDigest", "targetDigest"] as const;
@@ -60,10 +62,23 @@ export async function inspectRun(root: string, qaRunId: string): Promise<QaRun> 
     if (!file.isFile() || file.isSymbolicLink()) throw new Error("QA_RUN_UNSAFE_PATH");
     const value: unknown = JSON.parse(await readFile(join(root, qaRunId, "run.json"), "utf8"));
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid");
-    const run = value as QaRun;
+    let run = value as QaRun;
     if (Object.keys(run).length !== 4 || run.schemaVersion !== 1 || run.dispatch !== "NOT_DISPATCHED" || run.verdict !== "BLOCKED") throw new Error("invalid");
     validateManifest(run.manifest);
     if (run.manifest.qaRunId !== qaRunId) throw new Error("invalid");
+    try {
+      const bindingPath = join(root, qaRunId, "authorization-binding.json");
+      const bindingFile = await lstat(bindingPath);
+      if (!bindingFile.isFile() || bindingFile.isSymbolicLink()) throw new Error("QA_RUN_UNSAFE_PATH");
+      const binding: unknown = JSON.parse(await readFile(bindingPath, "utf8"));
+      if (!binding || typeof binding !== "object" || Array.isArray(binding)) throw new Error("invalid");
+      const item = binding as Record<string, unknown>;
+      if (run.manifest.authorizationDigest !== null || Object.keys(item).sort().join(",") !== "authorizationDigest,schemaVersion" || item.schemaVersion !== 1 || typeof item.authorizationDigest !== "string" || !/^[a-f0-9]{64}$/.test(item.authorizationDigest)) throw new Error("invalid");
+      await assertAuthorizationBinding(root, { ...run.manifest, authorizationDigest: item.authorizationDigest });
+      run = { ...run, authorizationBinding: item.authorizationDigest };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
     try {
       const marker = await lstat(join(root, qaRunId, "dispatch-uncertain"));
       if (!marker.isFile() || marker.isSymbolicLink()) throw new Error("QA_RUN_UNSAFE_PATH");
@@ -154,6 +169,53 @@ export async function createOrInspectRun(root: string, manifest: QaRunManifest):
 }
 
 
+/** Record an externally supplied approval digest; this does not grant consent or dispatch. */
+export async function bindQaAuthorization(root: string, manifest: QaRunManifest, digest: string): Promise<{ bound: boolean; run: QaRun }> {
+  const bound = structuredClone(manifest);
+  validateManifest(bound);
+  if (bound.authorizationDigest !== null) throw new Error("QA_AUTHORIZATION_ALREADY_DECLARED");
+  if (typeof digest !== "string" || !/^[a-f0-9]{64}$/.test(digest)) throw new Error("QA_AUTHORIZATION_DIGEST_INVALID");
+  const run = await inspectRun(root, bound.qaRunId);
+  if (manifestFields.some(key => run.manifest[key] !== bound[key])) throw new Error("QA_RUN_IDENTITY_MISMATCH");
+  if (run.authorizationBinding) {
+    if (run.authorizationBinding !== digest) throw new Error("QA_RUN_IDENTITY_MISMATCH");
+    return { bound: false, run };
+  }
+  if (run.dispatch !== "NOT_DISPATCHED") throw new Error("QA_DISPATCH_ALREADY_CLAIMED");
+  const authorizationDirectory = join(root, `.authorization-${digest}`);
+  try { await mkdir(authorizationDirectory, { mode: 0o700 }); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    let owner: string;
+    try {
+      const bindingDir = await lstat(authorizationDirectory);
+      const bindingFile = await lstat(join(authorizationDirectory, "run-id"));
+      if (!bindingDir.isDirectory() || bindingDir.isSymbolicLink() || !bindingFile.isFile() || bindingFile.isSymbolicLink()) throw new Error("QA_RUN_UNSAFE_PATH");
+      const content = await readFile(join(authorizationDirectory, "run-id"), "utf8");
+      if (!/^[a-z0-9][a-z0-9-]{0,63}\n$/.test(content)) throw new Error("QA_AUTHORIZATION_BINDING_INCOMPLETE");
+      owner = content.slice(0, -1);
+    } catch (bindingError) {
+      if ((bindingError as NodeJS.ErrnoException).code === "ENOENT") throw new Error("QA_AUTHORIZATION_BINDING_INCOMPLETE");
+      throw bindingError;
+    }
+    const original = await inspectRun(root, owner);
+    if (manifestFields.some(key => key !== "qaRunId" && key !== "authorizationDigest" && original.manifest[key] !== bound[key])) throw new Error("QA_RUN_IDENTITY_MISMATCH");
+    if ((original.manifest.authorizationDigest ?? original.authorizationBinding) !== digest) throw new Error("QA_AUTHORIZATION_BINDING_INCOMPLETE");
+    return { bound: false, run: original };
+  }
+  await syncDirectory(root);
+  await publishQaRecord(join(authorizationDirectory, "run-id"), `${bound.qaRunId}\n`);
+  try {
+    await publishQaRecord(join(root, bound.qaRunId, "authorization-binding.json"), `${JSON.stringify({ schemaVersion: 1, authorizationDigest: digest })}\n`);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    const existing = await inspectRun(root, bound.qaRunId);
+    if (existing.authorizationBinding !== digest) throw new Error("QA_RUN_IDENTITY_MISMATCH");
+    return { bound: false, run: existing };
+  }
+  return { bound: true, run: await inspectRun(root, bound.qaRunId) };
+}
+
 /** Conservatively record uncertainty; this function never authorizes or dispatches native work. */
 export async function markDispatchUncertain(root: string, manifest: QaRunManifest): Promise<QaRun> {
   const bound = structuredClone(manifest);
@@ -179,10 +241,11 @@ export async function claimDispatchIntent(root: string, manifest: QaRunManifest,
   const bound = structuredClone(manifest);
   validateManifest(bound);
   if (typeof publishJobId !== "string" || !/^[a-z0-9][a-z0-9-]{0,127}$/.test(publishJobId)) throw new Error("QA_PUBLISH_JOB_ID_INVALID");
-  if (bound.authorizationDigest === null) throw new Error("QA_AUTHORIZATION_REQUIRED");
   const existing = await inspectRun(root, bound.qaRunId);
   if (manifestFields.some(key => existing.manifest[key] !== bound[key])) throw new Error("QA_RUN_IDENTITY_MISMATCH");
-  await assertAuthorizationBinding(root, bound);
+  const authorizationDigest = bound.authorizationDigest ?? existing.authorizationBinding;
+  if (!authorizationDigest) throw new Error("QA_AUTHORIZATION_REQUIRED");
+  await assertAuthorizationBinding(root, { ...bound, authorizationDigest });
   const directory = join(root, bound.qaRunId);
   let marker;
   try { marker = await open(join(directory, "dispatch-uncertain"), "wx", 0o600); }
