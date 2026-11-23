@@ -7,6 +7,7 @@ import test from "node:test";
 import { claimDispatchIntent, createOrInspectRun, inspectRun, markDispatchUncertain } from "../../../scripts/native-qa/run-store.js";
 import { runPublishStages } from "../../../scripts/final-cut-publisher-verification.mjs";
 import { readQaEvidence } from "../../../scripts/native-qa/supervisor.js";
+import { publishQaRecord } from "../../../scripts/native-qa/atomic-record.js";
 
 const manifest = {
   qaRunId: "qa-fixture-1", candidateCommit: "a".repeat(40), candidateTree: "b".repeat(40),
@@ -417,5 +418,25 @@ test("corrupt headless start evidence stays blocked", async () => {
     await createOrInspectRun(root, manifest);
     await writeFile(join(root, manifest.qaRunId, "headless-started"), "{");
     await assert.rejects(readQaEvidence(root, manifest.qaRunId), /QA_EVIDENCE_CORRUPT/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+
+test("evidence publication is complete and exclusive for concurrent readers", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-atomic-"));
+  try {
+    const path = join(root, "record.json");
+    const content = JSON.stringify({ value: "a".repeat(2 * 1024 * 1024) }) + "\n";
+    let finished = false;
+    const writing = publishQaRecord(path, content).then(() => { finished = true; });
+    while (!finished) {
+      try { assert.equal(await readFile(path, "utf8"), content); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+      await new Promise(resolve => setTimeout(resolve, 1));
+    }
+    await writing;
+    assert.equal(await readFile(path, "utf8"), content);
+    await assert.rejects(publishQaRecord(path, "replacement"), (error: NodeJS.ErrnoException) => error.code === "EEXIST");
+    assert.equal(await readFile(path, "utf8"), content);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
