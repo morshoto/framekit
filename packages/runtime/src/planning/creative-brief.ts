@@ -64,8 +64,13 @@ export function reviewCreativeBrief(brief: CreativeBrief): CreativeBriefReview {
   for (const coverage of brief.sourceCoverage) {
     if (!coverage || !nonempty(coverage.requirement) || !nonempty(coverage.sourceId) || !Number.isFinite(coverage.start) || !Number.isFinite(coverage.end) || coverage.start < 0 || coverage.end <= coverage.start) throw new Error("INVALID_BRIEF: invalid source coverage");
   }
+  const explicitChoices: Record<string, BriefChoice> = {
+    purpose: brief.purpose, audience: brief.audience, speechPolicy: brief.speechPolicy,
+    musicPolicy: brief.musicPolicy, captionPolicy: brief.captionPolicy,
+  };
   for (const item of brief.inferences) {
     if (!item || !nonempty(item.field) || !nonempty(item.value) || !nonempty(item.reason) || typeof item.accepted !== "boolean") throw new Error("INVALID_BRIEF: invalid inference");
+    if (explicitChoices[item.field]?.kind === "specified" || ["aspectRatio", "theme", "visualDirection"].includes(item.field)) throw new Error("INVALID_BRIEF: inference conflicts with explicit user choice");
   }
   return {
     missingCoverage: brief.requiredContent.filter((item) => !brief.sourceCoverage.some((coverage) => coverage.requirement === item)),
