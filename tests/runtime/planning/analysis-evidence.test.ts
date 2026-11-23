@@ -12,7 +12,7 @@ const understanding: MediaUnderstanding = {
   mediaId: source.mediaId, source: source.source, sourceIdentity: source, analysisRevision: revision,
   semantic: { subjects: [], scenes: [], environments: [], timeOfDay: [], moods: [], usableRanges: [] },
   analysis: [{ capability: "speech", status: "analyzed", provenance: { source, analyzer: provider, ranges: [{ start: 0, end: 10 }] } }],
-  speech: { schemaVersion: 1, mediaId: source.mediaId, sourceIdentity: source, revision, provider, requestedRange: { start: 0, end: 10 }, observedRange: { start: 0, end: 10 }, sourceTimebase: { value: "1", timescale: "1000" }, capability: "transcription-plus-vad", words: [{ text: "hello", start: 1, end: 2, confidence: 0.9 }], vadSegments: [{ kind: "speech", start: 1, end: 2 }] },
+  speech: { coverageProvenance: "provider", schemaVersion: 1, mediaId: source.mediaId, sourceIdentity: source, revision, provider, requestedRange: { start: 0, end: 10 }, observedRange: { start: 0, end: 10 }, sourceTimebase: { value: "1", timescale: "1000" }, capability: "transcription-plus-vad", words: [{ text: "hello", start: 1, end: 2, confidence: 0.9 }], vadSegments: [{ kind: "speech", start: 1, end: 2 }] },
 };
 const fixtureVerifier = async () => {};
 const context = { kind: "speech" as const, source, provider, revision, range };
@@ -64,7 +64,7 @@ test("VAD requires complete available segments and audio requires measured sourc
   const noVad = await fixture({ ...understanding, speech: { ...understanding.speech!, capability: "transcription-only", vadSegments: undefined } });
   await assert.rejects(() => pinAnalysisEvidence(noVad.index, noVad.artifacts, vadContext, fixtureVerifier), /ANALYSIS_/);
   const { model: _model, ...audioProvider } = provider;
-  const audio = { mediaId: source.mediaId, sourceIdentity: source, provider: audioProvider, revision, requestedRange: { start: 0, end: 10 }, measuredRange: { start: 0, end: 10 }, integratedLufs: -20, truePeakDb: -2, silenceMs: 10, valid: true };
+  const audio = { coverageProvenance: "provider" as const, mediaId: source.mediaId, sourceIdentity: source, provider: audioProvider, revision, requestedRange: { start: 0, end: 10 }, measuredRange: { start: 0, end: 10 }, integratedLufs: -20, truePeakDb: -2, silenceMs: 10, valid: true };
   const audioRecord: MediaUnderstanding = { ...understanding, audio, analysis: [{ capability: "audio", status: "analyzed", provenance: { source, analyzer: audioProvider, ranges: [{ start: 0, end: 10 }] } }] };
   const audioFixture = await fixture(audioRecord);
   const audioContext = { ...context, kind: "audio" as const, provider: audioProvider };
@@ -175,4 +175,12 @@ test("command analysis can be pinned from the persisted semantic index", async (
     const ref = await pinAnalysisEvidence(index, artifacts, artifactContext, verifyLocalMediaSource);
     assert.equal((await verifyAnalysisEvidence(artifacts, ref, artifactContext, verifyLocalMediaSource)).status, "verified");
   } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+
+test("runtime-inferred coverage cannot authorize pinned analysis", async () => {
+  const implicit = await fixture({ ...understanding, speech: { ...understanding.speech!, coverageProvenance: "inferred" } });
+  await assert.rejects(() => pinAnalysisEvidence(implicit.index, implicit.artifacts, context, fixtureVerifier), /coverage/i);
+  const legacy = await fixture({ ...understanding, speech: { ...understanding.speech!, coverageProvenance: undefined } });
+  await assert.rejects(() => pinAnalysisEvidence(legacy.index, legacy.artifacts, context, fixtureVerifier), /coverage/i);
 });
