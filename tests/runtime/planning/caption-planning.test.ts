@@ -122,6 +122,19 @@ test("overlapping frame-rounded groups are unavailable rather than silently shif
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
+test("regroups words when a different frame-safe boundary satisfies the format", async () => {
+  const f = await fixture([{ text: "A", start: 1, end: 1.1, confidence: 0.9 }, { text: "B", start: 1.1, end: 1.19, confidence: 0.9 },
+    { text: "C", start: 1.19, end: 1.25, confidence: 0.9 }, { text: "D", start: 1.3, end: 1.4, confidence: 0.9 }]);
+  try {
+    const result = await planCaptionGroups(f.request, f.ref, f.current, f.artifacts, verifyLocalMediaSource);
+    assert.equal(result.status, "available");
+    if (result.status !== "available") return;
+    assert.deepEqual(result.plan.groups.map((group) => group.lines), [["A"], ["B C"], ["D"]]);
+    assert.deepEqual(result.plan.groups.flatMap((group) => group.words.map((word) => word.sourceRange.start)), [1, 1.1, 1.19, 1.3]);
+    assert.ok(result.plan.warnings.some((warning) => /regroup/i.test(warning)));
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
 test("an empty transcript is reported and never creates placeholder captions", async () => {
   const f = await fixture([]);
   try {

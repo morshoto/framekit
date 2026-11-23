@@ -144,7 +144,7 @@ export async function planCaptionGroups(
     if (selected.some((index) => !mapped.some((word) => word.wordIndex === index))) return { status: "unavailable", reason: "An emphasized word is outside the mapped occurrence." };
     if (corrections.some((item) => !mapped.some((word) => word.wordIndex === item.wordIndex))) return { status: "unavailable", reason: "A corrected word is outside the mapped occurrence." };
     const separator = request.wordSeparator ?? " ";
-    const grouped: CaptionWord[][] = [];
+    let grouped: CaptionWord[][] = [];
     let currentWords: CaptionWord[] = [];
     for (const word of mapped) {
       if (/[\r\n\u0000-\u001f]/u.test(word.text) || count(word.text) > request.maxCharsPerLine) return { status: "unsupported", reason: "A transcript word cannot fit the requested basic caption format." };
@@ -157,6 +157,12 @@ export async function planCaptionGroups(
     }
     if (currentWords.length) grouped.push(currentWords);
     const warnings = ["Transcript and emphasis require human review; native editable title support is not established."];
+    if (grouped.some((words, i) => i > 0 && grouped[i - 1]![grouped[i - 1]!.length - 1]!.frameAlignedRange.end > words[0]!.frameAlignedRange.start + 1e-9)) {
+      const alternative = frameSafeGroups(mapped, separator, request.maxWordsPerGroup, request.maxCharsPerLine, request.maxLines);
+      if (!alternative) return { status: "unavailable", reason: "Frame rounding causes caption groups to overlap." };
+      grouped = alternative;
+      warnings.push("Caption boundaries were regrouped to avoid frame overlap; review sentence breaks.");
+    }
     if (corrections.length) warnings.push("User-supplied caption corrections require review and do not alter the pinned transcript; confidence refers to the original recognition.");
     if (mapped.some((word) => Math.abs(word.sequenceRange.start - word.frameAlignedRange.start) > 1e-9 || Math.abs(word.sequenceRange.end - word.frameAlignedRange.end) > 1e-9)) warnings.push("Word timing was rounded outward to the sequence frame grid.");
     if (mapped.length === 0) warnings.push("No transcript words are available in this occurrence.");
@@ -182,6 +188,24 @@ export async function planCaptionGroups(
 
 function sameWord(a: SpeechWord, b: SpeechWord): boolean {
   return a.text === b.text && a.start === b.start && a.end === b.end && a.confidence === b.confidence;
+}
+function frameSafeGroups(words: CaptionWord[], separator: string, maxWords: number, maxChars: number, maxLines: number): CaptionWord[][] | undefined {
+  const next = new Array<number | undefined>(words.length + 1);
+  next[words.length] = words.length;
+  for (let start = words.length - 1; start >= 0; start--) {
+    for (let end = start + 1; end <= Math.min(words.length, start + maxWords); end++) {
+      if (!wrap(words.slice(start, end), separator, maxChars, maxLines)) break;
+      if (next[end] !== undefined && (end === words.length || words[end - 1]!.frameAlignedRange.end <= words[end]!.frameAlignedRange.start + 1e-9)) next[start] = end;
+    }
+  }
+  if (next[0] === undefined) return undefined;
+  const groups: CaptionWord[][] = [];
+  for (let start = 0; start < words.length;) {
+    const end = next[start]!;
+    groups.push(words.slice(start, end));
+    start = end;
+  }
+  return groups;
 }
 function wrap(words: CaptionWord[], separator: string, maxChars: number, maxLines: number): string[] | undefined {
   const lines: string[] = [];
