@@ -289,11 +289,21 @@ test("headless decision service loads current project and brief and rejects proj
     const uncertain = await service.executeAcceptedPlan(input, result.plan.planDigest, async () => {
       await writeFile(f.path, "changed after commit");
       return { undoId: "undo-fixture" };
-    });
+    }, async () => {});
     assert.equal(uncertain.status, "applied-unverified");
     assert.equal(uncertain.edit.undoId, "undo-fixture");
     await writeFile(f.path, "source bytes");
-    await assert.rejects(service.executeAcceptedPlan(input, result.plan.planDigest, async () => { throw new Error("before commit"); }), /before commit/);
+    const drifted = await service.executeAcceptedPlan(input, result.plan.planDigest, async () => ({ undoId: "undo-drift" }), async () => { throw new Error("readback mismatch"); });
+    assert.equal(drifted.status, "applied-unverified");
+    assert.equal(drifted.edit.undoId, "undo-drift");
+    let readbacks = 0;
+    const laterDrift = await service.executeAcceptedPlan(input, result.plan.planDigest, async () => ({ undoId: "undo-late-drift" }), async () => {
+      if (++readbacks === 2) throw new Error("readback changed during evidence checks");
+    });
+    assert.equal(laterDrift.status, "applied-unverified");
+    assert.equal(laterDrift.edit.undoId, "undo-late-drift");
+    assert.equal(readbacks, 2);
+    await assert.rejects(service.executeAcceptedPlan(input, result.plan.planDigest, async () => { throw new Error("before commit"); }, async () => {}), /before commit/);
     const { AgentVideoRuntime } = await import("../../../packages/runtime/src/index.js");
     const { InMemoryEditorAdapter } = await import("../../../packages/testkit/src/index.js");
     const { createMcpServer } = await import("../../../apps/mcp-server/src/server.js");

@@ -144,9 +144,10 @@ To execute this supported **headless** placement, call
 review its returned preview, then call `headless.decision.approved-execute-music`
 with the project and sequence IDs, returned `previewToken`, and `approved: true`.
 The token is single-use and expires after ten minutes or a server restart. The
-server rechecks the plan and holds the brief's cooperative writer lock during
-execution. If it returns `applied-unverified`, the edit committed but a later
-source or analysis check failed: inspect the returned edit and Undo information
+server rechecks the plan, holds the brief's cooperative writer lock during
+execution, and independently reloads the headless project. If it returns
+`applied-unverified`, the edit committed but a later readback, source or
+analysis check failed: inspect the returned edit and Undo information
 before continuing. These checks are point-in-time; they do not lock media files
 or establish native execution, dialogue audibility, or crash-atomic updates
 across project, brief and analysis stores.

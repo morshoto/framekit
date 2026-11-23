@@ -53,21 +53,23 @@ export class HeadlessDecisionPlanService {
   }
 
   /** Preserve the edit and Undo record if a post-commit check or lock release fails. */
-  async executeAcceptedPlan<T>(input: HeadlessDecisionRequest, digest: string, execute: () => Promise<T>) {
+  async executeAcceptedPlan<T>(input: HeadlessDecisionRequest, digest: string, execute: () => Promise<T>, verify: (edit: T) => Promise<void>) {
     let committed: T | undefined;
     let completed = false;
     try {
       return await this.withAcceptedPlan(input, digest, async (plan) => {
         committed = await execute();
         completed = true;
+        await verify(committed);
         await this.recheckEvidence(input, plan);
+        await verify(committed);
         return { status: "applied" as const, edit: committed, planDigest: digest,
           notice: "Headless edit only; evidence checks are point-in-time and do not establish native execution or dialogue audibility." };
       });
     } catch (error) {
       if (!completed) throw error;
       return { status: "applied-unverified" as const, edit: committed as T, planDigest: digest,
-        notice: "The edit committed, but a post-edit evidence or lock check failed; inspect the project and Undo before continuing." };
+        notice: "The edit committed, but a post-edit readback, evidence or lock check failed; inspect the project and Undo before continuing." };
     }
   }
 

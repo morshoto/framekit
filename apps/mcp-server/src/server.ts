@@ -2516,6 +2516,14 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       if (!entry.input.music.music) throw new Error("MUSIC_PREVIEW_UNAVAILABLE: registered music is required");
       await verifyLocalMediaSource(entry.input.music.music);
       return requireHeadlessProjects().executeApprovedEdit(projectId, sequenceId, entry.editToken);
+    }, async (edit) => {
+      const observed = await requireHeadlessProjects().open(projectId);
+      const revision = observed.timeline.revision; const expected = edit.after.timeline.revision;
+      if (observed.timeline.project.id !== projectId || observed.timeline.sequence.id !== sequenceId
+        || revision.id !== expected.id || revision.sequence !== expected.sequence || revision.timestamp !== expected.timestamp
+        || timelineIrDigest(observed.timeline) !== timelineIrDigest(edit.after.timeline)) {
+        throw new Error("HEADLESS_DECISION_READBACK_MISMATCH: committed project differs from independent readback");
+      }
     });
   }));
 
