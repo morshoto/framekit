@@ -670,3 +670,38 @@ test("missing job index blocks authorization binding and dispatch claims", async
     assert.equal((await inspectRun(otherRoot, manifest.qaRunId)).dispatch, "NOT_DISPATCHED");
   } finally { await rm(otherRoot, { recursive: true, force: true }); }
 });
+
+test("an interrupted pre-spawn run can explicitly resume headless work only", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-resume-headless-"));
+  const cli = ["--import", "tsx", "scripts/native-qa/cli.ts"];
+  try {
+    const unapproved = { ...manifest, authorizationDigest: null };
+    await createOrInspectRun(root, unapproved);
+    const resumed = spawnSync(process.execPath, [...cli, "resume-headless", root, unapproved.qaRunId], { encoding: "utf8", timeout: 10000 });
+    assert.equal(resumed.status, 0, resumed.stderr);
+    assert.equal(JSON.parse(resumed.stdout).scheduled, true);
+    let evidence;
+    for (let i = 0; i < 100; i++) {
+      evidence = await readQaEvidence(root, unapproved.qaRunId);
+      if (evidence.result !== "pending-or-interrupted") break;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.equal(evidence?.result, "candidate-mismatch");
+    assert.equal(evidence?.dispatch, "NOT_DISPATCHED");
+    const repeated = spawnSync(process.execPath, [...cli, "resume-headless", root, unapproved.qaRunId], { encoding: "utf8", timeout: 10000 });
+    assert.equal(repeated.status, 0, repeated.stderr);
+    assert.equal(JSON.parse(repeated.stdout).scheduled, false);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("headless resume refuses a dispatch-uncertain run", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-resume-uncertain-"));
+  try {
+    const unapproved = { ...manifest, authorizationDigest: null };
+    await createOrInspectRun(root, unapproved);
+    await markDispatchUncertain(root, unapproved);
+    const result = spawnSync(process.execPath, ["--import", "tsx", "scripts/native-qa/cli.ts", "resume-headless", root, unapproved.qaRunId], { encoding: "utf8", timeout: 10000 });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /QA_DISPATCH_ALREADY_CLAIMED/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
