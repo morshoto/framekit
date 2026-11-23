@@ -110,6 +110,20 @@ test("media understanding preserves source identity and analyzer provenance", as
   assert.deepEqual(metadata?.provenance?.ranges, [fixture.usableRange]);
 });
 
+test("project source recheck rejects analysis before index publication", async () => {
+  const fixture = semanticFixture();
+  const store = new InMemorySemanticMediaIndexStore();
+  const runtime = new AgentVideoRuntime(fixture.adapter, { metadataAnalyzer: new FixtureMetadataAnalyzer(), semanticMediaIndexStore: store });
+  const project = await fixture.adapter.readProject();
+  const reject = async () => { throw new Error("MEDIA_CHANGED: source changed"); };
+  await assert.rejects(runtime.understandMediaInProject("media-semantic-1", project, reject), /MEDIA_CHANGED/);
+  assert.deepEqual(await store.list(), []);
+  await runtime.understandMediaInProject("media-semantic-1", project);
+  const prior = await store.list();
+  await assert.rejects(runtime.understandMediaInProject("media-semantic-1", project, reject), /MEDIA_CHANGED/);
+  assert.deepEqual(await store.list(), prior);
+});
+
 test("local speech and audio analysis return source-bound range evidence", async () => {
   const fixture = semanticFixture();
   const runtime = new AgentVideoRuntime(fixture.adapter, {

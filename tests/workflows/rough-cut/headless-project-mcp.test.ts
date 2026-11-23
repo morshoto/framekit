@@ -1292,6 +1292,20 @@ test("headless project media can be understood and planned without a Final Cut c
     assert.equal(understanding.audio.integratedLufs, -18);
     assert.ok(understanding.analysis.every((status: any) => status.status === "analyzed" || status.status === "unavailable"));
 
+    const directSpeech = payload(await client.callTool({ name: "speech.analyze", arguments: {
+      projectId, mediaId: registered.resource.id, range: { start: 0, end: 3 },
+    } }));
+    assert.equal(directSpeech.sourceIdentity.sourceDigest, registered.resource.sourceDigest);
+    assert.deepEqual(directSpeech.requestedRange, { start: 0, end: 3 });
+    assert.equal(directSpeech.provider.version, "test-vad@1");
+    assert.equal(directSpeech.words[0].text, "highlight");
+    const directAudio = payload(await client.callTool({ name: "audio.analyze", arguments: {
+      projectId, mediaId: registered.resource.id,
+    } }));
+    assert.equal(directAudio.sourceIdentity.sourceDigest, registered.resource.sourceDigest);
+    assert.equal(directAudio.integratedLufs, -18);
+    assert.equal(directAudio.signalScope, "source");
+
     const plan = payload(await client.callTool({ name: "rough-cut.plan", arguments: {
       projectId,
       query: "highlight",
@@ -1334,6 +1348,12 @@ test("headless project media can be understood and planned without a Final Cut c
     assert.deepEqual((executed.fcpxml as any).provenance.revision, executed.after.timeline.revision);
     const projects = payload(await client.callTool({ name: "headless.project.list", arguments: {} }));
     assert.ok(projects.some((project: any) => project.projectId === projectId));
+    await writeFile(sourcePath, "replaced source");
+    for (const name of ["speech.analyze", "audio.analyze"]) {
+      const changed = await client.callTool({ name, arguments: { projectId, mediaId: registered.resource.id } });
+      assert.equal(changed.isError, true);
+      assert.match(toolErrorText(changed), /MEDIA_CHANGED/);
+    }
   } finally {
     await client?.close();
     await transport?.close();

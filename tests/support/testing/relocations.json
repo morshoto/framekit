@@ -2341,6 +2341,7 @@
     "tests/integration/package-distribution.test.ts": [
       "\"development checkout launcher prefers source over a stale dist package\"",
       "\"published package contains the runnable Framekit CLI and MCP sources\"",
+      "\"clean package analyzes registered headless media with configured providers\"",
       "\"clean local and global installs expose the supported CLI and MCP entrypoints\""
     ],
     "tests/integration/pasteboard-snapshot.test.ts": [
@@ -2711,6 +2712,7 @@
     ],
     "tests/integration/semantic-media.test.ts": [
       "\"media understanding preserves source identity and analyzer provenance\"",
+      "\"project source recheck rejects analysis before index publication\"",
       "\"local speech and audio analysis return source-bound range evidence\"",
       "\"local audio analysis rejects a source identity mismatch\"",
       "\"media understanding rejects stale audio revisions instead of caching them\"",
