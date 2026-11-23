@@ -146,3 +146,33 @@ test("source verification is required and brackets evidence access", async () =>
   const changedDuringRead = async () => { if (++calls === 2) throw new Error("source changed"); };
   assert.equal((await verifyAnalysisEvidence(artifacts, ref, context, changedDuringRead)).status, "invalid");
 });
+
+test("command analysis can be pinned from the persisted semantic index", async () => {
+  const { mkdtemp, rm, writeFile, chmod } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { createHash } = await import("node:crypto");
+  const { CommandSpeechAnalyzer } = await import("../../../adapters/final-cut/typescript/src/analyzers.js");
+  const { AgentVideoRuntime, JsonSemanticMediaIndexStore, verifyLocalMediaSource } = await import("../../../packages/runtime/src/index.js");
+  const { InMemoryEditorAdapter } = await import("../../../packages/testkit/src/index.js");
+  const dir = await mkdtemp(join(tmpdir(), "framekit-evidence-provider-"));
+  try {
+    const mediaPath = join(dir, "source.wav");
+    await writeFile(mediaPath, "media");
+    const command = join(dir, "provider.mjs");
+    await writeFile(command, `#!/usr/bin/env node\nfor await (const _ of process.stdin) {}\nprocess.stdout.write(JSON.stringify({words:[{text:'hello',start:1,end:2,confidence:0.9}],vadSegments:[{kind:'speech',start:1,end:2}],sourceTimebase:{value:'1',timescale:'1000'}}));\n`);
+    await chmod(command, 0o755);
+    const media = { mediaId: "media-1", source: mediaPath, sourceDigest: createHash("sha256").update("media").digest("hex"), mediaKind: "audio" as const, duration: 10 };
+    const adapter = new InMemoryEditorAdapter({ projectId: "p", projectName: "p", timelineId: "t", timelineName: "t", clips: [], media: [media] });
+    const analyzer = new CommandSpeechAnalyzer({ command, providerVersion: "fixture-v1", modelIdentity: "fixture-model-v1" });
+    const index = new JsonSemanticMediaIndexStore(join(dir, "index.json"));
+    const runtime = new AgentVideoRuntime(adapter, { speechAnalyzer: analyzer, semanticMediaIndexStore: index });
+    const result = await runtime.understandMedia(media.mediaId);
+    assert.equal(result.analysis.find((entry) => entry.capability === "speech")?.status, "analyzed");
+    assert.deepEqual(result.analysis.find((entry) => entry.capability === "speech")?.provenance?.ranges, [{ start: 0, end: 10 }]);
+    const artifactContext = { kind: "vad" as const, source: media, provider: analyzer.descriptor, revision: result.analysisRevision, range: { start: 1, end: 3 } };
+    const artifacts = new InMemoryAnalysisArtifactStore();
+    const ref = await pinAnalysisEvidence(index, artifacts, artifactContext, verifyLocalMediaSource);
+    assert.equal((await verifyAnalysisEvidence(artifacts, ref, artifactContext, verifyLocalMediaSource)).status, "verified");
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
