@@ -10,6 +10,8 @@ import {
   AgentVideoRuntime,
   canonicalSnapshotDigest,
   pinAnalysisEvidence,
+  sameAnalyzerDescriptor,
+  type AnalyzerDescriptor,
   verifyLocalMediaSource,
   timelineIrDigest,
   type SemanticMediaIndexStore,
@@ -997,7 +999,8 @@ export interface McpServerOptions {
   headlessProjects?: HeadlessProjectWorkflow;
   headlessBriefs?: HeadlessCreativeBriefService;
   headlessDecisionPlans?: HeadlessDecisionPlanService;
-  analysisEvidence?: { index: SemanticMediaIndexStore; artifacts: AnalysisArtifactStore };
+  analysisEvidence?: { index: SemanticMediaIndexStore; artifacts: AnalysisArtifactStore;
+    currentProvider(kind: "speech" | "vad" | "audio"): AnalyzerDescriptor | undefined };
 }
 
 export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
@@ -2460,6 +2463,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     const matches = record?.analysis.filter((item) => item.capability === (kind === "vad" ? "speech" : kind) && item.status === "analyzed") ?? [];
     const provider = matches.length === 1 ? matches[0]?.provenance?.analyzer : undefined;
     if (!provider) throw new Error("ANALYSIS_UNAVAILABLE: unique analysis provenance is required");
+    const configured = options.analysisEvidence.currentProvider(kind);
+    if (!configured || !sameAnalyzerDescriptor(provider, configured)) {
+      throw new Error("ANALYSIS_STALE_PROVIDER: configured analyzer differs from stored provenance");
+    }
     const context = { kind, source, provider, revision: expectedRevision, range };
     const ref = await pinAnalysisEvidence(options.analysisEvidence.index, options.analysisEvidence.artifacts, context, verifyLocalMediaSource);
     const after = await projects.open(projectId);

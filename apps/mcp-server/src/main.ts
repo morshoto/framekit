@@ -330,7 +330,8 @@ const server = createMcpServer(runtime, {
     openProject: (projectId) => headlessProjects.open(projectId),
     storeForProject: briefStoreForProject,
   }),
-  analysisEvidence: { index: semanticMediaIndexStore, artifacts: analysisArtifacts },
+  analysisEvidence: { index: semanticMediaIndexStore, artifacts: analysisArtifacts,
+    currentProvider: (kind) => (kind === "audio" ? analyzers.audioAnalyzer : analyzers.speechAnalyzer)?.descriptor },
   headlessDecisionPlans: new HeadlessDecisionPlanService({
     readProject: async (projectId) => projectSnapshotFromTimelineIr((await headlessProjects.open(projectId)).timeline),
     storeForProject: briefStoreForProject, artifacts: analysisArtifacts, index: semanticMediaIndexStore, verifySource: verifyLocalMediaSource,
