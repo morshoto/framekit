@@ -41,7 +41,7 @@ test("supervised publisher retains uncertain intent after a lost receiver respon
       dispatches++;
       throw new Error("simulated lost response");
     };
-    const input = { artifactPath: "/fixture/artifact", targetLibraryPath: "/fixture/library", artifactDigest: manifest.artifactDigest };
+    const input = { artifactPath: "/fixture/artifact", transactionId: "fixture", targetLibraryPath: "/fixture/library", artifactDigest: manifest.artifactDigest };
     await assert.rejects(runSupervisedQaPublisher(root, manifest, input, call, async () => {}), /PUBLISH_DISPATCH_UNCERTAIN/);
     assert.equal((await inspectRun(root, manifest.qaRunId)).dispatch, "UNKNOWN_AFTER_DISPATCH");
     assert.deepEqual((await readQaPublisherStages(root, manifest.qaRunId)).stages.map(value => value.stage), ["prepared"]);
