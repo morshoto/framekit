@@ -10,13 +10,14 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { AgentVideoRuntime } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
+import { FinalCutProjectPublisher } from "@framekit/final-cut";
 import { createMcpServer } from "../../../apps/mcp-server/src/server.js";
 import { bindQaAuthorization, claimDispatchIntent, createOrInspectRun, inspectRun, markDispatchUncertain } from "../../../scripts/native-qa/run-store.js";
 import { runPublishStages } from "../../../scripts/final-cut-publisher-verification.mjs";
 import { readQaEvidence, resumeHeadlessQaRun, startQaRun } from "../../../scripts/native-qa/supervisor.js";
 import { publishQaRecord } from "../../../scripts/native-qa/atomic-record.js";
 import { readQaArtifactEvidence, verifyQaArtifact } from "../../../scripts/native-qa/artifact-evidence.js";
-import { inspectQaPublisher } from "../../../scripts/native-qa/publisher-inspection.js";
+import { inspectQaPublisher, inspectQaPublisherFromStore } from "../../../scripts/native-qa/publisher-inspection.js";
 
 const manifest = {
   qaRunId: "qa-fixture-1", candidateCommit: "a".repeat(40), candidateTree: "b".repeat(40),
@@ -1100,4 +1101,48 @@ test("publisher inspection uses the production MCP status tool without executing
     await server.close().catch(() => {});
     await rm(root, { recursive: true, force: true });
   }
+});
+
+
+test("publisher inspection reads a persisted fixture without changing its store", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-store-status-"));
+  const store = await mkdtemp(join(tmpdir(), "framekit-qa-publisher-store-"));
+  try {
+    const sourcePath = join(store, "fixture.fcpxml");
+    const source = '<fcpxml version="1.11"><library><event><project uid="fixture-project" name="Fixture"><sequence uid="fixture-sequence" name="Main" /></project></event></library></fcpxml>';
+    await writeFile(sourcePath, source);
+    const publisher = new FinalCutProjectPublisher({ enabled: false, sourcePath, publishJobsDirectory: store });
+    const job = await publisher.preparePublish({ sourceTransactionId: "fixture-transaction", artifactPath: sourcePath, artifactDigest: createHash("sha256").update(source).digest("hex") });
+    const bound = { ...manifest, artifactDigest: job.artifactDigest };
+    await createOrInspectRun(root, bound);
+    await claimDispatchIntent(root, bound, job.jobId);
+    const jobPath = join(store, `${job.jobId}.json`);
+    const before = await readFile(jobPath, "utf8");
+    const beforeMode = (await lstat(store)).mode;
+    const observed = await inspectQaPublisherFromStore(root, bound.qaRunId, store);
+    assert.ok("observedState" in observed);
+    assert.equal(observed.observedState, "awaiting-confirmation");
+    assert.equal(observed.verdict, "BLOCKED");
+    assert.equal(observed.nativeQuiescence, "unproven");
+    assert.equal(observed.dispatchAllowed, false);
+    assert.equal(JSON.stringify(observed).includes(sourcePath), false);
+    assert.equal(await readFile(jobPath, "utf8"), before);
+    assert.equal((await lstat(store)).mode, beforeMode);
+  } finally { await rm(root, { recursive: true, force: true }); await rm(store, { recursive: true, force: true }); }
+});
+
+test("publisher inspection never creates a missing store or follows a linked store", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-store-missing-"));
+  const parent = await mkdtemp(join(tmpdir(), "framekit-qa-store-parent-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    await claimDispatchIntent(root, manifest, "publish-job-1");
+    const missing = join(parent, "missing");
+    const observed = await inspectQaPublisherFromStore(root, manifest.qaRunId, missing);
+    assert.equal(observed.nextAction, "status-unavailable");
+    await assert.rejects(lstat(missing), (error: NodeJS.ErrnoException) => error.code === "ENOENT");
+    const link = join(parent, "linked");
+    await symlink(root, link, "dir");
+    assert.equal((await inspectQaPublisherFromStore(root, manifest.qaRunId, link)).nextAction, "status-unavailable");
+  } finally { await rm(root, { recursive: true, force: true }); await rm(parent, { recursive: true, force: true }); }
 });

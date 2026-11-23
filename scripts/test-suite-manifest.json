@@ -3416,6 +3416,7 @@
       "dependsOn": [
         "scripts",
         "apps/mcp-server",
+        "adapters/final-cut/typescript",
         "packages/runtime",
         "packages/testkit"
       ],
