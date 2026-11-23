@@ -17,6 +17,9 @@ export interface AnalysisEvidenceContext {
   range: TimeRange;
 }
 
+/** Checks current source bytes. Native occurrence binding is a separate caller responsibility. */
+export type AnalysisSourceVerifier = (source: MediaSourceIdentity) => Promise<void>;
+
 export interface AnalysisRef extends AnalysisEvidenceContext {
   schemaVersion: 1;
   artifactDigest: string;
@@ -145,21 +148,26 @@ function validateRecord(record: MediaUnderstanding, context: AnalysisEvidenceCon
 }
 
 /** Pin the exact serialized index record as derived data; this does not approve a plan. */
-export async function pinAnalysisEvidence(index: SemanticMediaIndexStore, artifacts: AnalysisArtifactStore, context: AnalysisEvidenceContext): Promise<AnalysisRef> {
+export async function pinAnalysisEvidence(index: SemanticMediaIndexStore, artifacts: AnalysisArtifactStore, context: AnalysisEvidenceContext, verifySource: AnalysisSourceVerifier): Promise<AnalysisRef> {
   validateContext(context);
+  if (typeof verifySource !== "function") throw new Error("ANALYSIS_UNAVAILABLE: current source verification is required");
+  await verifySource(context.source);
   const record = await index.load(context.source);
   if (!record) throw new Error("ANALYSIS_UNAVAILABLE: source analysis is missing");
   validateRecord(record, context);
   const bytes = Buffer.from(JSON.stringify(record), "utf8");
   const artifactDigest = hash(bytes);
   await artifacts.put(artifactDigest, bytes);
+  await verifySource(context.source);
   return { schemaVersion: 1, ...structuredClone(context), artifactDigest, analysisRevision: structuredClone(record.analysisRevision) };
 }
 
 /** Verify a pinned artifact against independently supplied current source, provider and revision. */
-export async function verifyAnalysisEvidence(artifacts: AnalysisArtifactStore, ref: AnalysisRef, current: AnalysisEvidenceContext): Promise<AnalysisEvidenceVerification> {
+export async function verifyAnalysisEvidence(artifacts: AnalysisArtifactStore, ref: AnalysisRef, current: AnalysisEvidenceContext, verifySource: AnalysisSourceVerifier): Promise<AnalysisEvidenceVerification> {
   try {
     validateContext(current);
+    if (typeof verifySource !== "function") return { status: "unavailable", reason: "current source verification is required" };
+    await verifySource(current.source);
     if (!ref || ref.schemaVersion !== 1 || !/^sha256:[a-f0-9]{64}$/.test(ref.artifactDigest)
       || ref.kind !== current.kind || !sameMediaSourceIdentity(ref.source, current.source)
       || !sameAnalyzerDescriptor(ref.provider, current.provider) || !sameRevision(ref.revision, current.revision)
@@ -170,6 +178,7 @@ export async function verifyAnalysisEvidence(artifacts: AnalysisArtifactStore, r
     const record = JSON.parse(Buffer.from(bytes).toString("utf8")) as MediaUnderstanding;
     validateRecord(record, current);
     if (!sameRevision(ref.analysisRevision, record.analysisRevision)) return { status: "invalid", reason: "analysis revision mismatch" };
+    await verifySource(current.source);
     return { status: "verified" };
   } catch (error) {
     return { status: "invalid", reason: error instanceof Error ? error.message : "invalid analysis evidence" };

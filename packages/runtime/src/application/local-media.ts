@@ -4,6 +4,7 @@ import { lstat } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import type { ContextRevision } from "../domain/primitives.js";
+import type { MediaSourceIdentity } from "../domain/media.js";
 import {
   type FramekitProjectDocument,
   type ProjectStore,
@@ -157,6 +158,18 @@ export class LocalMediaRegistrar {
     }
     return project;
   }
+}
+
+/** Revalidate a regular local source against its declared SHA-256 identity. */
+export async function verifyLocalMediaSource(media: MediaSourceIdentity): Promise<void> {
+  const expected = media.sourceDigest?.replace(/^sha256:/, "");
+  if (!expected || !/^[a-f0-9]{64}$/.test(expected)) {
+    throw new LocalMediaError("MEDIA_CHANGED", "a SHA-256 source digest is required", { id: media.mediaId });
+  }
+  const identity = await inspectLocalFile(media.source);
+  const actual = await digestFile(identity.path);
+  if (actual !== expected) throw new LocalMediaError("MEDIA_CHANGED", "source bytes differ from the registered digest", { id: media.mediaId });
+  await assertStableSource(identity, expected);
 }
 
 interface LocalFileIdentity {
