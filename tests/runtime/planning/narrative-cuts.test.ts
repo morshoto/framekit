@@ -148,3 +148,39 @@ test("adjustment rejects unchanged geometry when target or transcript evidence c
   const changedWords = [{ ...input.analysis.words[0]!, text: "Different." }, input.analysis.words[1]!];
   assert.throws(() => adjustNarrativeCut({ ...input, analysis: { ...input.analysis, words: changedWords } }, candidate, adjusted), /STALE/);
 });
+
+test("pinned VAD evidence is verified before ranking and changed artifacts fail closed", async () => {
+  const { InMemorySemanticMediaIndexStore, InMemoryAnalysisArtifactStore, pinAnalysisEvidence, verifyLocalMediaSource } = await import("../../../packages/runtime/src/index.js");
+  const { rankNarrativeCutsWithEvidence } = await import("../../../packages/runtime/src/planning/narrative-cuts.js");
+  const { createHash } = await import("node:crypto");
+  const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "framekit-narrative-evidence-"));
+  try {
+    const path = join(dir, "media.mov");
+    await writeFile(path, "source bytes");
+    const localSource = { ...source, source: path, sourceDigest: createHash("sha256").update("source bytes").digest("hex") };
+    const provider = { id: "speech", provider: "fixture", version: "1", model: "fixture-v1", configurationDigest: "config-v1" };
+    const speech = { ...input.analysis, sourceIdentity: localSource, provider, coverageProvenance: "provider" as const };
+    const record = { mediaId: localSource.mediaId, source: path, sourceIdentity: localSource, analysisRevision: revision, speech,
+      semantic: { subjects: [], scenes: [], environments: [], timeOfDay: [], moods: [], usableRanges: [] },
+      analysis: [{ capability: "speech" as const, status: "analyzed" as const, provenance: { source: localSource, analyzer: provider, ranges: [{ start: 0, end: 10 }] } }] };
+    const index = new InMemorySemanticMediaIndexStore();
+    await index.save(record);
+    const artifacts = new InMemoryAnalysisArtifactStore();
+    const evidenceContext = { kind: "vad" as const, source: localSource, provider, revision, range: { start: 0, end: 10 } };
+    const ref = await pinAnalysisEvidence(index, artifacts, evidenceContext, verifyLocalMediaSource);
+    const { analysis: _analysis, ...request } = input;
+    const localRequest = { ...request, source: localSource };
+    const result = await rankNarrativeCutsWithEvidence(localRequest, ref, evidenceContext, artifacts, verifyLocalMediaSource);
+    assert.equal(result.status, "available");
+    if (result.status === "available") assert.equal(result.plan.candidates.length, 1);
+    const wrongProvider = { ...evidenceContext, provider: { ...provider, model: "different" } };
+    assert.notEqual((await rankNarrativeCutsWithEvidence(localRequest, ref, wrongProvider, artifacts, verifyLocalMediaSource)).status, "available");
+    await writeFile(path, "replacement");
+    assert.notEqual((await rankNarrativeCutsWithEvidence(localRequest, ref, evidenceContext, artifacts, verifyLocalMediaSource)).status, "available");
+    const corrupt = { get: async () => Buffer.from("{}"), put: async () => {} };
+    assert.notEqual((await rankNarrativeCutsWithEvidence(localRequest, ref, evidenceContext, corrupt, async () => {})).status, "available");
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
