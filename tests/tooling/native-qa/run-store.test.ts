@@ -1169,16 +1169,15 @@ test("a crash while writing dispatch intent cannot expose a partial marker", asy
 
 test("simulated receiver acceptance survives a publisher process crash", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-qa-acceptance-crash-"));
-  const script = `import { createOrInspectRun, claimDispatchIntent } from "./scripts/native-qa/run-store.ts";
-    import { runPublishStages } from "./scripts/final-cut-publisher-verification.mjs";
-    import { recordQaPublisherStage } from "./scripts/native-qa/publisher-stages.ts";
+  const script = `import { createOrInspectRun } from "./scripts/native-qa/run-store.ts";
+    import { runSupervisedQaPublisher } from "./scripts/native-qa/publisher-supervision.ts";
     let text = ""; process.stdin.setEncoding("utf8"); for await (const chunk of process.stdin) text += chunk;
     const manifest = JSON.parse(text); const root = process.argv[1]; await createOrInspectRun(root, manifest);
     const call = async name => {
       if (name === "artifact.publish.preview") return {jobId:"publish-job-fixture", state:"awaiting-confirmation", artifactDigest:manifest.artifactDigest, targetLibraryPath:"fixture-target"};
       process.send({accepted:true}); await new Promise(() => {});
     };
-    await runPublishStages(call, {artifactPath:"fixture-artifact", transactionId:"fixture", targetLibraryPath:"fixture-target", artifactDigest:manifest.artifactDigest}, (stage, value) => recordQaPublisherStage(root, manifest.qaRunId, stage, value), async jobId => { await claimDispatchIntent(root, manifest, jobId); });`;
+    await runSupervisedQaPublisher(root, manifest, {artifactPath:"fixture-artifact", transactionId:"fixture", targetLibraryPath:"fixture-target", artifactDigest:manifest.artifactDigest}, call, async () => {});`;
   const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script, root], { stdio: ["pipe", "ignore", "pipe", "ipc"] });
   try {
     assert.ok(child.stdin);
