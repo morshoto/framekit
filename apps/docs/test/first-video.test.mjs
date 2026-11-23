@@ -94,3 +94,9 @@ test('publishes the verified prompt and describes observed calls', async () => {
   assert.doesNotMatch(guide, /not yet been verified/i);
   assert.match(await read('../src/lib/docs/source.ts'), /slug: 'your-first-video'[^\n]*status: 'ready'/);
 });
+
+test('distinguishes current local MCP evidence from the plugin run', async () => {
+  const guide = await read('../content/docs/en/your-first-video.mdx');
+  assert.match(guide, /framekit-local[^\n]*current Codex/i);
+  assert.match(guide, /framekit-local[^\n]*not[^\n]*published.plugin/i);
+});
