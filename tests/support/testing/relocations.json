@@ -3269,7 +3269,9 @@
       "\"default timeline inspection rejects source evidence outside observed coverage\"",
       "\"default timeline inspection rejects speech with missing observed coverage\"",
       "\"default timeline inspection rejects contradictory speech provenance\"",
-      "\"attached index rejects contradictory speech provenance\""
+      "\"attached index rejects contradictory speech provenance\"",
+      "\"legacy source audio remains available while occurrence audio is rejected\"",
+      "\"attached speech maps after a timeline-only revision change\""
     ],
     "tests/speech/mapping.test.ts": [
       "\"speech occurrence mapping refuses unobserved source coverage\"",

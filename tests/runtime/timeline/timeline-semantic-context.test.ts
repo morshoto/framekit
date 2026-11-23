@@ -267,6 +267,50 @@ test("timeline inspection compares attached audio revision by ID and persisted a
   }
 });
 
+test("legacy source audio remains available while occurrence audio is rejected", async () => {
+  for (const scope of [undefined, "source", "occurrence"] as const) {
+    const adapter = adapterFor();
+    const evidence = understanding();
+    evidence.audio = {
+      ...(scope ? { signalScope: scope } : {}), integratedLufs: -18, truePeakDb: -3, silenceMs: 0,
+      requestedRange: { start: 0, end: 20 }, measuredRange: { start: 0, end: 20 },
+    };
+    evidence.analysis.push({ capability: "audio", status: "analyzed", provenance: {
+      analyzer: { id: "fixture.audio", provider: "fixture" }, source: sourceIdentity, ranges: [{ start: 0, end: 20 }],
+    } });
+    const store = new InMemorySemanticMediaIndexStore();
+    await store.save(evidence);
+    const runtime = new AgentVideoRuntime(adapter, { semanticMediaIndexStore: store });
+    const result = await runtime.inspectTimelineSemanticContext({ occurrenceIds: ["occurrence-first"] });
+    assert.equal(result.occurrences[0]?.status, scope === "occurrence" ? "unavailable" : "available", String(scope));
+  }
+});
+
+test("attached speech maps after a timeline-only revision change", async () => {
+  const adapter = adapterFor();
+  const project = await adapter.readProject();
+  project.timeline.frameDuration = { value: "1", timescale: "25" };
+  project.timeline.clips[0]!.startTime = { value: "0", timescale: "1" };
+  project.timeline.clips[0]!.durationTime = { value: "5", timescale: "1" };
+  const evidence = structuredClone(understanding());
+  evidence.speech = bindSpeechAnalysis({ ...evidence.speech!, sourceTimebase: { value: "1", timescale: "1000" } }, {
+    input: { project: { ...project, revision: evidence.analysisRevision }, media: project.media[0]! },
+    provider: evidence.analysis[0]!.provenance!.analyzer,
+  });
+  Object.assign(project.media[0]!, { speech: evidence.speech, analysis: evidence.analysis,
+    semantic: evidence.semantic, analysisRevision: evidence.analysisRevision.id });
+  project.revision = { id: "after-edit", sequence: 42, timestamp: new Date(42).toISOString() };
+  adapter.readProject = async () => structuredClone(project);
+  const runtime = new AgentVideoRuntime(adapter);
+  const result = await runtime.inspectTimelineSemanticContext({ occurrenceIds: ["occurrence-first"], includeSpeechMappings: true });
+  assert.equal(result.occurrences[0]?.status, "available", JSON.stringify(result.occurrences[0]));
+  assert.deepEqual(result.occurrences[0]?.speechMapping?.revision, project.revision);
+  assert.deepEqual(result.occurrences[0]?.speechMapping?.words.map(({ word }) => word.text), ["first"]);
+  project.media[0]!.analysisRevision = "different";
+  const mismatch = await runtime.inspectTimelineSemanticContext({ occurrenceIds: ["occurrence-first"], includeSpeechMappings: true });
+  assert.equal(mismatch.occurrences[0]?.status, "unavailable");
+});
+
 test("default timeline inspection rejects source evidence outside observed coverage", async () => {
   const store = new InMemorySemanticMediaIndexStore();
   const partial = understanding();
