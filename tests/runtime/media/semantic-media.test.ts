@@ -395,6 +395,18 @@ test("media understanding preserves successful results when one analyzer cannot 
   assert.match(audio?.reason ?? "", /no audio fixture/);
 });
 
+test("changed source during analysis prevents publishing any understanding", async () => {
+  const fixture = semanticFixture();
+  const store = new InMemorySemanticMediaIndexStore();
+  const runtime = new AgentVideoRuntime(fixture.adapter, {
+    semanticMediaIndexStore: store,
+    speechAnalyzer: { analyze: async () => { throw new Error("ANALYZER_SOURCE_CHANGED: source changed during analysis"); } },
+    metadataAnalyzer: new FixtureMetadataAnalyzer(),
+  });
+  await assert.rejects(runtime.understandMedia("media-semantic-1"), /ANALYZER_SOURCE_CHANGED/);
+  assert.deepEqual(await store.list(), []);
+});
+
 test("semantic media index filters by meaning and usable source ranges", async () => {
   const fixture = semanticFixture();
   const runtime = new AgentVideoRuntime(fixture.adapter, {
