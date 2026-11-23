@@ -113,6 +113,22 @@ async function assertAuthorizationBinding(root: string, manifest: QaRunManifest)
   } catch { throw new Error("QA_AUTHORIZATION_BINDING_INVALID"); }
 }
 
+function jobIdentity(manifest: QaRunManifest): unknown[] {
+  return manifestFields.filter(key => key !== "qaRunId" && key !== "authorizationDigest").map(key => manifest[key]);
+}
+function jobIndexName(manifest: QaRunManifest): string {
+  return `.job-${createHash("sha256").update(JSON.stringify(jobIdentity(manifest))).digest("hex")}`;
+}
+async function assertJobIndex(root: string, manifest: QaRunManifest): Promise<void> {
+  const directory = join(root, jobIndexName(manifest));
+  try {
+    const index = await lstat(directory);
+    const binding = await lstat(join(directory, "run-id"));
+    if (!index.isDirectory() || index.isSymbolicLink() || !binding.isFile() || binding.isSymbolicLink()) throw new Error("invalid");
+    if (await readFile(join(directory, "run-id"), "utf8") !== `${manifest.qaRunId}\n`) throw new Error("invalid");
+  } catch { throw new Error("QA_INDEX_RECONCILIATION_REQUIRED"); }
+}
+
 async function reserveIndex(root: string, name: string, runId: string): Promise<string | undefined> {
   const directory = join(root, name);
   try { await mkdir(directory, { mode: 0o700 }); }
@@ -160,9 +176,8 @@ export async function createOrInspectRun(root: string, manifest: QaRunManifest):
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
-  const identity = manifestFields.filter(key => key !== "qaRunId" && key !== "authorizationDigest").map(key => bound[key]);
-  const jobIndex = `.job-${createHash("sha256").update(JSON.stringify(identity)).digest("hex")}`;
-  const existingJob = await reserveIndex(root, jobIndex, bound.qaRunId);
+  const identity = jobIdentity(bound);
+  const existingJob = await reserveIndex(root, jobIndexName(bound), bound.qaRunId);
   if (existingJob) return inspectMatching(existingJob);
   // An absent index can be a lost or older record, not proof that a job never existed.
   const entries = await readdir(root, { withFileTypes: true });
@@ -172,7 +187,7 @@ export async function createOrInspectRun(root: string, manifest: QaRunManifest):
     let previous: QaRun;
     try { previous = await inspectRun(root, entry.name); }
     catch { throw new Error("QA_INDEX_RECONCILIATION_REQUIRED"); }
-    const previousIdentity = manifestFields.filter(key => key !== "qaRunId" && key !== "authorizationDigest").map(key => previous.manifest[key]);
+    const previousIdentity = jobIdentity(previous.manifest);
     if (JSON.stringify(previousIdentity) === JSON.stringify(identity)) throw new Error("QA_INDEX_RECONCILIATION_REQUIRED");
   }
   if (bound.authorizationDigest !== null) {
@@ -207,6 +222,7 @@ export async function bindQaAuthorization(root: string, manifest: QaRunManifest,
     return { bound: false, run };
   }
   if (run.dispatch !== "NOT_DISPATCHED") throw new Error("QA_DISPATCH_ALREADY_CLAIMED");
+  await assertJobIndex(root, bound);
   const authorizationDirectory = join(root, `.authorization-${digest}`);
   try { await mkdir(authorizationDirectory, { mode: 0o700 }); }
   catch (error) {
@@ -270,6 +286,7 @@ export async function claimDispatchIntent(root: string, manifest: QaRunManifest,
   if (manifestFields.some(key => existing.manifest[key] !== bound[key])) throw new Error("QA_RUN_IDENTITY_MISMATCH");
   const authorizationDigest = bound.authorizationDigest ?? existing.authorizationBinding;
   if (!authorizationDigest) throw new Error("QA_AUTHORIZATION_REQUIRED");
+  await assertJobIndex(root, bound);
   await assertAuthorizationBinding(root, { ...bound, authorizationDigest });
   const directory = join(root, bound.qaRunId);
   let marker;
