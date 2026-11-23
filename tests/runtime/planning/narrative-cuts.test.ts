@@ -176,6 +176,12 @@ test("pinned VAD evidence is verified before ranking and changed artifacts fail 
     const result = await rankNarrativeCutsWithEvidence(localRequest, ref, evidenceContext, artifacts, verifyLocalMediaSource);
     assert.equal(result.status, "available");
     if (result.status === "available") assert.equal(result.plan.candidates.length, 1);
+    const original = await artifacts.get(ref.artifactDigest);
+    let reads = 0;
+    const changedBetweenReads = { get: async () => ++reads === 1 ? original : Buffer.from("{}"), put: async () => {} };
+    assert.notEqual((await rankNarrativeCutsWithEvidence(localRequest, ref, evidenceContext, changedBetweenReads, verifyLocalMediaSource)).status, "available");
+    const wrongRevision = { ...evidenceContext, revision: { ...revision, sequence: 2 } };
+    assert.notEqual((await rankNarrativeCutsWithEvidence({ ...localRequest, revision: wrongRevision.revision }, ref, wrongRevision, artifacts, verifyLocalMediaSource)).status, "available");
     const wrongProvider = { ...evidenceContext, provider: { ...provider, model: "different" } };
     assert.notEqual((await rankNarrativeCutsWithEvidence(localRequest, ref, wrongProvider, artifacts, verifyLocalMediaSource)).status, "available");
     await writeFile(path, "replacement");
