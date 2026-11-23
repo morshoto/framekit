@@ -8,7 +8,7 @@ import { sameMediaSourceIdentity } from "../domain/media.js";
 import type { MediaSourceIdentity } from "../domain/media.js";
 import type { ContextRevision, TimeRange } from "../domain/primitives.js";
 import type { ProjectSnapshot } from "../domain/project.js";
-import { assertBriefBinding } from "./creative-brief.js";
+import { assertBriefBinding, assertBriefSourceCoverage } from "./creative-brief.js";
 import type { AcceptedCreativeBrief, CreativeBrief } from "./creative-brief.js";
 
 export interface MusicPlanRequest {
@@ -108,6 +108,7 @@ export async function previewMusicPlan(
   if (!briefStore) throw new Error("CAPABILITY_UNAVAILABLE: authoritative brief store is required");
   await assertCurrentAcceptedBrief(briefStore, request.projectId, request.accepted);
   const current = await runtime.inspectProject();
+  assertBriefSourceCoverage(request.accepted, request.brief, current.media);
   const recomputed = planMusic({ ...request, snapshot: current });
   if (recomputed.decision !== "propose-music" || !recomputed.placement || !isDeepStrictEqual(recomputed, reviewed)) {
     throw new Error("STALE_MUSIC_PLAN: reviewed proposal no longer matches current inputs");
@@ -121,6 +122,8 @@ export async function previewMusicPlan(
     targetLane: recomputed.placement.targetLane, gainDb: recomputed.placement.gainDb,
   });
   await verifySource(request.music);
+  const after = await runtime.inspectProject();
+  assertBriefSourceCoverage(request.accepted, request.brief, after.media);
   await assertCurrentAcceptedBrief(briefStore, request.projectId, request.accepted);
   return preview;
 }
