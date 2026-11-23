@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
 /** Test-only receiver: its observations never establish native terminality. */
 export type SimulatedIdentity = {
@@ -166,4 +168,14 @@ export function assertSingleSimulatedDispatch(events: readonly Event[], operatio
   const count = events.filter(event => event.kind === "dispatch" && event.operationId === operationId).length;
   if (count > 1) throw new Error("SIMULATED_DUPLICATE_DISPATCH");
   if (count !== 1) throw new Error("SIMULATED_DISPATCH_MISSING");
+}
+
+
+/** Persist only redacted simulation evidence when the isolated runner opts in. */
+export async function writeSimulatedEvidence(receiver: ScriptedNativeReceiver, scenario: string, outcomes: Record<string, boolean>): Promise<void> {
+  const directory = process.env.FRAMEKIT_SIMULATION_EVIDENCE_DIR;
+  if (!directory) return;
+  const evidence = receiver.evidence({ scenario, seed: 0, candidate: process.env.FRAMEKIT_SIMULATION_CANDIDATE_SHA ?? "" });
+  await mkdir(directory, { recursive: true });
+  await writeFile(join(directory, `${scenario}.json`), JSON.stringify({ ...evidence, outcomes }, null, 2) + "\n");
 }
