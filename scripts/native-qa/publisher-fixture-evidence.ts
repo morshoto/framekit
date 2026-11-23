@@ -34,10 +34,8 @@ export async function readQaPublisherFixtureEvidence(root: string, qaRunId: stri
   }
 }
 
-/** Check the fixed publisher E2E fixture against the exact bytes hashed here; this does not authorize a handoff. */
-export async function verifyQaPublisherFixture(root: string, qaRunId: string, artifactPath: string) {
-  const run = await inspectRun(root, qaRunId);
-  await assertQaJobIndex(root, run.manifest);
+/** Parse the fixed fixture from the exact bounded bytes whose digest is checked. */
+export async function readVerifiedPublisherFixtureSnapshot(artifactPath: string, expectedDigest: string) {
   if (typeof artifactPath !== "string" || !isAbsolute(artifactPath)) throw new Error("QA_ARTIFACT_UNSAFE");
   let initial;
   try { initial = await lstat(artifactPath, { bigint: true }); } catch { throw new Error("QA_ARTIFACT_UNSAFE"); }
@@ -63,15 +61,24 @@ export async function verifyQaPublisherFixture(root: string, qaRunId: string, ar
     if (!same(after) || !same(current)) throw new Error("QA_ARTIFACT_CHANGED");
   } finally { await handle.close(); }
   const digest = createHash("sha256").update(bytes).digest("hex");
-  if (digest !== run.manifest.artifactDigest) throw new Error("QA_ARTIFACT_DIGEST_MISMATCH");
+  if (digest !== expectedDigest) throw new Error("QA_ARTIFACT_DIGEST_MISMATCH");
   try {
     const content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    verifyAcceptanceFixture(FcpxmlDocumentAdapter.readProjectFromContent(artifactPath, content, { allowMissingImmutableIdsForReadback: true }));
+    const snapshot = FcpxmlDocumentAdapter.readProjectFromContent(artifactPath, content, { allowMissingImmutableIdsForReadback: true });
+    verifyAcceptanceFixture(snapshot);
+    return snapshot;
   } catch { throw new Error("QA_PUBLISH_FIXTURE_MISMATCH"); }
+}
+
+/** Check the fixed publisher E2E fixture against the exact bytes hashed here; this does not authorize a handoff. */
+export async function verifyQaPublisherFixture(root: string, qaRunId: string, artifactPath: string) {
+  const run = await inspectRun(root, qaRunId);
+  await assertQaJobIndex(root, run.manifest);
+  await readVerifiedPublisherFixtureSnapshot(artifactPath, run.manifest.artifactDigest);
   const current = await inspectRun(root, qaRunId);
   await assertQaJobIndex(root, current.manifest);
   if (JSON.stringify(current) !== JSON.stringify(run)) throw new Error("QA_RUN_IDENTITY_MISMATCH");
-  const record: FixtureRecord = { schemaVersion: 1, tier: "publisher-fixture", profile: "publisher-e2e-v1", result: "matched", artifactDigest: digest, checkedAt: new Date().toISOString() };
+  const record: FixtureRecord = { schemaVersion: 1, tier: "publisher-fixture", profile: "publisher-e2e-v1", result: "matched", artifactDigest: run.manifest.artifactDigest, checkedAt: new Date().toISOString() };
   try { await publishQaRecord(join(root, qaRunId, "publisher-fixture-evidence.json"), `${JSON.stringify(record)}\n`); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
   const evidence = await readQaPublisherFixtureEvidence(root, qaRunId);

@@ -6,6 +6,7 @@ import { assertQaHeadlessProfile, inspectRun } from "./run-store.js";
 import { publishQaRecord } from "./atomic-record.js";
 import { verifyQaArtifact } from "./artifact-evidence.js";
 import { verifyQaPublisherFixture } from "./publisher-fixture-evidence.js";
+import { verifyQaPublisherSources } from "./publisher-source-evidence.js";
 import { runHeadlessQaChecks } from "./headless-checks.js";
 import type { HeadlessEvidence } from "./supervisor.js";
 
@@ -49,8 +50,12 @@ const result = await runHeadlessQaChecks({
   candidateMatches,
   ...(artifactPath === undefined ? {} : { verifyArtifact: async () => {
     await verifyQaArtifact(root, qaRunId, artifactPath);
-    if (item.publisherFixture === true) await verifyQaPublisherFixture(root, qaRunId, artifactPath);
+    if (item.publisherFixture === true) {
+      await verifyQaPublisherFixture(root, qaRunId, artifactPath);
+      await verifyQaPublisherSources(root, qaRunId, artifactPath);
+    }
   } }),
+  ...(item.publisherFixture === true && artifactPath !== undefined ? { verifySourcesAfter: async () => { await verifyQaPublisherSources(root, qaRunId, artifactPath); } } : {}),
   runRenderContract: async () => {
     await execFileAsync(process.execPath, ["--import", "tsx", "--test", "tests/runtime/editing/render-contract.test.ts"], {
       cwd: checkout, timeout: 120000, maxBuffer: 1024 * 1024,
