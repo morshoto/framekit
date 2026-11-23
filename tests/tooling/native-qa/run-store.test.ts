@@ -1704,6 +1704,12 @@ test("plugin observation binds a clean candidate and installed directory without
     assert.equal(evidence.scope, "directory-snapshot");
     assert.equal(JSON.stringify(evidence).includes(parent), false);
     assert.deepEqual(await readQaPluginEvidence(root, target.qaRunId), evidence);
+    const monitor = join(parent, "monitor.sh"); const marker = join(parent, "monitor-ran");
+    await writeFile(monitor, `#!/bin/sh\ntouch '${marker}'\nexit 0\n`); await chmod(monitor, 0o755);
+    execFileSync("git", ["-C", checkout, "config", "core.fsmonitor", monitor]);
+    await verifyQaPluginIdentity(root, target.qaRunId, { checkout, codexHome, installedPath: installed });
+    await assert.rejects(() => lstat(marker), /ENOENT/);
+    execFileSync("git", ["-C", checkout, "config", "--unset", "core.fsmonitor"]);
     const spec = join(parent, "plugin-input.json");
     await writeFile(spec, JSON.stringify({ checkout, codexHome, installedPath: installed }));
     const viaCli = spawnSync(process.execPath, ["--import", "tsx", "scripts/native-qa/cli.ts", "verify-plugin", root, target.qaRunId, spec], { encoding: "utf8", timeout: 10000 });
