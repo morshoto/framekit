@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmod, lstat, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -333,5 +333,39 @@ test("an incomplete authorization binding never creates another run", async () =
     await mkdir(join(root, `.authorization-${manifest.authorizationDigest}`));
     await assert.rejects(createOrInspectRun(root, manifest), /QA_RUN_NOT_FOUND_OR_INCOMPLETE/);
     await assert.rejects(createOrInspectRun(root, { ...manifest, qaRunId: "other-run" }), /QA_RUN_NOT_FOUND_OR_INCOMPLETE/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+
+test("detached headless preflight persists evidence after the client exits", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-supervisor-"));
+  const manifestPath = join(root, "manifest.json");
+  const cli = ["--import", "tsx", "scripts/native-qa/cli.ts"];
+  try {
+    await writeFile(manifestPath, JSON.stringify(manifest));
+    const start = spawnSync(process.execPath, [...cli, "start", root, manifestPath], { encoding: "utf8", timeout: 10000 });
+    assert.equal(start.status, 0, start.stderr);
+    const created = JSON.parse(start.stdout);
+    assert.equal(created.created, true);
+    assert.equal(created.run.dispatch, "NOT_DISPATCHED");
+    let content = "";
+    for (let i = 0; i < 100; i++) {
+      try { content = await readFile(join(root, manifest.qaRunId, "headless-result.json"), "utf8"); if (content.endsWith("\n")) break; }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.ok(content, "detached worker did not write headless evidence");
+    const evidence = spawnSync(process.execPath, [...cli, "evidence", root, manifest.qaRunId], { encoding: "utf8", timeout: 10000 });
+    assert.equal(evidence.status, 0, evidence.stderr);
+    const result = JSON.parse(evidence.stdout);
+    assert.equal(result.tier, "headless");
+    assert.equal(result.result, "candidate-mismatch");
+    assert.equal(result.verdict, "BLOCKED");
+    assert.equal(result.dispatch, "NOT_DISPATCHED");
+    assert.match(result.finishedAt, /^\d{4}-\d{2}-\d{2}T/);
+    const duplicate = spawnSync(process.execPath, [...cli, "start", root, manifestPath], { encoding: "utf8", timeout: 10000 });
+    assert.equal(duplicate.status, 0, duplicate.stderr);
+    assert.equal(JSON.parse(duplicate.stdout).created, false);
+    assert.equal((await inspectRun(root, manifest.qaRunId)).dispatch, "NOT_DISPATCHED");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
