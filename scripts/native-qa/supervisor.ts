@@ -18,7 +18,9 @@ export interface HeadlessEvidence {
 
 function workerInput(artifactPath: string | undefined): string {
   if (artifactPath !== undefined && (typeof artifactPath !== "string" || !isAbsolute(artifactPath) || artifactPath.length > 4096 || artifactPath.includes("\0"))) throw new Error("QA_ARTIFACT_UNSAFE");
-  return JSON.stringify(artifactPath === undefined ? {} : { artifactPath });
+  const input = JSON.stringify(artifactPath === undefined ? {} : { artifactPath });
+  if (input.length > 8192) throw new Error("QA_ARTIFACT_UNSAFE");
+  return input;
 }
 async function launchHeadlessWorker(root: string, qaRunId: string, input: string): Promise<void> {
   const child = spawn(process.execPath, ["--import", "tsx", worker, root, qaRunId], {
