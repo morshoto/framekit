@@ -11,7 +11,7 @@ import { verifyAnalysisEvidence } from "./analysis-evidence.js";
 import type { AnalysisArtifactStore, AnalysisEvidenceContext, AnalysisRef, AnalysisSourceVerifier } from "./analysis-evidence.js";
 import { planCaptionGroups } from "./caption-planning.js";
 import type { CaptionGroup, CaptionPlanRequest } from "./caption-planning.js";
-import { assertBriefBinding } from "./creative-brief.js";
+import { assertBriefBinding, assertBriefSourceCoverage } from "./creative-brief.js";
 import type { AcceptedCreativeBrief, CreativeBrief } from "./creative-brief.js";
 import { planMusic } from "./music-planning.js";
 import type { MusicPlan, MusicPlanRequest } from "./music-planning.js";
@@ -81,6 +81,7 @@ export async function createEditDecisionPlan(request: EditDecisionPlanRequest, a
       || Boolean(request.speechRef) !== Boolean(request.speechContext) || Boolean(request.vadRef) !== Boolean(request.vadContext)) {
       return { status: "unavailable", reason: "Target, revision or analysis reference pair is invalid." };
     }
+    assertBriefSourceCoverage(request.accepted, request.brief, snapshot.media);
     if (snapshot.timeline.frameGridOrigin && parseRational(snapshot.timeline.frameGridOrigin, "ANALYSIS_INVALID").value !== 0n) {
       return { status: "unavailable", reason: "Nonzero sequence frame-grid origins are not supported by the current planners." };
     }
