@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import type { CompositeEditPreview, MusicAddRequest } from "../domain/editing.js";
 import { sameMediaSourceIdentity } from "../domain/media.js";
@@ -25,6 +26,7 @@ export interface MusicPlanRequest {
 }
 
 export interface MusicPlan {
+  inputDigest: string;
   decision: "propose-music" | "omit-music" | "needs-review" | "unavailable" | "unsupported";
   projectId: string;
   timelineId: string;
@@ -46,7 +48,12 @@ export function planMusic(request: MusicPlanRequest): MusicPlan {
     || request.revision.timestamp !== actual.revision?.timestamp) throw new Error("STALE_CONTEXT: project, timeline or revision differs from current snapshot");
   if (!["present", "absent", "unknown"].includes(request.context?.speech)
     || !["available", "unavailable"].includes(request.context?.audioEvidence)) throw new Error("INVALID_MUSIC_PLAN: audio context must be explicit");
-  const base = { projectId: request.projectId, timelineId: request.timelineId, revision: structuredClone(request.revision), brief: structuredClone(request.accepted), reviewRequired: true as const, warnings: [] as string[], dialogueVerificationRequired: false };
+  const encoded = JSON.stringify(request, (_key, item: unknown) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+    return Object.fromEntries(Object.entries(item).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0));
+  });
+  const inputDigest = `sha256:${createHash("sha256").update(encoded).digest("hex")}`;
+  const base = { inputDigest, projectId: request.projectId, timelineId: request.timelineId, revision: structuredClone(request.revision), brief: structuredClone(request.accepted), reviewRequired: true as const, warnings: [] as string[], dialogueVerificationRequired: false };
   const policy = request.brief.musicPolicy;
   if (policy.kind === "no-preference") return { ...base, decision: "needs-review", reason: "Music preference was not specified; review whether music is appropriate." };
   const value = policy.value.trim().toLowerCase();
