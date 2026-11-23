@@ -79,3 +79,23 @@ test("exact timing changes and contradictory rational ranges are rejected", asyn
   assert.notEqual((await verifyAnalysisEvidence(artifacts, ref, altered)).status, "verified");
   await assert.rejects(() => pinAnalysisEvidence(index, artifacts, { ...context, range: { ...range, startTime: { value: "2", timescale: "1" } } }), /ANALYSIS_/);
 });
+
+test("content-addressed artifacts survive restart and detect corrupt stored bytes", async () => {
+  const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { FileAnalysisArtifactStore } = await import("../../../packages/runtime/src/planning/analysis-evidence.js");
+  const directory = await mkdtemp(join(tmpdir(), "framekit-evidence-"));
+  try {
+    const { index } = await fixture();
+    const ref = await pinAnalysisEvidence(index, new FileAnalysisArtifactStore(directory), context);
+    const reopened = new FileAnalysisArtifactStore(directory);
+    assert.equal((await verifyAnalysisEvidence(reopened, ref, context)).status, "verified");
+    await writeFile(join(directory, ref.artifactDigest.slice(7)), "corrupted");
+    assert.equal((await verifyAnalysisEvidence(reopened, ref, context)).status, "invalid");
+    await assert.rejects(() => pinAnalysisEvidence(index, reopened, context), /ANALYSIS_/);
+    await assert.rejects(() => reopened.get("../../unsafe"), /ANALYSIS_/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
