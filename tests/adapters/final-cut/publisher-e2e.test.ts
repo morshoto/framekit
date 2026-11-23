@@ -344,3 +344,38 @@ test("publisher reports lost verification response without allowing redispatch",
   }, { artifactPath: "/tmp/source.fcpxml", transactionId: "txn-1", targetLibraryPath: "/tmp/new.fcpbundle", artifactDigest: "a".repeat(64) }, () => {}), /PUBLISH_VERIFICATION_INCOMPLETE:.*do not redispatch/);
   assert.equal(calls.filter(name => name === "artifact.publish.execute").length, 2);
 });
+
+test("publisher binds inputs before asynchronous preview", async () => {
+  let release!: (value: unknown) => void;
+  const input = { artifactPath: "/tmp/source.fcpxml", transactionId: "txn-1", targetLibraryPath: "/tmp/new.fcpbundle", artifactDigest: "a".repeat(64) };
+  const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+  const pending = runPublishStages(async (name, args) => {
+    calls.push({ name, args });
+    if (name === "artifact.publish.preview") return await new Promise(resolve => { release = resolve; });
+    if (!args.confirmVerification) return { jobId: "job-1", state: "verification-pending", nextAction: "confirm-verification", delivery: { status: "dispatched" } };
+    return { jobId: "job-1", state: "verified", result: { verified: true } };
+  }, input, () => {});
+  input.targetLibraryPath = "/tmp/changed.fcpbundle";
+  release({ jobId: "job-1", state: "awaiting-confirmation", artifactDigest: "a".repeat(64), targetLibraryPath: "/tmp/new.fcpbundle" });
+  assert.equal((await pending).state, "verified");
+  assert.equal(calls[0]!.args.targetLibraryPath, "/tmp/new.fcpbundle");
+  assert.equal(calls[1]!.args.jobId, "job-1");
+});
+
+test("publisher stage recorder cannot change the prepared job identity", async () => {
+  const result = await runPublishStages(async (name, args) => {
+    if (name === "artifact.publish.preview") return { jobId: "job-1", state: "awaiting-confirmation", artifactDigest: "a".repeat(64), targetLibraryPath: "/tmp/new.fcpbundle" };
+    assert.equal(args.jobId, "job-1");
+    if (!args.confirmVerification) return { jobId: "job-1", state: "verification-pending", nextAction: "confirm-verification", delivery: { status: "dispatched" } };
+    return { jobId: "job-1", state: "verified", result: { verified: true } };
+  }, { artifactPath: "/tmp/source.fcpxml", transactionId: "txn-1", targetLibraryPath: "/tmp/new.fcpbundle", artifactDigest: "a".repeat(64) }, (_stage, snapshot) => { snapshot.jobId = "other-job"; });
+  assert.equal(result.state, "verified");
+});
+
+test("publisher stage recorder cannot erase a recovery reservation", async () => {
+  await assert.rejects(runPublishStages(async (name, args) => {
+    if (name === "artifact.publish.preview") return { jobId: "job-1", state: "awaiting-confirmation", artifactDigest: "a".repeat(64), targetLibraryPath: "/tmp/new.fcpbundle" };
+    if (!args.confirmVerification) return { jobId: "job-1", state: "verification-pending", nextAction: "confirm-verification", delivery: { status: "dispatched" }, recoveryReservation: { reservationId: "reservation-1" } };
+    return { jobId: "job-1", state: "verified", result: { verified: true } };
+  }, { artifactPath: "/tmp/source.fcpxml", transactionId: "txn-1", targetLibraryPath: "/tmp/new.fcpbundle", artifactDigest: "a".repeat(64) }, (_stage, snapshot) => { delete snapshot.recoveryReservation; }), /PUBLISH_RECOVERY_REQUIRED/);
+});
