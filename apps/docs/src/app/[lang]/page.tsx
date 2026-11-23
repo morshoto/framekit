@@ -5,10 +5,11 @@ import { notFound } from 'next/navigation';
 import { DocsLayout } from '../../components/DocsLayout';
 import { getNavigationGroups } from '../../lib/docs/source';
 import { isLocale } from '../../lib/i18n/locales';
+import { overviewMetadata } from '../../lib/docs/metadata';
 export async function generateMetadata({ params }: { params: Promise<{ lang: string }> }): Promise<Metadata> {
   const { lang } = await params; if (!isLocale(lang)) return {};
   const base = process.env.DOCS_BASE_PATH || ''; const origin = process.env.DOCS_SITE_ORIGIN || 'https://morshoto.github.io';
-  return { title: lang === 'ja' ? 'ドキュメント | Framekit Docs' : 'Documentation | Framekit Docs', description: lang === 'ja' ? 'Framekit の導入、動画編集、開発のための日本語ガイドです。' : 'Build and inspect video editing workflows with Framekit.', metadataBase: new URL(origin), alternates: { canonical: `${base}/${lang}/`, languages: { en: `${base}/en/`, ja: `${base}/ja/` } } };
+  return overviewMetadata(lang, origin, base);
 }
 export default async function LocaleOverview({ params }: { params: Promise<{ lang: string }> }) {
   const { lang } = await params; if (!isLocale(lang)) notFound();
