@@ -61,3 +61,14 @@ test("invalid or malformed drafts fail closed", () => {
     assert.throws(() => acceptCreativeBrief({ ...brief, ...patch } as CreativeBrief), /INVALID_BRIEF/);
   }
 });
+
+test("explicit no preference is distinguishable from missing audio choices", () => {
+  const input = { ...brief, musicPolicy: { kind: "no-preference" }, captionPolicy: { kind: "specified", value: "review" } };
+  assert.doesNotThrow(() => acceptCreativeBrief(input as unknown as CreativeBrief));
+  assert.throws(() => acceptCreativeBrief({ ...input, musicPolicy: undefined } as unknown as CreativeBrief), /INVALID_BRIEF/);
+});
+
+test("brief identity is stable across object key ordering", () => {
+  const reordered = { ...brief, purpose: { value: "interview short", kind: "specified" } } as CreativeBrief;
+  assert.deepEqual(acceptCreativeBrief(brief), acceptCreativeBrief(reordered));
+});
