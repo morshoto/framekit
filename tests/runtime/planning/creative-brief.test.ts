@@ -34,3 +34,30 @@ test("accepted snapshot is independent of later caller mutation", () => {
   input.requiredContent.push("closing");
   assert.throws(() => assertBriefBinding(accepted, input), /STALE_BRIEF/);
 });
+
+test("review exposes missing coverage and pending inferences before acceptance", async () => {
+  const { reviewCreativeBrief } = await import("../../../packages/runtime/src/planning/creative-brief.js");
+  const draft = { ...brief, sourceCoverage: [], inferences: [{ ...brief.inferences[0]!, accepted: false }] };
+  assert.deepEqual(reviewCreativeBrief(draft), { missingCoverage: ["introduction"], pendingInferences: ["pacing"] });
+  assert.throws(() => acceptCreativeBrief(draft), /coverage|inference/i);
+});
+
+test("revision preserves identity, advances version and invalidates prior approval", async () => {
+  const { reviseCreativeBrief } = await import("../../../packages/runtime/src/planning/creative-brief.js");
+  const accepted = acceptCreativeBrief(brief);
+  const revised = reviseCreativeBrief(brief, { ...brief, musicPolicy: "background" });
+  assert.equal(revised.id, brief.id);
+  assert.equal(revised.version, 2);
+  assert.throws(() => assertBriefBinding(accepted, revised), /STALE_BRIEF/);
+  assert.throws(() => reviseCreativeBrief(brief, { ...brief, id: "other" }), /identity/i);
+});
+
+test("invalid or malformed drafts fail closed", () => {
+  for (const patch of [
+    { durationSeconds: null }, { requiredContent: null }, { inferences: null },
+    { sourceCoverage: [{ requirement: "introduction", sourceId: "camera", start: 0, end: Infinity }] },
+    { musicPolicy: "" }, { version: 1.5 },
+  ]) {
+    assert.throws(() => acceptCreativeBrief({ ...brief, ...patch } as CreativeBrief), /INVALID_BRIEF/);
+  }
+});
