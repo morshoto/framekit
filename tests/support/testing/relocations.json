@@ -1534,12 +1534,12 @@
     "tests/integration/disposable-native.test.ts": [
       "\"disposable native preview binds the canonical target without mutating it\"",
       "\"disposable native workflow prepares the canonical target before native preflight\"",
-      "\"disposable native execute returns a canonical diff and explicit undo restores the digest\"",
+      "\"simulated-native: disposable native execute returns a canonical diff and explicit undo restores the digest\"",
       "\"disposable native restoration evidence names the requested non-first target\"",
       "\"disposable native workflow bounds retained operations while preserving the newest undo\"",
-      "\"disposable native execute rejects a stale preview before native mutation\"",
-      "\"disposable native execute rejects changed native targets before mutation\"",
-      "\"disposable native verification failure compensates with native Undo\"",
+      "\"simulated-native: disposable native execute rejects a stale preview before native mutation\"",
+      "\"simulated-native: disposable native execute rejects changed native targets before mutation\"",
+      "\"simulated-native: disposable native verification failure compensates with native Undo\"",
       "\"disposable native workflow fails closed when canonical snapshots are unavailable\"",
       "\"disposable native workflow accepts an active canonical target without project selection\""
     ],

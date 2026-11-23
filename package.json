@@ -55,7 +55,7 @@
     "smoke:fixture-mcp": "node scripts/fixture-mcp-smoke.mjs",
     "test:clean-mcp-clients": "node scripts/clean-mcp-client-smoke.mjs",
     "evaluate": "tsx scripts/run-mcp-evaluation.ts",
-    "test:simulated-native": "node scripts/run-tests-with-isolated-home.mjs --file tests/adapters/final-cut/simulated-native-receiver.test.ts --file tests/mcp/sessions/materialization-job-mcp.test.ts --file tests/mcp/tools/canonical-native-mcp.test.ts --test-name-pattern simulated-native",
+    "test:simulated-native": "node scripts/run-tests-with-isolated-home.mjs --file tests/adapters/final-cut/simulated-native-receiver.test.ts --file tests/adapters/final-cut/disposable-native.test.ts --file tests/mcp/sessions/materialization-job-mcp.test.ts --file tests/mcp/tools/canonical-native-mcp.test.ts --test-name-pattern simulated-native",
     "test:final-cut-headless": "node scripts/run-tests-with-isolated-home.mjs --file tests/adapters/final-cut/connection.test.ts --file tests/workflows/basic-editing/finalcut-mcp.test.ts --file tests/adapters/final-cut/native.test.ts",
     "probe:final-cut-read": "node scripts/final-cut-supported-read-probe.mjs",
     "test:final-cut-overlay-headed": "node scripts/final-cut-overlay-headed-e2e.mjs",
