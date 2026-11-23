@@ -3,11 +3,11 @@ import { lstat, readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertQaJobIndex, createOrInspectRun, inspectRun, type QaRunManifest } from "./run-store.js";
+import { headlessResults, type HeadlessResult } from "./headless-checks.js";
 
 const checkout = fileURLToPath(new URL("../../", import.meta.url));
 const worker = join(dirname(fileURLToPath(import.meta.url)), "worker.ts");
-const results = ["candidate-mismatch", "candidate-changed", "render-contract-passed", "render-contract-failed", "preflight-error"] as const;
-export type HeadlessResult = typeof results[number];
+export type { HeadlessResult } from "./headless-checks.js";
 export interface HeadlessEvidence {
   schemaVersion: 1;
   tier: "headless";
@@ -82,7 +82,7 @@ export async function readQaEvidence(root: string, qaRunId: string) {
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid");
     const item = value as Record<string, unknown>;
     if (Object.keys(item).sort().join(",") !== "finishedAt,result,schemaVersion,startedAt,tier"
-      || item.schemaVersion !== 1 || item.tier !== "headless" || !results.includes(item.result as HeadlessResult)
+      || item.schemaVersion !== 1 || item.tier !== "headless" || !headlessResults.includes(item.result as HeadlessResult)
       || !validTimestamp(item.startedAt) || !validTimestamp(item.finishedAt)
       || !startedAt || item.startedAt !== startedAt || item.finishedAt < item.startedAt) throw new Error("invalid");
     evidence = item as unknown as HeadlessEvidence;
