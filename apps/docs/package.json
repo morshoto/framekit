@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "pnpm run check:content && next build && node --import tsx scripts/check-sitemap.ts && node --import tsx scripts/build-llms.mts && pagefind --site out && node scripts/report-search-size.mjs",
+    "build": "pnpm run check:content && next build && node --import tsx scripts/build-social.tsx && node --import tsx scripts/check-sitemap.ts && node --import tsx scripts/build-llms.mts && pagefind --site out && node scripts/report-search-size.mjs",
     "typecheck": "tsc --noEmit",
     "test:export": "node scripts/check-export-links.mjs && node --import tsx --test test/*.test.mjs",
     "storybook": "storybook dev -p 6006",
@@ -20,6 +20,7 @@
     "report:error-reference": "node scripts/check-error-reference.mjs"
   },
   "dependencies": {
+    "@fontsource/noto-sans-jp": "5.3.1",
     "@mdx-js/loader": "3.1.1",
     "@mdx-js/react": "3.1.1",
     "@next/mdx": "16.4.5",
