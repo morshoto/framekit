@@ -3409,11 +3409,15 @@
       "owner": "scripts",
       "reviewed": true,
       "tags": [
-        "unit"
+        "unit",
+        "integration"
       ],
       "evidence": "fixture",
       "dependsOn": [
-        "scripts"
+        "scripts",
+        "apps/mcp-server",
+        "packages/runtime",
+        "packages/testkit"
       ],
       "requires": [
         "mkfifo"

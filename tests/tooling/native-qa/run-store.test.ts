@@ -6,6 +6,11 @@ import { chmod, lstat, mkdtemp, readFile, readdir, rm, symlink, writeFile } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { AgentVideoRuntime } from "@framekit/runtime";
+import { InMemoryEditorAdapter } from "@framekit/testkit";
+import { createMcpServer } from "../../../apps/mcp-server/src/server.js";
 import { bindQaAuthorization, claimDispatchIntent, createOrInspectRun, inspectRun, markDispatchUncertain } from "../../../scripts/native-qa/run-store.js";
 import { runPublishStages } from "../../../scripts/final-cut-publisher-verification.mjs";
 import { readQaEvidence, resumeHeadlessQaRun, startQaRun } from "../../../scripts/native-qa/supervisor.js";
@@ -1051,4 +1056,44 @@ test("publisher status inspection has a bounded wait", async () => {
     assert.equal(result.verdict, "BLOCKED");
     assert.equal(result.dispatchAllowed, false);
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+
+test("publisher inspection uses the production MCP status tool without executing", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-status-mcp-"));
+  const calls: string[] = [];
+  const publisher = {
+    loadPublishJob: async (jobId: string) => { calls.push(`status:${jobId}`); return { jobId, state: "verification-pending", sourcePath: "sensitive-value" }; },
+    executePublishJob: async () => { calls.push("execute"); throw new Error("unexpected execution"); },
+    isAvailable: () => false,
+  };
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({ projectId: "fixture-project", projectName: "Fixture", timelineId: "fixture-sequence", timelineName: "Main", clips: [], media: [] }));
+  const server = createMcpServer(runtime, { projectPublisher: publisher as never, sessionDirectory: join(root, "sessions") });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "qa-status-fixture", version: "1" });
+  try {
+    await createOrInspectRun(root, manifest);
+    await claimDispatchIntent(root, manifest, "publish-job-1");
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const observed = await inspectQaPublisher(root, manifest.qaRunId, async (name, args, options) => {
+      const response = await client.callTool({ name, arguments: args }, undefined, { signal: options.signal });
+      assert.equal(response.isError ?? false, false);
+      assert.ok(Array.isArray(response.content));
+      const first = response.content[0] as { type?: string; text?: unknown } | undefined;
+      assert.ok(first && first.type === "text" && typeof first.text === "string");
+      return JSON.parse(first.text);
+    });
+    assert.ok("observedState" in observed);
+    assert.equal(observed.observedState, "verification-pending");
+    assert.equal(observed.verdict, "BLOCKED");
+    assert.equal(observed.nativeQuiescence, "unproven");
+    assert.equal(observed.dispatchAllowed, false);
+    assert.equal(JSON.stringify(observed).includes("sensitive-value"), false);
+    assert.deepEqual(calls, ["status:publish-job-1"]);
+  } finally {
+    await client.close().catch(() => {});
+    await server.close().catch(() => {});
+    await rm(root, { recursive: true, force: true });
+  }
 });
