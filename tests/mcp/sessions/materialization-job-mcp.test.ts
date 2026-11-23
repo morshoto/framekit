@@ -7,6 +7,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { createMcpServer, type SessionMaterializationPublisher } from "../../../apps/mcp-server/src/server.js";
 import { FileCanonicalRecoveryGuard, FinalCutBackgroundMaterializationPublisher } from "@framekit/final-cut";
 import { AgentVideoRuntime, type TimelineIr } from "@framekit/runtime";
@@ -1225,6 +1226,37 @@ test("simulated-native: concurrent clients cannot dispatch twice", async () => {
     if (stalled && receiver.inspect(stalled.operationId)?.state === "uncertain") receiver.reply(stalled.operationId, "rejected");
     await pending?.catch(() => undefined);
     await first.client.close(); await first.server.close(); await second.client.close(); await second.server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+
+test("simulated-native: separate MCP process restart never replays lost dispatch", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-simulated-process-"));
+  async function startClient() {
+    const transport = new StdioClientTransport({ command: process.execPath, args: ["--import", "tsx", join(process.cwd(), "tests/support/simulated-native-mcp-child.ts"), directory], stderr: "pipe" });
+    const client = new Client({ name: "simulated-restart", version: "1" });
+    await client.connect(transport);
+    return client;
+  }
+  let first: Client | undefined;
+  let second: Client | undefined;
+  try {
+    first = await startClient();
+    await first.callTool({ name: "session.create", arguments: { sessionId: "simulated-process", provider: { id: "final-cut" }, base: timeline() } });
+    const result = payload(await first.callTool({ name: "session.materialize.execute", arguments: { sessionId: "simulated-process", target, confirm: true } }));
+    assert.equal(result.recoveryReservation.reason, "native-quiescence-unproven");
+    await first.close(); first = undefined;
+    const before = JSON.parse(await readFile(join(directory, "receiver.json"), "utf8"));
+    assert.equal(before.events.filter((event: { kind: string }) => event.kind === "dispatch").length, 1);
+    second = await startClient();
+    const status = payload(await second.callTool({ name: "session.materialize.status", arguments: { jobId: result.jobId } }));
+    assert.equal(status.recoveryReservation.reason, "native-quiescence-unproven");
+    await second.callTool({ name: "session.materialize.retry", arguments: { jobId: result.jobId } });
+    assert.deepEqual(JSON.parse(await readFile(join(directory, "receiver.json"), "utf8")), before);
+    await assert.rejects(new FileCanonicalRecoveryGuard(join(directory, "recovery.json")).assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    await first?.close(); await second?.close();
     await rm(directory, { recursive: true, force: true });
   }
 });
