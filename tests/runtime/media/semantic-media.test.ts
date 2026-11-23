@@ -1003,6 +1003,43 @@ test("cached audio payloads cannot bypass analysis validation", async (t) => {
   }
 });
 
+test("cached speech payloads cannot bypass analysis validation", async (t) => {
+  const cases = [
+    ["nonfinite word", { words: [{ text: "hello", start: NaN, end: 2, confidence: 1 }] }],
+    ["word outside coverage", { words: [{ text: "hello", start: 11, end: 13, confidence: 1 }] }],
+    ["invalid source clock", { sourceTimebase: { value: "1", timescale: "0" } }],
+    ["invalid VAD", { vadSegments: [{ start: 4, end: 3, kind: "speech", confidence: 1 }] }],
+  ] as const;
+  for (const [label, patch] of cases) {
+    for (const entrypoint of ["understanding", "index", "timeline"] as const) {
+      await t.test(`${label} / ${entrypoint}`, async () => {
+        const fixture = semanticFixture();
+        const store = new InMemorySemanticMediaIndexStore();
+        const delegate = new FixtureSpeechAnalyzer();
+        let calls = 0;
+        const analyzer = { descriptor: delegate.descriptor, capabilities: delegate.capabilities,
+          analyze: async (...args: Parameters<FixtureSpeechAnalyzer["analyze"]>) => { calls++; return delegate.analyze(...args); } };
+        const createRuntime = () => new AgentVideoRuntime(fixture.adapter, { speechAnalyzer: analyzer, semanticMediaIndexStore: store });
+        const original = await createRuntime().understandMedia("media-semantic-1");
+        Object.assign(original.speech!, patch);
+        await store.save(original);
+        const runtime = createRuntime();
+        if (entrypoint === "understanding") {
+          const result = await runtime.understandMedia("media-semantic-1");
+          assert.equal(calls, 2);
+          assert.equal(result.speech?.words[0]?.text, "hello");
+        } else if (entrypoint === "index") {
+          assert.equal((await runtime.indexMedia({ query: "hello" })).length, 0);
+        } else {
+          const result = await runtime.inspectTimelineSemanticContext({ occurrenceIds: ["clip-semantic-1"] });
+          assert.equal(result.occurrences[0]?.status, "unavailable");
+          assert.deepEqual(result.occurrences[0]?.observations, []);
+        }
+      });
+    }
+  }
+});
+
 test("production MCP rejects malformed audio while transcription stays available", async (t) => {
   const fixture = semanticFixture();
   const base = { integratedLufs: -18, truePeakDb: -1, silenceMs: 0 };
