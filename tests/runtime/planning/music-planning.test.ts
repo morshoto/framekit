@@ -82,6 +82,10 @@ test("reviewed music proposal previews through the existing workflow without mut
   assert.deepEqual(await runtime.inspectProject(), before);
   assert.equal(preview.operations.some((operation) => operation.type === "timeline.media.add" && operation.mediaId === "music"), true);
   assert.equal(preview.operations.some((operation) => operation.type === "set-gain" && operation.gainDb === -18), true);
+  await assert.rejects(() => previewMusicPlan(runtime, { ...liveRequest, context: { ...liveRequest.context, speech: "absent" } }, plan, "music-clip"), /STALE/);
+  const changedSnapshot = { ...before, timeline: { ...before.timeline, duration: before.timeline.duration + 1 } };
+  const changedRuntime = { inspectProject: async () => changedSnapshot, previewMusic: runtime.previewMusic.bind(runtime) };
+  await assert.rejects(() => previewMusicPlan(changedRuntime, liveRequest, plan, "music-clip"), /STALE/);
   const altered = { ...plan, placement: { ...plan.placement!, gainDb: -3 } };
   await assert.rejects(() => previewMusicPlan(runtime, liveRequest, altered, "music-clip"), /STALE|INVALID/);
   await assert.rejects(() => previewMusicPlan(runtime, { ...liveRequest, revision: { ...before.revision, sequence: before.revision.sequence + 1 } }, plan, "music-clip"), /STALE/);
