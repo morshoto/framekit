@@ -444,3 +444,16 @@ test("evidence publication is complete and exclusive for concurrent readers", as
     assert.equal(await readFile(path, "utf8"), content);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("headless preflight can start without native authorization", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-no-approval-"));
+  try {
+    const unapproved = { ...manifest, authorizationDigest: null };
+    const first = await createOrInspectRun(root, unapproved);
+    assert.equal(first.created, true);
+    assert.equal(first.run.manifest.authorizationDigest, null);
+    assert.equal((await createOrInspectRun(root, unapproved)).created, false);
+    await assert.rejects(claimDispatchIntent(root, unapproved, "publish-job-1"), /QA_AUTHORIZATION_REQUIRED/);
+    assert.equal((await inspectRun(root, manifest.qaRunId)).dispatch, "NOT_DISPATCHED");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
