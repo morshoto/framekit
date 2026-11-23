@@ -54,3 +54,28 @@ test("changed stored artifact bytes cannot pass the approved reference", async (
   const tampered = { get: async () => Buffer.from('{"tampered":true}'), put: async () => {} };
   assert.equal((await verifyAnalysisEvidence(tampered, ref, context)).status, "invalid");
 });
+
+test("VAD requires complete available segments and audio requires measured source evidence", async () => {
+  const { index, artifacts } = await fixture();
+  const vadContext = { ...context, kind: "vad" as const };
+  const ref = await pinAnalysisEvidence(index, artifacts, vadContext);
+  assert.equal((await verifyAnalysisEvidence(artifacts, ref, vadContext)).status, "verified");
+  const noVad = await fixture({ ...understanding, speech: { ...understanding.speech!, capability: "transcription-only", vadSegments: undefined } });
+  await assert.rejects(() => pinAnalysisEvidence(noVad.index, noVad.artifacts, vadContext), /ANALYSIS_/);
+  const audio = { mediaId: source.mediaId, sourceIdentity: source, provider, revision, requestedRange: { start: 0, end: 10 }, measuredRange: { start: 0, end: 10 }, integratedLufs: -20, truePeakDb: -2, silenceMs: 10, valid: true };
+  const audioRecord: MediaUnderstanding = { ...understanding, audio, analysis: [{ capability: "audio", status: "analyzed", provenance: { source, analyzer: provider, ranges: [{ start: 0, end: 10 }] } }] };
+  const audioFixture = await fixture(audioRecord);
+  const audioContext = { ...context, kind: "audio" as const };
+  const audioRef = await pinAnalysisEvidence(audioFixture.index, audioFixture.artifacts, audioContext);
+  assert.equal((await verifyAnalysisEvidence(audioFixture.artifacts, audioRef, audioContext)).status, "verified");
+  const invalid = await fixture({ ...audioRecord, audio: { ...audio, valid: false } });
+  await assert.rejects(() => pinAnalysisEvidence(invalid.index, invalid.artifacts, audioContext), /ANALYSIS_/);
+});
+
+test("exact timing changes and contradictory rational ranges are rejected", async () => {
+  const { index, artifacts } = await fixture();
+  const ref = await pinAnalysisEvidence(index, artifacts, context);
+  const altered = { ...context, range: { ...range, startTime: { value: "1", timescale: "1" } } };
+  assert.notEqual((await verifyAnalysisEvidence(artifacts, ref, altered)).status, "verified");
+  await assert.rejects(() => pinAnalysisEvidence(index, artifacts, { ...context, range: { ...range, startTime: { value: "2", timescale: "1" } } }), /ANALYSIS_/);
+});
