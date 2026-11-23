@@ -9,8 +9,8 @@ export type SimulatedIdentity = {
   revisionId: string;
 };
 type State = "accepted" | "rejected" | "uncertain" | "not-dispatched" | "partial";
-type Step = { kind: "accept" | "reject" | "lose-response" | "stall" | "disconnect-before-dispatch" | "partial-write" };
-type Event = SimulatedIdentity & { tick: number; kind: "dispatch" | "accepted" | "rejected" | "response-lost" | "stalled" | "disconnected" | "partial" };
+type Step = { kind: "accept" | "reject" | "lose-response" | "stall" | "disconnect-before-dispatch" | "partial-write" | "crash-after-dispatch" };
+type Event = SimulatedIdentity & { tick: number; kind: "dispatch" | "accepted" | "rejected" | "response-lost" | "stalled" | "disconnected" | "partial" | "crashed" };
 type Entry = { identity: SimulatedIdentity; state: State; awaitingLateReply?: boolean; resolve?: (result: { state: State }) => void };
 type Snapshot = { version: 1; tick: number; events: Event[]; entries: Array<{ identity: SimulatedIdentity; state: State; awaitingLateReply: boolean }>; script: Step[] };
 type Storage = { tick: number; events: Event[]; entries: Map<string, Entry>; script: Step[] };
@@ -88,6 +88,10 @@ export class ScriptedNativeReceiver {
     if (step.kind === "stall") {
       this.record("stalled", entry.identity);
       return new Promise(resolve => { entry.resolve = resolve; });
+    }
+    if (step.kind === "crash-after-dispatch") {
+      this.record("crashed", entry.identity);
+      return { state: "uncertain" };
     }
     if (step.kind === "lose-response") {
       entry.awaitingLateReply = true;
