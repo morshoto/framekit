@@ -127,3 +127,26 @@ test("music planning is exposed through the runtime package", async () => {
   assert.equal(typeof (runtime as Record<string, unknown>).planMusic, "function");
   assert.equal(typeof (runtime as Record<string, unknown>).previewMusicPlan, "function");
 });
+
+test("music preview rejects changed sources bound to accepted brief coverage", async (t) => {
+  const { AgentVideoRuntime } = await import("../../../packages/runtime/src/runtime.js");
+  const { InMemoryEditorAdapter } = await import("../../../packages/testkit/src/index.js");
+  const { previewMusicPlan } = await import("../../../packages/runtime/src/planning/music-planning.js");
+  const { JsonCreativeBriefStore } = await import("../../../packages/runtime/src/application/creative-brief-store.js");
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const dir = await mkdtemp(join(tmpdir(), "framekit-music-coverage-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const covered = { mediaId: "video", source: "video.mov", sourceDigest: "a".repeat(64), mediaKind: "video" as const, duration: 20 };
+  const boundBrief = { ...brief, requiredContent: ["intro"], sourceCoverage: [{ requirement: "intro", sourceId: "video", sourceDigest: covered.sourceDigest, start: 0, end: 10 }] };
+  const store = new JsonCreativeBriefStore(join(dir, "brief.json"));
+  const draft = await store.create("p", boundBrief); await store.accept("p", draft.digest);
+  const adapter = new InMemoryEditorAdapter({ projectId: "p", projectName: "Project", timelineId: "t", timelineName: "Main", clips: [{ id: "dialogue", name: "Dialogue", start: 0, duration: 30, track: 1 }], media: [registeredMusic, covered] });
+  const runtime = new AgentVideoRuntime(adapter); const current = await runtime.inspectProject();
+  const input = { ...request, brief: boundBrief, accepted: acceptCreativeBrief(boundBrief), snapshot: current, revision: current.revision };
+  const plan = planMusic(input);
+  const changed = { ...current, media: current.media.map((media) => media.mediaId === "video" ? { ...media, sourceDigest: "b".repeat(64) } : media) };
+  const changedRuntime = { inspectProject: async () => changed, previewMusic: runtime.previewMusic.bind(runtime) };
+  await assert.rejects(() => previewMusicPlan(changedRuntime, input, plan, "music-clip", fixtureVerifySource, store), /COVERAGE/);
+});
