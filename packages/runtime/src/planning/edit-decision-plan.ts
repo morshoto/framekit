@@ -142,6 +142,9 @@ export async function createEditDecisionPlan(request: EditDecisionPlanRequest, a
     }
     const captionPolicy = request.brief.captionPolicy;
     const policyValue = captionPolicy.kind === "specified" ? captionPolicy.value.trim().toLowerCase() : undefined;
+    if (request.caption.wordCorrections?.length && (policyValue !== "basic" || !request.speechRef || !speechContext)) {
+      return { status: "unavailable", reason: "Caption corrections require a basic caption plan and pinned speech evidence." };
+    }
     const captionDecisions: EditDecision[] = [];
     const captionWarnings: string[] = [];
     if (policyValue === "none") {
