@@ -206,6 +206,7 @@ const analyzers = liveMode
       speechProviderVersion: process.env.FRAMEKIT_SPEECH_ANALYZER_VERSION,
       speechRequireVad: process.env.FRAMEKIT_SPEECH_REQUIRE_VAD === "1",
       audioCommand: process.env.FRAMEKIT_AUDIO_ANALYZER,
+      audioProviderVersion: process.env.FRAMEKIT_AUDIO_ANALYZER_VERSION,
       visualCommand: process.env.FRAMEKIT_VISUAL_ANALYZER,
       metadataCommand: process.env.FRAMEKIT_METADATA_ANALYZER,
       timeoutMs: parseTimeout(process.env.FRAMEKIT_ANALYZER_TIMEOUT_MS),

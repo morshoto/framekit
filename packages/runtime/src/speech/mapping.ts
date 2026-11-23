@@ -1,5 +1,9 @@
 import type {
   RevisionBoundSpeechAnalysis,
+  MappedSpeechWord,
+  MappedSpeechSegment,
+  MappedVadCoverage,
+  SpeechOccurrenceMapping,
   SpeechSegment,
   SpeechWord,
 } from "../domain/media.js";
@@ -13,7 +17,7 @@ export interface SpeechOccurrence {
   revision: ContextRevision;
   sourceRange: TimeRange;
   sequenceRange: TimeRange;
-  /** Expected source clock for this occurrence when the editor exposes one. */
+  /** Editor source clock, independent of the provider's evidence clock. */
   sourceTimebase?: RationalTime;
 }
 
@@ -21,39 +25,7 @@ export interface SpeechMappingOptions {
   sequenceFrameDuration: RationalTime;
 }
 
-export interface MappedSpeechWord {
-  word: SpeechWord;
-  sourceRange: TimeRange;
-  sequenceRange: TimeRange;
-  frameAlignedRange: TimeRange;
-}
-
-export interface MappedSpeechSegment {
-  segment: SpeechSegment;
-  sourceRange: TimeRange;
-  sequenceRange: TimeRange;
-  frameAlignedRange: TimeRange;
-}
-
-export type MappedVadCoverage =
-  | { sourceRange: TimeRange; sequenceRange: TimeRange; status: "available"; segments: MappedSpeechSegment[] }
-  | { sourceRange: TimeRange; sequenceRange: TimeRange; status: "unavailable"; reason: string };
-
-export interface SpeechOccurrenceMapping {
-  occurrenceId: string;
-  mediaId: string;
-  revision: ContextRevision;
-  sourceRange: TimeRange;
-  sequenceRange: TimeRange;
-  sourceTimebase: RationalTime;
-  sequenceFrameDuration: RationalTime;
-  capability: RevisionBoundSpeechAnalysis["capability"];
-  words: MappedSpeechWord[];
-  vadSegments?: MappedSpeechSegment[];
-  vadCoverage?: MappedVadCoverage[];
-  silenceSegments?: MappedSpeechSegment[];
-  protectedSegments?: MappedSpeechSegment[];
-}
+export type { MappedSpeechWord, MappedSpeechSegment, MappedVadCoverage, SpeechOccurrenceMapping } from "../domain/media.js";
 
 /** Map validated source evidence onto one exact timeline occurrence. */
 export function mapSpeechAnalysisToOccurrence(
@@ -62,6 +34,10 @@ export function mapSpeechAnalysisToOccurrence(
   options: SpeechMappingOptions,
 ): SpeechOccurrenceMapping {
   validateOccurrence(occurrence);
+  validateRange(analysis.observedRange, "observed speech range");
+  if (!containsRange(analysis.observedRange, occurrence.sourceRange)) {
+    throw new Error("AMBIGUOUS_MAPPING: observed speech range does not cover the occurrence source range");
+  }
   if (analysis.mediaId !== occurrence.mediaId) {
     throw new Error("TARGET_MISMATCH: speech analysis media does not match the timeline occurrence");
   }
@@ -73,10 +49,7 @@ export function mapSpeechAnalysisToOccurrence(
   }
   const sourceTimebase = validatePositiveRational(analysis.sourceTimebase, "ANALYSIS_INVALID", "speech source timebase");
   if (occurrence.sourceTimebase !== undefined) {
-    const occurrenceTimebase = validatePositiveRational(occurrence.sourceTimebase, "ANALYSIS_INVALID", "occurrence source timebase");
-    if (!sameRational(sourceTimebase, occurrenceTimebase)) {
-      throw new Error("AMBIGUOUS_MAPPING: speech source timebase does not match the timeline occurrence");
-    }
+    validatePositiveRational(occurrence.sourceTimebase, "ANALYSIS_INVALID", "occurrence source timebase");
   }
   const frame = validatePositiveRational(options.sequenceFrameDuration, "ANALYSIS_INVALID", "sequence frame duration");
   const sourceDuration = occurrence.sourceRange.end - occurrence.sourceRange.start;
@@ -95,7 +68,7 @@ export function mapSpeechAnalysisToOccurrence(
     const sourceRange = { start, end };
     const sequenceRange = mapSourceRangeToSequenceRange(sourceRange, occurrence);
     return span.status === "available"
-      ? [{ sourceRange, sequenceRange, status: "available", segments: mapEvidence(span.segments, occurrence, frame, "VAD segment", (segment) => segment) }]
+      ? [{ sourceRange, sequenceRange, status: "available", segments: mapEvidence(span.segments, occurrence, frame, sourceTimebase, "VAD segment", (segment) => segment) }]
       : [{ sourceRange, sequenceRange, status: "unavailable", reason: span.reason }];
   });
   let cursor = occurrence.sourceRange.start;
@@ -106,7 +79,7 @@ export function mapSpeechAnalysisToOccurrence(
   }) && cursor === occurrence.sourceRange.end;
   const mappedVad = vadCoverage !== undefined
     ? completeVad ? vadCoverage.flatMap((span) => span.status === "available" ? span.segments : []) : undefined
-    : analysis.vadSegments ? mapEvidence(analysis.vadSegments, occurrence, frame, "VAD segment", (segment) => segment) : undefined;
+    : analysis.vadSegments ? mapEvidence(analysis.vadSegments, occurrence, frame, sourceTimebase, "VAD segment", (segment) => segment) : undefined;
 
   return {
     occurrenceId: occurrence.occurrenceId,
@@ -117,14 +90,14 @@ export function mapSpeechAnalysisToOccurrence(
     sourceTimebase,
     sequenceFrameDuration: frame,
     capability: vadCoverage !== undefined ? (completeVad ? "transcription-plus-vad" : "transcription-only") : analysis.capability,
-    words: mapEvidence(analysis.words, occurrence, frame, "speech word", (word) => word),
+    words: mapEvidence(analysis.words, occurrence, frame, sourceTimebase, "speech word", (word) => word),
     ...(mappedVad ? { vadSegments: mappedVad } : {}),
     ...(vadCoverage !== undefined ? { vadCoverage } : {}),
     ...(analysis.silenceSegments
-      ? { silenceSegments: mapEvidence(analysis.silenceSegments, occurrence, frame, "silence segment", (segment) => segment) }
+      ? { silenceSegments: mapEvidence(analysis.silenceSegments, occurrence, frame, sourceTimebase, "silence segment", (segment) => segment) }
       : {}),
     ...(analysis.protectedSegments
-      ? { protectedSegments: mapEvidence(analysis.protectedSegments, occurrence, frame, "protected segment", (segment) => segment) }
+      ? { protectedSegments: mapEvidence(analysis.protectedSegments, occurrence, frame, sourceTimebase, "protected segment", (segment) => segment) }
       : {}),
   };
 }
@@ -152,6 +125,7 @@ function mapEvidence<T extends { start: number; end: number }, M>(
   evidence: T[],
   occurrence: SpeechOccurrence,
   frame: RationalTime,
+  sourceTimebase: RationalTime,
   label: string,
   clone: (value: T) => M,
 ): Array<M extends SpeechWord ? MappedSpeechWord : MappedSpeechSegment> {
@@ -163,7 +137,13 @@ function mapEvidence<T extends { start: number; end: number }, M>(
       throw new Error(`AMBIGUOUS_MAPPING: ${label} crosses the occurrence source boundary`);
     }
     const sourceRange = { start: value.start, end: value.end };
-    const sequenceRange = mapSourceRangeToSequenceRange(sourceRange, occurrence);
+    const startTime = sourceClockTime(value.start, sourceTimebase);
+    const endTime = sourceClockTime(value.end, sourceTimebase);
+    const sequenceRange = mapSourceRangeToSequenceRange({
+      ...sourceRange,
+      startTime,
+      durationTime: subtractRationalTimes(endTime, startTime),
+    }, occurrence);
     const frameAlignedRange = alignRange(sequenceRange, frame);
     if (!containsRange(occurrence.sequenceRange, frameAlignedRange)) {
       throw new Error(`AMBIGUOUS_MAPPING: ${label} cannot be frame-aligned inside the occurrence`);
@@ -177,6 +157,20 @@ function mapEvidence<T extends { start: number; end: number }, M>(
     mapped.push(mappedValue);
   }
   return mapped;
+}
+
+function sourceClockTime(seconds: number, clock: RationalTime): RationalTime {
+  const tick = rationalToNumber(clock);
+  const ticks = Math.round(seconds / tick);
+  if (tick <= 0 || !Number.isSafeInteger(ticks)) {
+    throw new Error("AMBIGUOUS_MAPPING: speech evidence exceeds the supported source clock");
+  }
+  const parsed = parseRational(clock, "ANALYSIS_INVALID");
+  const time = normalizeRational(BigInt(ticks) * parsed.value, parsed.timescale);
+  if (Math.abs(rationalToNumber(time) - seconds) > 0.000000001) {
+    throw new Error("AMBIGUOUS_MAPPING: speech evidence cannot be represented on its declared source clock");
+  }
+  return time;
 }
 
 function translateRange(
@@ -232,6 +226,18 @@ function validateSequenceRationalRange(range: TimeRange): RationalTime {
 function validateRange(range: TimeRange, label: string): void {
   if (!Number.isFinite(range.start) || !Number.isFinite(range.end) || range.start < 0 || range.end <= range.start) {
     throw new Error(`ANALYSIS_INVALID: ${label} is invalid`);
+  }
+  if (range.startTime) {
+    const start = validateRational(range.startTime, "ANALYSIS_INVALID", `${label} start time`);
+    if (Math.abs(rationalToNumber(start) - range.start) > 0.000000001) {
+      throw new Error(`AMBIGUOUS_MAPPING: ${label} seconds and rational start time differ`);
+    }
+  }
+  if (range.durationTime) {
+    const duration = validatePositiveRational(range.durationTime, "ANALYSIS_INVALID", `${label} duration time`);
+    if (Math.abs(rationalToNumber(duration) - (range.end - range.start)) > 0.000000001) {
+      throw new Error(`AMBIGUOUS_MAPPING: ${label} seconds and rational duration differ`);
+    }
   }
 }
 
@@ -324,10 +330,4 @@ function greatestCommonDivisor(left: bigint, right: bigint): bigint {
 
 function sameRevision(left: ContextRevision, right: ContextRevision): boolean {
   return left.id === right.id && left.sequence === right.sequence && left.timestamp === right.timestamp;
-}
-
-function sameRational(left: RationalTime, right: RationalTime): boolean {
-  const leftParts = parseRational(left, "ANALYSIS_INVALID");
-  const rightParts = parseRational(right, "ANALYSIS_INVALID");
-  return leftParts.value * rightParts.timescale === rightParts.value * leftParts.timescale;
 }

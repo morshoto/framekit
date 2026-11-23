@@ -22,6 +22,8 @@ export interface CommandAnalyzerOptions {
   timeoutMs?: number;
   providerVersion?: string;
   requireVad?: boolean;
+  /** Captured at construction and used for both execution and configuration identity. */
+  environment?: Record<string, string | undefined>;
 }
 
 interface AnalyzerRequest extends AnalysisInput {
@@ -33,6 +35,7 @@ export function createCommandAnalyzers(options: {
   speechProviderVersion?: string;
   speechRequireVad?: boolean;
   audioCommand?: string;
+  audioProviderVersion?: string;
   visualCommand?: string;
   metadataCommand?: string;
   timeoutMs?: number;
@@ -51,7 +54,7 @@ export function createCommandAnalyzers(options: {
         ...(options.speechRequireVad ? { requireVad: true } : {}),
       }),
     } : {}),
-    ...(options.audioCommand ? { audioAnalyzer: new CommandAudioAnalyzer({ command: options.audioCommand, timeoutMs: options.timeoutMs }) } : {}),
+    ...(options.audioCommand ? { audioAnalyzer: new CommandAudioAnalyzer({ command: options.audioCommand, timeoutMs: options.timeoutMs, providerVersion: options.audioProviderVersion }) } : {}),
     ...(options.visualCommand ? { visualAnalyzer: new CommandVisualAnalyzer({ command: options.visualCommand, timeoutMs: options.timeoutMs }) } : {}),
     ...(options.metadataCommand ? { metadataAnalyzer: new CommandMetadataAnalyzer({ command: options.metadataCommand, timeoutMs: options.timeoutMs }) } : {}),
   };
@@ -62,15 +65,16 @@ export class CommandSpeechAnalyzer implements SpeechAnalyzer {
   public readonly capabilities: { transcription: true; vad: boolean };
 
   public constructor(private readonly options: CommandAnalyzerOptions) {
+    this.options = captureCommandOptions(options);
     if (options.requireVad === true && !options.providerVersion?.trim()) {
       throw new Error("ANALYZER_SETUP_REQUIRED: speech provider version is required when VAD is required");
     }
-    this.descriptor = {
-      id: "command.speech",
-      provider: "command",
-      ...(options.providerVersion ? { version: options.providerVersion } : {}),
-    };
+    this.descriptor = commandDescriptor(this.options, "speech");
     this.capabilities = { transcription: true, vad: options.requireVad === true };
+  }
+
+  public async validateSource(input: AnalysisInput): Promise<void> {
+    await verifyAnalyzerSource(input.media, "speech", this.options.timeoutMs ?? 120_000);
   }
 
   public async analyze(input: AnalysisInput, range?: TimeRange): Promise<SpeechAnalysis> {
@@ -79,7 +83,7 @@ export class CommandSpeechAnalyzer implements SpeechAnalyzer {
       if (this.options.requireVad) {
         requireStrictSpeechProvenance(result, input, range, this.descriptor);
       }
-      const analysis = bindSpeechAnalysis(result, { input, range, provider: this.descriptor });
+      const analysis = bindSpeechAnalysis(withCommandProvenance(result, this.descriptor), { input, range, provider: this.descriptor });
       if (this.options.requireVad && analysis.capability !== "transcription-plus-vad") {
         throw new Error("ANALYZER_INVALID_OUTPUT: configured speech provider must return VAD evidence");
       }
@@ -91,12 +95,19 @@ export class CommandSpeechAnalyzer implements SpeechAnalyzer {
 }
 
 export class CommandAudioAnalyzer implements AudioAnalyzer {
-  public readonly descriptor = { id: "command.audio", provider: "command" };
+  public readonly descriptor: AnalyzerDescriptor;
 
-  public constructor(private readonly options: CommandAnalyzerOptions) {}
+  public constructor(private readonly options: CommandAnalyzerOptions) {
+    this.options = captureCommandOptions(options);
+    this.descriptor = commandDescriptor(this.options, "audio");
+  }
+
+  public async validateSource(input: AnalysisInput): Promise<void> {
+    await verifyAnalyzerSource(input.media, "audio", this.options.timeoutMs ?? 120_000);
+  }
 
   public async analyze(input: AnalysisInput, range?: TimeRange): Promise<AudioAnalysis> {
-    return runCommand<AudioAnalysis>(this.options, { ...input, range }, "audio");
+    return withCommandProvenance(await runCommand<AudioAnalysis>(this.options, { ...input, range }, "audio"), this.descriptor);
   }
 }
 
@@ -120,16 +131,40 @@ export class CommandMetadataAnalyzer implements MetadataAnalyzer {
   }
 }
 
+function captureCommandOptions(options: CommandAnalyzerOptions): CommandAnalyzerOptions {
+  return { ...options, environment: { ...(options.environment ?? process.env) } };
+}
+
+function commandDescriptor(options: CommandAnalyzerOptions, kind: string): AnalyzerDescriptor {
+  const environment = Object.entries(options.environment ?? {}).filter(([, value]) => value !== undefined)
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
+  const configurationDigest = createHash("sha256").update(JSON.stringify({
+    command: options.command, environment, requireVad: options.requireVad === true,
+    providerVersion: options.providerVersion,
+  })).digest("hex");
+  return {
+    id: `command.${kind}`, provider: "command",
+    ...(options.providerVersion ? { version: options.providerVersion } : {}),
+    configurationDigest,
+  };
+}
+
+function withCommandProvenance<T>(value: T, descriptor: AnalyzerDescriptor): T {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const result = value as Record<string, unknown>;
+  if (result.provider === undefined) return { ...result, provider: structuredClone(descriptor) } as T;
+  if (result.provider && typeof result.provider === "object" && !Array.isArray(result.provider)) {
+    return { ...result, provider: { ...descriptor, ...result.provider } } as T;
+  }
+  return value;
+}
+
 async function runCommand<T>(options: CommandAnalyzerOptions, request: AnalyzerRequest, kind: string): Promise<T> {
   const source = request.media.source;
   const timeoutMs = options.timeoutMs ?? 120_000;
-  const initialDigest = await digestAnalyzerSource(source, kind, timeoutMs);
-  const expectedDigest = request.media.sourceDigest?.replace(/^sha256:/, "");
-  if (expectedDigest !== undefined && expectedDigest !== initialDigest) {
-    throw new Error(`ANALYZER_SOURCE_CHANGED: ${kind} source bytes do not match the requested source digest`);
-  }
+  const initialDigest = await verifyAnalyzerSource(request.media, kind, timeoutMs);
 
-  const child = spawn(options.command, [], { stdio: ["pipe", "pipe", "pipe"] });
+  const child = spawn(options.command, [], { stdio: ["pipe", "pipe", "pipe"], env: options.environment });
   const stdout: Buffer[] = [];
   const stderr: Buffer[] = [];
   let settled = false;
@@ -174,6 +209,15 @@ async function runCommand<T>(options: CommandAnalyzerOptions, request: AnalyzerR
     throw new Error(`ANALYZER_SOURCE_CHANGED: ${kind} source bytes changed while analysis was running`);
   }
   return result;
+}
+
+async function verifyAnalyzerSource(media: AnalysisInput["media"], kind: string, timeoutMs: number): Promise<string> {
+  const digest = await digestAnalyzerSource(media.source, kind, timeoutMs);
+  const expectedDigest = media.sourceDigest?.replace(/^sha256:/, "");
+  if (expectedDigest !== undefined && expectedDigest !== digest) {
+    throw new Error(`ANALYZER_SOURCE_CHANGED: ${kind} source bytes do not match the requested source digest`);
+  }
+  return digest;
 }
 
 async function digestAnalyzerSource(source: string, kind: string, timeoutMs: number): Promise<string> {
@@ -261,7 +305,9 @@ function sameAnalyzerDescriptor(value: unknown, expected: AnalyzerDescriptor): b
   const descriptor = value as Record<string, unknown>;
   return descriptor.id === expected.id
     && descriptor.provider === expected.provider
-    && descriptor.version === expected.version;
+    && descriptor.version === expected.version
+    && (descriptor.model === undefined || descriptor.model === expected.model)
+    && (descriptor.configurationDigest === undefined || descriptor.configurationDigest === expected.configurationDigest);
 }
 
 function sameRange(value: unknown, expected: TimeRange): boolean {
