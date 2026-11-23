@@ -103,24 +103,45 @@ export async function createOrInspectRun(root: string, manifest: QaRunManifest):
   validateManifest(bound);
   await assertPrivateRoot(root);
   const directory = join(root, bound.qaRunId);
-  try { await mkdir(directory, { mode: 0o700 }); }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    const run = await inspectRun(root, bound.qaRunId);
-    if (manifestFields.some(key => run.manifest[key] !== bound[key])) throw new Error("QA_RUN_IDENTITY_MISMATCH");
+  const inspectMatching = async (runId: string): Promise<{ created: false; run: QaRun }> => {
+    const run = await inspectRun(root, runId);
+    if (manifestFields.some(key => key !== "qaRunId" && run.manifest[key] !== bound[key])) throw new Error("QA_RUN_IDENTITY_MISMATCH");
     return { created: false, run };
+  };
+  try {
+    await lstat(directory);
+    return await inspectMatching(bound.qaRunId);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
   const authorizationDirectory = join(root, `.authorization-${bound.authorizationDigest}`);
   try { await mkdir(authorizationDirectory, { mode: 0o700 }); }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error("QA_AUTHORIZATION_ALREADY_BOUND");
-    throw error;
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    let owner: string;
+    try {
+      const bindingDir = await lstat(authorizationDirectory);
+      const bindingFile = await lstat(join(authorizationDirectory, "run-id"));
+      if (!bindingDir.isDirectory() || bindingDir.isSymbolicLink() || !bindingFile.isFile() || bindingFile.isSymbolicLink()) throw new Error("QA_RUN_UNSAFE_PATH");
+      const content = await readFile(join(authorizationDirectory, "run-id"), "utf8");
+      if (!/^[a-z0-9][a-z0-9-]{0,63}\n$/.test(content)) throw new Error("QA_RUN_NOT_FOUND_OR_INCOMPLETE");
+      owner = content.slice(0, -1);
+    } catch (bindingError) {
+      if ((bindingError as NodeJS.ErrnoException).code === "ENOENT") throw new Error("QA_RUN_NOT_FOUND_OR_INCOMPLETE");
+      throw bindingError;
+    }
+    return inspectMatching(owner);
   }
   const binding = await open(join(authorizationDirectory, "run-id"), "wx", 0o600);
   try { await binding.writeFile(`${bound.qaRunId}\n`); await binding.sync(); }
   finally { await binding.close(); }
   await syncDirectory(authorizationDirectory);
   await syncDirectory(root);
+  try { await mkdir(directory, { mode: 0o700 }); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    return inspectMatching(bound.qaRunId);
+  }
   const run: QaRun = { schemaVersion: 1, manifest: bound, dispatch: "NOT_DISPATCHED", verdict: "BLOCKED" };
   const file = await open(join(directory, "run.json"), "wx", 0o600);
   try { await file.writeFile(JSON.stringify(run) + "\n"); await file.sync(); }
