@@ -10,9 +10,12 @@ const brief: CreativeBrief = {
   musicPolicy: { kind: "specified", value: "background" }, captionPolicy: { kind: "no-preference" }, inferences: [], reviewPrompts: [],
 };
 const revision = { id: "r1", sequence: 1, timestamp: "2026-01-01T00:00:00.000Z" };
+const registeredMusic = { mediaId: "music", source: "music.wav", sourceDigest: "sha256:fixture", mediaKind: "audio" as const, duration: 40 };
+const snapshot = { projectId: "p", projectName: "Project", revision, timeline: { id: "t", name: "Main", duration: 30, clips: [], storyElements: [], markers: [], captions: [] }, media: [registeredMusic] };
 const request = {
+  snapshot,
   brief, accepted: acceptCreativeBrief(brief), projectId: "p", timelineId: "t", revision,
-  music: { mediaId: "music", source: "music.wav", sourceDigest: "sha256:fixture", mediaKind: "audio" as const, duration: 40 },
+  music: registeredMusic,
   placement: { start: 0, end: 30 }, gainDb: -18, targetLane: -1,
   context: { speech: "present" as const, audioEvidence: "unavailable" as const },
   capabilities: { staticMusicPreview: true, ducking: false, fades: false },
@@ -56,4 +59,12 @@ test("does not infer an audible mix from gameplay, music-led, or missing analysi
     assert.equal(plan.dialogueVerificationRequired, true);
     assert.ok(plan.warnings.some((warning) => /verif|audib/i.test(warning)));
   }
+});
+
+
+test("source must exist in the current exact project and range", () => {
+  assert.equal(planMusic({ ...request, snapshot: { ...snapshot, media: [] } }).decision, "unavailable");
+  assert.equal(planMusic({ ...request, music: { ...registeredMusic, sourceDigest: "sha256:changed" } }).decision, "unavailable");
+  assert.throws(() => planMusic({ ...request, revision: { ...revision, sequence: 2 } }), /STALE/);
+  assert.equal(planMusic({ ...request, placement: { start: 25, end: 35 } }).decision, "unsupported");
 });
