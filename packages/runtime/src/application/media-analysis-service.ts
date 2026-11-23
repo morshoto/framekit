@@ -56,15 +56,23 @@ export class MediaAnalysisService {
   public async analyzeSpeech(mediaId: string, range?: TimeRange): Promise<RevisionBoundSpeechAnalysis> {
     if (!this.options.speechAnalyzer) throw new Error("CAPABILITY_UNAVAILABLE: speech analysis");
     const project = await this.project.inspectProject();
-    const media = findMedia(project, mediaId);
-    return this.analyzeSpeechForProject(project, media, range);
+    return this.analyzeSpeechInProject(mediaId, project, range);
+  }
+
+  public async analyzeSpeechInProject(mediaId: string, project: ProjectSnapshot, range?: TimeRange): Promise<RevisionBoundSpeechAnalysis> {
+    if (!this.options.speechAnalyzer) throw new Error("CAPABILITY_UNAVAILABLE: speech analysis");
+    return this.analyzeSpeechForProject(project, findMedia(project, mediaId), range);
   }
 
   public async analyzeAudio(mediaId: string, range?: TimeRange): Promise<AudioAnalysis> {
     if (!this.options.audioAnalyzer) throw new Error("CAPABILITY_UNAVAILABLE: audio analysis");
     const project = await this.project.inspectProject();
-    const media = findMedia(project, mediaId);
-    return this.analyzeAudioForProject(project, media, range);
+    return this.analyzeAudioInProject(mediaId, project, range);
+  }
+
+  public async analyzeAudioInProject(mediaId: string, project: ProjectSnapshot, range?: TimeRange): Promise<AudioAnalysis> {
+    if (!this.options.audioAnalyzer) throw new Error("CAPABILITY_UNAVAILABLE: audio analysis");
+    return this.analyzeAudioForProject(project, findMedia(project, mediaId), range);
   }
 
   public async analyzeNoise(mediaId: string, range?: TimeRange): Promise<NoiseAnalysis> {
@@ -176,10 +184,12 @@ export class MediaAnalysisService {
     mediaId: string,
     project: ProjectSnapshot,
     attachToLiveContext = false,
+    validateBeforePublish?: () => Promise<void>,
   ): Promise<MediaUnderstanding> {
     const media = findMedia(project, mediaId);
     const cached = await this.loadCachedUnderstanding(project, media);
     if (cached) {
+      await validateBeforePublish?.();
       if (attachToLiveContext) this.context.attachMediaUnderstanding(cached);
       return structuredClone(cached);
     }
@@ -223,6 +233,7 @@ export class MediaAnalysisService {
       ],
       analysisRevision: project.revision,
     };
+    await validateBeforePublish?.();
     if (attachToLiveContext) this.context.attachMediaUnderstanding(understanding);
     await this.options.semanticMediaIndexStore?.save(understanding);
     return structuredClone(understanding);

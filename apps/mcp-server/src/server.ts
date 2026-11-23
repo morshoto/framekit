@@ -2370,8 +2370,15 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ mediaId, projectId }) => {
     if (!projectId) return jsonResult(await runtime.understandMedia(mediaId));
     return sessionResult(async () => {
-      const project = await requireHeadlessProjects().open(projectId);
-      return runtime.understandMediaInProject(mediaId, projectSnapshotFromTimelineIr(project.timeline));
+      const projects = requireHeadlessProjects();
+      const project = await projects.open(projectId);
+      if (!project.timeline.resources.some((resource) => resource.id === mediaId && resource.sourceKind === "local-file" && resource.sourceDigest)) {
+        throw new Error("MEDIA_NOT_REGISTERED: analysis requires registered local media");
+      }
+      return runtime.understandMediaInProject(mediaId, projectSnapshotFromTimelineIr(project.timeline), async () => {
+        const current = await projects.open(projectId);
+        if (JSON.stringify(current.timeline.revision) !== JSON.stringify(project.timeline.revision)) throw new Error("STALE_CONTEXT: project changed during media analysis");
+      });
     });
   });
 
@@ -2623,9 +2630,22 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   });
 
   registerValidatedTool(server, "speech.analyze", {
-    description: "Analyze speech words, filler markers, and optional VAD for one media item or source range.",
-    inputSchema: { mediaId: z.string().min(1), range: rangeSchema.optional() },
-  }, async ({ mediaId, range }) => jsonResult(await runtime.analyzeSpeech(mediaId, range)));
+    description: "Analyze speech words, filler markers, and optional VAD for one media item or source range in the editor or a named headless project.",
+    inputSchema: { mediaId: z.string().min(1), range: rangeSchema.optional(), projectId: z.string().min(1).optional() },
+  }, async ({ mediaId, range, projectId }) => {
+    if (!projectId) return jsonResult(await runtime.analyzeSpeech(mediaId, range));
+    return sessionResult(async () => {
+      const projects = requireHeadlessProjects();
+      const project = await projects.open(projectId);
+      if (!project.timeline.resources.some((resource) => resource.id === mediaId && resource.sourceKind === "local-file" && resource.sourceDigest)) {
+        throw new Error("MEDIA_NOT_REGISTERED: analysis requires registered local media");
+      }
+      const result = await runtime.analyzeSpeechInProject(mediaId, projectSnapshotFromTimelineIr(project.timeline), range);
+      const current = await projects.open(projectId);
+      if (JSON.stringify(current.timeline.revision) !== JSON.stringify(project.timeline.revision)) throw new Error("STALE_CONTEXT: project changed during speech analysis");
+      return result;
+    });
+  });
 
   registerValidatedTool(server, "speech.filler.remove.preview", {
     description: "Analyze a selected canonical timeline range and preview removal of high-confidence filler words with safe rational delete ranges.",
@@ -2638,9 +2658,22 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ previewToken }) => jsonResult(await runtime.executeFillerRemoval(previewToken)));
 
   registerValidatedTool(server, "audio.analyze", {
-    description: "Analyze loudness, true peak, and silence for one media item or source range.",
-    inputSchema: { mediaId: z.string().min(1), range: rangeSchema.optional() },
-  }, async ({ mediaId, range }) => jsonResult(await runtime.analyzeAudio(mediaId, range)));
+    description: "Analyze loudness, true peak, and silence for one media item or source range in the editor or a named headless project.",
+    inputSchema: { mediaId: z.string().min(1), range: rangeSchema.optional(), projectId: z.string().min(1).optional() },
+  }, async ({ mediaId, range, projectId }) => {
+    if (!projectId) return jsonResult(await runtime.analyzeAudio(mediaId, range));
+    return sessionResult(async () => {
+      const projects = requireHeadlessProjects();
+      const project = await projects.open(projectId);
+      if (!project.timeline.resources.some((resource) => resource.id === mediaId && resource.sourceKind === "local-file" && resource.sourceDigest)) {
+        throw new Error("MEDIA_NOT_REGISTERED: analysis requires registered local media");
+      }
+      const result = await runtime.analyzeAudioInProject(mediaId, projectSnapshotFromTimelineIr(project.timeline), range);
+      const current = await projects.open(projectId);
+      if (JSON.stringify(current.timeline.revision) !== JSON.stringify(project.timeline.revision)) throw new Error("STALE_CONTEXT: project changed during audio analysis");
+      return result;
+    });
+  });
 
   registerValidatedTool(server, "audio.noise.analyze", {
     description: "Analyze unwanted background noise for one media item when a noise analyzer is configured.",

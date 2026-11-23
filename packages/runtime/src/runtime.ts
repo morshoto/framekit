@@ -281,8 +281,16 @@ export class AgentVideoRuntime {
     return this.media.analyzeSpeech(mediaId, range);
   }
 
+  public async analyzeSpeechInProject(mediaId: string, project: ProjectSnapshot, range?: TimeRange): Promise<SpeechAnalysis> {
+    return this.media.analyzeSpeechInProject(mediaId, project, range);
+  }
+
   public async analyzeAudio(mediaId: string, range?: TimeRange): Promise<AudioAnalysis> {
     return this.media.analyzeAudio(mediaId, range);
+  }
+
+  public async analyzeAudioInProject(mediaId: string, project: ProjectSnapshot, range?: TimeRange): Promise<AudioAnalysis> {
+    return this.media.analyzeAudioInProject(mediaId, project, range);
   }
 
   public async analyzeNoise(mediaId: string, range?: TimeRange): Promise<NoiseAnalysis> {
@@ -297,8 +305,8 @@ export class AgentVideoRuntime {
     return this.media.understandMedia(mediaId);
   }
 
-  public async understandMediaInProject(mediaId: string, project: ProjectSnapshot): Promise<MediaUnderstanding> {
-    return this.media.understandMediaInProject(mediaId, project);
+  public async understandMediaInProject(mediaId: string, project: ProjectSnapshot, validateBeforePublish?: () => Promise<void>): Promise<MediaUnderstanding> {
+    return this.media.understandMediaInProject(mediaId, project, false, validateBeforePublish);
   }
 
   public planDuration(request: DurationPolicyRequest): DurationPolicyPlan {
