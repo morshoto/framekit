@@ -4,7 +4,7 @@ import type { ContextRevision, RationalTime, TimeRange } from "../domain/primiti
 import type { ProjectSnapshot } from "../domain/project.js";
 import { bindSpeechAnalysis } from "../speech/analysis.js";
 import { mapSpeechAnalysisToOccurrence } from "../speech/mapping.js";
-import { parseRational } from "../timeline/rational-time.js";
+import { addRationalTimes, parseRational, subtractRationalTimes } from "../timeline/rational-time.js";
 
 export interface NarrativeCutRequest {
   source: MediaSourceIdentity;
@@ -118,13 +118,19 @@ export function rankNarrativeCuts(request: NarrativeCutRequest): NarrativeCutPla
     const start = firstFrame * frameSeconds;
     const end = lastFrame * frameSeconds;
     if (start < rawStart || end > rawEnd) continue;
-    const sourceRange = { start: request.sourceRange.start + (start - request.sequenceRange.start), end: request.sourceRange.start + (end - request.sequenceRange.start) };
     const frame = parseRational(request.sequenceFrameDuration, "ANALYSIS_INVALID");
+    const sequenceStart = { value: String(BigInt(firstFrame) * frame.value), timescale: String(frame.timescale) };
+    const duration = { value: String(BigInt(lastFrame - firstFrame) * frame.value), timescale: String(frame.timescale) };
+    const sourceRange = {
+      start: request.sourceRange.start + (start - request.sequenceRange.start), end: request.sourceRange.start + (end - request.sequenceRange.start),
+      startTime: addRationalTimes(request.sourceRange.startTime!, subtractRationalTimes(sequenceStart, request.sequenceRange.startTime!)),
+      durationTime: duration,
+    };
     const evidence = ["Sentence-ending transcript boundary", "VAD silence covers the pause", "Speech margins retained"];
     if (gaps.every(validRange) && gaps.some((gap) => gap.start <= sourceRange.start && gap.end >= sourceRange.end)) evidence.push("Visual gap overlaps the proposed interval");
     result.candidates.push({
       occurrenceId: request.occurrenceId, sourceRange,
-      sequenceRange: { start, end, startTime: { value: String(BigInt(firstFrame) * frame.value), timescale: String(frame.timescale) }, durationTime: { value: String(BigInt(lastFrame - firstFrame) * frame.value), timescale: String(frame.timescale) } },
+      sequenceRange: { start, end, startTime: sequenceStart, durationTime: { ...duration } },
       confidence: Math.min(previous.word.confidence, next.word.confidence),
       rationale: "A pause follows a sentence-ending word; review the surrounding thought and pacing before editing.",
       evidence, reviewRequired: true,
