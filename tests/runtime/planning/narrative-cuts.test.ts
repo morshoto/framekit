@@ -113,3 +113,10 @@ test("supports speech-only VAD with complete observed coverage as an uncertain r
   const incomplete = { ...speechOnly, analysis: { ...speechOnly.analysis, vadCoverage: [{ status: "unavailable" as const, start: 0, end: 10, reason: "detector failed" }] } };
   assert.equal(rankNarrativeCuts(incomplete).candidates.length, 0);
 });
+
+test("rejects a pause when VAD does not corroborate the surrounding speech", () => {
+  const empty = { ...input, analysis: { ...input.analysis, vadSegments: [] } };
+  assert.equal(rankNarrativeCuts(empty).candidates.length, 0);
+  const silenceOnly = { ...input, analysis: { ...input.analysis, vadSegments: [{ kind: "silence" as const, start: 1, end: 3 }] } };
+  assert.equal(rankNarrativeCuts(silenceOnly).candidates.length, 0);
+});
