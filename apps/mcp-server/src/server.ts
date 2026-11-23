@@ -80,6 +80,7 @@ import {
   type SessionMaterializationPublisher,
 } from "./materialization-jobs.js";
 import {
+  HeadlessEditUncertainError,
   externalEditOperations,
   externalEditPlanDigest,
   verifyExternalEditExportable,
@@ -807,7 +808,8 @@ async function sessionResult(action: () => Promise<unknown>) {
       isError: true,
       content: [{
         type: "text" as const,
-        text: JSON.stringify({ code: message.split(":", 1)[0] || "SESSION_ERROR", message }),
+        text: JSON.stringify({ code: message.split(":", 1)[0] || "SESSION_ERROR", message,
+          ...(error instanceof HeadlessEditUncertainError ? { recovery: error.recovery } : {}) }),
       }],
     };
   }

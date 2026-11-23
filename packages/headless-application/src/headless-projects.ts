@@ -107,6 +107,17 @@ function editConsequences(timeline: TimelineIr): string[] {
   return warnings;
 }
 
+/** A save was attempted but its final outcome is unknown; the revision is a candidate, not proof. */
+export class HeadlessEditUncertainError extends Error {
+  readonly recovery: { projectId: string; sequenceId: string; undoId: string; expectedRevision: ContextRevision; nextAction: "inspect-before-undo" };
+
+  constructor(recovery: HeadlessEditUncertainError["recovery"], cause?: unknown) {
+    super("HEADLESS_EDIT_UNCERTAIN: save may have committed; inspect the project before deciding whether Undo is safe", { cause });
+    this.name = "HeadlessEditUncertainError";
+    this.recovery = structuredClone(recovery);
+  }
+}
+
 export interface HeadlessProjectWorkflow {
   create(timeline: TimelineIr): Promise<FramekitProjectDocument>;
   list(): Promise<HeadlessProjectSummary[]>;
@@ -478,7 +489,9 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
   public async executeEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string, approvedDigests?: { baseDigest: string; resultDigest: string }) {
     const project = await this.open(projectId);
     const timestamp = this.clock();
-    const transaction = new ProjectTransactionService(this.snapshotStore(projectId, project), { clock: () => timestamp });
+    const store = this.snapshotStore(projectId, project);
+    let saveAttempted = false;
+    const transaction = new ProjectTransactionService({ ...store, save: async (...args) => { saveAttempted = true; return store.save(...args); } }, { clock: () => timestamp });
     const editCommand = {
       ...command,
       target: command.target ?? { projectId, sequenceId },
@@ -504,9 +517,12 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     // The client retains this commitment independently of the stored record.
     const undoId = `${recordId}-${hash(serialized)}`;
     await writeFile(join(directory, `${recordId}.json`), serialized, { encoding: "utf8", flag: "wx" });
-    const result = await transaction.execute(editCommand);
+    const recovery = { projectId, sequenceId, undoId, expectedRevision: record.afterRevision, nextAction: "inspect-before-undo" as const };
+    let result: ProjectEditResult;
+    try { result = await transaction.execute(editCommand); }
+    catch (error) { if (saveAttempted) throw new HeadlessEditUncertainError(recovery, error); throw error; }
     if (!sameRevision(result.after.timeline.revision, record.afterRevision) || timelineIrDigest(result.after.timeline) !== afterDigest) {
-      throw new Error("HEADLESS_EDIT_UNCERTAIN: committed edit differs from the recorded Undo state");
+      throw new HeadlessEditUncertainError(recovery);
     }
     return { ...result, undoId, warnings: editConsequences(result.after.timeline) };
   }

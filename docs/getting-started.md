@@ -152,6 +152,12 @@ before continuing. These checks are point-in-time; they do not lock media files
 or establish native execution, dialogue audibility, or crash-atomic updates
 across project, brief and analysis stores.
 
+If an edit returns `HEADLESS_EDIT_UNCERTAIN`, a save was attempted but its
+outcome is unknown. The error includes a candidate revision and Undo ID; they
+are not proof that the edit committed. Reopen and inspect the exact project
+before deciding whether to use Undo. Do not repeat the edit based on the error
+alone. Undo checks the target, revision and recorded content before restoring.
+
 For later Timeline IR revisions that require explicit approval, call
 `headless.edit.approved-preview` with the project, sequence, current revision
 and operations. Review the result, then call `headless.edit.approved-execute`

@@ -1250,6 +1250,56 @@ test("headless Undo rejects changed or missing media and a validation race", asy
   }
 });
 
+test("a lost save acknowledgement preserves recovery information for a committed headless edit", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-headless-edit-uncertain-"));
+  try {
+    const service = new HeadlessProjectService({ directory });
+    const initial = await service.create(emptyTimeline());
+    const projectId = initial.timeline.project.id; const sequenceId = initial.timeline.sequence.id;
+    const realSave = FramekitProjectStore.prototype.save;
+    t.mock.method(FramekitProjectStore.prototype, "save", async function(this: FramekitProjectStore, project: FramekitProjectDocument, revision?: TimelineIr["revision"]) {
+      await realSave.call(this, project, revision);
+      throw new Error("simulated lost acknowledgement after save");
+    });
+    let failure: any;
+    try {
+      await service.executeEdit(projectId, { schemaVersion: 1, expectedRevision: initial.timeline.revision,
+        operations: [{ type: "add-marker", marker: { id: "one", name: "One", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } } }] }, sequenceId);
+      assert.fail("expected uncertain result");
+    } catch (error) { failure = error; }
+    t.mock.restoreAll();
+    assert.match(failure.message, /HEADLESS_EDIT_UNCERTAIN/);
+    assert.match(failure.recovery.undoId, /^undo-/);
+    const observed = await service.open(projectId);
+    assert.equal(observed.timeline.revision.id, failure.recovery.expectedRevision.id);
+    assert.equal(observed.timeline.sequence.markers.length, 1);
+    const restored = await service.undoEdit(projectId, sequenceId, failure.recovery.undoId, failure.recovery.expectedRevision);
+    assert.equal(restored.verification.verified, true);
+    assert.deepEqual(restored.project.timeline.sequence, initial.timeline.sequence);
+    t.mock.method(FramekitProjectStore.prototype, "save", async function(this: FramekitProjectStore, project: FramekitProjectDocument, revision?: TimelineIr["revision"]) {
+      await realSave.call(this, project, revision);
+      throw new Error("simulated lost acknowledgement after save");
+    });
+    const server = createMcpServer(new AgentVideoRuntime(new InMemoryEditorAdapter({ projectId: "fixture", projectName: "Fixture", timelineId: "fixture", timelineName: "Fixture", clips: [] })), { headlessProjects: service });
+    const client = new Client({ name: "uncertain-edit-test", version: "1" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    try {
+      await server.connect(serverTransport); await client.connect(clientTransport);
+      const response = await client.callTool({ name: "headless.edit.execute", arguments: { projectId, sequenceId, expectedRevision: restored.project.timeline.revision,
+        operations: [{ type: "add-marker", marker: { id: "two", name: "Two", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } } }] } });
+      assert.equal(response.isError, true);
+      const reported = JSON.parse((response.content as Array<{ text: string }>)[0]!.text);
+      assert.equal(reported.code, "HEADLESS_EDIT_UNCERTAIN");
+      assert.equal(reported.recovery.nextAction, "inspect-before-undo");
+      assert.match(reported.recovery.undoId, /^undo-/);
+      t.mock.restoreAll();
+      const persisted = await service.open(projectId);
+      assert.equal(persisted.timeline.revision.id, reported.recovery.expectedRevision.id);
+      assert.equal((await service.undoEdit(projectId, sequenceId, reported.recovery.undoId, reported.recovery.expectedRevision)).verification.verified, true);
+    } finally { await client.close(); await server.close(); }
+  } finally { t.mock.restoreAll(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test("headless Undo reports save and independent readback failures without verified success", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-headless-undo-failure-"));
   try {
