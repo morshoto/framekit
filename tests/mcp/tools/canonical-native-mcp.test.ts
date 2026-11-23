@@ -28,7 +28,7 @@ import {
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { createMcpServer } from "../../../apps/mcp-server/src/server.js";
 import { finalCutMcpEnvironment } from "../../support/final-cut/test-environment.js";
-import { ScriptedNativeReceiver, simulatedUndoWorkflow } from "../../support/simulated-native-receiver.js";
+import { ScriptedNativeReceiver, simulatedUndoWorkflow, writeSimulatedEvidence } from "../../support/simulated-native-receiver.js";
 
 const identity: EditorIdentity = {
   name: "Final Cut Pro",
@@ -2500,6 +2500,7 @@ test("simulated-native: failed Undo keeps the reservation", async () => {
     assert.deepEqual(receiver.trace().map(event => event.kind), ["dispatch", "rejected"]);
     assert.equal((await guard.inspectNativeReservation())?.operation, "native.disposable.undo");
     await assert.rejects(guard.assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await writeSimulatedEvidence(receiver, "undo-failure", { failed: true, reservationRetained: true });
   } finally {
     await client.close(); await server.close();
     await rm(directory, { recursive: true, force: true });

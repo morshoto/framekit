@@ -11,7 +11,7 @@ import { createMcpServer, type SessionMaterializationPublisher } from "../../../
 import { FileCanonicalRecoveryGuard, FinalCutBackgroundMaterializationPublisher } from "@framekit/final-cut";
 import { AgentVideoRuntime, type TimelineIr } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
-import { ScriptedNativeReceiver, simulatedMaterializationPublisher, assertSingleSimulatedDispatch } from "../../support/simulated-native-receiver.js";
+import { ScriptedNativeReceiver, simulatedMaterializationPublisher, assertSingleSimulatedDispatch, writeSimulatedEvidence } from "../../support/simulated-native-receiver.js";
 
 function timeline(): TimelineIr {
   return {
@@ -1111,12 +1111,7 @@ test("simulated-native: lost reply retains a reservation through MCP reconnect",
       await second.client.callTool({ name: "session.materialize.retry", arguments: { jobId: result.jobId } });
       assert.equal(receiver.trace().filter(event => event.kind === "dispatch").length, 1);
       await assert.rejects(new FileCanonicalRecoveryGuard(path).assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
-      if (process.env.FRAMEKIT_SIMULATION_EVIDENCE_DIR) {
-        const candidate = process.env.FRAMEKIT_SIMULATION_CANDIDATE_SHA ?? "";
-        const evidence = { ...receiver.evidence({ scenario: "lost-reply", seed: 0, candidate }), outcomes: { jobState: status.state, noReplay: true, reservationRetained: true, headedNative: false } };
-        await mkdir(process.env.FRAMEKIT_SIMULATION_EVIDENCE_DIR, { recursive: true });
-        await writeFile(join(process.env.FRAMEKIT_SIMULATION_EVIDENCE_DIR, "lost-reply.json"), JSON.stringify(evidence, null, 2) + "\n");
-      }
+      await writeSimulatedEvidence(receiver, "lost-reply", { failed: status.state === "failed", noReplay: true, reservationRetained: true, headedNative: false });
     } finally { await second.client.close(); await second.server.close(); }
   } finally {
     await first.client.close().catch(() => undefined);
@@ -1145,6 +1140,7 @@ test("simulated-native: wrong canonical target cannot become a verified success"
     assert.equal(result.error.code, "MATERIALIZATION_TARGET_READBACK_MISMATCH");
     assert.equal(result.evidence.canonicalReadback, false);
     assert.equal(result.evidence.headedNative, false);
+    await writeSimulatedEvidence(receiver, "wrong-target", { failed: true, headedNative: false });
   } finally {
     await connected.client.close(); await connected.server.close();
     await rm(directory, { recursive: true, force: true });
@@ -1163,6 +1159,7 @@ test("simulated-native: partial write fails canonical verification", async () =>
     assert.equal(result.verification.status, "failed");
     assert.equal(result.evidence.headedNative, false);
     assert.deepEqual(receiver.trace().map(event => event.kind), ["dispatch", "partial"]);
+    await writeSimulatedEvidence(receiver, "partial-write", { failed: true, headedNative: false });
   } finally {
     await connected.client.close(); await connected.server.close();
     await rm(directory, { recursive: true, force: true });
@@ -1188,6 +1185,7 @@ test("simulated-native: pre-dispatch disconnect is inspectable after reconnect",
       assert.equal(status.recoveryReservation.reason, "native-quiescence-unproven");
       await second.client.callTool({ name: "session.materialize.retry", arguments: { jobId: result.jobId } });
       assert.equal(receiver.trace().filter(event => event.kind === "dispatch").length, 0);
+      await writeSimulatedEvidence(receiver, "disconnect-before-dispatch", { noDispatch: true, reservationRetained: true });
     } finally { await second.client.close(); await second.server.close(); }
   } finally {
     await first.client.close().catch(() => undefined); await first.server.close().catch(() => undefined);
@@ -1221,6 +1219,7 @@ test("simulated-native: concurrent clients cannot dispatch twice", async () => {
     assertSingleSimulatedDispatch(receiver.trace(), operationId);
     assert.equal(receiver.trace().filter(event => event.kind === "dispatch").length, 1);
     await assert.rejects(new FileCanonicalRecoveryGuard(path).assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+    await writeSimulatedEvidence(receiver, "concurrent-clients", { noReplay: true, reservationRetained: true, headedNative: false });
   } finally {
     const stalled = receiver.trace().find(event => event.kind === "stalled");
     if (stalled && receiver.inspect(stalled.operationId)?.state === "uncertain") receiver.reply(stalled.operationId, "rejected");
