@@ -110,6 +110,8 @@ export function rankNarrativeCuts(request: NarrativeCutRequest): NarrativeCutPla
     const previous = words[index]!;
     const next = words[index + 1]!;
     if (!END_OF_SENTENCE.test(previous.word.text.trim()) || previous.word.confidence < MIN_WORD_CONFIDENCE || next.word.confidence < MIN_WORD_CONFIDENCE) continue;
+    const corroborates = (range: TimeRange) => vad.some((entry) => entry.segment.kind === "speech" && entry.sourceRange.start <= range.start && entry.sourceRange.end >= range.end);
+    if (!corroborates(previous.sourceRange) || !corroborates(next.sourceRange)) continue;
     const pause = { start: previous.sourceRange.end, end: next.sourceRange.start };
     if (!validRange(pause) || pause.end - pause.start < MIN_PAUSE_SECONDS) continue;
     if (words.some((entry) => overlaps(entry.sourceRange, pause)) || protectedRanges.some((entry) => overlaps(entry.sourceRange, pause))) continue;
