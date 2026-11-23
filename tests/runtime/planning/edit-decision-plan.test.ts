@@ -286,6 +286,14 @@ test("headless decision service loads current project and brief and rejects proj
     await writeFile(f.path, "changed after edit");
     await assert.rejects(service.recheckEvidence(input, result.plan), /MEDIA_CHANGED/);
     await writeFile(f.path, "source bytes");
+    const uncertain = await service.executeAcceptedPlan(input, result.plan.planDigest, async () => {
+      await writeFile(f.path, "changed after commit");
+      return { undoId: "undo-fixture" };
+    });
+    assert.equal(uncertain.status, "applied-unverified");
+    assert.equal(uncertain.edit.undoId, "undo-fixture");
+    await writeFile(f.path, "source bytes");
+    await assert.rejects(service.executeAcceptedPlan(input, result.plan.planDigest, async () => { throw new Error("before commit"); }), /before commit/);
     const { AgentVideoRuntime } = await import("../../../packages/runtime/src/index.js");
     const { InMemoryEditorAdapter } = await import("../../../packages/testkit/src/index.js");
     const { createMcpServer } = await import("../../../apps/mcp-server/src/server.js");

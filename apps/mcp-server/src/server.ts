@@ -2512,21 +2512,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     decisionMusicApprovals.delete(previewToken);
     const plans = options.headlessDecisionPlans;
     if (!plans) throw new Error("DECISION_PLAN_UNAVAILABLE: headless planning is not configured");
-    let committed: Awaited<ReturnType<ReturnType<typeof requireHeadlessProjects>["executeApprovedEdit"]>> | undefined;
-    try {
-      return await plans.withAcceptedPlan(entry.input, entry.planDigest, async (plan) => {
-        if (!entry.input.music.music) throw new Error("MUSIC_PREVIEW_UNAVAILABLE: registered music is required");
-        await verifyLocalMediaSource(entry.input.music.music);
-        committed = await requireHeadlessProjects().executeApprovedEdit(projectId, sequenceId, entry.editToken);
-        await plans.recheckEvidence(entry.input, plan);
-        return { status: "applied" as const, edit: committed, planDigest: entry.planDigest,
-          notice: "Headless edit only; evidence checks are point-in-time and do not establish native execution or dialogue audibility." };
-      });
-    } catch (error) {
-      if (!committed) throw error;
-      return { status: "applied-unverified" as const, edit: committed, planDigest: entry.planDigest,
-        notice: "The edit committed, but a post-edit evidence or lock check failed; inspect the project and Undo before continuing." };
-    }
+    return plans.executeAcceptedPlan(entry.input, entry.planDigest, async () => {
+      if (!entry.input.music.music) throw new Error("MUSIC_PREVIEW_UNAVAILABLE: registered music is required");
+      await verifyLocalMediaSource(entry.input.music.music);
+      return requireHeadlessProjects().executeApprovedEdit(projectId, sequenceId, entry.editToken);
+    });
   }));
 
   registerValidatedTool(server, "headless.analysis.pin", {
