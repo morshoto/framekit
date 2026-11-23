@@ -32,6 +32,12 @@ async function syncDirectory(path: string): Promise<void> {
   finally { await handle.close(); }
 }
 
+async function assertPrivateRoot(root: string): Promise<void> {
+  try {
+    const info = await lstat(root);
+    if (!info.isDirectory() || info.isSymbolicLink() || (info.mode & 0o077) !== 0 || typeof process.getuid !== "function" || info.uid !== process.getuid()) throw new Error("unsafe");
+  } catch { throw new Error("QA_RUN_ROOT_UNSAFE"); }
+}
 function validateId(id: unknown): asserts id is string {
   if (typeof id !== "string" || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(id)) throw new Error("QA_RUN_ID_INVALID");
 }
@@ -46,6 +52,7 @@ function validateManifest(value: unknown): asserts value is QaRunManifest {
 
 export async function inspectRun(root: string, qaRunId: string): Promise<QaRun> {
   validateId(qaRunId);
+  await assertPrivateRoot(root);
   try {
     const directory = await lstat(join(root, qaRunId));
     if (!directory.isDirectory() || directory.isSymbolicLink()) throw new Error("QA_RUN_UNSAFE_PATH");
@@ -94,8 +101,9 @@ async function assertAuthorizationBinding(root: string, manifest: QaRunManifest)
 export async function createOrInspectRun(root: string, manifest: QaRunManifest): Promise<{ created: boolean; run: QaRun }> {
   const bound = structuredClone(manifest);
   validateManifest(bound);
+  await assertPrivateRoot(root);
   const directory = join(root, bound.qaRunId);
-  try { await mkdir(directory); }
+  try { await mkdir(directory, { mode: 0o700 }); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     const run = await inspectRun(root, bound.qaRunId);
@@ -103,7 +111,7 @@ export async function createOrInspectRun(root: string, manifest: QaRunManifest):
     return { created: false, run };
   }
   const authorizationDirectory = join(root, `.authorization-${bound.authorizationDigest}`);
-  try { await mkdir(authorizationDirectory); }
+  try { await mkdir(authorizationDirectory, { mode: 0o700 }); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error("QA_AUTHORIZATION_ALREADY_BOUND");
     throw error;
