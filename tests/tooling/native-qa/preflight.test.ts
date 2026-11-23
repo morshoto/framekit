@@ -95,6 +95,19 @@ test("publisher fixture mismatch stops before headless render", async () => {
   assert.equal(renders, 0);
 });
 
+test("changed publisher sources after headless render prevent a passing result", async () => {
+  const { runHeadlessQaChecks } = await import("../../../scripts/native-qa/headless-checks.js");
+  const calls: string[] = [];
+  const result = await runHeadlessQaChecks({
+    candidateMatches: async () => true,
+    verifyArtifact: async () => { calls.push("before"); },
+    runRenderContract: async () => { calls.push("render"); },
+    verifySourcesAfter: async () => { calls.push("after"); throw new Error("QA_SOURCE_DIGEST_MISMATCH"); },
+  });
+  assert.equal(result, "source-digest-mismatch");
+  assert.deepEqual(calls, ["before", "render", "after"]);
+});
+
 test("a changed candidate invalidates the completed headless check", async () => {
   const { runHeadlessQaChecks } = await import("../../../scripts/native-qa/headless-checks.js");
   let calls = 0;

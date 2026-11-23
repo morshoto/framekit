@@ -60,9 +60,22 @@ test("publisher source evidence binds four file identities and bytes", async () 
     assert.equal(evidence.dispatchAllowed, false); assert.equal(evidence.nativeQuiescence, "unproven");
     assert.equal(JSON.stringify(evidence).includes(sources), false);
     assert.deepEqual(await readQaPublisherSourceEvidence(root, bound.qaRunId), evidence);
+    const cli = spawnSync(process.execPath, ["--import", "tsx", "scripts/native-qa/cli.ts", "publisher-source-evidence", root, bound.qaRunId], { encoding: "utf8", timeout: 10000 });
+    assert.equal(cli.status, 0, cli.stderr);
+    assert.deepEqual(JSON.parse(cli.stdout), evidence);
+    const verifyCli = spawnSync(process.execPath, ["--import", "tsx", "scripts/native-qa/cli.ts", "verify-publisher-sources", root, bound.qaRunId, artifact], { encoding: "utf8", timeout: 10000 });
+    assert.equal(verifyCli.status, 0, verifyCli.stderr);
+    assert.deepEqual(JSON.parse(verifyCli.stdout), evidence);
     await writeFile(entries[0]!.source, "replaced bytes");
     await assert.rejects(verifyQaPublisherSources(root, bound.qaRunId, artifact), /QA_SOURCE_DIGEST_MISMATCH/);
-    await rm(entries[0]!.source); await symlink(entries[1]!.source, entries[0]!.source);
+    await rm(entries[0]!.source);
+    await assert.rejects(verifyQaPublisherSources(root, bound.qaRunId, artifact), /QA_SOURCE_UNSAFE/);
+    await symlink(entries[1]!.source, entries[0]!.source);
+    await assert.rejects(verifyQaPublisherSources(root, bound.qaRunId, artifact), /QA_SOURCE_UNSAFE/);
+    await rm(entries[0]!.source);
+    const { open } = await import("node:fs/promises");
+    const oversized = await open(entries[0]!.source, "wx");
+    try { await oversized.truncate(512 * 1024 * 1024 + 1); } finally { await oversized.close(); }
     await assert.rejects(verifyQaPublisherSources(root, bound.qaRunId, artifact), /QA_SOURCE_UNSAFE/);
   } finally { await rm(root, { recursive: true, force: true }); await rm(sources, { recursive: true, force: true }); }
 });
