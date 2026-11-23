@@ -297,6 +297,14 @@ test("headless decision service loads current project and brief and rejects proj
       assert.equal(result.status, "available");
       assert.equal(result.plan.reviewRequired, true);
       assert.ok(result.plan.decisions.every((decision: { support: string }) => decision.support === "unavailable" || decision.support === "no-op"));
+      const correctedInput = { ...input, caption: { ...input.caption, wordCorrections: [{ wordIndex: 0, text: "Welcome" }] } };
+      const correctedResponse = await client.callTool({ name: "headless.decision.plan", arguments: correctedInput });
+      assert.notEqual(correctedResponse.isError, true);
+      const corrected = JSON.parse((correctedResponse.content as Array<{ text: string }>)[0]!.text);
+      assert.equal(corrected.status, "available");
+      const caption = corrected.plan.decisions.find((decision: { kind: string }) => decision.kind === "caption");
+      assert.equal(caption.group.words[0].text, "Welcome"); assert.equal(caption.group.words[0].originalText, "Hello.");
+      assert.notEqual(corrected.plan.planDigest, result.plan.planDigest);
     } finally { await client.close(); await server.close(); }
     const evidenceBound = new HeadlessDecisionPlanService({ readProject: async () => structuredClone(snapshot),
       storeForProject: () => f.briefStore, artifacts: f.artifacts, verifySource: verifyLocalMediaSource, index: f.index, currentProvider: () => f.request.speechContext.provider });
