@@ -6,6 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { claimDispatchIntent, createOrInspectRun, inspectRun, markDispatchUncertain } from "../../../scripts/native-qa/run-store.js";
 import { runPublishStages } from "../../../scripts/final-cut-publisher-verification.mjs";
+import { readQaEvidence } from "../../../scripts/native-qa/supervisor.js";
 
 const manifest = {
   qaRunId: "qa-fixture-1", candidateCommit: "a".repeat(40), candidateTree: "b".repeat(40),
@@ -367,5 +368,29 @@ test("detached headless preflight persists evidence after the client exits", asy
     assert.equal(duplicate.status, 0, duplicate.stderr);
     assert.equal(JSON.parse(duplicate.stdout).created, false);
     assert.equal((await inspectRun(root, manifest.qaRunId)).dispatch, "NOT_DISPATCHED");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+
+test("missing or corrupt headless evidence never enables native work", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-evidence-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    assert.deepEqual(await readQaEvidence(root, manifest.qaRunId), { tier: "headless", result: "pending-or-interrupted", verdict: "BLOCKED", dispatch: "NOT_DISPATCHED" });
+    await writeFile(join(root, manifest.qaRunId, "headless-result.json"), "{");
+    await assert.rejects(readQaEvidence(root, manifest.qaRunId), /QA_EVIDENCE_CORRUPT/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("headless evidence rejects unsanitized fields and reversed timestamps", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-evidence-invalid-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    const path = join(root, manifest.qaRunId, "headless-result.json");
+    const data = { schemaVersion: 1, tier: "headless", result: "render-contract-passed", startedAt: "2026-01-01T00:00:00.000Z", finishedAt: "2026-01-01T00:00:01.000Z" };
+    await writeFile(path, JSON.stringify({ ...data, privatePath: "sensitive-value" }));
+    await assert.rejects(readQaEvidence(root, manifest.qaRunId), /QA_EVIDENCE_CORRUPT/);
+    await writeFile(path, JSON.stringify({ ...data, finishedAt: "2025-01-01T00:00:00.000Z" }));
+    await assert.rejects(readQaEvidence(root, manifest.qaRunId), /QA_EVIDENCE_CORRUPT/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
