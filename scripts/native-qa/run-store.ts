@@ -66,16 +66,17 @@ export async function inspectRun(root: string, qaRunId: string): Promise<QaRun> 
 
 /** Creates only a blocked record. It never initiates or resumes a native operation. */
 export async function createOrInspectRun(root: string, manifest: QaRunManifest): Promise<{ created: boolean; run: QaRun }> {
-  validateManifest(manifest);
-  const directory = join(root, manifest.qaRunId);
+  const bound = structuredClone(manifest);
+  validateManifest(bound);
+  const directory = join(root, bound.qaRunId);
   try { await mkdir(directory); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    const run = await inspectRun(root, manifest.qaRunId);
-    if (manifestFields.some(key => run.manifest[key] !== manifest[key])) throw new Error("QA_RUN_IDENTITY_MISMATCH");
+    const run = await inspectRun(root, bound.qaRunId);
+    if (manifestFields.some(key => run.manifest[key] !== bound[key])) throw new Error("QA_RUN_IDENTITY_MISMATCH");
     return { created: false, run };
   }
-  const run: QaRun = { schemaVersion: 1, manifest: { ...manifest }, dispatch: "NOT_DISPATCHED", verdict: "BLOCKED" };
+  const run: QaRun = { schemaVersion: 1, manifest: bound, dispatch: "NOT_DISPATCHED", verdict: "BLOCKED" };
   const file = await open(join(directory, "run.json"), "wx", 0o600);
   try { await file.writeFile(JSON.stringify(run) + "\n"); await file.sync(); }
   finally { await file.close(); }
@@ -85,15 +86,16 @@ export async function createOrInspectRun(root: string, manifest: QaRunManifest):
 
 /** Conservatively record uncertainty; this function never authorizes or dispatches native work. */
 export async function markDispatchUncertain(root: string, manifest: QaRunManifest): Promise<QaRun> {
-  validateManifest(manifest);
-  const existing = await inspectRun(root, manifest.qaRunId);
-  if (manifestFields.some(key => existing.manifest[key] !== manifest[key])) throw new Error("QA_RUN_IDENTITY_MISMATCH");
+  const bound = structuredClone(manifest);
+  validateManifest(bound);
+  const existing = await inspectRun(root, bound.qaRunId);
+  if (manifestFields.some(key => existing.manifest[key] !== bound[key])) throw new Error("QA_RUN_IDENTITY_MISMATCH");
   if (existing.dispatch === "UNKNOWN_AFTER_DISPATCH") return existing;
-  const directory = join(root, manifest.qaRunId);
+  const directory = join(root, bound.qaRunId);
   let marker;
   try { marker = await open(join(directory, "dispatch-uncertain"), "wx", 0o600); }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") return inspectRun(root, manifest.qaRunId);
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") return inspectRun(root, bound.qaRunId);
     throw error;
   }
   try { await marker.writeFile("uncertain\n"); await marker.sync(); }
@@ -101,5 +103,5 @@ export async function markDispatchUncertain(root: string, manifest: QaRunManifes
   const directoryHandle = await open(directory, "r");
   try { await directoryHandle.sync(); }
   finally { await directoryHandle.close(); }
-  return inspectRun(root, manifest.qaRunId);
+  return inspectRun(root, bound.qaRunId);
 }
