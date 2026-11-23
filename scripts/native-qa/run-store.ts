@@ -6,6 +6,7 @@ export interface QaRunManifest {
   candidateCommit: string;
   candidateTree: string;
   packageDigest: string;
+  mcpDigest: string;
   pluginDigest: string;
   extensionDigest: string;
   artifactDigest: string;
@@ -21,7 +22,7 @@ export interface QaRun {
   verdict: "BLOCKED";
 }
 
-const digestFields = ["packageDigest", "pluginDigest", "extensionDigest", "artifactDigest", "sourceDigest", "targetDigest", "authorizationDigest"] as const;
+const digestFields = ["packageDigest", "mcpDigest", "pluginDigest", "extensionDigest", "artifactDigest", "sourceDigest", "targetDigest", "authorizationDigest"] as const;
 const manifestFields = ["qaRunId", "candidateCommit", "candidateTree", ...digestFields, "operation"] as const;
 
 async function syncDirectory(path: string): Promise<void> {

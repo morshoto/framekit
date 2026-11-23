@@ -2,6 +2,7 @@ export interface QaBuildIdentity {
   candidateCommit: string;
   candidateTree: string;
   packageDigest: string;
+  mcpDigest: string;
   pluginDigest: string;
   extensionDigest: string;
 }
@@ -19,7 +20,7 @@ type Result = {
   dispatchAllowed: false;
   evidence: "preflight-only";
 };
-const keys: Array<keyof QaBuildIdentity> = ["candidateCommit", "candidateTree", "packageDigest", "pluginDigest", "extensionDigest"];
+const keys: Array<keyof QaBuildIdentity> = ["candidateCommit", "candidateTree", "packageDigest", "mcpDigest", "pluginDigest", "extensionDigest"];
 function validIdentity(value: QaBuildIdentity | undefined): boolean {
   return !!value && keys.every(key => typeof value[key] === "string" && (key.startsWith("candidate") ? /^[a-f0-9]{40}$/ : /^[a-f0-9]{64}$/).test(value[key]));
 }
