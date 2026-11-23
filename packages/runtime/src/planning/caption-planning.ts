@@ -141,6 +141,7 @@ export async function planCaptionGroups(
     }
     if (currentWords.length) grouped.push(currentWords);
     const warnings = ["Transcript and emphasis require human review; native editable title support is not established."];
+    if (mapped.length === 0) warnings.push("No transcript words are available in this occurrence.");
     if (mapped.some((word) => word.confidence < 0.8)) warnings.push("Low-confidence transcript words require correction before use.");
     const groups: CaptionGroup[] = [];
     for (const words of grouped) {
