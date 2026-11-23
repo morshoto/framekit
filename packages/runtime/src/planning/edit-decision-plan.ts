@@ -4,6 +4,8 @@ import { sameAnalyzerDescriptor, sameMediaSourceIdentity } from "../domain/media
 import type { MediaSourceIdentity } from "../domain/media.js";
 import type { ContextRevision, TimeRange } from "../domain/primitives.js";
 import type { ProjectSnapshot } from "../domain/project.js";
+import { assertCurrentAcceptedBrief } from "../application/creative-brief-store.js";
+import type { CreativeBriefStore } from "../application/creative-brief-store.js";
 import { parseRational } from "../timeline/rational-time.js";
 import { verifyAnalysisEvidence } from "./analysis-evidence.js";
 import type { AnalysisArtifactStore, AnalysisEvidenceContext, AnalysisRef, AnalysisSourceVerifier } from "./analysis-evidence.js";
@@ -68,9 +70,11 @@ function digest(value: unknown): string {
 }
 
 /** Integrate verified proposals without executing or silently switching editor backends. */
-export async function createEditDecisionPlan(request: EditDecisionPlanRequest, artifacts: AnalysisArtifactStore, verifySource: AnalysisSourceVerifier): Promise<EditDecisionPlanResult> {
+export async function createEditDecisionPlan(request: EditDecisionPlanRequest, artifacts: AnalysisArtifactStore, verifySource: AnalysisSourceVerifier, briefStore: CreativeBriefStore): Promise<EditDecisionPlanResult> {
   try {
+    if (!briefStore) return { status: "unavailable", reason: "Authoritative creative brief store is required." };
     assertBriefBinding(request.accepted, request.brief);
+    await assertCurrentAcceptedBrief(briefStore, request.projectId, request.accepted);
     const snapshot = request.snapshot;
     if (!snapshot || snapshot.projectId !== request.projectId || snapshot.timeline.id !== request.timelineId
       || !sameRevision(snapshot.revision, request.revision)
@@ -152,6 +156,7 @@ export async function createEditDecisionPlan(request: EditDecisionPlanRequest, a
       reviewRequired: true as const, decisions, warnings: [...cutWarnings, ...captionWarnings, ...music.warnings,
         ...(request.music.context.audioEvidence === "available" ? ["Supplied audio context is unverified because no pinned audio reference was provided."] : []),
         "Native operation mapping, separate approval and independent verification are not yet available for these proposals."] };
+    await assertCurrentAcceptedBrief(briefStore, request.projectId, request.accepted);
     return { status: "available", plan: { ...content, planDigest: digest(content) } };
   } catch (error) {
     return { status: "unavailable", reason: error instanceof Error ? error.message : "Edit decision planning failed." };
@@ -159,8 +164,8 @@ export async function createEditDecisionPlan(request: EditDecisionPlanRequest, a
 }
 
 /** Recompute against current evidence; a matching plan is not execution authorization. */
-export async function assertEditDecisionPlanCurrent(request: EditDecisionPlanRequest, plan: EditDecisionPlan, artifacts: AnalysisArtifactStore, verifySource: AnalysisSourceVerifier): Promise<EditDecisionPlanValidity> {
-  const current = await createEditDecisionPlan(request, artifacts, verifySource);
+export async function assertEditDecisionPlanCurrent(request: EditDecisionPlanRequest, plan: EditDecisionPlan, artifacts: AnalysisArtifactStore, verifySource: AnalysisSourceVerifier, briefStore: CreativeBriefStore): Promise<EditDecisionPlanValidity> {
+  const current = await createEditDecisionPlan(request, artifacts, verifySource, briefStore);
   if (current.status !== "available") return { status: "stale", reason: current.reason };
   return isDeepStrictEqual(current.plan, plan) ? { status: "current" } : { status: "stale", reason: "Plan inputs, decisions or digest changed." };
 }

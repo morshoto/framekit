@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { acceptCreativeBrief, InMemorySemanticMediaIndexStore, InMemoryAnalysisArtifactStore, pinAnalysisEvidence, verifyLocalMediaSource, JsonCreativeBriefStore, type CreativeBrief } from "../../../packages/runtime/src/index.js";
+import { acceptCreativeBrief, InMemorySemanticMediaIndexStore, InMemoryAnalysisArtifactStore, pinAnalysisEvidence, verifyLocalMediaSource, JsonCreativeBriefStore, type CreativeBrief, type MediaSourceIdentity } from "../../../packages/runtime/src/index.js";
 import { createEditDecisionPlan, assertEditDecisionPlanCurrent } from "../../../packages/runtime/src/planning/edit-decision-plan.js";
 
 async function fixture() {
@@ -181,7 +181,7 @@ test("brief acceptance is rechecked after asynchronous evidence reads", async ()
   const f = await fixture();
   try {
     let calls = 0;
-    const reviseDuringRead = async (source: typeof f.request.speechContext.source) => {
+    const reviseDuringRead = async (source: MediaSourceIdentity) => {
       await verifyLocalMediaSource(source);
       if (++calls === 2) await f.briefStore.revise("p", f.draft.digest, { ...f.request.brief, theme: "changed during planning" });
     };
