@@ -1,9 +1,9 @@
 import { execFile } from "node:child_process";
-import { open } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { inspectRun } from "./run-store.js";
+import { publishQaRecord } from "./atomic-record.js";
 import type { HeadlessEvidence, HeadlessResult } from "./supervisor.js";
 
 const checkout = fileURLToPath(new URL("../../", import.meta.url));
@@ -13,16 +13,12 @@ if (!root || !qaRunId || process.argv.length !== 4) throw new Error("QA_WORKER_A
 const run = await inspectRun(root, qaRunId);
 const directory = join(root, qaRunId);
 const started = Date.now();
-let lock;
-try { lock = await open(join(directory, "headless-started"), "wx", 0o600); }
-catch (error) {
+try {
+  await publishQaRecord(join(directory, "headless-started"), `${JSON.stringify({ schemaVersion: 1, startedAt: new Date(started).toISOString() })}\n`);
+} catch (error) {
   if ((error as NodeJS.ErrnoException).code === "EEXIST") process.exit(0);
   throw error;
 }
-try { await lock.writeFile(`${JSON.stringify({ schemaVersion: 1, startedAt: new Date(started).toISOString() })}\n`); await lock.sync(); }
-finally { await lock.close(); }
-const directoryHandle = await open(directory, "r");
-try { await directoryHandle.sync(); } finally { await directoryHandle.close(); }
 let result: HeadlessResult = "preflight-error";
 const candidateMatches = async () => {
   const options = { cwd: checkout, timeout: 10000, maxBuffer: 1024 * 1024 };
@@ -50,8 +46,4 @@ const evidence: HeadlessEvidence = {
   schemaVersion: 1, tier: "headless", result,
   startedAt: new Date(started).toISOString(), finishedAt: new Date(Math.max(started, Date.now())).toISOString(),
 };
-const file = await open(join(directory, "headless-result.json"), "wx", 0o600);
-try { await file.writeFile(`${JSON.stringify(evidence)}\n`); await file.sync(); }
-finally { await file.close(); }
-const resultDirectory = await open(directory, "r");
-try { await resultDirectory.sync(); } finally { await resultDirectory.close(); }
+await publishQaRecord(join(directory, "headless-result.json"), `${JSON.stringify(evidence)}\n`);
