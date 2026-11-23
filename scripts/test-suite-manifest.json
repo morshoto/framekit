@@ -2510,6 +2510,26 @@
       "network": "none"
     },
     {
+      "path": "tests/runtime/planning/analysis-evidence.test.ts",
+      "owner": "packages/runtime",
+      "tags": [
+        "unit",
+        "fast-integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "process",
+      "dependsOn": [
+        "packages/runtime",
+        "adapters/final-cut/typescript",
+        "packages/testkit"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
       "path": "tests/runtime/planning/narrative-cuts.test.ts",
       "owner": "packages/runtime",
       "tags": [

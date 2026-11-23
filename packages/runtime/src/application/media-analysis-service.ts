@@ -225,8 +225,8 @@ export class MediaAnalysisService {
       ...(visual ? { visual } : {}),
       semantic: semanticFromAnalyses(speech, audio, visual, metadata),
       analysis: [
-        analysisStatus("speech", this.options.speechAnalyzer, sourceIdentity, Boolean(speech), [], failureReason(speechResult)),
-        analysisStatus("audio", this.options.audioAnalyzer, sourceIdentity, Boolean(audio), [], failureReason(audioResult)),
+        analysisStatus("speech", this.options.speechAnalyzer, sourceIdentity, Boolean(speech), speech?.observedRange ? [speech.observedRange] : [], failureReason(speechResult)),
+        analysisStatus("audio", this.options.audioAnalyzer, sourceIdentity, Boolean(audio), audio?.measuredRange ? [audio.measuredRange] : [], failureReason(audioResult)),
         analysisStatus("noise", this.options.noiseAnalyzer, sourceIdentity, Boolean(noise), noise?.affectedRanges, failureReason(noiseResult)),
         analysisStatus("visual", this.options.visualAnalyzer, sourceIdentity, Boolean(visual), [], failureReason(visualResult)),
         analysisStatus("metadata", this.options.metadataAnalyzer, sourceIdentity, Boolean(metadata), metadata?.usableRanges, failureReason(metadataResult)),
@@ -583,6 +583,7 @@ export class MediaAnalysisService {
     }
     return {
       ...structuredClone(analysis),
+      coverageProvenance: analysis.measuredRange === undefined || analysis.coverageProvenance === "inferred" ? "inferred" : "provider",
       signalScope: analysis.signalScope ?? "source",
       schemaVersion: 1,
       mediaId: media.mediaId,
@@ -669,6 +670,7 @@ function mergeSpeechAnalyses(
   const { vadSegments: _segments, vadUnavailableReason: _reason, vadCoverage: _coverage, capability: _capability, ...latestWithoutVad } = latest;
   return bindSpeechAnalysis({
     ...latestWithoutVad,
+    coverageProvenance: (!previous || previous.coverageProvenance === "provider") && analyses.every((item) => item.coverageProvenance === "provider") ? "provider" : "inferred",
     requestedRange,
     observedRange,
     capability: completeVad ? "transcription-plus-vad" : "transcription-only",
