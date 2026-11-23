@@ -412,9 +412,9 @@ test("publisher stage observations persist in order without claiming native proo
   try {
     await createOrInspectRun(root, manifest);
     const jobId = "publish-job-123";
-    const prepared = { jobId, state: "awaiting-confirmation", artifactDigest: manifest.artifactDigest, targetLibraryPath: "/private/fixture.fcpbundle" };
+    const prepared = { jobId, state: "awaiting-confirmation", artifactDigest: manifest.artifactDigest, targetLibraryPath: "/fixture/fixture.fcpbundle" };
     const dispatched = { jobId, state: "verification-pending", nextAction: "confirm-verification", delivery: { status: "dispatched" } };
-    const verified = { jobId, state: "verified", result: { verified: true, privatePath: "/private/fixture.mov" } };
+    const verified = { jobId, state: "verified", result: { verified: true, privatePath: "/fixture/fixture.mov" } };
     await assert.rejects(recordQaPublisherStage(root, manifest.qaRunId, "dispatched", dispatched), /QA_STAGE_SEQUENCE_INVALID/);
     await recordQaPublisherStage(root, manifest.qaRunId, "prepared", prepared, () => Date.parse("2026-01-02T00:00:00.000Z"));
     await assert.rejects(recordQaPublisherStage(root, manifest.qaRunId, "prepared", prepared), /QA_STAGE_SEQUENCE_INVALID/);
@@ -424,13 +424,91 @@ test("publisher stage observations persist in order without claiming native proo
     const observed = await readQaPublisherStages(root, manifest.qaRunId);
     assert.deepEqual(observed.stages.map((entry) => entry.stage), ["prepared", "dispatched", "verified"]);
     assert.ok(observed.stages.every((entry) => entry.recordedAt === "2026-01-02T00:00:00.000Z"));
+    assert.equal(observed.stages[0]!.clockAdjusted, false);
+    assert.equal(observed.stages[1]!.clockAdjusted, true);
+    assert.equal(observed.stages[1]!.observedAt, "2026-01-01T00:00:00.000Z");
     assert.equal(observed.dispatch, "UNKNOWN_AFTER_DISPATCH");
     assert.equal(observed.verdict, "BLOCKED"); assert.equal(observed.nativeQuiescence, "unproven");
     assert.equal(observed.dispatchAllowed, false);
-    assert.doesNotMatch(JSON.stringify(observed), /\/private\//);
+    assert.doesNotMatch(JSON.stringify(observed), /\/fixture\//);
+    const cli = spawnSync(process.execPath, ["--import", "tsx", "scripts/native-qa/cli.ts", "publisher-stages", root, manifest.qaRunId], { encoding: "utf8", timeout: 10000 });
+    assert.equal(cli.status, 0, cli.stderr); assert.deepEqual(JSON.parse(cli.stdout), observed);
     await assert.rejects(recordQaPublisherStage(root, manifest.qaRunId, "verified", verified), /QA_STAGE_SEQUENCE_INVALID/);
     await writeFile(join(root, manifest.qaRunId, "publisher-stage-2.json"), "{}");
     await assert.rejects(readQaPublisherStages(root, manifest.qaRunId), /QA_STAGE_CORRUPT/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("publisher stage recorder survives simulated response loss without replay", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-stage-loss-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    let calls = 0;
+    const call = async (name: string) => {
+      if (name === "artifact.publish.preview") return { jobId: "publish-job-123", state: "awaiting-confirmation", artifactDigest: manifest.artifactDigest, targetLibraryPath: "/fixture/library" };
+      calls++; throw new Error("simulated receiver acknowledgement loss");
+    };
+    const input = { artifactPath: "/fixture/source", transactionId: "fixture", targetLibraryPath: "/fixture/library", artifactDigest: manifest.artifactDigest };
+    const recorder = (stage: string, value: unknown) => recordQaPublisherStage(root, manifest.qaRunId, stage as Parameters<typeof recordQaPublisherStage>[2], value);
+    const before = async (jobId: string) => { await claimDispatchIntent(root, manifest, jobId); };
+    await assert.rejects(runPublishStages(call, input, recorder, before), /PUBLISH_DISPATCH_UNCERTAIN/);
+    const observed = await readQaPublisherStages(root, manifest.qaRunId);
+    assert.deepEqual(observed.stages.map((entry) => entry.stage), ["prepared"]);
+    assert.equal(observed.dispatch, "UNKNOWN_AFTER_DISPATCH"); assert.equal(observed.verdict, "BLOCKED");
+    const reopened = spawnSync(process.execPath, ["--import", "tsx", "scripts/native-qa/cli.ts", "publisher-stages", root, manifest.qaRunId], { encoding: "utf8", timeout: 10000 });
+    assert.equal(reopened.status, 0, reopened.stderr); assert.deepEqual(JSON.parse(reopened.stdout), observed);
+    await assert.rejects(runPublishStages(call, input, recorder, before), /QA_STAGE_SEQUENCE_INVALID/);
+    assert.equal(calls, 1);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("concurrent publisher stage claims publish at most one observation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-stage-race-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    const prepared = { jobId: "publish-job-123", state: "awaiting-confirmation", artifactDigest: manifest.artifactDigest };
+    const attempts = await Promise.allSettled(Array.from({ length: 8 }, () => recordQaPublisherStage(root, manifest.qaRunId, "prepared", prepared)));
+    assert.equal(attempts.filter((item) => item.status === "fulfilled").length, 1);
+    assert.ok(attempts.filter((item) => item.status === "rejected").every((item) => /QA_STAGE_SEQUENCE_INVALID/.test(String(item.reason))));
+    assert.equal((await readQaPublisherStages(root, manifest.qaRunId)).stages.length, 1);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("unconfirmed publisher response cannot be promoted to verified", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-stage-unconfirmed-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    await recordQaPublisherStage(root, manifest.qaRunId, "prepared", { jobId: "publish-job-123", state: "awaiting-confirmation", artifactDigest: manifest.artifactDigest });
+    await claimDispatchIntent(root, manifest, "publish-job-123");
+    await recordQaPublisherStage(root, manifest.qaRunId, "dispatch-unconfirmed", { jobId: "different-job", privatePath: "/fixture/data" });
+    const observed = await readQaPublisherStages(root, manifest.qaRunId);
+    assert.deepEqual(observed.stages.map((item) => item.stage), ["prepared", "dispatch-unconfirmed"]);
+    assert.doesNotMatch(JSON.stringify(observed), /different-job|\/fixture\//);
+    await assert.rejects(recordQaPublisherStage(root, manifest.qaRunId, "verified", { jobId: "publish-job-123", state: "verified", result: { verified: true } }), /QA_STAGE_SEQUENCE_INVALID/);
+    assert.equal((await inspectRun(root, manifest.qaRunId)).dispatch, "UNKNOWN_AFTER_DISPATCH");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("publisher callbacks persist simulated staged responses", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-stage-flow-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    const jobId = "publish-job-123";
+    let executions = 0;
+    const call = async (name: string) => {
+      if (name === "artifact.publish.preview") return { jobId, state: "awaiting-confirmation", artifactDigest: manifest.artifactDigest, targetLibraryPath: "/fixture/library" };
+      executions++;
+      return executions === 1
+        ? { jobId, state: "verification-pending", nextAction: "confirm-verification", delivery: { status: "dispatched" } }
+        : { jobId, state: "verified", result: { verified: true } };
+    };
+    const recorder = (stage: string, value: unknown) => recordQaPublisherStage(root, manifest.qaRunId, stage as Parameters<typeof recordQaPublisherStage>[2], value);
+    await runPublishStages(call, { artifactPath: "/fixture/source", transactionId: "fixture", targetLibraryPath: "/fixture/library", artifactDigest: manifest.artifactDigest }, recorder,
+      async (id: string) => { await claimDispatchIntent(root, manifest, id); });
+    const observed = await readQaPublisherStages(root, manifest.qaRunId);
+    assert.deepEqual(observed.stages.map((entry) => entry.stage), ["prepared", "dispatched", "verified"]);
+    assert.equal(observed.dispatch, "UNKNOWN_AFTER_DISPATCH"); assert.equal(observed.nativeQuiescence, "unproven");
+    assert.equal(observed.verdict, "BLOCKED"); assert.equal(executions, 2);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
@@ -1022,13 +1100,14 @@ test("simulated receiver acceptance survives a publisher process crash", async (
   const root = await mkdtemp(join(tmpdir(), "framekit-qa-acceptance-crash-"));
   const script = `import { createOrInspectRun, claimDispatchIntent } from "./scripts/native-qa/run-store.ts";
     import { runPublishStages } from "./scripts/final-cut-publisher-verification.mjs";
+    import { recordQaPublisherStage } from "./scripts/native-qa/publisher-stages.ts";
     let text = ""; process.stdin.setEncoding("utf8"); for await (const chunk of process.stdin) text += chunk;
     const manifest = JSON.parse(text); const root = process.argv[1]; await createOrInspectRun(root, manifest);
     const call = async name => {
       if (name === "artifact.publish.preview") return {jobId:"publish-job-fixture", state:"awaiting-confirmation", artifactDigest:manifest.artifactDigest, targetLibraryPath:"fixture-target"};
       process.send({accepted:true}); await new Promise(() => {});
     };
-    await runPublishStages(call, {artifactPath:"fixture-artifact", transactionId:"fixture", targetLibraryPath:"fixture-target", artifactDigest:manifest.artifactDigest}, () => {}, async jobId => { await claimDispatchIntent(root, manifest, jobId); });`;
+    await runPublishStages(call, {artifactPath:"fixture-artifact", transactionId:"fixture", targetLibraryPath:"fixture-target", artifactDigest:manifest.artifactDigest}, (stage, value) => recordQaPublisherStage(root, manifest.qaRunId, stage, value), async jobId => { await claimDispatchIntent(root, manifest, jobId); });`;
   const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script, root], { stdio: ["pipe", "ignore", "pipe", "ipc"] });
   try {
     assert.ok(child.stdin);
@@ -1046,6 +1125,9 @@ test("simulated receiver acceptance survives a publisher process crash", async (
     assert.equal(observed.dispatch, "UNKNOWN_AFTER_DISPATCH");
     assert.equal(observed.publishJobId, "publish-job-fixture");
     assert.equal(observed.verdict, "BLOCKED");
+    const stagesAfterCrash = await readQaPublisherStages(root, manifest.qaRunId);
+    assert.deepEqual(stagesAfterCrash.stages.map((item) => item.stage), ["prepared"]);
+    assert.equal(stagesAfterCrash.dispatch, "UNKNOWN_AFTER_DISPATCH");
     assert.equal((await createOrInspectRun(root, manifest)).created, false);
     await assert.rejects(claimDispatchIntent(root, manifest, "publish-job-fixture"), /QA_DISPATCH_ALREADY_CLAIMED/);
   } finally {

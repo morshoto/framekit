@@ -5,9 +5,10 @@ import { readQaArtifactEvidence, verifyQaArtifact } from "./artifact-evidence.js
 import { inspectQaPublisherFromStore } from "./publisher-inspection.js";
 import { readQaPublisherFixtureEvidence, verifyQaPublisherFixture } from "./publisher-fixture-evidence.js";
 import { readQaPublisherSourceEvidence, verifyQaPublisherSources } from "./publisher-source-evidence.js";
+import { readQaPublisherStages } from "./publisher-stages.js";
 
 const [command, root, input, ...extra] = process.argv.slice(2);
-const commands = ["start", "inspect", "evidence", "record-authorization", "resume-headless", "verify-artifact", "artifact-evidence", "inspect-publisher-store", "verify-publisher-fixture", "publisher-fixture-evidence", "verify-publisher-sources", "publisher-source-evidence", "start-publisher-fixture", "resume-publisher-fixture"];
+const commands = ["start", "inspect", "evidence", "record-authorization", "resume-headless", "verify-artifact", "artifact-evidence", "inspect-publisher-store", "verify-publisher-fixture", "publisher-fixture-evidence", "verify-publisher-sources", "publisher-source-evidence", "publisher-stages", "start-publisher-fixture", "resume-publisher-fixture"];
 const expectsExtra = command === "record-authorization" || command === "verify-artifact" || command === "inspect-publisher-store" || command === "verify-publisher-fixture" || command === "verify-publisher-sources" || command === "start-publisher-fixture" || command === "resume-publisher-fixture";
 const allowsOptionalArtifact = command === "start" || command === "resume-headless";
 if (!root || !input || !commands.includes(command ?? "") || (expectsExtra ? extra.length !== 1 : allowsOptionalArtifact ? extra.length > 1 : extra.length !== 0)) throw new Error("QA_CLI_ARGUMENTS_INVALID");
@@ -24,6 +25,7 @@ else if (command === "verify-publisher-fixture") result = await verifyQaPublishe
 else if (command === "publisher-fixture-evidence") result = await readQaPublisherFixtureEvidence(root, input);
 else if (command === "verify-publisher-sources") result = await verifyQaPublisherSources(root, input, extra[0]!);
 else if (command === "publisher-source-evidence") result = await readQaPublisherSourceEvidence(root, input);
+else if (command === "publisher-stages") result = await readQaPublisherStages(root, input);
 else if (command === "record-authorization") {
   const run = await inspectRun(root, input);
   result = { ...await bindQaAuthorization(root, run.manifest, extra[0]!), authorizationVerified: false, dispatchAllowed: false };
