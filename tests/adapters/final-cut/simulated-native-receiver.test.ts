@@ -101,7 +101,7 @@ test("simulated-native: a separate process restores uncertainty without dispatch
 
 test("simulated-native: evidence binds candidate and redacts identifiers", async () => {
   const receiver = new ScriptedNativeReceiver([{ kind: "lose-response" }]);
-  await receiver.dispatch({ ...request, targetId: "/private/example.mov" });
+  await receiver.dispatch({ ...request, targetId: "/synthetic/example.mov" });
   const evidence = receiver.evidence({ scenario: "lost-reply", seed: 42, candidate: "a".repeat(40) });
   assert.equal(evidence.tier, "simulated-native");
   assert.equal(evidence.candidate, "a".repeat(40));
@@ -109,7 +109,7 @@ test("simulated-native: evidence binds candidate and redacts identifiers", async
   assert.equal(evidence.seed, 42);
   assert.deepEqual(evidence.events.map(event => event.kind), ["dispatch", "response-lost"]);
   assert.match(evidence.events[0].targetId, /^[0-9a-f]{64}$/);
-  assert.doesNotMatch(JSON.stringify(evidence), /private|example\.mov/);
+  assert.doesNotMatch(JSON.stringify(evidence), /synthetic|example\.mov/);
   assert.throws(() => receiver.evidence({ scenario: "lost-reply", seed: 42, candidate: "unknown" }), /CANDIDATE/);
 });
 
