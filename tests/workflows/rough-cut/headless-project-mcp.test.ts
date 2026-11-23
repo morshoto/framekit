@@ -1403,6 +1403,24 @@ test("headless project media can be understood and planned without a Final Cut c
     assert.deepEqual((executed.fcpxml as any).provenance.revision, executed.after.timeline.revision);
     const projects = payload(await client.callTool({ name: "headless.project.list", arguments: {} }));
     assert.ok(projects.some((project: any) => project.projectId === projectId));
+    const reusedTarget = { projectId, sequenceId: created.timeline.sequence.id, expectedRevision: executed.after.timeline.revision };
+    const reusedBrief = { schemaVersion: 1, id: "reuse-brief", version: 1, purpose: { kind: "specified", value: "interview" }, audience: { kind: "no-preference" },
+      durationSeconds: { min: 1, max: 5 }, aspectRatio: "9:16", theme: "natural", visualDirection: "natural", requiredContent: [], excludedContent: [], sourceCoverage: [],
+      speechPolicy: { kind: "specified", value: "preserve" }, musicPolicy: { kind: "specified", value: "none" }, captionPolicy: { kind: "specified", value: "none" }, inferences: [], reviewPrompts: [] };
+    const reusedDraft = payload(await client.callTool({ name: "headless.brief.create", arguments: { ...reusedTarget, brief: reusedBrief } }));
+    payload(await client.callTool({ name: "headless.brief.accept", arguments: { ...reusedTarget, expectedDigest: reusedDraft.record.digest, confirmed: true } }));
+    const repinned = payload(await client.callTool({ name: "headless.analysis.pin", arguments: { ...pinArgs, expectedRevision: reusedTarget.expectedRevision, range: { start: 0, end: 5 } } })).ref;
+    assert.notDeepEqual(repinned.analysisRevision, repinned.revision);
+    const reusedClip = executed.after.timeline.sequence.occurrences.find((item: any) => item.mediaId === registered.resource.id);
+    assert.ok(reusedClip);
+    const reusedInput = { projectId, timelineId: reusedTarget.sequenceId, revision: reusedTarget.expectedRevision, occurrenceId: reusedClip.id, vadRef: repinned,
+      caption: { style: "basic", maxWordsPerGroup: 3, maxCharsPerLine: 20, maxLines: 2 },
+      music: { occurrenceId: "music-plan", placement: { start: 0, end: 1 }, targetLane: -1,
+        context: { speech: "present", audioEvidence: "unavailable" }, capabilities: { staticMusicPreview: false, ducking: false, fades: false } } };
+    const reusedPlan = payload(await client.callTool({ name: "headless.decision.plan", arguments: reusedInput }));
+    assert.equal(reusedPlan.status, "available", reusedPlan.reason);
+    const oldPlan = payload(await client.callTool({ name: "headless.decision.plan", arguments: { ...reusedInput, vadRef: pinned.ref } }));
+    assert.equal(oldPlan.status, "unavailable");
     const freshTimeline = emptyTimeline();
     freshTimeline.project.id = "decision-project"; freshTimeline.sequence.id = "decision-sequence";
     const freshSource = join(directory, "decision-source.mp4");
