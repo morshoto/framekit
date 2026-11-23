@@ -1168,3 +1168,29 @@ test("simulated-native: partial write fails canonical verification", async () =>
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("simulated-native: pre-dispatch disconnect is inspectable after reconnect", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-simulated-disconnect-"));
+  const path = join(directory, "recovery.json");
+  const receiver = new ScriptedNativeReceiver([{ kind: "disconnect-before-dispatch" }]);
+  const first = await connect(directory, simulatedMaterializationPublisher(receiver), undefined, "default", new FileCanonicalRecoveryGuard(path));
+  try {
+    await first.client.callTool({ name: "session.create", arguments: { sessionId: "simulated-disconnect", provider: { id: "final-cut" }, base: timeline() } });
+    const result = payload(await first.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "simulated-disconnect", target, confirm: true } }));
+    assert.deepEqual(receiver.trace().map(event => event.kind), ["disconnected"]);
+    assert.equal(result.evidence.headedNative, false);
+    assert.equal(result.recoveryReservation.reason, "native-quiescence-unproven");
+    await first.client.close(); await first.server.close();
+    const second = await connect(directory, simulatedMaterializationPublisher(receiver.restart()), undefined, "default", new FileCanonicalRecoveryGuard(path));
+    try {
+      const status = payload(await second.client.callTool({ name: "session.materialize.status", arguments: { jobId: result.jobId } }));
+      assert.equal(status.jobId, result.jobId);
+      assert.equal(status.recoveryReservation.reason, "native-quiescence-unproven");
+      await second.client.callTool({ name: "session.materialize.retry", arguments: { jobId: result.jobId } });
+      assert.equal(receiver.trace().filter(event => event.kind === "dispatch").length, 0);
+    } finally { await second.client.close(); await second.server.close(); }
+  } finally {
+    await first.client.close().catch(() => undefined); await first.server.close().catch(() => undefined);
+    await rm(directory, { recursive: true, force: true });
+  }
+});

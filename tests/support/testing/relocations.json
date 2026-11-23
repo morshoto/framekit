@@ -2093,7 +2093,8 @@
       "\"invalid provenance is checked before the unavailable-provider shortcut\"",
       "\"simulated-native: lost reply retains a reservation through MCP reconnect\"",
       "\"simulated-native: wrong canonical target cannot become a verified success\"",
-      "\"simulated-native: partial write fails canonical verification\""
+      "\"simulated-native: partial write fails canonical verification\"",
+      "\"simulated-native: pre-dispatch disconnect is inspectable after reconnect\""
     ],
     "tests/integration/mcp.test.ts": [
       "\"MCP presents invalid tool arguments as actionable coded errors\"",
