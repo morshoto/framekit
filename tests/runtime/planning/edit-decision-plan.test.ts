@@ -44,6 +44,7 @@ test("integrates verified speech cuts, captions and explicit music omission with
     if (result.status !== "available") return;
     assert.deepEqual(f.request.snapshot, before);
     assert.equal(result.plan.reviewRequired, true);
+    assert.equal(result.plan.source.sourceDigest, f.request.speechContext.source.sourceDigest);
     assert.ok(result.plan.decisions.some((item) => item.kind === "cut"));
     assert.ok(result.plan.decisions.some((item) => item.kind === "caption"));
     assert.ok(result.plan.decisions.some((item) => item.kind === "music-omission"));
@@ -150,4 +151,15 @@ test("edit decision planning is exposed through the runtime package", async () =
   const runtime = await import("../../../packages/runtime/src/index.js");
   assert.equal(typeof (runtime as Record<string, unknown>).createEditDecisionPlan, "function");
   assert.equal(typeof (runtime as Record<string, unknown>).assertEditDecisionPlanCurrent, "function");
+});
+
+
+test("unbound audio context is explicitly marked unverified", async () => {
+  const f = await fixture();
+  try {
+    const request = { ...f.request, music: { ...f.request.music, context: { speech: "present" as const, audioEvidence: "available" as const } } };
+    const result = await createEditDecisionPlan(request, f.artifacts, verifyLocalMediaSource);
+    assert.equal(result.status, "available");
+    if (result.status === "available") assert.ok(result.plan.warnings.some((warning) => /audio.*unverified/i.test(warning)));
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
