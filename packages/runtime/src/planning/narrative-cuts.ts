@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { sameMediaSourceIdentity } from "../domain/media.js";
 import type { MediaSourceIdentity, RevisionBoundSpeechAnalysis } from "../domain/media.js";
@@ -22,6 +23,8 @@ export interface NarrativeCutRequest {
 }
 
 export interface NarrativeCutCandidate {
+  /** Change detector for the proposal inputs, not an approval or source-byte proof. */
+  inputDigest: string;
   occurrenceId: string;
   sourceRange: TimeRange;
   sequenceRange: TimeRange;
@@ -99,6 +102,11 @@ export function rankNarrativeCuts(request: NarrativeCutRequest): NarrativeCutPla
     result.warnings.push("VAD coverage is partial or unavailable.");
     return result;
   }
+  const serialized = JSON.stringify(request, (_key, value: unknown) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+    return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0));
+  });
+  const inputDigest = `sha256:${createHash("sha256").update(serialized).digest("hex")}`;
   const words = [...mapping.words].sort((a, b) => a.sourceRange.start - b.sourceRange.start);
   const vad = mapping.vadSegments;
   const protectedRanges = mapping.protectedSegments ?? [];
@@ -140,7 +148,7 @@ export function rankNarrativeCuts(request: NarrativeCutRequest): NarrativeCutPla
     if (silence?.segment.confidence === undefined && !result.warnings.includes("VAD silence confidence is unavailable.")) result.warnings.push("VAD silence confidence is unavailable.");
     if (gaps.every(validRange) && gaps.some((gap) => gap.start <= sourceRange.start && gap.end >= sourceRange.end)) evidence.push("Unverified visual gap hint overlaps the proposed interval");
     result.candidates.push({
-      occurrenceId: request.occurrenceId, sourceRange,
+      inputDigest, occurrenceId: request.occurrenceId, sourceRange,
       sequenceRange: { start, end, startTime: sequenceStart, durationTime: { ...duration } },
       confidence: Math.min(previous.word.confidence, next.word.confidence, silence?.segment.confidence ?? 0.5),
       rationale: "A pause follows a sentence-ending word; review the surrounding thought and pacing before editing.",
