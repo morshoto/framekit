@@ -151,7 +151,7 @@ test("adjustment rejects unchanged geometry when target or transcript evidence c
 
 test("pinned VAD evidence is verified before ranking and changed artifacts fail closed", async () => {
   const { InMemorySemanticMediaIndexStore, InMemoryAnalysisArtifactStore, pinAnalysisEvidence, verifyLocalMediaSource } = await import("../../../packages/runtime/src/index.js");
-  const { rankNarrativeCutsWithEvidence } = await import("../../../packages/runtime/src/planning/narrative-cuts.js");
+  const { rankNarrativeCutsWithEvidence, adjustNarrativeCutWithEvidence } = await import("../../../packages/runtime/src/planning/narrative-cuts.js");
   const { createHash } = await import("node:crypto");
   const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
@@ -175,7 +175,11 @@ test("pinned VAD evidence is verified before ranking and changed artifacts fail 
     const localRequest = { ...request, source: localSource };
     const result = await rankNarrativeCutsWithEvidence(localRequest, ref, evidenceContext, artifacts, verifyLocalMediaSource);
     assert.equal(result.status, "available");
-    if (result.status === "available") assert.equal(result.plan.candidates.length, 1);
+    assert.equal(result.plan.candidates.length, 1);
+    const candidate = result.plan.candidates[0]!;
+    const adjusted = { start: 21.5, end: 22.5, startTime: { value: "215", timescale: "10" }, durationTime: { value: "10", timescale: "10" } };
+    const adjustment = await adjustNarrativeCutWithEvidence(localRequest, ref, evidenceContext, artifacts, verifyLocalMediaSource, candidate, adjusted);
+    assert.equal(adjustment.status, "available");
     const original = await artifacts.get(ref.artifactDigest);
     let reads = 0;
     const changedBetweenReads = { get: async () => ++reads === 1 ? original : Buffer.from("{}"), put: async () => {} };
@@ -185,6 +189,7 @@ test("pinned VAD evidence is verified before ranking and changed artifacts fail 
     const wrongProvider = { ...evidenceContext, provider: { ...provider, model: "different" } };
     assert.notEqual((await rankNarrativeCutsWithEvidence(localRequest, ref, wrongProvider, artifacts, verifyLocalMediaSource)).status, "available");
     await writeFile(path, "replacement");
+    assert.notEqual((await adjustNarrativeCutWithEvidence(localRequest, ref, evidenceContext, artifacts, verifyLocalMediaSource, candidate, adjusted)).status, "available");
     assert.notEqual((await rankNarrativeCutsWithEvidence(localRequest, ref, evidenceContext, artifacts, verifyLocalMediaSource)).status, "available");
     const corrupt = { get: async () => Buffer.from("{}"), put: async () => {} };
     assert.notEqual((await rankNarrativeCutsWithEvidence(localRequest, ref, evidenceContext, corrupt, async () => {})).status, "available");
