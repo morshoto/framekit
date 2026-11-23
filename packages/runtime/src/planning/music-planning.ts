@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
+import { validateAudioAnalysisRange } from "../audio/analysis.js";
 import type { CompositeEditPreview, MusicAddRequest } from "../domain/editing.js";
 import { sameMediaSourceIdentity } from "../domain/media.js";
 import type { MediaSourceIdentity } from "../domain/media.js";
@@ -69,7 +70,8 @@ export function planMusic(request: MusicPlanRequest): MusicPlan {
   }
   const range = request.placement;
   if (!request.occurrenceId?.trim() || actual.timeline.clips.some((clip) => clip.id === request.occurrenceId)) return { ...base, decision: "unsupported", reason: "A new music occurrence identity is required." };
-  if (!range || !Number.isFinite(range.start) || !Number.isFinite(range.end) || range.start < 0 || range.end <= range.start
+  try { validateAudioAnalysisRange(range, "music placement"); } catch { return { ...base, decision: "unsupported", reason: "Music placement timing is invalid or inconsistent." }; }
+  if (!range || !Number.isFinite(actual.timeline.duration) || actual.timeline.duration <= 0 || !Number.isFinite(range.start) || !Number.isFinite(range.end) || range.start < 0 || range.end <= range.start
     || range.end > actual.timeline.duration || range.end - range.start > music.duration
     || !Number.isInteger(request.targetLane) || request.targetLane === 0) {
     return { ...base, decision: "unsupported", reason: "The requested range or lane is outside supported static placement." };
