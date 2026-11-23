@@ -3,13 +3,14 @@ import { isDeepStrictEqual } from "node:util";
 import { sameAnalyzerDescriptor, sameMediaSourceIdentity } from "../domain/media.js";
 import type { ContextRevision, TimeRange } from "../domain/primitives.js";
 import type { ProjectSnapshot } from "../domain/project.js";
+import { verifyAnalysisEvidence } from "./analysis-evidence.js";
 import type { AnalysisArtifactStore, AnalysisEvidenceContext, AnalysisRef, AnalysisSourceVerifier } from "./analysis-evidence.js";
 import { planCaptionGroups } from "./caption-planning.js";
 import type { CaptionGroup, CaptionPlanRequest } from "./caption-planning.js";
 import { assertBriefBinding } from "./creative-brief.js";
 import type { AcceptedCreativeBrief, CreativeBrief } from "./creative-brief.js";
 import { planMusic } from "./music-planning.js";
-import type { MusicPlanRequest } from "./music-planning.js";
+import type { MusicPlan, MusicPlanRequest } from "./music-planning.js";
 import { rankNarrativeCutsWithEvidence } from "./narrative-cuts.js";
 import type { NarrativeCutCandidate } from "./narrative-cuts.js";
 
@@ -31,8 +32,10 @@ export interface EditDecisionPlanRequest {
 export type EditDecision =
   | { kind: "cut"; support: "unavailable"; rationale: string; range: TimeRange; candidate: NarrativeCutCandidate; analysisRef: AnalysisRef }
   | { kind: "caption"; support: "unavailable"; rationale: string; range: TimeRange; group: CaptionGroup; analysisRef: AnalysisRef }
-  | { kind: "music-omission"; support: "no-op"; rationale: string }
-  | { kind: "music-proposal"; support: "unavailable"; rationale: string; range?: TimeRange };
+  | { kind: "caption-omission"; support: "no-op"; rationale: string }
+  | { kind: "caption-clarification"; support: "unavailable"; rationale: string }
+  | { kind: "music-omission"; support: "no-op"; rationale: string; musicPlan: MusicPlan }
+  | { kind: "music-proposal"; support: "unavailable"; rationale: string; musicPlan: MusicPlan; range?: TimeRange };
 export interface EditDecisionPlan {
   projectId: string;
   timelineId: string;
@@ -68,7 +71,9 @@ export async function createEditDecisionPlan(request: EditDecisionPlanRequest, a
       || !sameRevision(snapshot.revision, request.revision) || !sameRevision(request.speechContext.revision, request.revision)
       || !sameRevision(request.vadContext.revision, request.revision) || request.speechContext.kind !== "speech" || request.vadContext.kind !== "vad"
       || !sameMediaSourceIdentity(request.speechContext.source, request.vadContext.source)
-      || !sameAnalyzerDescriptor(request.speechContext.provider, request.vadContext.provider)) {
+      || !sameAnalyzerDescriptor(request.speechContext.provider, request.vadContext.provider)
+      || request.speechRef.kind !== "speech" || request.vadRef.kind !== "vad"
+      || request.speechRef.artifactDigest !== request.vadRef.artifactDigest) {
       return { status: "unavailable", reason: "Target, revision or speech/VAD identity differs from the current context." };
     }
     const clips = snapshot.timeline.clips.filter((clip) => clip.id === request.occurrenceId);
@@ -87,23 +92,37 @@ export async function createEditDecisionPlan(request: EditDecisionPlanRequest, a
       sequenceRange: { start: clip.start, end: clip.start + clip.duration, startTime: clip.startTime, durationTime: clip.durationTime },
       sequenceFrameDuration: snapshot.timeline.frameDuration }, request.vadRef, request.vadContext, artifacts, verifySource);
     if (cuts.status !== "available") return { status: "unavailable", reason: `Cut evidence: ${cuts.reason}` };
-    const captions = await planCaptionGroups({ ...request.caption, snapshot, projectId: request.projectId, timelineId: request.timelineId,
-      revision: request.revision, occurrenceId: request.occurrenceId }, request.speechRef, request.speechContext, artifacts, verifySource);
-    if (captions.status !== "available") return { status: "unavailable", reason: `Caption evidence: ${captions.reason}` };
+    const speechEvidence = await verifyAnalysisEvidence(artifacts, request.speechRef, request.speechContext, verifySource);
+    if (speechEvidence.status !== "verified") return { status: "unavailable", reason: `Speech evidence: ${speechEvidence.reason}` };
+    const captionPolicy = request.brief.captionPolicy;
+    const policyValue = captionPolicy.kind === "specified" ? captionPolicy.value.trim().toLowerCase() : undefined;
+    const captionDecisions: EditDecision[] = [];
+    const captionWarnings: string[] = [];
+    if (policyValue === "none") {
+      captionDecisions.push({ kind: "caption-omission", support: "no-op", rationale: "The accepted brief explicitly requests no captions." });
+    } else if (policyValue !== "basic") {
+      captionDecisions.push({ kind: "caption-clarification", support: "unavailable", rationale: "Caption preference requires clarification before proposing titles." });
+    } else {
+      const captions = await planCaptionGroups({ ...request.caption, snapshot, projectId: request.projectId, timelineId: request.timelineId,
+        revision: request.revision, occurrenceId: request.occurrenceId }, request.speechRef, request.speechContext, artifacts, verifySource);
+      if (captions.status !== "available") return { status: "unavailable", reason: `Caption evidence: ${captions.reason}` };
+      captionDecisions.push(...captions.plan.groups.map((group): EditDecision => ({ kind: "caption", support: "unavailable", rationale: "Review mapped transcript text, timing and any emphasis before title placement.", range: structuredClone(group.sequenceRange), group, analysisRef: structuredClone(captions.plan.analysisRef) })));
+      captionWarnings.push(...captions.plan.warnings);
+    }
     const music = planMusic({ ...request.music, snapshot, projectId: request.projectId, timelineId: request.timelineId,
       revision: request.revision, brief: request.brief, accepted: request.accepted });
     const decisions: EditDecision[] = [
       ...cuts.plan.candidates.map((candidate): EditDecision => ({ kind: "cut", support: "unavailable", rationale: candidate.rationale, range: structuredClone(candidate.sequenceRange), candidate, analysisRef: structuredClone(cuts.analysisRef) })),
-      ...captions.plan.groups.map((group): EditDecision => ({ kind: "caption", support: "unavailable", rationale: "Review mapped transcript text, timing and any emphasis before title placement.", range: structuredClone(group.sequenceRange), group, analysisRef: structuredClone(captions.plan.analysisRef) })),
+      ...captionDecisions,
       music.decision === "omit-music"
-        ? { kind: "music-omission", support: "no-op", rationale: music.reason }
-        : { kind: "music-proposal", support: "unavailable", rationale: music.reason, ...(music.placement ? { range: structuredClone(music.placement.range) } : {}) },
+        ? { kind: "music-omission", support: "no-op", rationale: music.reason, musicPlan: music }
+        : { kind: "music-proposal", support: "unavailable", rationale: music.reason, musicPlan: music, ...(music.placement ? { range: structuredClone(music.placement.range) } : {}) },
     ];
     decisions.sort((a, b) => ("range" in a ? a.range?.start ?? Number.POSITIVE_INFINITY : Number.POSITIVE_INFINITY)
       - ("range" in b ? b.range?.start ?? Number.POSITIVE_INFINITY : Number.POSITIVE_INFINITY));
     const content = { projectId: request.projectId, timelineId: request.timelineId, occurrenceId: request.occurrenceId,
       revision: structuredClone(request.revision), acceptedBrief: structuredClone(request.accepted), inputDigest: digest(request),
-      reviewRequired: true as const, decisions, warnings: [...cuts.plan.warnings, ...captions.plan.warnings, ...music.warnings,
+      reviewRequired: true as const, decisions, warnings: [...cuts.plan.warnings, ...captionWarnings, ...music.warnings,
         "Native operation mapping, separate approval and independent verification are not yet available for these proposals."] };
     return { status: "available", plan: { ...content, planDigest: digest(content) } };
   } catch (error) {
