@@ -62,6 +62,21 @@ test("rejects low-confidence or overlapping words, VAD contradictions and stale 
   assert.throws(() => rankNarrativeCuts({ ...input, source: { ...source, sourceDigest: "sha256:changed" } }), /SOURCE|TARGET/);
 });
 
+test("explains why sentence pauses produce no safe candidates", () => {
+  const lowConfidence = { ...input, analysis: { ...input.analysis, words: [input.analysis.words[0]!, { ...input.analysis.words[1]!, confidence: 0.71 }] } };
+  const low = rankNarrativeCuts(lowConfidence);
+  assert.equal(low.candidates.length, 0);
+  assert.ok(low.warnings.some((warning) => /confidence.*review/i.test(warning)));
+  const short = { ...input, analysis: { ...input.analysis,
+    words: [{ ...input.analysis.words[0]!, end: 1 }, { ...input.analysis.words[1]!, start: 1.74 }],
+    vadSegments: [{ kind: "speech" as const, start: 0, end: 1 }, { kind: "silence" as const, start: 1, end: 1.74 }, { kind: "speech" as const, start: 1.74, end: 4 }],
+  } };
+  const result = rankNarrativeCuts(short);
+  assert.equal(result.candidates.length, 0);
+  assert.ok(result.warnings.some((warning) => /pause.*short/i.test(warning)));
+  assert.equal(rankNarrativeCuts(input).warnings.some((warning) => /no safe candidates/i.test(warning)), false);
+});
+
 test("requires exact timeline identity and reports unavailable evidence", () => {
   assert.throws(() => rankNarrativeCuts({ ...input, sequenceRange: { start: 20, end: 30 } }), /AMBIGUOUS|ANALYSIS/);
   const result = rankNarrativeCuts({ ...input, analysis: { ...input.analysis, vadSegments: undefined } });
