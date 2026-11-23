@@ -24,6 +24,12 @@ export interface QaRun {
 const digestFields = ["packageDigest", "pluginDigest", "extensionDigest", "artifactDigest", "sourceDigest", "targetDigest", "authorizationDigest"] as const;
 const manifestFields = ["qaRunId", "candidateCommit", "candidateTree", ...digestFields, "operation"] as const;
 
+async function syncDirectory(path: string): Promise<void> {
+  const handle = await open(path, "r");
+  try { await handle.sync(); }
+  finally { await handle.close(); }
+}
+
 function validateId(id: unknown): asserts id is string {
   if (typeof id !== "string" || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(id)) throw new Error("QA_RUN_ID_INVALID");
 }
@@ -80,6 +86,8 @@ export async function createOrInspectRun(root: string, manifest: QaRunManifest):
   const file = await open(join(directory, "run.json"), "wx", 0o600);
   try { await file.writeFile(JSON.stringify(run) + "\n"); await file.sync(); }
   finally { await file.close(); }
+  await syncDirectory(directory);
+  await syncDirectory(root);
   return { created: true, run };
 }
 
@@ -100,8 +108,6 @@ export async function markDispatchUncertain(root: string, manifest: QaRunManifes
   }
   try { await marker.writeFile("uncertain\n"); await marker.sync(); }
   finally { await marker.close(); }
-  const directoryHandle = await open(directory, "r");
-  try { await directoryHandle.sync(); }
-  finally { await directoryHandle.close(); }
+  await syncDirectory(directory);
   return inspectRun(root, bound.qaRunId);
 }
