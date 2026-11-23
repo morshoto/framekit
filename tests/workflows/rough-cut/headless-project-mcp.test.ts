@@ -2767,8 +2767,12 @@ test("same-session and fresh-session renders retain all frames after JSON and ga
     assert.notEqual(previewResult.isError, true, toolErrorText(previewResult));
     const preview = payload(previewResult);
     const executed = payload(await client.callTool({ name: "headless.edit-json.execute", arguments: { ...args, approved: true, planDigest: preview.planDigest } }));
-    const edited = payload(await client.callTool({ name: "headless.edit.execute", arguments: { projectId, sequenceId, expectedRevision: executed.after.timeline.revision, operations: clips.map(({ id }) => ({ type: "set-gain", occurrenceId: id, gainDb: -6 })) } }));
-    revision = edited.after.timeline.revision;
+    revision = executed.after.timeline.revision;
+    for (const { id } of clips) {
+      const edited = payload(await client.callTool({ name: "headless.edit.execute", arguments: { projectId, sequenceId, expectedRevision: revision,
+        operations: [{ type: "set-gain", occurrenceId: id, gainDb: -6 }] } }));
+      revision = edited.after.timeline.revision;
+    }
     for (const label of ["same", "fresh"]) {
       if (label === "fresh") {
         await client.close();
