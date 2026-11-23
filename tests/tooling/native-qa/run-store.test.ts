@@ -1704,8 +1704,23 @@ test("plugin observation binds a clean candidate and installed directory without
     assert.equal(evidence.scope, "directory-snapshot");
     assert.equal(JSON.stringify(evidence).includes(parent), false);
     assert.deepEqual(await readQaPluginEvidence(root, target.qaRunId), evidence);
+    const spec = join(parent, "plugin-input.json");
+    await writeFile(spec, JSON.stringify({ checkout, codexHome, installedPath: installed }));
+    const viaCli = spawnSync(process.execPath, ["--import", "tsx", "scripts/native-qa/cli.ts", "verify-plugin", root, target.qaRunId, spec], { encoding: "utf8", timeout: 10000 });
+    assert.equal(viaCli.status, 0, viaCli.stderr);
+    assert.deepEqual(JSON.parse(viaCli.stdout), evidence);
+    const bundle = await readQaEvidenceBundle(root, target.qaRunId);
+    assert.deepEqual(bundle.plugin, evidence);
+    assert.equal(bundle.dispatchAllowed, false);
     await writeFile(join(installed, "plugin.txt"), "changed");
     await assert.rejects(() => verifyQaPluginIdentity(root, target.qaRunId, { checkout, codexHome, installedPath: installed }), /QA_PLUGIN_MISMATCH/);
     assert.equal((await inspectRun(root, target.qaRunId)).dispatch, "NOT_DISPATCHED");
+    await writeFile(join(installed, "plugin.txt"), "candidate plugin");
+    await assert.rejects(() => verifyQaPluginIdentity(root, target.qaRunId, { checkout, codexHome, installedPath: source }), /QA_PLUGIN_UNSAFE/);
+    await writeFile(join(checkout, "untracked"), "dirty");
+    await assert.rejects(() => verifyQaPluginIdentity(root, target.qaRunId, { checkout, codexHome, installedPath: installed }), /QA_CANDIDATE_MISMATCH/);
+    await rm(join(checkout, "untracked"));
+    await symlink(join(installed, "plugin.txt"), join(installed, "link"));
+    await assert.rejects(() => verifyQaPluginIdentity(root, target.qaRunId, { checkout, codexHome, installedPath: installed }), /QA_PLUGIN_UNSAFE/);
   } finally { await rm(parent, { recursive: true, force: true }); }
 });
