@@ -7,10 +7,11 @@ import { readQaPublisherFixtureEvidence, verifyQaPublisherFixture } from "./publ
 import { readQaPublisherSourceEvidence, verifyQaPublisherSources } from "./publisher-source-evidence.js";
 import { readQaPublisherStages } from "./publisher-stages.js";
 import { readQaEvidenceBundle } from "./evidence-bundle.js";
+import { readQaPluginEvidence, verifyQaPluginIdentity } from "./plugin-evidence.js";
 
 const [command, root, input, ...extra] = process.argv.slice(2);
-const commands = ["start", "inspect", "evidence", "evidence-bundle", "record-authorization", "resume-headless", "verify-artifact", "artifact-evidence", "inspect-publisher-store", "verify-publisher-fixture", "publisher-fixture-evidence", "verify-publisher-sources", "publisher-source-evidence", "publisher-stages", "start-publisher-fixture", "resume-publisher-fixture"];
-const expectsExtra = command === "record-authorization" || command === "verify-artifact" || command === "inspect-publisher-store" || command === "verify-publisher-fixture" || command === "verify-publisher-sources" || command === "start-publisher-fixture" || command === "resume-publisher-fixture";
+const commands = ["start", "inspect", "evidence", "evidence-bundle", "record-authorization", "resume-headless", "verify-artifact", "artifact-evidence", "inspect-publisher-store", "verify-publisher-fixture", "publisher-fixture-evidence", "verify-publisher-sources", "publisher-source-evidence", "publisher-stages", "start-publisher-fixture", "resume-publisher-fixture", "verify-plugin", "plugin-evidence"];
+const expectsExtra = command === "verify-plugin" || command === "record-authorization" || command === "verify-artifact" || command === "inspect-publisher-store" || command === "verify-publisher-fixture" || command === "verify-publisher-sources" || command === "start-publisher-fixture" || command === "resume-publisher-fixture";
 const allowsOptionalArtifact = command === "start" || command === "resume-headless";
 if (!root || !input || !commands.includes(command ?? "") || (expectsExtra ? extra.length !== 1 : allowsOptionalArtifact ? extra.length > 1 : extra.length !== 0)) throw new Error("QA_CLI_ARGUMENTS_INVALID");
 let result: unknown;
@@ -20,6 +21,12 @@ else if (command === "inspect") result = await inspectRun(root, input);
 else if (command === "resume-headless") result = await resumeHeadlessQaRun(root, input, extra[0]);
 else if (command === "resume-publisher-fixture") result = await resumeHeadlessQaRun(root, input, extra[0], { publisherFixture: true });
 else if (command === "verify-artifact") result = await verifyQaArtifact(root, input, extra[0]!);
+else if (command === "verify-plugin") {
+  let spec: unknown;
+  try { spec = JSON.parse(await readQaRecord(extra[0]!)); } catch { throw new Error("QA_PLUGIN_INPUT_INVALID"); }
+  result = await verifyQaPluginIdentity(root, input, spec as { checkout: string; codexHome: string; installedPath: string });
+}
+else if (command === "plugin-evidence") result = await readQaPluginEvidence(root, input);
 else if (command === "artifact-evidence") result = await readQaArtifactEvidence(root, input);
 else if (command === "inspect-publisher-store") result = await inspectQaPublisherFromStore(root, input, extra[0]!);
 else if (command === "verify-publisher-fixture") result = await verifyQaPublisherFixture(root, input, extra[0]!);
