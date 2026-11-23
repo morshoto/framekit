@@ -125,12 +125,18 @@ export async function previewMusicPlan(
     duration: recomputed.placement.range.end - recomputed.placement.range.start,
     targetLane: recomputed.placement.targetLane, gainDb: recomputed.placement.gainDb,
   });
+  if (preview.target.kind !== "editor.timeline" || preview.target.projectId !== request.projectId
+    || preview.target.sequenceId !== request.timelineId || !isDeepStrictEqual(preview.baseRevision, recomputed.revision)) {
+    throw new Error("STALE_MUSIC_PREVIEW: preview target or revision differs from the reviewed proposal");
+  }
   await verifySource(request.music);
   const after = await runtime.inspectProject();
   assertBriefSourceCoverage(request.accepted, request.brief, after.media);
   for (const id of new Set(request.brief.sourceCoverage.map((coverage) => coverage.sourceId))) {
     await verifySource(after.media.find((source) => source.mediaId === id)!);
   }
+  const finalPlan = planMusic({ ...request, snapshot: after });
+  if (!isDeepStrictEqual(finalPlan, reviewed)) throw new Error("STALE_MUSIC_PLAN: project changed during preview");
   await assertCurrentAcceptedBrief(briefStore, request.projectId, request.accepted);
   return preview;
 }
