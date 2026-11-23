@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { sameAnalyzerDescriptor, sameMediaSourceIdentity } from "../domain/media.js";
+import type { MediaSourceIdentity } from "../domain/media.js";
 import type { ContextRevision, TimeRange } from "../domain/primitives.js";
 import type { ProjectSnapshot } from "../domain/project.js";
 import { parseRational } from "../timeline/rational-time.js";
@@ -43,6 +44,7 @@ export interface EditDecisionPlan {
   projectId: string;
   timelineId: string;
   occurrenceId: string;
+  source: MediaSourceIdentity;
   revision: ContextRevision;
   acceptedBrief: AcceptedCreativeBrief;
   inputDigest: string;
@@ -143,9 +145,12 @@ export async function createEditDecisionPlan(request: EditDecisionPlanRequest, a
     ];
     decisions.sort((a, b) => ("range" in a ? a.range?.start ?? Number.POSITIVE_INFINITY : Number.POSITIVE_INFINITY)
       - ("range" in b ? b.range?.start ?? Number.POSITIVE_INFINITY : Number.POSITIVE_INFINITY));
-    const content = { projectId: request.projectId, timelineId: request.timelineId, occurrenceId: request.occurrenceId,
+    const sourceIdentity: MediaSourceIdentity = { mediaId: source.mediaId, source: source.source, sourceDigest: source.sourceDigest,
+      ...(source.mediaKind !== undefined ? { mediaKind: source.mediaKind } : {}), ...(source.duration !== undefined ? { duration: source.duration } : {}) };
+    const content = { projectId: request.projectId, timelineId: request.timelineId, occurrenceId: request.occurrenceId, source: sourceIdentity,
       revision: structuredClone(request.revision), acceptedBrief: structuredClone(request.accepted), inputDigest: digest(request),
       reviewRequired: true as const, decisions, warnings: [...cutWarnings, ...captionWarnings, ...music.warnings,
+        ...(request.music.context.audioEvidence === "available" ? ["Supplied audio context is unverified because no pinned audio reference was provided."] : []),
         "Native operation mapping, separate approval and independent verification are not yet available for these proposals."] };
     return { status: "available", plan: { ...content, planDigest: digest(content) } };
   } catch (error) {
