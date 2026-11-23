@@ -3149,6 +3149,7 @@
       "\"a legacy writer removing an initializing lock can bypass upgraded writer exclusion\""
     ],
     "tests/integration/headless-project-mcp.test.ts": [
+      "\"production decision planning pins real FFmpeg source audio\"",
       "\"production MCP persists creative brief review across restarts\"",
       "\"production rough-cut renders without FCPXML and rejects changed export intent\"",
       "\"approved headless edit tokens expire without mutation\"",

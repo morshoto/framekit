@@ -1468,6 +1468,49 @@ test("headless project media can be understood and planned without a Final Cut c
   }
 });
 
+test("production decision planning pins real FFmpeg source audio", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-real-audio-decision-"));
+  const here = dirname(fileURLToPath(import.meta.url));
+  const ffmpegVersion = (await execFileAsync("ffmpeg", ["-version"])).stdout.split("\n")[0]!.trim();
+  const environment = { ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1", FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
+    FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"), FRAMEKIT_STATE_DIR: join(directory, "state"),
+    FRAMEKIT_SPEECH_ANALYZER: "", FRAMEKIT_AUDIO_ANALYZER: join(process.cwd(), "apps/mcp-server/runtime/ffmpeg-audio-backend.py"),
+    FRAMEKIT_AUDIO_ANALYZER_VERSION: ffmpegVersion };
+  let client: Client | undefined; let transport: StdioClientTransport | undefined;
+  try {
+    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory]);
+    ({ client, transport } = await connectProductionClient(here, environment));
+    const timeline = emptyTimeline(); timeline.project.id = "real-audio-project"; timeline.sequence.id = "real-audio-sequence";
+    const created = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline } }));
+    const registered = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId: timeline.project.id,
+      sourcePath: join(directory, "fixture-red-440hz.mp4"), expectedRevision: created.timeline.revision } }));
+    const edited = payload(await client.callTool({ name: "headless.edit.execute", arguments: { projectId: timeline.project.id, sequenceId: timeline.sequence.id,
+      expectedRevision: registered.project.timeline.revision, operations: [{ type: "insert-occurrence", placement: "append", occurrence: { id: "audio-clip", name: "Audio test",
+        mediaId: registered.resource.id, startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" },
+        sourceStartTime: { value: "0", timescale: "1" }, track: 0, role: "video" } }] } }));
+    const revision = edited.after.timeline.revision;
+    const understanding = payload(await client.callTool({ name: "media.understand", arguments: { projectId: timeline.project.id, mediaId: registered.resource.id } }));
+    assert.equal(understanding.audio.coverageProvenance, "provider");
+    assert.equal(understanding.audio.provider.version, ffmpegVersion);
+    assert.ok(Number.isFinite(understanding.audio.integratedLufs));
+    const target = { projectId: timeline.project.id, sequenceId: timeline.sequence.id, expectedRevision: revision };
+    const audioRef = payload(await client.callTool({ name: "headless.analysis.pin", arguments: { ...target, mediaId: registered.resource.id, kind: "audio", range: { start: 0, end: 1 } } })).ref;
+    const brief = { schemaVersion: 1, id: "audio-brief", version: 1, purpose: { kind: "specified", value: "audio check" }, audience: { kind: "no-preference" },
+      durationSeconds: { min: 1, max: 2 }, aspectRatio: "9:16", theme: "natural", visualDirection: "natural", requiredContent: [], excludedContent: [], sourceCoverage: [],
+      speechPolicy: { kind: "specified", value: "preserve" }, musicPolicy: { kind: "specified", value: "none" }, captionPolicy: { kind: "specified", value: "none" }, inferences: [], reviewPrompts: [] };
+    const draft = payload(await client.callTool({ name: "headless.brief.create", arguments: { ...target, brief } }));
+    payload(await client.callTool({ name: "headless.brief.accept", arguments: { ...target, expectedDigest: draft.record.digest, confirmed: true } }));
+    const result = payload(await client.callTool({ name: "headless.decision.plan", arguments: { projectId: timeline.project.id, timelineId: timeline.sequence.id,
+      revision, occurrenceId: "audio-clip", audioRef, caption: { style: "basic", maxWordsPerGroup: 3, maxCharsPerLine: 20, maxLines: 2 },
+      music: { occurrenceId: "music-plan", placement: { start: 0, end: 1 }, targetLane: -1, context: { speech: "unknown", audioEvidence: "available" },
+        capabilities: { staticMusicPreview: false, ducking: false, fades: false } } } }));
+    assert.equal(result.status, "available", result.reason);
+    assert.equal(result.plan.decisions.find((item: any) => item.kind === "music-omission").audioRef.artifactDigest, audioRef.artifactDigest);
+    assert.ok(result.plan.warnings.some((warning: string) => /does not verify.*mix/i.test(warning)));
+  } finally { await client?.close(); await transport?.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test("production rough-cut MCP workflow previews and commits B-A-C video, title, and mixed music", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-issue-517-mvp-"));
   const here = dirname(fileURLToPath(import.meta.url));
