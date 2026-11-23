@@ -33,3 +33,26 @@ test("stalled requests and late replies are explicitly controlled", async () => 
   assert.deepEqual(await pending, { state: "rejected" });
   assert.deepEqual(receiver.trace().map(event => event.kind), ["dispatch", "stalled", "rejected"]);
 });
+
+test("disconnect before dispatch records no receiver action", async () => {
+  const receiver = new ScriptedNativeReceiver([{ kind: "disconnect-before-dispatch" }]);
+  assert.deepEqual(await receiver.dispatch(request), { state: "not-dispatched" });
+  assert.deepEqual(receiver.trace().map(event => event.kind), ["disconnected"]);
+  assert.deepEqual(receiver.restart().inspect(request.operationId), { state: "not-dispatched" });
+});
+
+test("duplicate operation identities reject changed source and revision", async () => {
+  const receiver = new ScriptedNativeReceiver([{ kind: "lose-response" }]);
+  await receiver.dispatch(request);
+  await assert.rejects(receiver.dispatch({ ...request, sourceDigest: "b".repeat(64) }), /IDENTITY_MISMATCH/);
+  await assert.rejects(receiver.dispatch({ ...request, revisionId: "revision-2" }), /IDENTITY_MISMATCH/);
+  assert.equal(receiver.trace().filter(event => event.kind === "dispatch").length, 1);
+});
+
+test("a lost response can arrive late without another dispatch", async () => {
+  const receiver = new ScriptedNativeReceiver([{ kind: "lose-response" }]);
+  assert.deepEqual(await receiver.dispatch(request), { state: "uncertain" });
+  receiver.reply(request.operationId, "accepted");
+  assert.deepEqual(receiver.inspect(request.operationId), { state: "accepted" });
+  assert.equal(receiver.trace().filter(event => event.kind === "dispatch").length, 1);
+});
