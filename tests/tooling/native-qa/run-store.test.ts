@@ -311,3 +311,27 @@ test("a symbolic link cannot be used as the QA root", async () => {
     await assert.rejects(createOrInspectRun(link, manifest), /QA_RUN_ROOT_UNSAFE/);
   } finally { await rm(parent, { recursive: true, force: true }); await rm(root, { recursive: true, force: true }); }
 });
+
+test("duplicate authorization returns the original uncertain job for inspection", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-duplicate-unknown-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    await claimDispatchIntent(root, manifest, "publish-job-1");
+    const duplicate = await createOrInspectRun(root, { ...manifest, qaRunId: "replacement-run" });
+    assert.equal(duplicate.created, false);
+    assert.equal(duplicate.run.manifest.qaRunId, manifest.qaRunId);
+    assert.equal(duplicate.run.dispatch, "UNKNOWN_AFTER_DISPATCH");
+    assert.equal(duplicate.run.publishJobId, "publish-job-1");
+    assert.equal(duplicate.run.verdict, "BLOCKED");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("an incomplete authorization binding never creates another run", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-auth-incomplete-"));
+  try {
+    const { mkdir } = await import("node:fs/promises");
+    await mkdir(join(root, `.authorization-${manifest.authorizationDigest}`));
+    await assert.rejects(createOrInspectRun(root, manifest), /QA_RUN_NOT_FOUND_OR_INCOMPLETE/);
+    await assert.rejects(createOrInspectRun(root, { ...manifest, qaRunId: "other-run" }), /QA_RUN_NOT_FOUND_OR_INCOMPLETE/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
