@@ -100,3 +100,15 @@ test("overlapping frame-rounded groups are unavailable rather than silently shif
     if (result.status === "unavailable") assert.match(result.reason, /overlap/i);
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
+
+test("an empty transcript is reported and never creates placeholder captions", async () => {
+  const f = await fixture([]);
+  try {
+    const result = await planCaptionGroups({ ...f.request, emphasisWordIndices: [] }, f.ref, f.current, f.artifacts, verifyLocalMediaSource);
+    assert.equal(result.status, "available");
+    if (result.status === "available") {
+      assert.deepEqual(result.plan.groups, []);
+      assert.ok(result.plan.warnings.some((warning) => /no.*words/i.test(warning)));
+    }
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
