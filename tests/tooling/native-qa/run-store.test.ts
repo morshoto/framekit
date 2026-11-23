@@ -636,3 +636,14 @@ test("a missing job index cannot turn an uncertain run into a new job", async ()
     assert.equal((await inspectRun(root, first.qaRunId)).dispatch, "UNKNOWN_AFTER_DISPATCH");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("unknown or corrupt existing runs block new job registration", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-corrupt-index-scan-"));
+  try {
+    const first = { ...manifest, authorizationDigest: null };
+    await createOrInspectRun(root, first);
+    await writeFile(join(root, first.qaRunId, "run.json"), "{");
+    const different = { ...first, qaRunId: "another-job", targetDigest: "a".repeat(64) };
+    await assert.rejects(createOrInspectRun(root, different), /QA_INDEX_RECONCILIATION_REQUIRED/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

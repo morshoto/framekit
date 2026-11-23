@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, open, readFile } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { publishQaRecord } from "./atomic-record.js";
 
@@ -164,6 +164,17 @@ export async function createOrInspectRun(root: string, manifest: QaRunManifest):
   const jobIndex = `.job-${createHash("sha256").update(JSON.stringify(identity)).digest("hex")}`;
   const existingJob = await reserveIndex(root, jobIndex, bound.qaRunId);
   if (existingJob) return inspectMatching(existingJob);
+  // An absent index can be a lost or older record, not proof that a job never existed.
+  const entries = await readdir(root, { withFileTypes: true });
+  if (entries.length > 1024) throw new Error("QA_INDEX_RECONCILIATION_REQUIRED");
+  for (const entry of entries) {
+    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(entry.name) || (!entry.isDirectory() && !entry.isSymbolicLink())) continue;
+    let previous: QaRun;
+    try { previous = await inspectRun(root, entry.name); }
+    catch { throw new Error("QA_INDEX_RECONCILIATION_REQUIRED"); }
+    const previousIdentity = manifestFields.filter(key => key !== "qaRunId" && key !== "authorizationDigest").map(key => previous.manifest[key]);
+    if (JSON.stringify(previousIdentity) === JSON.stringify(identity)) throw new Error("QA_INDEX_RECONCILIATION_REQUIRED");
+  }
   if (bound.authorizationDigest !== null) {
     const existingApproval = await reserveIndex(root, `.authorization-${bound.authorizationDigest}`, bound.qaRunId);
     if (existingApproval) return inspectMatching(existingApproval);
