@@ -27,6 +27,45 @@ const manifest = {
   operation: "rough-cut-publish" as const, authorizationDigest: "7".repeat(64),
 };
 
+test("headless profile is bound to the original run across clients", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-profile-"));
+  try {
+    const fixture = { ...manifest, authorizationDigest: null };
+    const first = await createOrInspectRun(root, fixture, "publisher-e2e-v1");
+    assert.equal(first.run.headlessProfile, "publisher-e2e-v1");
+    const duplicate = await createOrInspectRun(root, { ...fixture, qaRunId: "other-client" }, "publisher-e2e-v1");
+    assert.equal(duplicate.created, false);
+    assert.equal(duplicate.run.manifest.qaRunId, fixture.qaRunId);
+    await assert.rejects(createOrInspectRun(root, fixture, "generic"), /QA_WORKER_PROFILE_MISMATCH/);
+    await assert.rejects(createOrInspectRun(root, { ...fixture, qaRunId: "other-client" }, "generic"), /QA_WORKER_PROFILE_MISMATCH/);
+    await assert.rejects(resumeHeadlessQaRun(root, fixture.qaRunId), /QA_WORKER_PROFILE_MISMATCH/);
+    assert.equal((await inspectRun(root, fixture.qaRunId)).dispatch, "NOT_DISPATCHED");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("legacy generic runs cannot be resumed as publisher fixtures", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-legacy-profile-"));
+  try {
+    const legacy = { ...manifest, authorizationDigest: null };
+    await createOrInspectRun(root, legacy);
+    await assert.rejects(createOrInspectRun(root, legacy, "publisher-e2e-v1"), /QA_WORKER_PROFILE_MISMATCH/);
+    await assert.rejects(resumeHeadlessQaRun(root, legacy.qaRunId, join(root, "fixture.fcpxml"), { publisherFixture: true }), /QA_WORKER_PROFILE_MISMATCH/);
+    assert.equal((await inspectRun(root, legacy.qaRunId)).dispatch, "NOT_DISPATCHED");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("worker rejects input that changes the recorded profile", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-worker-profile-"));
+  try {
+    const bound = { ...manifest, authorizationDigest: null };
+    await createOrInspectRun(root, bound, "publisher-e2e-v1");
+    const worker = spawnSync(process.execPath, ["--import", "tsx", "scripts/native-qa/worker.ts", root, bound.qaRunId], { input: "{}", encoding: "utf8", timeout: 10000 });
+    assert.notEqual(worker.status, 0);
+    assert.match(worker.stderr, /QA_WORKER_PROFILE_MISMATCH/);
+    await assert.rejects(lstat(join(root, bound.qaRunId, "headless-started")), (error: NodeJS.ErrnoException) => error.code === "ENOENT");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("publisher fixture worker requires an explicit artifact", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-qa-fixture-worker-"));
   try {
