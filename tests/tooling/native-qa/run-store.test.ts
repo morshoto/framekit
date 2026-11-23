@@ -24,6 +24,7 @@ import { verifyQaPublisherSources, readQaPublisherSourceEvidence } from "../../.
 import { recordQaPublisherStage, readQaPublisherStages } from "../../../scripts/native-qa/publisher-stages.js";
 import { runSupervisedQaPublisher } from "../../../scripts/native-qa/publisher-supervision.js";
 import { readQaEvidenceBundle } from "../../../scripts/native-qa/evidence-bundle.js";
+import { ScriptedNativeReceiver } from "../../support/simulated-native-receiver.js";
 
 const manifest = {
   qaRunId: "qa-fixture-1", candidateCommit: "a".repeat(40), candidateTree: "b".repeat(40),
@@ -31,6 +32,32 @@ const manifest = {
   artifactDigest: "4".repeat(64), sourceDigest: "5".repeat(64), targetDigest: "6".repeat(64),
   operation: "rough-cut-publish" as const, authorizationDigest: "7".repeat(64),
 };
+
+test("late simulated receiver acceptance does not trigger a second publisher dispatch", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-late-receiver-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    const receiver = new ScriptedNativeReceiver([{ kind: "lose-response" }]);
+    const identity = { operationId: "job-123", targetId: "fixture-target", sourceDigest: manifest.sourceDigest, desiredDigest: manifest.artifactDigest, revisionId: "revision-1" };
+    const call = async (name: string) => {
+      if (name === "artifact.publish.preview") return { jobId: identity.operationId, state: "awaiting-confirmation", artifactDigest: manifest.artifactDigest, targetLibraryPath: "/fixture/library" };
+      receiver.recordPublisherCall();
+      await receiver.dispatch(identity);
+      throw new Error("simulated lost response");
+    };
+    const input = { artifactPath: "/fixture/artifact", transactionId: "fixture", targetLibraryPath: "/fixture/library", artifactDigest: manifest.artifactDigest };
+    await assert.rejects(runSupervisedQaPublisher(root, manifest, input, call, async () => {}), /PUBLISH_DISPATCH_UNCERTAIN/);
+    const restarted = ScriptedNativeReceiver.restore(JSON.parse(JSON.stringify(receiver.snapshot())));
+    restarted.reply(identity.operationId, "accepted");
+    assert.equal(restarted.inspect(identity.operationId)?.state, "accepted");
+    await assert.rejects(runSupervisedQaPublisher(root, manifest, input, call, async () => {}), /QA_DISPATCH_ALREADY_CLAIMED/);
+    assert.equal(receiver.publisherCalls(), 1);
+    assert.equal(restarted.trace().filter(event => event.kind === "dispatch").length, 1);
+    const status = await inspectRun(root, manifest.qaRunId);
+    assert.equal(status.dispatch, "UNKNOWN_AFTER_DISPATCH");
+    assert.equal(status.verdict, "BLOCKED");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 test("evidence entry point returns persisted publisher observations without native proof", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-qa-bundle-"));
