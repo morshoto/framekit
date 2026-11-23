@@ -80,6 +80,16 @@ export async function inspectRun(root: string, qaRunId: string): Promise<QaRun> 
   }
 }
 
+async function assertAuthorizationBinding(root: string, manifest: QaRunManifest): Promise<void> {
+  const directory = join(root, `.authorization-${manifest.authorizationDigest}`);
+  try {
+    const bindingDir = await lstat(directory);
+    const bindingFile = await lstat(join(directory, "run-id"));
+    if (!bindingDir.isDirectory() || bindingDir.isSymbolicLink() || !bindingFile.isFile() || bindingFile.isSymbolicLink()) throw new Error("invalid");
+    if (await readFile(join(directory, "run-id"), "utf8") !== `${manifest.qaRunId}\n`) throw new Error("invalid");
+  } catch { throw new Error("QA_AUTHORIZATION_BINDING_INVALID"); }
+}
+
 /** Creates only a blocked record. It never initiates or resumes a native operation. */
 export async function createOrInspectRun(root: string, manifest: QaRunManifest): Promise<{ created: boolean; run: QaRun }> {
   const bound = structuredClone(manifest);
@@ -92,6 +102,17 @@ export async function createOrInspectRun(root: string, manifest: QaRunManifest):
     if (manifestFields.some(key => run.manifest[key] !== bound[key])) throw new Error("QA_RUN_IDENTITY_MISMATCH");
     return { created: false, run };
   }
+  const authorizationDirectory = join(root, `.authorization-${bound.authorizationDigest}`);
+  try { await mkdir(authorizationDirectory); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error("QA_AUTHORIZATION_ALREADY_BOUND");
+    throw error;
+  }
+  const binding = await open(join(authorizationDirectory, "run-id"), "wx", 0o600);
+  try { await binding.writeFile(`${bound.qaRunId}\n`); await binding.sync(); }
+  finally { await binding.close(); }
+  await syncDirectory(authorizationDirectory);
+  await syncDirectory(root);
   const run: QaRun = { schemaVersion: 1, manifest: bound, dispatch: "NOT_DISPATCHED", verdict: "BLOCKED" };
   const file = await open(join(directory, "run.json"), "wx", 0o600);
   try { await file.writeFile(JSON.stringify(run) + "\n"); await file.sync(); }
@@ -129,6 +150,7 @@ export async function claimDispatchIntent(root: string, manifest: QaRunManifest,
   if (typeof publishJobId !== "string" || !/^[a-z0-9][a-z0-9-]{0,127}$/.test(publishJobId)) throw new Error("QA_PUBLISH_JOB_ID_INVALID");
   const existing = await inspectRun(root, bound.qaRunId);
   if (manifestFields.some(key => existing.manifest[key] !== bound[key])) throw new Error("QA_RUN_IDENTITY_MISMATCH");
+  await assertAuthorizationBinding(root, bound);
   const directory = join(root, bound.qaRunId);
   let marker;
   try { marker = await open(join(directory, "dispatch-uncertain"), "wx", 0o600); }

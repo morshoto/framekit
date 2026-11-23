@@ -251,6 +251,9 @@ test("a separate run cannot reuse an operation authorization", async () => {
     assert.equal((await createOrInspectRun(root, manifest)).created, false);
     await assert.rejects(createOrInspectRun(root, { ...manifest, qaRunId: "another-run" }), /QA_AUTHORIZATION_ALREADY_BOUND/);
     await assert.rejects(createOrInspectRun(root, { ...manifest, qaRunId: "changed-run", targetDigest: "9".repeat(64) }), /QA_AUTHORIZATION_ALREADY_BOUND/);
+    const separate = await createOrInspectRun(root, { ...manifest, qaRunId: "separate-run", authorizationDigest: "a".repeat(64) });
+    assert.equal(separate.created, true);
+    assert.equal(separate.run.verdict, "BLOCKED");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
