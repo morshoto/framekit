@@ -1469,6 +1469,12 @@ test("headless project media can be understood and planned without a Final Cut c
     assert.equal(decision.status, "available", decision.reason);
     assert.equal(decision.plan.reviewRequired, true);
     assert.ok(decision.plan.decisions.some((item: any) => item.kind === "caption"));
+    const changedPlanningProvider = await connectProductionClient(here, { ...environment, FRAMEKIT_SPEECH_ANALYZER_MODEL_ID: "different-model" });
+    try {
+      const rejected = payload(await changedPlanningProvider.client.callTool({ name: "headless.decision.plan", arguments: decisionInput }));
+      assert.equal(rejected.status, "unavailable");
+      assert.match(rejected.reason, /PROVIDER/);
+    } finally { await changedPlanningProvider.client.close(); await changedPlanningProvider.transport.close(); }
     assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId: freshTimeline.project.id } })).timeline, beforePlan.timeline);
     const indexPath = join(stateDirectory, "semantic-media-index.json");
     const originalIndex = await readFile(indexPath, "utf8");
