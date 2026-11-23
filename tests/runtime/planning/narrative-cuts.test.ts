@@ -177,6 +177,17 @@ test("pinned VAD evidence is verified before ranking and changed artifacts fail 
     assert.equal(result.status, "available");
     assert.equal(result.plan.candidates.length, 1);
     const candidate = result.plan.candidates[0]!;
+    const nextRevision = { ...revision, id: "r2", sequence: 2 };
+    const nextContext = { ...evidenceContext, revision: nextRevision };
+    const reboundRef = await pinAnalysisEvidence(index, artifacts, nextContext, verifyLocalMediaSource);
+    const movedRequest = { ...localRequest, revision: nextRevision, sequenceRange: { start: 25, end: 35,
+      startTime: { value: "25", timescale: "1" }, durationTime: { value: "10", timescale: "1" } } };
+    const moved = await rankNarrativeCutsWithEvidence(movedRequest, reboundRef, nextContext, artifacts, verifyLocalMediaSource);
+    assert.equal(moved.status, "available");
+    if (moved.status !== "available") return;
+    assert.equal(moved.plan.candidates.length, 1);
+    assert.equal(moved.plan.candidates[0]!.sequenceRange.start, candidate.sequenceRange.start + 5);
+    assert.notEqual(moved.plan.candidates[0]!.inputDigest, candidate.inputDigest);
     const adjusted = { start: 21.5, end: 22.5, startTime: { value: "215", timescale: "10" }, durationTime: { value: "10", timescale: "10" } };
     const adjustment = await adjustNarrativeCutWithEvidence(localRequest, ref, evidenceContext, artifacts, verifyLocalMediaSource, candidate, adjusted);
     assert.equal(adjustment.status, "available");

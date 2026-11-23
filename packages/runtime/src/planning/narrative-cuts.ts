@@ -229,7 +229,7 @@ async function loadVerifiedRequest(
 ): Promise<EvidenceLoad> {
   try {
     if (current.kind !== "vad" || !sameMediaSourceIdentity(request.source, current.source)
-      || !sameRevision(request.revision, current.revision) || !sameRevision(ref.analysisRevision, current.revision)
+      || !sameRevision(request.revision, current.revision)
       || !validRange(request.sourceRange) || current.range.start > request.sourceRange.start || current.range.end < request.sourceRange.end) {
       return { status: "unavailable", reason: "Current target, revision, or VAD coverage is incompatible with the pinned analysis." };
     }
@@ -243,7 +243,11 @@ async function loadVerifiedRequest(
     const record = JSON.parse(Buffer.from(bytes).toString("utf8")) as MediaUnderstanding;
     if (!record.speech) return { status: "unavailable", reason: "Pinned speech analysis is unavailable." };
     await verifySource(current.source);
-    return { status: "available", request: { ...request, analysis: record.speech as RevisionBoundSpeechAnalysis } };
+    // Validate source evidence at its original revision before constructing a new occurrence mapping.
+    const original = bindSpeechAnalysis(record.speech, {
+      input: { project: { revision: ref.analysisRevision } as ProjectSnapshot, media: current.source }, provider: current.provider,
+    });
+    return { status: "available", request: { ...request, analysis: { ...original, revision: structuredClone(current.revision) } } };
   } catch (error) {
     return { status: "unavailable", reason: error instanceof Error ? error.message : "Evidence could not be verified." };
   }
