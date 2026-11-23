@@ -272,6 +272,9 @@ importers:
 
   apps/docs:
     dependencies:
+      '@fontsource/noto-sans-jp':
+        specifier: 5.3.1
+        version: 5.3.1
       '@mdx-js/loader':
         specifier: 3.1.1
         version: 3.1.1(supports-color@7.2.0)
@@ -761,6 +764,9 @@ packages:
     engines: {node: '>=18'}
     cpu: [x64]
     os: [win32]
+
+  '@fontsource/noto-sans-jp@5.3.1':
+    resolution: {integrity: sha512-9NNBB/M9PextLYVXGSfIaLZsPnrt5UDw8g2B6T0M775H2yb/oekApSjuS1XKOP7FPcMMEnTavR5rJGDM66qKtA==}
 
   '@hono/node-server@2.1.11':
     resolution: {integrity: sha512-KzKz9vl4vvr1vgLHamj+g5uonbrj5NwAdO3yzOS6cd2HjALVeOgTgeZOyAzNxejbkfOOPIcvuf/Tg8l1pEFLog==}
@@ -4581,6 +4587,8 @@ snapshots:
 
   '@esbuild/win32-x64@0.28.2':
     optional: true
+
+  '@fontsource/noto-sans-jp@5.3.1': {}
 
   '@hono/node-server@2.1.11(hono@4.13.19)':
     dependencies:
