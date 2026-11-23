@@ -123,6 +123,10 @@ appropriate. The server loads the current project and accepted brief; it
 rejects stale targets, mismatched configured analyzer descriptors, missing or
 changed pinned evidence, relevant changes to
 the current analysis index, and brief or project changes observed during planning. Review the returned decisions and warnings.
+To correct a recognized word in the caption proposal, supply
+`caption.wordCorrections` entries with the transcript `wordIndex` and replacement
+`text`. The plan keeps the original text, timing and analysis reference visible;
+the correction itself still requires review and changes the plan digest.
 Music capability and speech-presence inputs are caller-supplied context, not
 independent capability discovery or verified speech detection.
 
