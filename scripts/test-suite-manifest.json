@@ -1045,6 +1045,23 @@
       "network": "none"
     },
     {
+      "path": "tests/adapters/final-cut/simulated-native-receiver.test.ts",
+      "owner": "adapters/final-cut/typescript",
+      "reviewed": true,
+      "tags": [
+        "unit"
+      ],
+      "evidence": "fixture",
+      "dependsOn": [
+        "adapters/final-cut/typescript"
+      ],
+      "requires": [],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
       "path": "tests/adapters/final-cut/timeline-ir-fcpxml.test.ts",
       "owner": "adapters/final-cut/typescript",
       "tags": [
