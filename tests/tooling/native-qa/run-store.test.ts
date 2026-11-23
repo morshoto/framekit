@@ -718,3 +718,14 @@ test("headless resume requires an intact job index", async () => {
     await assert.rejects(resumeHeadlessQaRun(root, unapproved.qaRunId), /QA_INDEX_RECONCILIATION_REQUIRED/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("simultaneous worker-start records have one winner", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-worker-claim-"));
+  try {
+    const path = join(root, "started");
+    const results = await Promise.allSettled(Array.from({ length: 8 }, (_, i) => publishQaRecord(path, `worker-${i}\n`)));
+    assert.equal(results.filter(result => result.status === "fulfilled").length, 1);
+    assert.ok(results.filter(result => result.status === "rejected").every(result => (result.reason as NodeJS.ErrnoException).code === "EEXIST"));
+    assert.match(await readFile(path, "utf8"), /^worker-[0-7]\n$/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
