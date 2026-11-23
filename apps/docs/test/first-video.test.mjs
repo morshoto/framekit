@@ -17,15 +17,16 @@ test('does not assert an unspecified repository license', async () => {
   assert.doesNotMatch(await read('../content/docs/en/your-first-video.mdx'), /under its license/i);
 });
 
-test('records the real-media installed-plugin run and isolation conditions', async () => {
+test('records the approved current-environment prompt run without claiming plugin installation', async () => {
   const guide = await read('../content/docs/en/your-first-video.mdx');
-  assert.match(guide, /installed[^\n]*v0\.2\.6[^\n]*actual approval/i);
-  assert.match(guide, /state directory[^\n]*socket[^\n]*isolat/i);
+  assert.match(guide, /framekit-local[^\n]*current Codex[^\n]*7168ccca/i);
+  assert.match(guide, /user approved[^\n]*preview/i);
+  assert.doesNotMatch(guide, /prompt was exercised with the installed/i);
 });
 
 test('distinguishes the scripted workflow from the plugin prompt run', async () => {
   const guide = await read('../content/docs/en/your-first-video.mdx');
-  assert.match(guide, /scripted[^\n]*separate[^\n]*plugin/i);
+  assert.match(guide, /scripted[^\n]*separate[^\n]*framekit-local/i);
 });
 
 test('shows how to inspect before and after timeline evidence', async () => {
