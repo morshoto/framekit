@@ -27,7 +27,7 @@ import {
   isFinalCutVideoProbeAvailable,
 } from "@framekit/final-cut";
 import { FixtureAudioAnalyzer, FixtureMetadataAnalyzer, FixtureSpeechAnalyzer, FixtureVisualAnalyzer } from "@framekit/testkit";
-import { AgentVideoRuntime, JsonSemanticMediaIndexStore } from "@framekit/runtime";
+import { AgentVideoRuntime, JsonSemanticMediaIndexStore, SpeechTranscriptArtifactStore } from "@framekit/runtime";
 import { HeadlessProjectService } from "@framekit/headless-application";
 import { createMcpServer } from "./server.js";
 import { createCanonicalSessionChangeSource } from "./headless-sessions.js";
@@ -318,6 +318,7 @@ const server = createMcpServer(runtime, {
   sessionDirectory: join(framekitStateDirectory, "sessions"),
   sessionChangeSource: createCanonicalSessionChangeSource(() => runtime.inspectProject()),
   materializationDirectory: join(framekitStateDirectory, "materializations"),
+  transcriptArtifacts: new SpeechTranscriptArtifactStore(join(framekitStateDirectory, "analysis-artifacts")),
   headlessProjects,
 });
 const transport = new StdioServerTransport();

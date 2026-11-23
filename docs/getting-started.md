@@ -313,12 +313,15 @@ analysis. Providers may report `sourceTimebase` as a positive rational clock and
 nonempty `channelLayout`. Declared range timing and format are validated and
 retained; absent technical metadata is not inferred.
 
-`headless.speech.transcript` returns a source-digest-bound transcript snapshot
+`headless.speech.transcript` stores and returns a source-digest-bound transcript
 for registered headless media when a versioned speech analyzer is configured.
 Its word boundaries are rational representations of the provider's decimal
 times; they are not automatically aligned to video frames. The response includes
-the analyzer and Framekit versions and a digest of the transcript evidence. It
-does not persist an independent artifact or authorize a timeline edit.
+the analyzer and Framekit versions and a digest of the transcript evidence.
+`headless.speech.transcript.get` retrieves it by project ID, media ID and digest,
+after verifying the stored record and current registered source. The artifact
+does not authorize a timeline edit; source checks do not prevent concurrent
+changes between observations.
 
 For source-file loudness in a checkout, the optional
 `apps/mcp-server/runtime/ffmpeg-audio-backend.py` command requires Python 3,

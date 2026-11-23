@@ -30,6 +30,50 @@ export function createSpeechTranscriptArtifact(value: unknown, context: {
   return { ...content, digest: createHash("sha256").update(stableJson(content)).digest("hex") };
 }
 
+export type SpeechTranscriptArtifact = ReturnType<typeof createSpeechTranscriptArtifact>;
+
+/** Check content addressing before accepting an independently persisted record. */
+export function verifySpeechTranscriptArtifact(value: unknown, expectedDigest: string): SpeechTranscriptArtifact {
+  if (!/^[a-f0-9]{64}$/.test(expectedDigest) || !value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("ANALYSIS_ARTIFACT_CORRUPT: invalid transcript record");
+  }
+  const item = value as Record<string, unknown>;
+  const { digest, ...content } = item;
+  const source = item.sourceIdentity as Record<string, unknown> | undefined;
+  const analyzer = item.analyzer as Record<string, unknown> | undefined;
+  const producer = item.producer as Record<string, unknown> | undefined;
+  const validTime = (value: unknown) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    const time = value as Record<string, unknown>;
+    return typeof time.value === "string" && /^\d+$/.test(time.value)
+      && typeof time.timescale === "string" && /^[1-9]\d*$/.test(time.timescale);
+  };
+  const validRange = (value: unknown) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    const range = value as Record<string, unknown>;
+    return typeof range.start === "number" && Number.isFinite(range.start) && range.start >= 0
+      && typeof range.end === "number" && Number.isFinite(range.end) && range.end > range.start;
+  };
+  if (Object.keys(item).sort().join(",") !== "analyzer,digest,dimension,observedRange,producer,requestedRange,schemaVersion,sourceIdentity,sourceTimebase,transcript"
+    || item.schemaVersion !== 1 || item.dimension !== "speech" || digest !== expectedDigest
+    || !source || typeof source.mediaId !== "string" || !source.mediaId || typeof source.source !== "string" || !source.source
+    || typeof source.sourceDigest !== "string" || !/^[a-f0-9]{64}$/.test(source.sourceDigest)
+    || !analyzer || typeof analyzer.id !== "string" || !analyzer.id || typeof analyzer.provider !== "string" || !analyzer.provider
+    || typeof analyzer.version !== "string" || !analyzer.version.trim()
+    || !producer || producer.id !== "framekit" || typeof producer.version !== "string" || !producer.version.trim()
+    || !validRange(item.requestedRange) || !validRange(item.observedRange) || !validTime(item.sourceTimebase)
+    || !Array.isArray(item.transcript) || !item.transcript.every((entry: unknown) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
+      const word = entry as Record<string, unknown>;
+      return typeof word.text === "string" && Boolean(word.text.trim()) && validTime(word.startTime) && validTime(word.endTime)
+        && typeof word.confidence === "number" && Number.isFinite(word.confidence) && word.confidence >= 0 && word.confidence <= 1
+        && (word.filler === undefined || typeof word.filler === "boolean");
+    }) || createHash("sha256").update(stableJson(content)).digest("hex") !== expectedDigest) {
+    throw new Error("ANALYSIS_ARTIFACT_CORRUPT: transcript record does not match its digest");
+  }
+  return structuredClone(item) as SpeechTranscriptArtifact;
+}
+
 /** Preserve the decimal value supplied by a provider; do not infer frame alignment. */
 function decimalRational(value: number): RationalTime {
   const [mantissa, exponentText] = value.toString().split("e");

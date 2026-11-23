@@ -3237,6 +3237,7 @@
     "tests/speech/revision-bound-analysis.test.ts": [
       "\"speech binding preserves configured model and configuration provenance\"",
       "\"speech transcript artifacts bind exact word timing and provenance\"",
+      "\"transcript artifacts survive restart and reject corrupt or linked records\"",
       "`speech binding rejects mismatched configured provider ${Object.keys(change)[0]}`",
       "\"speech binding retains an unavailable VAD reason without inventing activity\"",
       "\"speech binding rejects conflicting VAD availability evidence\"",

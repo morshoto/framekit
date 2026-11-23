@@ -1361,6 +1361,26 @@ test("headless project media can be understood and planned without a Final Cut c
     } });
     assert.equal(unregistered.isError, true);
     assert.match(toolErrorText(unregistered), /MEDIA_NOT_REGISTERED/);
+    const differentTimeline = structuredClone(unregisteredTimeline);
+    differentTimeline.project.id = "different-transcript-project";
+    differentTimeline.sequence.id = "different-transcript-sequence";
+    differentTimeline.resources[0].id = "different-media-id";
+    differentTimeline.resources[0].sourceKind = "local-file";
+    payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: differentTimeline } }));
+    const mismatch = await client.callTool({ name: "headless.speech.transcript.get", arguments: {
+      projectId: differentTimeline.project.id, mediaId: "different-media-id", digest: transcript.digest,
+    } });
+    assert.equal(mismatch.isError, true);
+    assert.match(toolErrorText(mismatch), /ANALYSIS_ARTIFACT_STALE/);
+    const recordPath = join(stateDirectory, "analysis-artifacts", `${transcript.digest}.json`);
+    const record = await readFile(recordPath, "utf8");
+    await writeFile(recordPath, "{}");
+    const corrupt = await client.callTool({ name: "headless.speech.transcript.get", arguments: {
+      projectId, mediaId: registered.resource.id, digest: transcript.digest,
+    } });
+    assert.equal(corrupt.isError, true);
+    assert.match(toolErrorText(corrupt), /ANALYSIS_ARTIFACT_CORRUPT/);
+    await writeFile(recordPath, record);
     await writeFile(sourcePath, "replacement source");
     const staleTranscript = await client.callTool({ name: "headless.speech.transcript", arguments: {
       projectId, mediaId: registered.resource.id,

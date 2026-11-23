@@ -73,8 +73,10 @@ test("transcript artifacts survive restart and reject corrupt or linked records"
     await Promise.all([store.save(artifact), store.save(artifact)]);
     assert.deepEqual(await new SpeechTranscriptArtifactStore(directory).load(artifact.digest), artifact);
     await assert.rejects(store.load("../invalid"), /ANALYSIS_ARTIFACT_INVALID/);
+    await assert.rejects(store.load("0".repeat(64)), /ANALYSIS_ARTIFACT_NOT_FOUND/);
     await writeFile(join(directory, `${artifact.digest}.json`), "{}");
     await assert.rejects(store.load(artifact.digest), /ANALYSIS_ARTIFACT_CORRUPT/);
+    await assert.rejects(store.save(artifact), /ANALYSIS_ARTIFACT_CORRUPT/);
     await rm(join(directory, `${artifact.digest}.json`));
     await symlink(join(directory, "missing"), join(directory, `${artifact.digest}.json`));
     await assert.rejects(store.load(artifact.digest), /ANALYSIS_ARTIFACT_CORRUPT/);
