@@ -4,6 +4,8 @@ import { readdir, readFile, rename, writeFile, mkdir, link, unlink, realpath, st
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   FramekitProjectStore,
+  ProjectPersistenceError,
+  ProjectTransactionError,
   LocalMediaRegistrar,
   ProjectTransactionService,
   createFramekitRenderRequest,
@@ -520,7 +522,13 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     const recovery = { projectId, sequenceId, undoId, expectedRevision: record.afterRevision, nextAction: "inspect-before-undo" as const };
     let result: ProjectEditResult;
     try { result = await transaction.execute(editCommand); }
-    catch (error) { if (saveAttempted) throw new HeadlessEditUncertainError(recovery, error); throw error; }
+    catch (error) {
+      // This specific store error is emitted before its atomic write starts.
+      if (error instanceof ProjectTransactionError && error.code === "PROJECT_EDIT_STALE_REVISION"
+        && error.cause instanceof ProjectPersistenceError && error.cause.code === "PROJECT_STALE_REVISION") throw error;
+      if (saveAttempted) throw new HeadlessEditUncertainError(recovery, error);
+      throw error;
+    }
     if (!sameRevision(result.after.timeline.revision, record.afterRevision) || timelineIrDigest(result.after.timeline) !== afterDigest) {
       throw new HeadlessEditUncertainError(recovery);
     }

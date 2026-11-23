@@ -1297,6 +1297,19 @@ test("a lost save acknowledgement preserves recovery information for a committed
       assert.equal(persisted.timeline.revision.id, reported.recovery.expectedRevision.id);
       assert.equal((await service.undoEdit(projectId, sequenceId, reported.recovery.undoId, reported.recovery.expectedRevision)).verification.verified, true);
     } finally { await client.close(); await server.close(); }
+    const beforeRace = await service.open(projectId);
+    t.mock.method(FramekitProjectStore.prototype, "save", async function(this: FramekitProjectStore, project: FramekitProjectDocument, revision?: TimelineIr["revision"]) {
+      const concurrent = await this.load();
+      concurrent.timeline.revision = { ...concurrent.timeline.revision, id: "concurrent-revision", sequence: concurrent.timeline.revision.sequence + 1 };
+      await realSave.call(this, concurrent, revision);
+      return realSave.call(this, project, revision);
+    });
+    await assert.rejects(service.executeEdit(projectId, { schemaVersion: 1, expectedRevision: beforeRace.timeline.revision,
+      operations: [{ type: "add-marker", marker: { id: "stale", name: "Stale", startTime: { value: "0", timescale: "1" }, durationTime: { value: "0", timescale: "1" } } }] }, sequenceId), /PROJECT_EDIT_STALE_REVISION/);
+    t.mock.restoreAll();
+    const afterRace = await service.open(projectId);
+    assert.equal(afterRace.timeline.revision.id, "concurrent-revision");
+    assert.equal(afterRace.timeline.sequence.markers.some((marker) => marker.id === "stale"), false);
   } finally { t.mock.restoreAll(); await rm(directory, { recursive: true, force: true }); }
 });
 
