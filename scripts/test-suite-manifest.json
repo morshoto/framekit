@@ -2513,14 +2513,16 @@
       "path": "tests/runtime/planning/analysis-evidence.test.ts",
       "owner": "packages/runtime",
       "tags": [
-        "unit"
+        "unit",
+        "fast-integration"
       ],
       "requires": [],
       "reviewed": true,
-      "evidence": "unit",
+      "evidence": "process",
       "dependsOn": [
         "packages/runtime",
-        "adapters/final-cut/typescript"
+        "adapters/final-cut/typescript",
+        "packages/testkit"
       ],
       "platforms": [
         "any"
