@@ -186,3 +186,14 @@ export async function writeSimulatedEvidence(receiver: ScriptedNativeReceiver, s
   await mkdir(directory, { recursive: true });
   await writeFile(join(directory, `${scenario}.json`), JSON.stringify({ ...evidence, outcomes }, null, 2) + "\n");
 }
+
+/** Record observed pre-dispatch stages without inventing a receiver event. */
+export async function writeSimulatedStageEvidence(scenario: string, identity: SimulatedIdentity, stages: readonly ("preview-issued" | "revision-changed" | "execute-rejected" | "no-dispatch")[]): Promise<void> {
+  const directory = process.env.FRAMEKIT_SIMULATION_EVIDENCE_DIR;
+  if (!directory) return;
+  const evidence = new ScriptedNativeReceiver([]).evidence({ scenario, seed: 0, candidate: process.env.FRAMEKIT_SIMULATION_CANDIDATE_SHA ?? "" });
+  const digest = (value: string) => createHash("sha256").update(value).digest("hex");
+  const identifiers = Object.fromEntries(Object.entries(identity).map(([key, value]) => [key, digest(value)]));
+  await mkdir(directory, { recursive: true });
+  await writeFile(join(directory, `${scenario}.json`), JSON.stringify({ ...evidence, identifiers, stages: stages.map((stage, index) => ({ tick: index + 1, stage })) }, null, 2) + "\n");
+}

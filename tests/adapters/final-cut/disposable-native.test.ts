@@ -179,7 +179,7 @@ test("simulated-native: disposable native execute rejects a stale preview before
 
   await assert.rejects(workflow.execute(preview.previewToken), /STALE_CONTEXT/);
   assert.equal(state.nativeEditCalls, 0);
-  await writeSimulatedStageEvidence("stale-preview", { operationId: preview.previewToken, targetId: preview.target.clipId, sourceDigest: "fixture-media-1", desiredDigest: "fixture-rename", revisionId: preview.baseRevision.id }, ["preview-issued", "revision-changed", "execute-rejected", "no-dispatch"]);
+  await writeSimulatedStageEvidence("stale-preview", { operationId: preview.previewToken, targetId: preview.target.clipId, sourceDigest: state.snapshot.media[0]!.source!, desiredDigest: "Interview Clean", revisionId: preview.baseRevision.id }, ["preview-issued", "revision-changed", "execute-rejected", "no-dispatch"]);
 });
 
 test("simulated-native: disposable native execute rejects changed native targets before mutation", async () => {
