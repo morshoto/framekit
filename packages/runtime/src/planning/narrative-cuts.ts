@@ -9,6 +9,8 @@ import { addRationalTimes, parseRational, subtractRationalTimes } from "../timel
 export interface NarrativeCutRequest {
   source: MediaSourceIdentity;
   revision: ContextRevision;
+  projectId: string;
+  timelineId: string;
   occurrenceId: string;
   sourceRange: TimeRange;
   sequenceRange: TimeRange;
@@ -29,6 +31,8 @@ export interface NarrativeCutCandidate {
 }
 
 export interface NarrativeCutPlan {
+  projectId: string;
+  timelineId: string;
   revision: ContextRevision;
   source: MediaSourceIdentity;
   candidates: NarrativeCutCandidate[];
@@ -50,7 +54,7 @@ function sameRevision(left: ContextRevision, right: ContextRevision): boolean {
   return !!left && !!right && left.id === right.id && left.sequence === right.sequence && left.timestamp === right.timestamp;
 }
 function validateRequest(request: NarrativeCutRequest): number {
-  if (!request.source?.sourceDigest || !request.source.mediaId || !request.occurrenceId?.trim()) throw new Error("TARGET_MISMATCH: source digest and occurrence are required");
+  if (!request.source?.sourceDigest || !request.source.mediaId || !request.projectId?.trim() || !request.timelineId?.trim() || !request.occurrenceId?.trim()) throw new Error("TARGET_MISMATCH: source digest and occurrence are required");
   if (!request.analysis?.sourceIdentity || !sameMediaSourceIdentity(request.source, request.analysis.sourceIdentity)
     || request.analysis.mediaId !== request.source.mediaId) throw new Error("TARGET_MISMATCH: analysis source differs from the current source");
   if (!sameRevision(request.revision, request.analysis.revision)) throw new Error("STALE_CONTEXT: analysis revision differs from the current revision");
@@ -67,7 +71,7 @@ function validateRequest(request: NarrativeCutRequest): number {
 export function rankNarrativeCuts(request: NarrativeCutRequest): NarrativeCutPlan {
   const frameSeconds = validateRequest(request);
   const result: NarrativeCutPlan = {
-    revision: structuredClone(request.revision), source: structuredClone(request.source), candidates: [],
+    projectId: request.projectId, timelineId: request.timelineId, revision: structuredClone(request.revision), source: structuredClone(request.source), candidates: [],
     warnings: ["Candidates require review and separate evidence-bound approval before any edit."],
   };
   if (!validRange(request.analysis.requestedRange) || !validRange(request.analysis.observedRange)
