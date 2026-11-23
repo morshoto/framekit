@@ -165,7 +165,7 @@ export function rankNarrativeCuts(request: NarrativeCutRequest): NarrativeCutPla
       if (!result.warnings.includes("VAD only partially covers adjacent words; review the boundaries carefully.")) result.warnings.push("VAD only partially covers adjacent words; review the boundaries carefully.");
     }
     if (speechOnlyGap && !result.warnings.includes("Non-speech gaps remain uncertain and require listening.")) result.warnings.push("Non-speech gaps remain uncertain and require listening.");
-    if (silence?.segment.confidence === undefined && !result.warnings.includes("VAD silence confidence is unavailable.")) result.warnings.push("VAD silence confidence is unavailable.");
+    if (silence && silence.segment.confidence === undefined && !result.warnings.includes("VAD silence confidence is unavailable.")) result.warnings.push("VAD silence confidence is unavailable.");
     if (gaps.every(validRange) && gaps.some((gap) => gap.start <= sourceRange.start && gap.end >= sourceRange.end)) evidence.push("Unverified visual gap hint overlaps the proposed interval");
     result.candidates.push({
       inputDigest, occurrenceId: request.occurrenceId, sourceRange,
