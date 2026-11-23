@@ -85,3 +85,16 @@ test("requires exact project and timeline identities", () => {
   assert.throws(() => rankNarrativeCuts({ ...input, projectId: "" }), /TARGET/);
   assert.throws(() => rankNarrativeCuts({ ...input, timelineId: "" }), /TARGET/);
 });
+
+test("ranks visual context only among speech-safe suggestions and reports uncertain VAD", () => {
+  const three = { ...input, visualGaps: [{ start: 4, end: 7 }], analysis: { ...input.analysis,
+    words: [...input.analysis.words.slice(0, 1), { text: "Second.", start: 3, end: 4, confidence: 0.99 }, { text: "Third", start: 7, end: 8, confidence: 0.99 }],
+    vadSegments: [...input.analysis.vadSegments, { kind: "silence" as const, start: 4, end: 7 }, { kind: "speech" as const, start: 7, end: 8 }],
+  } };
+  const result = rankNarrativeCuts(three);
+  assert.equal(result.candidates.length, 2);
+  assert.ok(result.candidates[0]!.sourceRange.start > result.candidates[1]!.sourceRange.start);
+  assert.ok(result.candidates[0]!.evidence.some((entry) => /visual/i.test(entry)));
+  assert.ok(result.warnings.some((warning) => /confidence/i.test(warning)));
+  assert.ok(result.candidates.every((candidate) => candidate.reviewRequired));
+});
