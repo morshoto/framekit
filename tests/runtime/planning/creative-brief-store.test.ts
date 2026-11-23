@@ -35,7 +35,9 @@ test("explicit acceptance is stored and revisions invalidate old approval across
     assert.equal(revised.brief.version, 2);
     await assert.rejects(() => assertCurrentAcceptedBrief(reopened, "project-1", oldApproval), /BRIEF_NOT_ACCEPTED|STALE_BRIEF/);
     await assert.rejects(() => reopened.accept("project-1", draft.digest), /STALE_BRIEF/);
-    const newApproval = (await reopened.accept("project-1", revised.digest)).accepted!;
+    const newlyAccepted = await reopened.accept("project-1", revised.digest);
+    assert.equal(newlyAccepted.state, "accepted");
+    const newApproval = newlyAccepted.accepted;
     await assertCurrentAcceptedBrief(reopened, "project-1", newApproval);
     await assert.rejects(() => assertCurrentAcceptedBrief(reopened, "project-1", oldApproval), /STALE_BRIEF/);
   } finally { await rm(f.dir, { recursive: true, force: true }); }
