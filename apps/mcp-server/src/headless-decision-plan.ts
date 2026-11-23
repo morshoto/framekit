@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import { assertCurrentAcceptedBrief, createEditDecisionPlan } from "@framekit/runtime";
-import type { AnalysisArtifactStore, AnalysisEvidenceContext, AnalysisRef, AnalysisSourceVerifier, CreativeBriefStore, EditDecisionPlanRequest, EditDecisionPlanResult, ProjectSnapshot, SemanticMediaIndexStore, MediaUnderstanding } from "@framekit/runtime";
+import { assertCurrentAcceptedBrief, createEditDecisionPlan, sameAnalyzerDescriptor } from "@framekit/runtime";
+import type { AnalysisArtifactStore, AnalysisEvidenceContext, AnalysisRef, AnalysisSourceVerifier, CreativeBriefStore, EditDecisionPlanRequest, EditDecisionPlanResult, ProjectSnapshot, SemanticMediaIndexStore, MediaUnderstanding, AnalyzerDescriptor } from "@framekit/runtime";
 
 export type HeadlessDecisionRequest = Omit<EditDecisionPlanRequest, "snapshot" | "brief" | "accepted" | "speechContext" | "vadContext" | "audioContext">;
 
@@ -12,6 +12,7 @@ export class HeadlessDecisionPlanService {
     storeForProject(projectId: string): CreativeBriefStore;
     artifacts: AnalysisArtifactStore;
     index: SemanticMediaIndexStore;
+    currentProvider(kind: "speech" | "vad" | "audio"): AnalyzerDescriptor | undefined;
     verifySource: AnalysisSourceVerifier;
   }) {}
 
@@ -42,6 +43,10 @@ export class HeadlessDecisionPlanService {
   private async assertCurrentEvidence(input: HeadlessDecisionRequest): Promise<void> {
     for (const ref of [input.speechRef, input.vadRef, input.audioRef]) {
       if (!ref) continue;
+      const configured = this.options.currentProvider(ref.kind);
+      if (!configured || !sameAnalyzerDescriptor(configured, ref.provider)) {
+        throw new Error("ANALYSIS_STALE_PROVIDER: configured analyzer differs from the pinned reference");
+      }
       const current = await this.options.index.load(ref.source);
       const bytes = await this.options.artifacts.get(ref.artifactDigest);
       if (!current || !bytes) throw new Error("ANALYSIS_STALE: current analysis or pinned artifact is unavailable");

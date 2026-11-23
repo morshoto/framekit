@@ -275,6 +275,7 @@ test("headless decision service loads current project and brief and rejects proj
       storeForProject: () => f.briefStore,
       artifacts: f.artifacts,
       index: f.index,
+      currentProvider: () => f.request.speechContext.provider,
       verifySource: verifyLocalMediaSource,
     });
     const { snapshot: _snapshot, brief: _brief, accepted: _accepted, speechContext, vadContext, ...input } = f.request;
@@ -298,7 +299,7 @@ test("headless decision service loads current project and brief and rejects proj
       assert.ok(result.plan.decisions.every((decision: { support: string }) => decision.support === "unavailable" || decision.support === "no-op"));
     } finally { await client.close(); await server.close(); }
     const evidenceBound = new HeadlessDecisionPlanService({ readProject: async () => structuredClone(snapshot),
-      storeForProject: () => f.briefStore, artifacts: f.artifacts, verifySource: verifyLocalMediaSource, index: f.index });
+      storeForProject: () => f.briefStore, artifacts: f.artifacts, verifySource: verifyLocalMediaSource, index: f.index, currentProvider: () => f.request.speechContext.provider });
     await f.index.save({ ...f.record, audio: { integratedLufs: -20, truePeakDb: -2, silenceMs: 10 } });
     assert.equal((await evidenceBound.plan(input)).status, "available");
     await f.index.save({ ...f.record, speech: { ...f.record.speech, words: [{ text: "changed", start: 1, end: 2, confidence: 0.98 }] } });
@@ -308,14 +309,14 @@ test("headless decision service loads current project and brief and rejects proj
     const changingEvidence = new HeadlessDecisionPlanService({ readProject: async () => {
       if (++evidenceReads === 2) await f.index.save({ ...f.record, speech: { ...f.record.speech, words: [] } });
       return structuredClone(snapshot);
-    }, storeForProject: () => f.briefStore, artifacts: f.artifacts, verifySource: verifyLocalMediaSource, index: f.index });
+    }, storeForProject: () => f.briefStore, artifacts: f.artifacts, verifySource: verifyLocalMediaSource, index: f.index, currentProvider: () => f.request.speechContext.provider });
     assert.equal((await changingEvidence.plan(input)).status, "unavailable");
     await f.index.save(f.record);
     const racing = new HeadlessDecisionPlanService({ readProject: async () => {
       const observed = structuredClone(snapshot);
       snapshot = { ...snapshot, revision: { ...snapshot.revision, sequence: 2 } };
       return observed;
-    }, storeForProject: () => f.briefStore, artifacts: f.artifacts, index: f.index, verifySource: verifyLocalMediaSource });
+    }, storeForProject: () => f.briefStore, artifacts: f.artifacts, index: f.index, verifySource: verifyLocalMediaSource, currentProvider: () => f.request.speechContext.provider });
     const stale = await racing.plan(input);
     assert.equal(stale.status, "unavailable");
     assert.match(stale.reason, /STALE/);
@@ -324,7 +325,7 @@ test("headless decision service loads current project and brief and rejects proj
     const briefRace = new HeadlessDecisionPlanService({ readProject: async () => {
       if (++reads === 2) await f.briefStore.revise("p", f.draft.digest, { ...f.request.brief, theme: "changed" });
       return structuredClone(snapshot);
-    }, storeForProject: () => f.briefStore, artifacts: f.artifacts, index: f.index, verifySource: verifyLocalMediaSource });
+    }, storeForProject: () => f.briefStore, artifacts: f.artifacts, index: f.index, verifySource: verifyLocalMediaSource, currentProvider: () => f.request.speechContext.provider });
     assert.equal((await briefRace.plan(input)).status, "unavailable");
     snapshot = structuredClone(f.request.snapshot);
     assert.equal((await service.plan(input)).status, "unavailable");
