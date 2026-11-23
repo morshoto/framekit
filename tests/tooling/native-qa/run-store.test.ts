@@ -907,3 +907,27 @@ test("artifact verification rejects a named pipe without waiting for a writer", 
     assert.equal(await readQaArtifactEvidence(root, unapproved.qaRunId), null);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("detached headless input keeps artifact paths out of output and records", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-worker-artifact-"));
+  const manifestPath = join(root, "manifest.json");
+  const artifactPath = join(root, "fixture.fcpxml");
+  const cli = ["--import", "tsx", "scripts/native-qa/cli.ts"];
+  try {
+    await writeFile(artifactPath, "<fcpxml/>\n");
+    await writeFile(manifestPath, JSON.stringify({ ...manifest, authorizationDigest: null }));
+    const started = spawnSync(process.execPath, [...cli, "start", root, manifestPath, artifactPath], { encoding: "utf8", timeout: 10000 });
+    assert.equal(started.status, 0, started.stderr);
+    assert.equal(started.stdout.includes(artifactPath), false);
+    let evidence;
+    for (let i = 0; i < 100; i++) {
+      evidence = await readQaEvidence(root, manifest.qaRunId);
+      if (evidence.result !== "pending-or-interrupted") break;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.equal(evidence?.result, "candidate-mismatch");
+    assert.equal(await readQaArtifactEvidence(root, manifest.qaRunId), null);
+    const files = await readdir(join(root, manifest.qaRunId));
+    for (const name of files) assert.equal((await readFile(join(root, manifest.qaRunId, name), "utf8")).includes(artifactPath), false);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
