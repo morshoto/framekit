@@ -70,3 +70,9 @@ test("unreviewed drafts cannot be accepted and corrupt persisted approval fails 
     await assert.rejects(() => f.store.read("project-1"), /CORRUPT/);
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
+
+test("brief store is available through the runtime entrypoint", async () => {
+  const runtime = await import("../../../packages/runtime/src/index.js");
+  assert.equal(typeof (runtime as Record<string, unknown>).JsonCreativeBriefStore, "function");
+  assert.equal(typeof (runtime as Record<string, unknown>).assertCurrentAcceptedBrief, "function");
+});
