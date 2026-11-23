@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { claimDispatchIntent, createOrInspectRun, inspectRun, markDispatchUncertain } from "../../../scripts/native-qa/run-store.js";
+import { runPublishStages } from "../../../scripts/final-cut-publisher-verification.mjs";
 
 const manifest = {
   qaRunId: "qa-fixture-1", candidateCommit: "a".repeat(40), candidateTree: "b".repeat(40),
@@ -202,5 +203,28 @@ test("invalid job identity and stale authorization cannot claim dispatch", async
     await assert.rejects(claimDispatchIntent(root, manifest, "../secret"), /QA_PUBLISH_JOB_ID_INVALID/);
     await assert.rejects(claimDispatchIntent(root, { ...manifest, authorizationDigest: "9".repeat(64) }, "job-1"), /QA_RUN_IDENTITY_MISMATCH/);
     assert.equal((await inspectRun(root, manifest.qaRunId)).dispatch, "NOT_DISPATCHED");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+
+test("simulated lost acknowledgement retains the publisher job and prevents redispatch", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-publisher-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    let deliveries = 0;
+    const call = async (name: string) => {
+      if (name === "artifact.publish.preview") return { jobId: "publish-job-123", state: "awaiting-confirmation", artifactDigest: manifest.artifactDigest, targetLibraryPath: "/fixture/new.fcpbundle" };
+      deliveries++;
+      const observed = await inspectRun(root, manifest.qaRunId);
+      assert.equal(observed.dispatch, "UNKNOWN_AFTER_DISPATCH");
+      assert.equal(observed.publishJobId, "publish-job-123");
+      throw new Error("simulated acknowledgement loss");
+    };
+    const input = { artifactPath: "/fixture/source.fcpxml", transactionId: "fixture-1", targetLibraryPath: "/fixture/new.fcpbundle", artifactDigest: manifest.artifactDigest };
+    const beforeDispatch = async (jobId: string) => { await claimDispatchIntent(root, manifest, jobId); };
+    await assert.rejects(runPublishStages(call, input, () => {}, beforeDispatch), /PUBLISH_DISPATCH_UNCERTAIN/);
+    assert.equal((await inspectRun(root, manifest.qaRunId)).publishJobId, "publish-job-123");
+    await assert.rejects(runPublishStages(call, input, () => {}, beforeDispatch), /QA_DISPATCH_ALREADY_CLAIMED/);
+    assert.equal(deliveries, 1);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
