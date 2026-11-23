@@ -1181,7 +1181,8 @@
       "\"mutable live-state availability cannot establish non-dispatch\"",
       "\"built-in publisher without readback rejects safely before dispatch\"",
       "\"mutable readback availability cannot establish non-dispatch\"",
-      "\"live-state configuration changes during acquisition remain uncertain\""
+      "\"live-state configuration changes during acquisition remain uncertain\"",
+      "\"simulated-native: failed Undo keeps the reservation\""
     ],
     "tests/integration/canonical-native-provider.test.ts": [
       "\"canonical native provider exposes one explicit active project and sequence\"",
