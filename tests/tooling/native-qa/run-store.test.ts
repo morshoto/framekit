@@ -647,3 +647,26 @@ test("unknown or corrupt existing runs block new job registration", async () => 
     await assert.rejects(createOrInspectRun(root, different), /QA_INDEX_RECONCILIATION_REQUIRED/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("missing job index blocks authorization binding and dispatch claims", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-index-mutation-"));
+  try {
+    const first = { ...manifest, authorizationDigest: null };
+    await createOrInspectRun(root, first);
+    const index = (await readdir(root)).find(name => name.startsWith(".job-"));
+    assert.ok(index);
+    await rm(join(root, index), { recursive: true });
+    await assert.rejects(bindQaAuthorization(root, first, "9".repeat(64)), /QA_INDEX_RECONCILIATION_REQUIRED/);
+    assert.equal((await inspectRun(root, first.qaRunId)).authorizationBinding, undefined);
+  } finally { await rm(root, { recursive: true, force: true }); }
+
+  const otherRoot = await mkdtemp(join(tmpdir(), "framekit-qa-index-claim-"));
+  try {
+    await createOrInspectRun(otherRoot, manifest);
+    const index = (await readdir(otherRoot)).find(name => name.startsWith(".job-"));
+    assert.ok(index);
+    await rm(join(otherRoot, index), { recursive: true });
+    await assert.rejects(claimDispatchIntent(otherRoot, manifest, "publish-job-1"), /QA_INDEX_RECONCILIATION_REQUIRED/);
+    assert.equal((await inspectRun(otherRoot, manifest.qaRunId)).dispatch, "NOT_DISPATCHED");
+  } finally { await rm(otherRoot, { recursive: true, force: true }); }
+});
