@@ -333,3 +333,14 @@ test("publisher never treats failed verified-stage recording as permission to re
   }), /PUBLISH_EVIDENCE_INCOMPLETE:.*do not redispatch/);
   assert.equal(calls.filter(name => name === "artifact.publish.execute").length, 2);
 });
+
+test("publisher reports lost verification response without allowing redispatch", async () => {
+  const calls: string[] = [];
+  await assert.rejects(runPublishStages(async (name, args) => {
+    calls.push(name);
+    if (name === "artifact.publish.preview") return { jobId: "job-1", state: "awaiting-confirmation", artifactDigest: "a".repeat(64), targetLibraryPath: "/tmp/new.fcpbundle" };
+    if (!args.confirmVerification) return { jobId: "job-1", state: "verification-pending", nextAction: "confirm-verification", delivery: { status: "dispatched" } };
+    throw new Error("transport lost");
+  }, { artifactPath: "/tmp/source.fcpxml", transactionId: "txn-1", targetLibraryPath: "/tmp/new.fcpbundle", artifactDigest: "a".repeat(64) }, () => {}), /PUBLISH_VERIFICATION_INCOMPLETE:.*do not redispatch/);
+  assert.equal(calls.filter(name => name === "artifact.publish.execute").length, 2);
+});
