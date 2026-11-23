@@ -2530,6 +2530,42 @@
       "network": "none"
     },
     {
+      "path": "tests/runtime/planning/creative-brief.test.ts",
+      "owner": "packages/runtime",
+      "tags": [
+        "unit"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "unit",
+      "dependsOn": [
+        "packages/runtime"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/runtime/planning/music-planning.test.ts",
+      "owner": "packages/runtime",
+      "tags": [
+        "unit",
+        "fast-integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "packages/runtime",
+        "packages/testkit"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
       "path": "tests/runtime/planning/narrative-cuts.test.ts",
       "owner": "packages/runtime",
       "tags": [
