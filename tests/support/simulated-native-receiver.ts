@@ -5,10 +5,10 @@ export type SimulatedIdentity = {
   sourceDigest: string;
   revisionId: string;
 };
-type State = "accepted" | "rejected" | "uncertain";
-type Step = { kind: "accept" | "reject" | "lose-response" | "stall" };
-type Event = SimulatedIdentity & { tick: number; kind: "dispatch" | "accepted" | "rejected" | "response-lost" | "stalled" };
-type Entry = { identity: SimulatedIdentity; state: State; resolve?: (result: { state: State }) => void };
+type State = "accepted" | "rejected" | "uncertain" | "not-dispatched";
+type Step = { kind: "accept" | "reject" | "lose-response" | "stall" | "disconnect-before-dispatch" };
+type Event = SimulatedIdentity & { tick: number; kind: "dispatch" | "accepted" | "rejected" | "response-lost" | "stalled" | "disconnected" };
+type Entry = { identity: SimulatedIdentity; state: State; awaitingLateReply?: boolean; resolve?: (result: { state: State }) => void };
 type Storage = { tick: number; events: Event[]; entries: Map<string, Entry>; script: Step[] };
 
 export class ScriptedNativeReceiver {
@@ -21,6 +21,11 @@ export class ScriptedNativeReceiver {
 
   public trace(): Event[] {
     return this.storage.events.map(event => ({ ...event }));
+  }
+
+  public inspect(operationId: string): { state: State } | undefined {
+    const entry = this.storage.entries.get(operationId);
+    return entry ? { state: entry.state } : undefined;
   }
 
   public restart(): ScriptedNativeReceiver {
@@ -39,12 +44,18 @@ export class ScriptedNativeReceiver {
     if (!step) throw new Error("SIMULATED_SCRIPT_EXHAUSTED");
     const entry: Entry = { identity: { ...request }, state: "uncertain" };
     this.storage.entries.set(request.operationId, entry);
+    if (step.kind === "disconnect-before-dispatch") {
+      entry.state = "not-dispatched";
+      this.record("disconnected", entry.identity);
+      return { state: entry.state };
+    }
     this.record("dispatch", entry.identity);
     if (step.kind === "stall") {
       this.record("stalled", entry.identity);
       return new Promise(resolve => { entry.resolve = resolve; });
     }
     if (step.kind === "lose-response") {
+      entry.awaitingLateReply = true;
       this.record("response-lost", entry.identity);
       return { state: "uncertain" };
     }
@@ -55,12 +66,13 @@ export class ScriptedNativeReceiver {
 
   public reply(operationId: string, state: "accepted" | "rejected"): void {
     const entry = this.storage.entries.get(operationId);
-    if (!entry?.resolve) throw new Error("SIMULATED_OPERATION_NOT_STALLED");
+    if (!entry || (!entry.resolve && !entry.awaitingLateReply)) throw new Error("SIMULATED_OPERATION_NOT_PENDING");
     entry.state = state;
     const resolve = entry.resolve;
     delete entry.resolve;
+    delete entry.awaitingLateReply;
     this.record(state, entry.identity);
-    resolve({ state });
+    resolve?.({ state });
   }
 
   private record(kind: Event["kind"], identity: SimulatedIdentity): void {
@@ -79,6 +91,7 @@ export function simulatedMaterializationPublisher(receiver: ScriptedNativeReceiv
         revisionId: request.baseRevision.id,
       });
       if (result.state === "uncertain") throw new Error("SIMULATED_RESPONSE_LOST");
+      if (result.state === "not-dispatched") return { state: "blocked", code: "SIMULATED_DISCONNECTED", message: "Simulated connection lost before dispatch", retryable: true };
       if (result.state === "rejected") return { state: "blocked", code: "SIMULATED_REJECTION", message: "Simulated receiver rejected the request", retryable: false };
       return {
         state: "completed",
