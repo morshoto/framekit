@@ -32,3 +32,5 @@ export * from "./speech/analysis.js";
 export * from "./speech/mapping.js";
 
 export * from "./planning/creative-brief.js";
+
+export * from "./planning/music-planning.js";
