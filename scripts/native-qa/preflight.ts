@@ -17,6 +17,7 @@ export interface QaPreflightObservation {
 type Result = {
   state: "BLOCKED" | "WAITING" | "AWAITING_AUTHORIZATION";
   nextAction: "resolve-headless-failure" | "resolve-identity-mismatch" | "resolve-recovery" | "inspect-readiness" | "unlock-console" | "make-final-cut-frontmost" | "authorize-exact-operation";
+  mismatchedIdentities?: Array<keyof QaBuildIdentity>;
   dispatchAllowed: false;
   evidence: "preflight-only";
 };
@@ -31,7 +32,9 @@ function result(state: Result["state"], nextAction: Result["nextAction"]): Resul
 /** Assess supplied observations only. This does not observe Final Cut or authorize dispatch. */
 export function assessQaPreflight(observation: QaPreflightObservation): Result {
   if (observation.headlessPassed !== true) return result("BLOCKED", "resolve-headless-failure");
-  if (!validIdentity(observation.expected) || !validIdentity(observation.observed) || keys.some(key => observation.expected[key] !== observation.observed[key])) return result("BLOCKED", "resolve-identity-mismatch");
+  if (!validIdentity(observation.expected) || !validIdentity(observation.observed)) return result("BLOCKED", "resolve-identity-mismatch");
+  const mismatchedIdentities = keys.filter(key => observation.expected[key] !== observation.observed[key]);
+  if (mismatchedIdentities.length) return { ...result("BLOCKED", "resolve-identity-mismatch"), mismatchedIdentities };
   if (observation.recovery !== "clear") return result("BLOCKED", "resolve-recovery");
   if (observation.console === "unknown" || observation.finalCut === "unknown") return result("BLOCKED", "inspect-readiness");
   if (observation.console === "locked") return result("WAITING", "unlock-console");
