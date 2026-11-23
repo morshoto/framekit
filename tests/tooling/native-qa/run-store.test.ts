@@ -967,8 +967,11 @@ test("publisher inspection reads only status and sanitizes private fields", asyn
     assert.deepEqual(calls, [{ name: "artifact.publish.status", args: { jobId: "publish-job-1" } }]);
     assert.equal(observed.dispatch, "UNKNOWN_AFTER_DISPATCH");
     assert.equal(observed.verdict, "BLOCKED");
+    assert.ok("observedState" in observed);
     assert.equal(observed.observedState, "verification-pending");
-    assert.equal(observed.nextAction, "verification-authorization-required");
+    assert.equal(observed.nextAction, "inspect-recovery");
+    assert.equal(observed.nativeQuiescence, "unproven");
+    assert.equal(observed.dispatchAllowed, false);
     assert.equal(JSON.stringify(observed).includes("sensitive-value"), false);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
@@ -982,7 +985,8 @@ test("publisher status never makes verified or failed observations replayable", 
       const result = await inspectQaPublisher(root, manifest.qaRunId, async () => ({ jobId: "publish-job-1", state }));
       assert.equal(result.dispatch, "UNKNOWN_AFTER_DISPATCH");
       assert.equal(result.verdict, "BLOCKED");
-      assert.equal(result.nextAction, state === "verified" ? "independent-readback-required" : "inspect-recovery");
+      assert.equal(result.nextAction, "inspect-recovery");
+      assert.equal(result.nativeQuiescence, "unproven");
     }
   } finally { await rm(root, { recursive: true, force: true }); }
 });
@@ -1006,7 +1010,7 @@ test("publisher inspection never queries without a recorded job ID", async () =>
     await createOrInspectRun(root, manifest);
     let calls = 0;
     const call = async () => { calls++; return {}; };
-    assert.equal((await inspectQaPublisher(root, manifest.qaRunId, call)).nextAction, "headless-preflight");
+    assert.equal((await inspectQaPublisher(root, manifest.qaRunId, call)).nextAction, "inspect-run");
     await markDispatchUncertain(root, manifest);
     assert.equal((await inspectQaPublisher(root, manifest.qaRunId, call)).nextAction, "job-id-unavailable");
     assert.equal(calls, 0);
