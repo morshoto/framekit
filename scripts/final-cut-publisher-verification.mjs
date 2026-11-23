@@ -71,7 +71,7 @@ export async function runPublishStages(call, input, onStage, beforeDispatch = as
   const boundInput = structuredClone(input);
   const { artifactDigest, ...previewInput } = boundInput;
   const preview = structuredClone(await call("artifact.publish.preview", previewInput));
-  if (!preview.jobId || preview.state !== "awaiting-confirmation"
+  if (!preview?.jobId || preview.state !== "awaiting-confirmation"
     || preview.artifactDigest !== artifactDigest || preview.targetLibraryPath !== boundInput.targetLibraryPath) {
     throw new Error("PUBLISH_PREVIEW_MISMATCH: prepared job does not match the approved artifact and destination");
   }
@@ -95,10 +95,10 @@ export async function runPublishStages(call, input, onStage, beforeDispatch = as
   } catch (cause) {
     throw new Error(`PUBLISH_DISPATCH_UNCERTAIN: job ${preview.jobId}; inspect its status and do not redispatch`, { cause });
   }
-  if (dispatched.jobId !== preview.jobId || dispatched.state !== "verification-pending"
-    || dispatched.nextAction !== "confirm-verification" || dispatched.delivery?.status !== "dispatched") {
+  if (dispatched?.jobId !== preview.jobId || dispatched?.state !== "verification-pending"
+    || dispatched?.nextAction !== "confirm-verification" || dispatched?.delivery?.status !== "dispatched") {
     await recordAfterDispatch("dispatch-unconfirmed", dispatched, "PUBLISH_DISPATCH_UNCERTAIN");
-    throw new Error(`PUBLISH_DISPATCH_INCOMPLETE: job ${preview.jobId} is ${dispatched.state} (${dispatched.error?.code ?? "unconfirmed"}); inspect status and do not redispatch`);
+    throw new Error(`PUBLISH_DISPATCH_INCOMPLETE: job ${preview.jobId} is ${dispatched?.state ?? "unknown"} (${dispatched?.error?.code ?? "unconfirmed"}); inspect status and do not redispatch`);
   }
   await recordAfterDispatch("dispatched", dispatched, "PUBLISH_DISPATCH_UNCERTAIN");
   let verified;
@@ -106,14 +106,14 @@ export async function runPublishStages(call, input, onStage, beforeDispatch = as
   catch (cause) {
     throw new Error(`PUBLISH_VERIFICATION_INCOMPLETE: job ${preview.jobId}; inspect status and do not redispatch`, { cause });
   }
-  if (verified.jobId !== preview.jobId || verified.state !== "verified" || verified.result?.verified !== true) {
-    throw new Error(`PUBLISH_VERIFICATION_INCOMPLETE: job ${preview.jobId} is ${verified.state}; inspect status without redispatching`);
+  if (verified?.jobId !== preview.jobId || verified?.state !== "verified" || verified?.result?.verified !== true) {
+    throw new Error(`PUBLISH_VERIFICATION_INCOMPLETE: job ${preview.jobId} is ${verified?.state ?? "unknown"}; inspect status without redispatching`);
   }
   if (boundInput.headlessExecutionId) {
     const integrity = verified.result.sourceMediaIntegrity;
     if (integrity?.unchanged !== true || !Array.isArray(integrity.digests) || integrity.digests.length !== proofDigests.length
       || !proofDigests.every((expected) => integrity.digests.some((actual) => actual.source === expected.source && actual.sha256 === expected.sha256))) {
-      throw new Error(`PUBLISH_SOURCE_INTEGRITY_MISMATCH: job ${preview.jobId} does not preserve the approved source digests`);
+      throw new Error(`PUBLISH_SOURCE_INTEGRITY_MISMATCH: job ${preview.jobId} does not preserve the approved source digests; inspect status and do not redispatch`);
     }
   }
   const recoveryReservation = verified.recoveryReservation ?? dispatched.recoveryReservation;
