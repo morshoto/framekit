@@ -346,6 +346,27 @@ disposable target, and records `sourceIdentity` with verified, failed,
 unavailable, or unrun statuses. It does not promote unavailable native
 capabilities into a successful result.
 
+### Detached publisher status observation
+
+For an existing QA run with an uncertain publisher dispatch and recorded job
+ID, a detached worker can read one existing publisher-store status after the
+initiating client exits. Create a private JSON input containing
+`{"observationId":"status-0","directory":"/absolute/path/to/publisher-store"}`,
+then run:
+
+```sh
+node --import tsx scripts/native-qa/cli.ts start-publisher-observation "$QA_ROOT" "$QA_RUN_ID" observation.json
+node --import tsx scripts/native-qa/cli.ts publisher-observation "$QA_ROOT" "$QA_RUN_ID" status-0
+```
+
+IDs range from `status-0` through `status-31`. Repeating an ID never schedules
+another worker; `pending-or-interrupted` does not establish that one is still
+running. A new ID may be used for another **read-only** observation. Results
+are historical store snapshots; missing or mismatched status stays blocked.
+They do not contact Final Cut, prove receiver quiescence, authorize a write, or
+release or replay a reservation. The status directory path is not stored in the
+result.
+
 ### CodeQL baselines for stacked pull requests
 
 The JavaScript CodeQL policy requires an analysis of the exact base branch commit. Security scans pushes to branches for this baseline; full validation and Swift scanning remain limited to main on push. Existing branches must first contain this workflow change and receive a push, or run the Security workflow manually on that branch. If the child PR scan finishes before its base scan, rerun the child's CodeQL workflow after the base scan completes. Missing or stale baseline evidence fails the policy closed. The trusted policy is loaded from the default branch, so changes to it take effect only after merging.

@@ -100,7 +100,8 @@ await chmod(writableDirectories.runtime, 0o700);
 await chmod(isolatedHome, 0o555);
 
 const environment = {
-  ...process.env,
+  // Git hooks export their own repository and index; test fixtures must never inherit them.
+  ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_"))),
   // Only the aggregate controller may publish to the caller CI step summary.
   GITHUB_STEP_SUMMARY: "",
   HOME: isolatedHome,

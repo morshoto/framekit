@@ -12,6 +12,7 @@ import type { HeadlessEvidence } from "./supervisor.js";
 
 const checkout = fileURLToPath(new URL("../../", import.meta.url));
 const execFileAsync = promisify(execFile);
+const gitEnvironment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
 const [root, qaRunId] = process.argv.slice(2);
 if (!root || !qaRunId || process.argv.length !== 4) throw new Error("QA_WORKER_ARGUMENTS_INVALID");
 let inputText = "";
@@ -38,11 +39,11 @@ try {
   throw error;
 }
 const candidateMatches = async () => {
-  const options = { cwd: checkout, timeout: 10000, maxBuffer: 1024 * 1024 };
+  const options = { cwd: checkout, timeout: 10000, maxBuffer: 1024 * 1024, env: gitEnvironment };
   const [head, tree, status] = await Promise.all([
     execFileAsync("git", ["rev-parse", "HEAD"], options),
     execFileAsync("git", ["rev-parse", "HEAD^{tree}"], options),
-    execFileAsync("git", ["status", "--porcelain", "--untracked-files=normal"], options),
+    execFileAsync("git", ["-c", "core.fsmonitor=false", "status", "--porcelain", "--untracked-files=normal"], options),
   ]);
   return head.stdout.trim() === run.manifest.candidateCommit && tree.stdout.trim() === run.manifest.candidateTree && status.stdout.trim() === "";
 };

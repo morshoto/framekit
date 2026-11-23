@@ -24,6 +24,7 @@ import { verifyQaPublisherSources, readQaPublisherSourceEvidence } from "../../.
 import { recordQaPublisherStage, readQaPublisherStages } from "../../../scripts/native-qa/publisher-stages.js";
 import { runSupervisedQaPublisher } from "../../../scripts/native-qa/publisher-supervision.js";
 import { readQaEvidenceBundle } from "../../../scripts/native-qa/evidence-bundle.js";
+import { readQaPublisherObservation, startQaPublisherObservation } from "../../../scripts/native-qa/publisher-observation.js";
 import { ScriptedNativeReceiver } from "../../support/simulated-native-receiver.js";
 
 const manifest = {
@@ -32,6 +33,7 @@ const manifest = {
   artifactDigest: "4".repeat(64), sourceDigest: "5".repeat(64), targetDigest: "6".repeat(64),
   operation: "rough-cut-publish" as const, authorizationDigest: "7".repeat(64),
 };
+const cleanGitEnvironment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
 
 test("late simulated receiver acceptance does not trigger a second publisher dispatch", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-qa-late-receiver-"));
@@ -1633,6 +1635,78 @@ test("publisher inspection reads a persisted fixture without changing its store"
   } finally { await rm(root, { recursive: true, force: true }); await rm(store, { recursive: true, force: true }); }
 });
 
+test("detached publisher observation survives its client and never redispatches", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-observation-"));
+  const store = await mkdtemp(join(tmpdir(), "framekit-qa-private-status-"));
+  try {
+    const sourcePath = join(store, "fixture.fcpxml");
+    const source = '<fcpxml version="1.11"><library><event><project uid="fixture-project" name="Fixture"><sequence uid="fixture-sequence" name="Main" /></project></event></library></fcpxml>';
+    await writeFile(sourcePath, source);
+    const publisher = new FinalCutProjectPublisher({ enabled: false, sourcePath, publishJobsDirectory: store });
+    const job = await publisher.preparePublish({ sourceTransactionId: "fixture-transaction", artifactPath: sourcePath, artifactDigest: createHash("sha256").update(source).digest("hex") });
+    const bound = { ...manifest, artifactDigest: job.artifactDigest };
+    await createOrInspectRun(root, bound); await claimDispatchIntent(root, bound, job.jobId);
+    const jobPath = join(store, `${job.jobId}.json`);
+    await writeFile(jobPath, `${await readFile(jobPath, "utf8")}${" ".repeat(8 * 1024 * 1024)}`);
+    const before = await readFile(jobPath, "utf8");
+    const specPath = join(root, "observation-input.json");
+    await writeFile(specPath, JSON.stringify({ observationId: "status-1", directory: store }));
+    const client = spawnSync(process.execPath, ["--import", "tsx", "scripts/native-qa/cli.ts", "start-publisher-observation", root, bound.qaRunId, specPath], { encoding: "utf8", timeout: 10000 });
+    const clientExitedAt = Date.now();
+    assert.equal(client.status, 0, client.stderr);
+    assert.equal(JSON.parse(client.stdout).scheduled, true);
+    let observed = await readQaPublisherObservation(root, bound.qaRunId, "status-1");
+    const deadline = Date.now() + 10000;
+    while (observed.status !== "recorded" && Date.now() < deadline) { await new Promise((resolve) => setTimeout(resolve, 20)); observed = await readQaPublisherObservation(root, bound.qaRunId, "status-1"); }
+    assert.equal(observed.status, "recorded", "detached observation did not finish");
+    if (observed.status !== "recorded") return;
+    assert.ok(Date.parse(observed.observedAt) >= clientExitedAt, "observation must finish after the initiating client exits");
+    assert.equal(observed.observedState, "awaiting-confirmation");
+    assert.equal(observed.dispatch, "UNKNOWN_AFTER_DISPATCH");
+    assert.equal(observed.verdict, "BLOCKED");
+    assert.equal(observed.dispatchAllowed, false);
+    assert.equal(JSON.stringify(observed).includes(store), false);
+    assert.equal((await startQaPublisherObservation(root, bound.qaRunId, "status-1", store)).scheduled, false);
+    await assert.rejects(startQaPublisherObservation(root, bound.qaRunId, "status-1", root), /IDENTITY_MISMATCH/);
+    assert.equal(await readFile(jobPath, "utf8"), before);
+    assert.equal((await inspectRun(root, bound.qaRunId)).dispatch, "UNKNOWN_AFTER_DISPATCH");
+    const mismatched = JSON.parse(before); mismatched.job.artifactDigest = "f".repeat(64);
+    await writeFile(jobPath, JSON.stringify(mismatched));
+    const changedStore = await readFile(jobPath, "utf8");
+    assert.equal((await startQaPublisherObservation(root, bound.qaRunId, "status-3", store)).scheduled, true);
+    let mismatch = await readQaPublisherObservation(root, bound.qaRunId, "status-3");
+    const mismatchDeadline = Date.now() + 10000;
+    while (mismatch.status !== "recorded" && Date.now() < mismatchDeadline) { await new Promise((resolve) => setTimeout(resolve, 20)); mismatch = await readQaPublisherObservation(root, bound.qaRunId, "status-3"); }
+    assert.equal(mismatch.status, "recorded");
+    if (mismatch.status !== "recorded") return;
+    assert.equal(mismatch.nextAction, "identity-mismatch");
+    assert.equal(await readFile(jobPath, "utf8"), changedStore);
+    await writeFile(join(root, bound.qaRunId, "publisher-observation-status-1.result.json"), "corrupt");
+    await assert.rejects(readQaPublisherObservation(root, bound.qaRunId, "status-1"), /QA_OBSERVATION_CORRUPT/);
+  } finally { await rm(root, { recursive: true, force: true }); await rm(store, { recursive: true, force: true }); }
+});
+
+test("concurrent observation requests schedule once and preserve a missing store", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-observation-race-"));
+  const missing = join(root, "missing-status-store");
+  try {
+    await createOrInspectRun(root, manifest);
+    await claimDispatchIntent(root, manifest, "publish-job-00000000-0000-0000-0000-000000000001");
+    await assert.rejects(startQaPublisherObservation(root, manifest.qaRunId, "status-32", missing), /QA_OBSERVATION_ID_INVALID/);
+    const results = await Promise.all(Array.from({ length: 5 }, () => startQaPublisherObservation(root, manifest.qaRunId, "status-2", missing)));
+    assert.equal(results.filter((item) => item.scheduled).length, 1);
+    let observed = await readQaPublisherObservation(root, manifest.qaRunId, "status-2");
+    const deadline = Date.now() + 10000;
+    while (observed.status !== "recorded" && Date.now() < deadline) { await new Promise((resolve) => setTimeout(resolve, 20)); observed = await readQaPublisherObservation(root, manifest.qaRunId, "status-2"); }
+    assert.equal(observed.status, "recorded");
+    if (observed.status !== "recorded") return;
+    assert.equal(observed.nextAction, "status-unavailable");
+    assert.equal(observed.verdict, "BLOCKED");
+    await assert.rejects(lstat(missing), (error: NodeJS.ErrnoException) => error.code === "ENOENT");
+    assert.equal((await inspectRun(root, manifest.qaRunId)).dispatch, "UNKNOWN_AFTER_DISPATCH");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("publisher inspection never creates a missing store or follows a linked store", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-qa-store-missing-"));
   const parent = await mkdtemp(join(tmpdir(), "framekit-qa-store-parent-"));
@@ -1680,6 +1754,25 @@ test("publisher inspection rejects a status for a different artifact", async () 
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("plugin observation ignores inherited Git repository overrides", async () => {
+  const foreign = await mkdtemp(join(tmpdir(), "framekit-qa-foreign-git-"));
+  try {
+    execFileSync("git", ["init", "-q", foreign], { env: cleanGitEnvironment });
+    await writeFile(join(foreign, "keep.txt"), "unchanged");
+    execFileSync("git", ["-C", foreign, "add", "keep.txt"], { env: cleanGitEnvironment });
+    execFileSync("git", ["-C", foreign, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "baseline"], { env: cleanGitEnvironment });
+    const git = (args: string[]) => execFileSync("git", ["-C", foreign, ...args], { encoding: "utf8", env: cleanGitEnvironment }).trim();
+    const before = git(["rev-parse", "HEAD"]);
+    const child = spawnSync(process.execPath, ["--import", "tsx", "--test", "--test-name-pattern", "^plugin observation binds a clean candidate", "tests/tooling/native-qa/run-store.test.ts"], {
+      encoding: "utf8", timeout: 20000, env: { ...process.env, GIT_DIR: join(foreign, ".git"), GIT_INDEX_FILE: join(foreign, ".git", "index") },
+    });
+    assert.equal(child.status, 0, child.stderr || child.stdout);
+    assert.equal(git(["rev-parse", "HEAD"]), before);
+    assert.equal(git(["status", "--porcelain"]), "");
+    assert.equal(git(["config", "--bool", "core.bare"]), "false");
+  } finally { await rm(foreign, { recursive: true, force: true }); }
+});
+
 test("plugin observation binds a clean candidate and installed directory without authorizing dispatch", async () => {
   const { mkdir, cp } = await import("node:fs/promises");
   const { digestCodexPluginDirectory } = await import("../../../scripts/codex-plugin-identity.mjs");
@@ -1691,10 +1784,10 @@ test("plugin observation binds a clean candidate and installed directory without
     await mkdir(root, { mode: 0o700 }); await mkdir(join(source, ".codex-plugin"), { recursive: true });
     await writeFile(join(source, ".codex-plugin", "plugin.json"), JSON.stringify({ name: "framekit", version: "1.2.3" }));
     await writeFile(join(source, "plugin.txt"), "candidate plugin");
-    execFileSync("git", ["init", "-q", checkout]);
-    execFileSync("git", ["-C", checkout, "add", "."]);
-    execFileSync("git", ["-C", checkout, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"]);
-    const git = (arg: string) => execFileSync("git", ["-C", checkout, "rev-parse", arg], { encoding: "utf8" }).trim();
+    execFileSync("git", ["init", "-q", checkout], { env: cleanGitEnvironment });
+    execFileSync("git", ["-C", checkout, "add", "."], { env: cleanGitEnvironment });
+    execFileSync("git", ["-C", checkout, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], { env: cleanGitEnvironment });
+    const git = (arg: string) => execFileSync("git", ["-C", checkout, "rev-parse", arg], { encoding: "utf8", env: cleanGitEnvironment }).trim();
     await mkdir(join(codexHome, "plugins"), { recursive: true }); await cp(source, installed, { recursive: true });
     const target = { ...manifest, candidateCommit: git("HEAD"), candidateTree: git("HEAD^{tree}"), pluginDigest: await digestCodexPluginDirectory(source) };
     await createOrInspectRun(root, target);
@@ -1706,10 +1799,10 @@ test("plugin observation binds a clean candidate and installed directory without
     assert.deepEqual(await readQaPluginEvidence(root, target.qaRunId), evidence);
     const monitor = join(parent, "monitor.sh"); const marker = join(parent, "monitor-ran");
     await writeFile(monitor, `#!/bin/sh\ntouch '${marker}'\nexit 0\n`); await chmod(monitor, 0o755);
-    execFileSync("git", ["-C", checkout, "config", "core.fsmonitor", monitor]);
+    execFileSync("git", ["-C", checkout, "config", "core.fsmonitor", monitor], { env: cleanGitEnvironment });
     await verifyQaPluginIdentity(root, target.qaRunId, { checkout, codexHome, installedPath: installed });
     await assert.rejects(() => lstat(marker), /ENOENT/);
-    execFileSync("git", ["-C", checkout, "config", "--unset", "core.fsmonitor"]);
+    execFileSync("git", ["-C", checkout, "config", "--unset", "core.fsmonitor"], { env: cleanGitEnvironment });
     await writeFile(join(checkout, ".git", "info", "exclude"), "plugins/framekit/ignored.txt\n");
     await writeFile(join(source, "ignored.txt"), "not in candidate");
     await writeFile(join(installed, "ignored.txt"), "not in candidate");
@@ -1717,13 +1810,13 @@ test("plugin observation binds a clean candidate and installed directory without
     await createOrInspectRun(root, ignoredTarget);
     await assert.rejects(() => verifyQaPluginIdentity(root, ignoredTarget.qaRunId, { checkout, codexHome, installedPath: installed }), /QA_CANDIDATE_MISMATCH/);
     await rm(join(source, "ignored.txt")); await rm(join(installed, "ignored.txt"));
-    execFileSync("git", ["-C", checkout, "update-index", "--assume-unchanged", "plugins/framekit/plugin.txt"]);
+    execFileSync("git", ["-C", checkout, "update-index", "--assume-unchanged", "plugins/framekit/plugin.txt"], { env: cleanGitEnvironment });
     await writeFile(join(source, "plugin.txt"), "untracked modification"); await writeFile(join(installed, "plugin.txt"), "untracked modification");
     const assumedTarget = { ...target, qaRunId: "assumed-plugin", authorizationDigest: null, pluginDigest: await digestCodexPluginDirectory(source) };
     await createOrInspectRun(root, assumedTarget);
     await assert.rejects(() => verifyQaPluginIdentity(root, assumedTarget.qaRunId, { checkout, codexHome, installedPath: installed }), /QA_CANDIDATE_MISMATCH/);
     await writeFile(join(source, "plugin.txt"), "candidate plugin"); await writeFile(join(installed, "plugin.txt"), "candidate plugin");
-    execFileSync("git", ["-C", checkout, "update-index", "--no-assume-unchanged", "plugins/framekit/plugin.txt"]);
+    execFileSync("git", ["-C", checkout, "update-index", "--no-assume-unchanged", "plugins/framekit/plugin.txt"], { env: cleanGitEnvironment });
     await chmod(join(installed, "plugin.txt"), 0o755);
     await assert.rejects(() => verifyQaPluginIdentity(root, target.qaRunId, { checkout, codexHome, installedPath: installed }), /QA_CANDIDATE_MISMATCH/);
     await chmod(join(installed, "plugin.txt"), 0o644);

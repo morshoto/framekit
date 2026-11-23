@@ -9,6 +9,7 @@ import { readQaRecord } from "./read-record.js";
 import { assertQaJobIndex, inspectRun } from "./run-store.js";
 
 const exec = promisify(execFile);
+const gitEnvironment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
 const maxFiles = 4096;
 const maxBytes = 128 * 1024 * 1024;
 interface PluginRecord { schemaVersion: 1; tier: "plugin"; result: "digest-matched"; candidateCommit: string; candidateTree: string; pluginDigest: string; checkedAt: string }
@@ -83,7 +84,7 @@ async function verifyQaPluginIdentityInner(root: string, qaRunId: string, input:
   const child = relative(home, installed);
   if (!child || child === ".." || child.startsWith(`..${sep}`) || isAbsolute(child)) throw new Error("QA_PLUGIN_UNSAFE");
   const candidateMatches = async () => {
-    const options = { cwd: checkout, timeout: 10000, maxBuffer: 1024 * 1024 };
+    const options = { cwd: checkout, timeout: 10000, maxBuffer: 1024 * 1024, env: gitEnvironment };
     const [head, tree, status] = await Promise.all([exec("git", ["rev-parse", "HEAD"], options), exec("git", ["rev-parse", "HEAD^{tree}"], options), exec("git", ["-c", "core.fsmonitor=false", "status", "--porcelain", "--untracked-files=normal"], options)]);
     return head.stdout.trim() === run.manifest.candidateCommit && tree.stdout.trim() === run.manifest.candidateTree && !status.stdout.trim();
   };
@@ -97,7 +98,7 @@ async function verifyQaPluginIdentityInner(root: string, qaRunId: string, input:
   if (JSON.stringify(first) !== JSON.stringify(second)) throw new Error("QA_PLUGIN_CHANGED");
   if (second[0]!.digest !== run.manifest.pluginDigest || second[1]!.digest !== run.manifest.pluginDigest) throw new Error("QA_PLUGIN_MISMATCH");
   const tree = await exec("git", ["ls-tree", "-rz", "--full-tree", "HEAD", "--", "plugins/framekit"],
-    { cwd: checkout, timeout: 10000, maxBuffer: 1024 * 1024 });
+    { cwd: checkout, timeout: 10000, maxBuffer: 1024 * 1024, env: gitEnvironment });
   const tracked = tree.stdout.split("\0").filter(Boolean).map((line) => {
     const match = /^(100644|100755) blob ([a-f0-9]{40})\tplugins\/framekit\/(.+)$/s.exec(line);
     if (!match) throw new Error("QA_CANDIDATE_MISMATCH");
