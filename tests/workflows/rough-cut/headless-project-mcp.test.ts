@@ -105,6 +105,14 @@ test("production MCP persists creative brief review across restarts", async () =
     assert.equal(denied.isError, true);
     const accepted = payload(await client.callTool({ name: "headless.brief.accept", arguments: { ...target, expectedDigest: draft.record.digest, confirmed: true } }));
     assert.equal(accepted.record.state, "accepted");
+    const planning = payload(await client.callTool({ name: "headless.decision.plan", arguments: {
+      projectId, timelineId: target.sequenceId, revision: target.expectedRevision, occurrenceId: "missing-occurrence",
+      caption: { style: "basic", maxWordsPerGroup: 3, maxCharsPerLine: 20, maxLines: 2 },
+      music: { occurrenceId: "music", placement: { start: 0, end: 1 }, targetLane: -1,
+        context: { speech: "unknown", audioEvidence: "unavailable" }, capabilities: { staticMusicPreview: false, ducking: false, fades: false } },
+    } }));
+    assert.equal(planning.status, "unavailable");
+    assert.match(planning.reason, /occurrence/i);
     const revised = payload(await client.callTool({ name: "headless.brief.revise", arguments: { ...target, expectedDigest: draft.record.digest, brief: { ...brief, theme: "changed" } } }));
     assert.equal(revised.record.state, "draft");
     assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, registered.project.timeline);

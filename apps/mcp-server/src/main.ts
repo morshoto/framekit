@@ -28,9 +28,11 @@ import {
   isFinalCutVideoProbeAvailable,
 } from "@framekit/final-cut";
 import { FixtureAudioAnalyzer, FixtureMetadataAnalyzer, FixtureSpeechAnalyzer, FixtureVisualAnalyzer } from "@framekit/testkit";
-import { AgentVideoRuntime, FileAnalysisArtifactStore, JsonCreativeBriefStore, JsonSemanticMediaIndexStore } from "@framekit/runtime";
+import { AgentVideoRuntime, FileAnalysisArtifactStore, JsonCreativeBriefStore, JsonSemanticMediaIndexStore, verifyLocalMediaSource } from "@framekit/runtime";
 import { HeadlessCreativeBriefService, HeadlessProjectService } from "@framekit/headless-application";
 import { createMcpServer } from "./server.js";
+import { HeadlessDecisionPlanService } from "./headless-decision-plan.js";
+import { projectSnapshotFromTimelineIr } from "./headless-project-snapshot.js";
 import { createCanonicalSessionChangeSource } from "./headless-sessions.js";
 import { createCanonicalNativeSnapshotReader } from "./canonical-native-snapshot.js";
 import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer, FfmpegStoryboardRenderer } from "@framekit/headless-renderer";
@@ -304,6 +306,8 @@ const videoExporter = liveMode && !headlessFinalCut && process.env.FRAMEKIT_FINA
       nativeOperationLease,
     })
   : undefined;
+const briefStoreForProject = (projectId: string) => new JsonCreativeBriefStore(join(framekitStateDirectory, "creative-briefs", `${createHash("sha256").update(projectId).digest("hex")}.json`));
+const analysisArtifacts = new FileAnalysisArtifactStore(join(framekitStateDirectory, "analysis-artifacts"));
 const server = createMcpServer(runtime, {
   processMode: liveMode && !headlessFinalCut ? "headed" : "headless",
   connectionStatus: () => connection?.ensureConnected(),
@@ -324,9 +328,13 @@ const server = createMcpServer(runtime, {
   headlessProjects,
   headlessBriefs: new HeadlessCreativeBriefService({
     openProject: (projectId) => headlessProjects.open(projectId),
-    storeForProject: (projectId) => new JsonCreativeBriefStore(join(framekitStateDirectory, "creative-briefs", `${createHash("sha256").update(projectId).digest("hex")}.json`)),
+    storeForProject: briefStoreForProject,
   }),
-  analysisEvidence: { index: semanticMediaIndexStore, artifacts: new FileAnalysisArtifactStore(join(framekitStateDirectory, "analysis-artifacts")) },
+  analysisEvidence: { index: semanticMediaIndexStore, artifacts: analysisArtifacts },
+  headlessDecisionPlans: new HeadlessDecisionPlanService({
+    readProject: async (projectId) => projectSnapshotFromTimelineIr((await headlessProjects.open(projectId)).timeline),
+    storeForProject: briefStoreForProject, artifacts: analysisArtifacts, verifySource: verifyLocalMediaSource,
+  }),
 });
 const transport = new StdioServerTransport();
 let shuttingDown = false;

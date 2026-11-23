@@ -115,6 +115,20 @@ A matching source digest establishes source identity, not that the footage
 satisfies the requirement; review the content separately. Brief acceptance does
 not authorize or apply timeline edits and is not evidence of a Final Cut import.
 
+For a review-only integrated proposal, call `headless.decision.plan` with
+`projectId`, `timelineId`, the current `revision`, the target `occurrenceId`,
+caption grouping options, and music placement and context options. Pass the
+`ref` from `headless.analysis.pin` as `speechRef`, `vadRef`, or `audioRef` as
+appropriate. The server loads the current project and accepted brief; it
+rejects stale targets, missing or changed pinned evidence, and brief or project
+changes observed during planning. Review the returned decisions and warnings.
+Music capability and speech-presence inputs are caller-supplied context, not
+independent capability discovery or verified speech detection.
+
+This proposal does not preview or execute timeline operations. Its native edit
+support remains unavailable, and its digest is not edit authorization. Source
+audio analysis does not verify the resulting mix or dialogue audibility.
+
 For later Timeline IR revisions that require explicit approval, call
 `headless.edit.approved-preview` with the project, sequence, current revision
 and operations. Review the result, then call `headless.edit.approved-execute`

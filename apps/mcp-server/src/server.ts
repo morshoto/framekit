@@ -87,6 +87,7 @@ import {
   type HeadlessRoughCutRequest,
 } from "@framekit/headless-application";
 import { projectSnapshotFromTimelineIr } from "./headless-project-snapshot.js";
+import type { HeadlessDecisionPlanService } from "./headless-decision-plan.js";
 import { chooseTimelineReadback } from "./readback-policy.js";
 import { registerSkillTools, skillPreviewResult } from "./tools/skills/register.js";
 
@@ -161,6 +162,25 @@ const rangeSchema = z.object({
   message: "end must be greater than start",
   path: ["end"],
 });
+const evidenceRangeSchema = z.object({ start: z.number().finite().nonnegative(), end: z.number().finite().positive(),
+  startTime: rationalTimeSchema.optional(), durationTime: rationalTimeSchema.optional() }).strict().refine((r) => r.end > r.start);
+const evidenceSourceSchema = z.object({ mediaId: z.string().min(1), source: z.string().min(1), sourceDigest: z.string().min(1).optional(),
+  mediaKind: z.enum(["video", "audio"]).optional(), duration: z.number().finite().positive().optional() }).strict();
+const evidenceProviderSchema = z.object({ id: z.string().min(1), provider: z.string().min(1), version: z.string().optional(),
+  model: z.string().optional(), configurationDigest: z.string().optional() }).strict();
+const analysisRefSchema = z.object({ schemaVersion: z.literal(1), kind: z.enum(["speech", "vad", "audio"]), source: evidenceSourceSchema,
+  provider: evidenceProviderSchema, revision: revisionValueSchema, range: evidenceRangeSchema, artifactDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  analysisRevision: revisionValueSchema }).strict();
+const decisionPlanSchema = {
+  projectId: z.string().min(1), timelineId: z.string().min(1), revision: revisionValueSchema, occurrenceId: z.string().min(1),
+  speechRef: analysisRefSchema.optional(), vadRef: analysisRefSchema.optional(), audioRef: analysisRefSchema.optional(),
+  caption: z.object({ style: z.string(), maxWordsPerGroup: z.number().int(), maxCharsPerLine: z.number().int(), maxLines: z.number().int(),
+    emphasisWordIndices: z.array(z.number().int()).optional(), wordSeparator: z.enum([" ", ""]).optional() }).strict(),
+  music: z.object({ occurrenceId: z.string().min(1), music: evidenceSourceSchema.optional(), placement: evidenceRangeSchema,
+    gainDb: z.number().finite().optional(), targetLane: z.number().int(), context: z.object({ speech: z.enum(["present", "absent", "unknown"]),
+      audioEvidence: z.enum(["available", "unavailable"]) }).strict(), capabilities: z.object({ staticMusicPreview: z.boolean(), ducking: z.boolean(), fades: z.boolean() }).strict(),
+    requestedDucking: z.boolean().optional(), requestedFades: z.boolean().optional() }).strict(),
+};
 const mediaIndexQuerySchema = z.object({
   query: z.string().optional(),
   subject: z.string().optional(),
@@ -976,6 +996,7 @@ export interface McpServerOptions {
   sessionMaterializationPublisher?: SessionMaterializationPublisher;
   headlessProjects?: HeadlessProjectWorkflow;
   headlessBriefs?: HeadlessCreativeBriefService;
+  headlessDecisionPlans?: HeadlessDecisionPlanService;
   analysisEvidence?: { index: SemanticMediaIndexStore; artifacts: AnalysisArtifactStore };
 }
 
@@ -2412,6 +2433,14 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       range: rangeSchema.optional(),
     },
   }, async ({ mediaId, range }) => jsonResult(await runtime.analyzeVisual(mediaId, range)));
+
+  registerValidatedTool(server, "headless.decision.plan", {
+    description: "Create a read-only review plan using the current headless project, accepted brief and pinned evidence. This does not approve or execute edits.",
+    inputSchema: decisionPlanSchema,
+  }, async (input) => sessionResult(async () => {
+    if (!options.headlessDecisionPlans) throw new Error("DECISION_PLAN_UNAVAILABLE: headless planning is not configured");
+    return options.headlessDecisionPlans.plan(input);
+  }));
 
   registerValidatedTool(server, "headless.analysis.pin", {
     description: "Pin existing provider-reported source analysis for a headless project. This read-only reference does not approve or authorize an edit.",
