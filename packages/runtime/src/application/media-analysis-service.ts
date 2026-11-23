@@ -375,6 +375,7 @@ export class MediaAnalysisService {
     if (!cached || !cacheMatchesAnalyzers(cached, this.options)) return undefined;
     if (cached.speech && (!coversWholeSource(cached.speech.requestedRange, media.duration)
       || !coversWholeSource(cached.speech.observedRange, media.duration))) return undefined;
+    if (!sourceSpeechIsReusable(cached, cached.analysisRevision)) return undefined;
     if (!sourceAudioIsReusable(cached)) return undefined;
     if (cached.audio && (!coversWholeSource(cached.audio.requestedRange, media.duration)
       || !coversWholeSource(cached.audio.measuredRange, media.duration))) return undefined;
@@ -406,7 +407,8 @@ export class MediaAnalysisService {
   private async persistedIndexEntries(query: MediaIndexQuery, project: ProjectSnapshot): Promise<MediaIndexEntry[]> {
     const entries = await this.options.semanticMediaIndexStore?.list() ?? [];
     return this.validIndexEntries(entries
-      .filter((entry) => entry.sourceIdentity.sourceDigest?.trim() && sourceAudioIsReusable(entry))
+      .filter((entry) => entry.sourceIdentity.sourceDigest?.trim() && sourceAudioIsReusable(entry)
+        && sourceSpeechIsReusable(entry, entry.analysisRevision))
       .map(understandingToIndexEntry)
       .filter((entry) => matchesMediaIndexQuery(entry, query)), project);
   }
@@ -415,7 +417,7 @@ export class MediaAnalysisService {
     const valid: MediaIndexEntry[] = [];
     for (const entry of entries) {
       if (!analyzedProvidersMatch(entry, this.options)
-        || !sourceAudioIsReusable(entry)) continue;
+        || !sourceAudioIsReusable(entry) || !sourceSpeechIsReusable(entry, entry.analysisRevision)) continue;
       try {
         await this.validateCurrentSource(project, { ...entry.sourceIdentity });
         valid.push(entry);
@@ -1017,7 +1019,7 @@ function sourceAudioIsReusable(evidence: SourceAudioEvidence): boolean {
 }
 
 function sourceSpeechIsReusable(
-  evidence: MediaUnderstanding,
+  evidence: Pick<MediaUnderstanding, "speech" | "sourceIdentity" | "analysis">,
   revision: MediaUnderstanding["analysisRevision"] | string | undefined,
 ): boolean {
   const speech = evidence.speech;
