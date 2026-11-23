@@ -1194,3 +1194,38 @@ test("simulated-native: pre-dispatch disconnect is inspectable after reconnect",
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("simulated-native: concurrent clients cannot dispatch twice", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-simulated-concurrent-"));
+  const path = join(directory, "recovery.json");
+  const receiver = new ScriptedNativeReceiver([{ kind: "stall" }]);
+  const basePublisher = simulatedMaterializationPublisher(receiver);
+  let entered!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const publisher: SessionMaterializationPublisher = { publish: async request => { entered(); return basePublisher.publish(request); } };
+  const first = await connect(directory, publisher, undefined, "default", new FileCanonicalRecoveryGuard(path));
+  const second = await connect(directory, publisher, undefined, "default", new FileCanonicalRecoveryGuard(path));
+  let pending: ReturnType<Client["callTool"]> | undefined;
+  try {
+    await first.client.callTool({ name: "session.create", arguments: { sessionId: "simulated-concurrent", provider: { id: "final-cut" }, base: timeline() } });
+    pending = first.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "simulated-concurrent", target, confirm: true } });
+    await started;
+    const operationId = receiver.trace()[0]!.operationId;
+    const competing = await second.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "simulated-concurrent", target, confirm: true } });
+    assert.ok(competing.isError || payload(competing).state !== "completed");
+    assertSingleSimulatedDispatch(receiver.trace(), operationId);
+    assert.equal(receiver.trace().filter(event => event.kind === "dispatch").length, 1);
+    receiver.reply(operationId, "accepted");
+    const result = payload(await pending);
+    assert.equal(result.evidence.headedNative, false);
+    assertSingleSimulatedDispatch(receiver.trace(), operationId);
+    assert.equal(receiver.trace().filter(event => event.kind === "dispatch").length, 1);
+    await assert.rejects(new FileCanonicalRecoveryGuard(path).assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);
+  } finally {
+    const stalled = receiver.trace().find(event => event.kind === "stalled");
+    if (stalled && receiver.inspect(stalled.operationId)?.state === "uncertain") receiver.reply(stalled.operationId, "rejected");
+    await pending?.catch(() => undefined);
+    await first.client.close(); await first.server.close(); await second.client.close(); await second.server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
