@@ -274,6 +274,7 @@ test("headless decision service loads current project and brief and rejects proj
       readProject: async () => structuredClone(snapshot),
       storeForProject: () => f.briefStore,
       artifacts: f.artifacts,
+      index: f.index,
       verifySource: verifyLocalMediaSource,
     });
     const { snapshot: _snapshot, brief: _brief, accepted: _accepted, speechContext, vadContext, ...input } = f.request;
@@ -314,7 +315,7 @@ test("headless decision service loads current project and brief and rejects proj
       const observed = structuredClone(snapshot);
       snapshot = { ...snapshot, revision: { ...snapshot.revision, sequence: 2 } };
       return observed;
-    }, storeForProject: () => f.briefStore, artifacts: f.artifacts, verifySource: verifyLocalMediaSource });
+    }, storeForProject: () => f.briefStore, artifacts: f.artifacts, index: f.index, verifySource: verifyLocalMediaSource });
     const stale = await racing.plan(input);
     assert.equal(stale.status, "unavailable");
     assert.match(stale.reason, /STALE/);
@@ -323,7 +324,7 @@ test("headless decision service loads current project and brief and rejects proj
     const briefRace = new HeadlessDecisionPlanService({ readProject: async () => {
       if (++reads === 2) await f.briefStore.revise("p", f.draft.digest, { ...f.request.brief, theme: "changed" });
       return structuredClone(snapshot);
-    }, storeForProject: () => f.briefStore, artifacts: f.artifacts, verifySource: verifyLocalMediaSource });
+    }, storeForProject: () => f.briefStore, artifacts: f.artifacts, index: f.index, verifySource: verifyLocalMediaSource });
     assert.equal((await briefRace.plan(input)).status, "unavailable");
     snapshot = structuredClone(f.request.snapshot);
     assert.equal((await service.plan(input)).status, "unavailable");

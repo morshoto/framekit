@@ -333,7 +333,7 @@ const server = createMcpServer(runtime, {
   analysisEvidence: { index: semanticMediaIndexStore, artifacts: analysisArtifacts },
   headlessDecisionPlans: new HeadlessDecisionPlanService({
     readProject: async (projectId) => projectSnapshotFromTimelineIr((await headlessProjects.open(projectId)).timeline),
-    storeForProject: briefStoreForProject, artifacts: analysisArtifacts, verifySource: verifyLocalMediaSource,
+    storeForProject: briefStoreForProject, artifacts: analysisArtifacts, index: semanticMediaIndexStore, verifySource: verifyLocalMediaSource,
   }),
 });
 const transport = new StdioServerTransport();

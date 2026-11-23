@@ -120,8 +120,8 @@ For a review-only integrated proposal, call `headless.decision.plan` with
 caption grouping options, and music placement and context options. Pass the
 `ref` from `headless.analysis.pin` as `speechRef`, `vadRef`, or `audioRef` as
 appropriate. The server loads the current project and accepted brief; it
-rejects stale targets, missing or changed pinned evidence, and brief or project
-changes observed during planning. Review the returned decisions and warnings.
+rejects stale targets, missing or changed pinned evidence, relevant changes to
+the current analysis index, and brief or project changes observed during planning. Review the returned decisions and warnings.
 Music capability and speech-presence inputs are caller-supplied context, not
 independent capability discovery or verified speech detection.
 

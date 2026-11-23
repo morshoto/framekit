@@ -1438,6 +1438,16 @@ test("headless project media can be understood and planned without a Final Cut c
     assert.equal(decision.plan.reviewRequired, true);
     assert.ok(decision.plan.decisions.some((item: any) => item.kind === "caption"));
     assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId: freshTimeline.project.id } })).timeline, beforePlan.timeline);
+    const indexPath = join(stateDirectory, "semantic-media-index.json");
+    const originalIndex = await readFile(indexPath, "utf8");
+    const changedIndex = JSON.parse(originalIndex);
+    const changedRecord = changedIndex.entries.find((entry: any) => entry.mediaId === freshMedia.resource.id);
+    changedRecord.speech.words[0].text = "changed";
+    await writeFile(indexPath, JSON.stringify(changedIndex));
+    const staleDecision = payload(await client.callTool({ name: "headless.decision.plan", arguments: decisionInput }));
+    assert.equal(staleDecision.status, "unavailable");
+    assert.match(staleDecision.reason, /ANALYSIS_STALE/);
+    await writeFile(indexPath, originalIndex);
     await writeFile(join(stateDirectory, "analysis-artifacts", speechRef.artifactDigest.slice(7)), "tampered");
     const tamperedDecision = payload(await client.callTool({ name: "headless.decision.plan", arguments: decisionInput }));
     assert.equal(tamperedDecision.status, "unavailable");
