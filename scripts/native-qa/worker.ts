@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { inspectRun } from "./run-store.js";
+import { assertQaHeadlessProfile, inspectRun } from "./run-store.js";
 import { publishQaRecord } from "./atomic-record.js";
 import { verifyQaArtifact } from "./artifact-evidence.js";
 import { verifyQaPublisherFixture } from "./publisher-fixture-evidence.js";
@@ -27,6 +27,7 @@ if (Object.keys(item).some(key => key !== "artifactPath" && key !== "publisherFi
   || (item.artifactPath !== undefined && (typeof item.artifactPath !== "string" || !isAbsolute(item.artifactPath) || item.artifactPath.length > 4096 || item.artifactPath.includes("\0")))) throw new Error("QA_WORKER_INPUT_INVALID");
 const artifactPath = item.artifactPath as string | undefined;
 const run = await inspectRun(root, qaRunId);
+assertQaHeadlessProfile(run, item.publisherFixture === true ? "publisher-e2e-v1" : "generic");
 const directory = join(root, qaRunId);
 const started = Date.now();
 try {

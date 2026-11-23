@@ -43,6 +43,23 @@ test("headless profile is bound to the original run across clients", async () =>
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("concurrent profile claims cannot create different runs for the same job", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-profile-race-"));
+  try {
+    const base = { ...manifest, authorizationDigest: null };
+    const results = await Promise.allSettled([
+      createOrInspectRun(root, { ...base, qaRunId: "generic-run" }, "generic"),
+      createOrInspectRun(root, { ...base, qaRunId: "fixture-run" }, "publisher-e2e-v1"),
+    ]);
+    const winner = results.find(result => result.status === "fulfilled" && result.value.created);
+    assert.ok(winner && winner.status === "fulfilled");
+    assert.equal(results.filter(result => result.status === "fulfilled" && result.value.created).length, 1);
+    const other = winner.value.run.headlessProfile === "generic" ? "publisher-e2e-v1" : "generic";
+    await assert.rejects(createOrInspectRun(root, { ...base, qaRunId: "retry-client" }, other), /QA_WORKER_PROFILE_MISMATCH/);
+    assert.equal(winner.value.run.dispatch, "NOT_DISPATCHED");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("legacy generic runs cannot be resumed as publisher fixtures", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-qa-legacy-profile-"));
   try {

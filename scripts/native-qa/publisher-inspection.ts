@@ -29,7 +29,8 @@ export async function inspectQaPublisher(root: string, qaRunId: string, callStat
   const current = await inspectRun(root, qaRunId);
   const fields = Object.keys(run.manifest) as Array<keyof QaRunManifest>;
   if (fields.some(key => current.manifest[key] !== run.manifest[key]) || current.dispatch !== run.dispatch
-    || current.publishJobId !== jobId || current.authorizationBinding !== run.authorizationBinding) throw new Error("QA_PUBLISH_STATUS_IDENTITY_MISMATCH");
+    || current.publishJobId !== jobId || current.authorizationBinding !== run.authorizationBinding
+    || current.headlessProfile !== run.headlessProfile) throw new Error("QA_PUBLISH_STATUS_IDENTITY_MISMATCH");
   if (unavailable || !value || typeof value !== "object" || Array.isArray(value)) return { ...base, nextAction: "status-unavailable" as const };
   const item = value as Record<string, unknown>;
   if (item.jobId !== jobId || item.artifactDigest !== run.manifest.artifactDigest) throw new Error("QA_PUBLISH_STATUS_IDENTITY_MISMATCH");

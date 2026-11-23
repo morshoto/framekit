@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { lstat, readFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { assertQaJobIndex, createOrInspectRun, inspectRun, type QaRunManifest } from "./run-store.js";
+import { assertQaHeadlessProfile, assertQaJobIndex, createOrInspectRun, inspectRun, type QaRunManifest } from "./run-store.js";
 import { headlessResults, type HeadlessResult } from "./headless-checks.js";
 
 const checkout = fileURLToPath(new URL("../../", import.meta.url));
@@ -42,7 +42,7 @@ async function launchHeadlessWorker(root: string, qaRunId: string, input: string
 export async function startQaRun(root: string, manifest: QaRunManifest, artifactPath?: string, options: { publisherFixture?: boolean } = {}) {
   const input = workerInput(artifactPath, options.publisherFixture === true);
   const boundRoot = resolve(root);
-  const outcome = await createOrInspectRun(boundRoot, manifest);
+  const outcome = await createOrInspectRun(boundRoot, manifest, options.publisherFixture === true ? "publisher-e2e-v1" : "generic");
   if (outcome.created) await launchHeadlessWorker(boundRoot, outcome.run.manifest.qaRunId, input);
   return outcome;
 }
@@ -52,6 +52,7 @@ export async function resumeHeadlessQaRun(root: string, qaRunId: string, artifac
   const input = workerInput(artifactPath, options.publisherFixture === true);
   const boundRoot = resolve(root);
   const run = await inspectRun(boundRoot, qaRunId);
+  assertQaHeadlessProfile(run, options.publisherFixture === true ? "publisher-e2e-v1" : "generic");
   if (run.dispatch !== "NOT_DISPATCHED") throw new Error("QA_DISPATCH_ALREADY_CLAIMED");
   await assertQaJobIndex(boundRoot, run.manifest);
   const evidence = await readQaEvidence(boundRoot, qaRunId);

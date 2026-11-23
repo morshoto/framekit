@@ -17,11 +17,13 @@ export interface QaRunManifest {
   operation: "rough-cut-publish";
   authorizationDigest: string | null;
 }
+export type QaHeadlessProfile = "generic" | "publisher-e2e-v1";
 export interface QaRun {
   schemaVersion: 1;
   manifest: QaRunManifest;
   dispatch: "NOT_DISPATCHED" | "UNKNOWN_AFTER_DISPATCH";
   verdict: "BLOCKED";
+  headlessProfile?: QaHeadlessProfile;
   publishJobId?: string;
   authorizationBinding?: string;
 }
@@ -64,7 +66,10 @@ export async function inspectRun(root: string, qaRunId: string): Promise<QaRun> 
     const value: unknown = JSON.parse(await readFile(join(root, qaRunId, "run.json"), "utf8"));
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid");
     let run = value as QaRun;
-    if (Object.keys(run).length !== 4 || run.schemaVersion !== 1 || run.dispatch !== "NOT_DISPATCHED" || run.verdict !== "BLOCKED") throw new Error("invalid");
+    const keys = Object.keys(run).sort().join(",");
+    if ((keys !== "dispatch,manifest,schemaVersion,verdict" && keys !== "dispatch,headlessProfile,manifest,schemaVersion,verdict")
+      || (run.headlessProfile !== undefined && run.headlessProfile !== "generic" && run.headlessProfile !== "publisher-e2e-v1")
+      || run.schemaVersion !== 1 || run.dispatch !== "NOT_DISPATCHED" || run.verdict !== "BLOCKED") throw new Error("invalid");
     validateManifest(run.manifest);
     if (run.manifest.qaRunId !== qaRunId) throw new Error("invalid");
     try {
@@ -154,10 +159,16 @@ async function reserveIndex(root: string, name: string, runId: string): Promise<
   return undefined;
 }
 
+/** Old records without a profile are generic; they cannot be upgraded to a fixture profile. */
+export function assertQaHeadlessProfile(run: QaRun, profile: QaHeadlessProfile): void {
+  if ((run.headlessProfile ?? "generic") !== profile) throw new Error("QA_WORKER_PROFILE_MISMATCH");
+}
+
 /** Creates only a blocked record. It never initiates or resumes a native operation. */
-export async function createOrInspectRun(root: string, manifest: QaRunManifest): Promise<{ created: boolean; run: QaRun }> {
+export async function createOrInspectRun(root: string, manifest: QaRunManifest, headlessProfile?: QaHeadlessProfile): Promise<{ created: boolean; run: QaRun }> {
   const bound = structuredClone(manifest);
   validateManifest(bound);
+  if (headlessProfile !== undefined && headlessProfile !== "generic" && headlessProfile !== "publisher-e2e-v1") throw new Error("QA_WORKER_PROFILE_INVALID");
   await assertPrivateRoot(root);
   const directory = join(root, bound.qaRunId);
   const inspectMatching = async (runId: string): Promise<{ created: false; run: QaRun }> => {
@@ -168,6 +179,7 @@ export async function createOrInspectRun(root: string, manifest: QaRunManifest):
       ? run.manifest.authorizationDigest !== null
       : recordedDigest !== bound.authorizationDigest;
     if (changed || authorizationChanged) throw new Error("QA_RUN_IDENTITY_MISMATCH");
+    if (headlessProfile !== undefined) assertQaHeadlessProfile(run, headlessProfile);
     return { created: false, run };
   };
   try {
@@ -199,7 +211,7 @@ export async function createOrInspectRun(root: string, manifest: QaRunManifest):
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     return inspectMatching(bound.qaRunId);
   }
-  const run: QaRun = { schemaVersion: 1, manifest: bound, dispatch: "NOT_DISPATCHED", verdict: "BLOCKED" };
+  const run: QaRun = { schemaVersion: 1, manifest: bound, dispatch: "NOT_DISPATCHED", verdict: "BLOCKED", ...(headlessProfile === undefined ? {} : { headlessProfile }) };
   const file = await open(join(directory, "run.json"), "wx", 0o600);
   try { await file.writeFile(JSON.stringify(run) + "\n"); await file.sync(); }
   finally { await file.close(); }
