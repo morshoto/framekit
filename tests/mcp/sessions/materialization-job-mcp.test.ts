@@ -1076,7 +1076,7 @@ test("invalid provenance is checked before the unavailable-provider shortcut", a
 });
 
 
-test("simulated lost reply retains a reservation through MCP reconnect", async () => {
+test("simulated-native: lost reply retains a reservation through MCP reconnect", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-simulated-receiver-"));
   const path = join(directory, "recovery.json");
   const receiver = new ScriptedNativeReceiver([{ kind: "lose-response" }]);

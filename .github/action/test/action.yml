@@ -39,6 +39,10 @@ runs:
       shell: bash
       run: pnpm run test:codex-plugin
 
+    - name: Run simulated-native tests
+      shell: bash
+      run: pnpm run test:simulated-native
+
     - name: Run unit and integration tests
       id: deterministic-tests
       if: ${{ inputs.validation-level != 'fast' }}

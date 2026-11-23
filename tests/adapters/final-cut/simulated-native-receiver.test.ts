@@ -7,7 +7,7 @@ const request = {
   operationId: "operation-1", targetId: "target-1", sourceDigest: "a".repeat(64), desiredDigest: "c".repeat(64), revisionId: "revision-1",
 };
 
-test("simulation records deterministic identity and ordered dispatch events", async () => {
+test("simulated-native: simulation records deterministic identity and ordered dispatch events", async () => {
   const receiver = new ScriptedNativeReceiver([{ kind: "accept" }]);
   assert.deepEqual(await receiver.dispatch(request), { state: "accepted" });
   assert.deepEqual(receiver.trace(), [
@@ -17,7 +17,7 @@ test("simulation records deterministic identity and ordered dispatch events", as
   assert.equal(receiver.evidenceTier, "simulated-native");
 });
 
-test("lost responses remain uncertain across restart and duplicate delivery", async () => {
+test("simulated-native: lost responses remain uncertain across restart and duplicate delivery", async () => {
   const receiver = new ScriptedNativeReceiver([{ kind: "lose-response" }]);
   assert.deepEqual(await receiver.dispatch(request), { state: "uncertain" });
   const restarted = receiver.restart();
@@ -26,7 +26,7 @@ test("lost responses remain uncertain across restart and duplicate delivery", as
   await assert.rejects(restarted.dispatch({ ...request, targetId: "other" }), /IDENTITY_MISMATCH/);
 });
 
-test("stalled requests and late replies are explicitly controlled", async () => {
+test("simulated-native: stalled requests and late replies are explicitly controlled", async () => {
   const receiver = new ScriptedNativeReceiver([{ kind: "stall" }]);
   const pending = receiver.dispatch(request);
   assert.deepEqual(receiver.trace().map(event => event.kind), ["dispatch", "stalled"]);
@@ -35,14 +35,14 @@ test("stalled requests and late replies are explicitly controlled", async () => 
   assert.deepEqual(receiver.trace().map(event => event.kind), ["dispatch", "stalled", "rejected"]);
 });
 
-test("disconnect before dispatch records no receiver action", async () => {
+test("simulated-native: disconnect before dispatch records no receiver action", async () => {
   const receiver = new ScriptedNativeReceiver([{ kind: "disconnect-before-dispatch" }]);
   assert.deepEqual(await receiver.dispatch(request), { state: "not-dispatched" });
   assert.deepEqual(receiver.trace().map(event => event.kind), ["disconnected"]);
   assert.deepEqual(receiver.restart().inspect(request.operationId), { state: "not-dispatched" });
 });
 
-test("duplicate operation identities reject changed source and revision", async () => {
+test("simulated-native: duplicate operation identities reject changed source and revision", async () => {
   const receiver = new ScriptedNativeReceiver([{ kind: "lose-response" }]);
   await receiver.dispatch(request);
   await assert.rejects(receiver.dispatch({ ...request, sourceDigest: "b".repeat(64) }), /IDENTITY_MISMATCH/);
@@ -50,7 +50,7 @@ test("duplicate operation identities reject changed source and revision", async 
   assert.equal(receiver.trace().filter(event => event.kind === "dispatch").length, 1);
 });
 
-test("a lost response can arrive late without another dispatch", async () => {
+test("simulated-native: a lost response can arrive late without another dispatch", async () => {
   const receiver = new ScriptedNativeReceiver([{ kind: "lose-response" }]);
   assert.deepEqual(await receiver.dispatch(request), { state: "uncertain" });
   receiver.reply(request.operationId, "accepted");
@@ -58,7 +58,7 @@ test("a lost response can arrive late without another dispatch", async () => {
   assert.equal(receiver.trace().filter(event => event.kind === "dispatch").length, 1);
 });
 
-test("serialized receiver state restores without replaying dispatch", async () => {
+test("simulated-native: serialized receiver state restores without replaying dispatch", async () => {
   const receiver = new ScriptedNativeReceiver([{ kind: "lose-response" }]);
   await receiver.dispatch(request);
   const persisted = JSON.stringify(receiver.snapshot());
@@ -70,7 +70,7 @@ test("serialized receiver state restores without replaying dispatch", async () =
   assert.equal(restored.trace().filter(event => event.kind === "dispatch").length, 1);
 });
 
-test("restoring a stalled receiver does not invent a terminal outcome", async () => {
+test("simulated-native: restoring a stalled receiver does not invent a terminal outcome", async () => {
   const receiver = new ScriptedNativeReceiver([{ kind: "stall" }]);
   const pending = receiver.dispatch(request);
   const restored = ScriptedNativeReceiver.restore(JSON.parse(JSON.stringify(receiver.snapshot())));
@@ -83,7 +83,7 @@ test("restoring a stalled receiver does not invent a terminal outcome", async ()
 });
 
 
-test("a separate process restores uncertainty without dispatching again", async () => {
+test("simulated-native: a separate process restores uncertainty without dispatching again", async () => {
   const receiver = new ScriptedNativeReceiver([{ kind: "lose-response" }]);
   await receiver.dispatch(request);
   const script = `import { ScriptedNativeReceiver } from "./tests/support/simulated-native-receiver.ts";

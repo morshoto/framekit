@@ -74,6 +74,12 @@ compatibility check retains Xcode 16.4 / SDK 15.5. Hosted validation lists the
 project and type-checks the Swift source against a shim; it does not build the
 extension or validate headed Final Cut behavior.
 
+For fast offline native-boundary regression checks, run `pnpm run test:simulated-native`.
+It uses the isolated test runner and a scripted receiver; its `simulated-native`
+results do not establish real Final Cut dispatch terminality, reservation
+release, canonical readback, Undo, or headed acceptance. The PR test action
+runs this command separately from native acceptance.
+
 For native source changes, also run:
 
 ```sh
