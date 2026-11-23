@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -150,5 +151,21 @@ test("uncertainty recording binds the input snapshot before asynchronous work", 
     const pending = markDispatchUncertain(root, supplied);
     supplied.authorizationDigest = "9".repeat(64);
     assert.equal((await pending).dispatch, "UNKNOWN_AFTER_DISPATCH");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+
+test("uncertain state survives a separate process exit", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-process-"));
+  try {
+    const script = `import { createOrInspectRun, markDispatchUncertain } from "./scripts/native-qa/run-store.ts";
+      let text = ""; process.stdin.setEncoding("utf8"); for await (const chunk of process.stdin) text += chunk;
+      const manifest = JSON.parse(text); await createOrInspectRun(process.argv[1], manifest); await markDispatchUncertain(process.argv[1], manifest);`;
+    const child = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script, root], { input: JSON.stringify(manifest), encoding: "utf8" });
+    assert.equal(child.status, 0, child.stderr);
+    const observed = await inspectRun(root, manifest.qaRunId);
+    assert.equal(observed.dispatch, "UNKNOWN_AFTER_DISPATCH");
+    assert.equal(observed.verdict, "BLOCKED");
+    assert.equal((await createOrInspectRun(root, manifest)).created, false);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
