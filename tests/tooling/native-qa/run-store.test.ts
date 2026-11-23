@@ -11,6 +11,7 @@ import { runPublishStages } from "../../../scripts/final-cut-publisher-verificat
 import { readQaEvidence, resumeHeadlessQaRun, startQaRun } from "../../../scripts/native-qa/supervisor.js";
 import { publishQaRecord } from "../../../scripts/native-qa/atomic-record.js";
 import { readQaArtifactEvidence, verifyQaArtifact } from "../../../scripts/native-qa/artifact-evidence.js";
+import { inspectQaPublisher } from "../../../scripts/native-qa/publisher-inspection.js";
 
 const manifest = {
   qaRunId: "qa-fixture-1", candidateCommit: "a".repeat(40), candidateTree: "b".repeat(40),
@@ -949,5 +950,65 @@ test("oversized encoded worker input is rejected before recording a run", async 
     const path = "/" + "\u0001".repeat(3000);
     await assert.rejects(startQaRun(root, unapproved, path), /QA_ARTIFACT_UNSAFE/);
     await assert.rejects(lstat(join(root, unapproved.qaRunId)), (error: NodeJS.ErrnoException) => error.code === "ENOENT");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+
+test("publisher inspection reads only status and sanitizes private fields", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-publish-inspect-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    await claimDispatchIntent(root, manifest, "publish-job-1");
+    const calls: Array<{ name: string; args: unknown }> = [];
+    const observed = await inspectQaPublisher(root, manifest.qaRunId, async (name, args) => {
+      calls.push({ name, args });
+      return { jobId: "publish-job-1", state: "verification-pending", nextAction: "confirm-verification", sourcePath: "sensitive-value", result: { verified: true } };
+    });
+    assert.deepEqual(calls, [{ name: "artifact.publish.status", args: { jobId: "publish-job-1" } }]);
+    assert.equal(observed.dispatch, "UNKNOWN_AFTER_DISPATCH");
+    assert.equal(observed.verdict, "BLOCKED");
+    assert.equal(observed.observedState, "verification-pending");
+    assert.equal(observed.nextAction, "verification-authorization-required");
+    assert.equal(JSON.stringify(observed).includes("sensitive-value"), false);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("publisher status never makes verified or failed observations replayable", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-publish-status-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    await claimDispatchIntent(root, manifest, "publish-job-1");
+    for (const state of ["awaiting-confirmation", "awaiting-final-cut", "verified", "failed"]) {
+      const result = await inspectQaPublisher(root, manifest.qaRunId, async () => ({ jobId: "publish-job-1", state }));
+      assert.equal(result.dispatch, "UNKNOWN_AFTER_DISPATCH");
+      assert.equal(result.verdict, "BLOCKED");
+      assert.equal(result.nextAction, state === "verified" ? "independent-readback-required" : "inspect-recovery");
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("publisher inspection rejects mismatched identity and handles unavailable status", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-publish-unavailable-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    await claimDispatchIntent(root, manifest, "publish-job-1");
+    await assert.rejects(inspectQaPublisher(root, manifest.qaRunId, async () => ({ jobId: "other-job", state: "verified" })), /QA_PUBLISH_STATUS_IDENTITY_MISMATCH/);
+    const unavailable = await inspectQaPublisher(root, manifest.qaRunId, async () => { throw new Error("sensitive-value"); });
+    assert.equal(unavailable.nextAction, "status-unavailable");
+    assert.equal(unavailable.verdict, "BLOCKED");
+    assert.equal(JSON.stringify(unavailable).includes("sensitive-value"), false);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("publisher inspection never queries without a recorded job ID", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-publish-no-job-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    let calls = 0;
+    const call = async () => { calls++; return {}; };
+    assert.equal((await inspectQaPublisher(root, manifest.qaRunId, call)).nextAction, "headless-preflight");
+    await markDispatchUncertain(root, manifest);
+    assert.equal((await inspectQaPublisher(root, manifest.qaRunId, call)).nextAction, "job-id-unavailable");
+    assert.equal(calls, 0);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
