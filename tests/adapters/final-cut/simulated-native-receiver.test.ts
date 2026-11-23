@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { ScriptedNativeReceiver, assertSingleSimulatedDispatch, simulatedTargetIdentity } from "../../support/simulated-native-receiver.js";
+import { ScriptedNativeReceiver, assertSingleSimulatedDispatch, simulatedTargetIdentity, writeSimulatedEvidence } from "../../support/simulated-native-receiver.js";
 import { loadNativeEditingManifest, summarizeHeadedEvidence } from "../../../scripts/release/gate/native-editing.js";
 
 const request = {
@@ -148,6 +148,7 @@ test("simulated-native: receiver crash after dispatch remains uncertain after re
   const restored = ScriptedNativeReceiver.restore(JSON.parse(JSON.stringify(receiver.snapshot())));
   assert.deepEqual(await restored.dispatch(request), { state: "uncertain" });
   assertSingleSimulatedDispatch(restored.trace(), request.operationId);
+  await writeSimulatedEvidence(restored, "receiver-crash", { uncertain: true, noReplay: true });
 });
 
 

@@ -49,7 +49,7 @@ runs:
     - name: Check simulated-native evidence coverage
       shell: bash
       run: |
-        for scenario in lost-reply wrong-target partial-write disconnect-before-dispatch concurrent-clients undo-failure mcp-process-restart; do
+        for scenario in lost-reply wrong-target partial-write disconnect-before-dispatch concurrent-clients undo-failure mcp-process-restart receiver-crash; do
           test -s "$RUNNER_TEMP/simulated-native/$scenario.json" || { echo "Missing simulation evidence: $scenario" >&2; exit 1; }
         done
 
