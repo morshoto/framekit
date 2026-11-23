@@ -42,6 +42,10 @@ export async function verifyQaArtifact(root: string, qaRunId: string, artifactPa
   const run = await inspectRun(root, qaRunId);
   await assertQaJobIndex(root, run.manifest);
   if (typeof artifactPath !== "string" || !isAbsolute(artifactPath)) throw new Error("QA_ARTIFACT_UNSAFE");
+  let initial;
+  try { initial = await lstat(artifactPath, { bigint: true }); }
+  catch { throw new Error("QA_ARTIFACT_UNSAFE"); }
+  if (!initial.isFile() || initial.isSymbolicLink() || initial.size > maxArtifactBytes) throw new Error("QA_ARTIFACT_UNSAFE");
   let file;
   try { file = await open(artifactPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
   catch { throw new Error("QA_ARTIFACT_UNSAFE"); }
@@ -49,6 +53,8 @@ export async function verifyQaArtifact(root: string, qaRunId: string, artifactPa
   try {
     const before = await file.stat({ bigint: true });
     if (!before.isFile() || before.size > maxArtifactBytes) throw new Error("QA_ARTIFACT_UNSAFE");
+    if (before.dev !== initial.dev || before.ino !== initial.ino || before.size !== initial.size
+      || before.mtimeNs !== initial.mtimeNs || before.ctimeNs !== initial.ctimeNs) throw new Error("QA_ARTIFACT_CHANGED");
     const hash = createHash("sha256");
     const buffer = Buffer.allocUnsafe(64 * 1024);
     let bytesRead: number;
