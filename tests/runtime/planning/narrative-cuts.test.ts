@@ -120,3 +120,21 @@ test("rejects a pause when VAD does not corroborate the surrounding speech", () 
   const silenceOnly = { ...input, analysis: { ...input.analysis, vadSegments: [{ kind: "silence" as const, start: 1, end: 3 }] } };
   assert.equal(rankNarrativeCuts(silenceOnly).candidates.length, 0);
 });
+
+test("adjusted cuts must stay inside the freshly recomputed safe candidate", async () => {
+  const { adjustNarrativeCut } = await import("../../../packages/runtime/src/planning/narrative-cuts.js");
+  const candidate = rankNarrativeCuts(input).candidates[0]!;
+  const adjusted = { start: 21.5, end: 22.5, startTime: { value: "215", timescale: "10" }, durationTime: { value: "10", timescale: "10" } };
+  const result = adjustNarrativeCut(input, candidate, adjusted);
+  assert.equal(result.reviewRequired, true);
+  assert.equal(result.sourceRange.start, 1.5);
+  assert.equal(result.sourceRange.end, 2.5);
+  assert.deepEqual(result.sequenceRange, adjusted);
+  assert.ok(result.sourceRange.startTime && result.sourceRange.durationTime);
+  assert.throws(() => adjustNarrativeCut(input, candidate, { ...adjusted, start: 21, startTime: { value: "21", timescale: "1" }, durationTime: { value: "15", timescale: "10" } }), /UNSAFE|INVALID/);
+  assert.throws(() => adjustNarrativeCut(input, candidate, { ...adjusted, start: 21.51, startTime: { value: "2151", timescale: "100" }, durationTime: { value: "99", timescale: "100" } }), /FRAME|INVALID/);
+  assert.throws(() => adjustNarrativeCut(input, candidate, { ...adjusted, end: 22.6 }), /INVALID/);
+  assert.throws(() => adjustNarrativeCut({ ...input, revision: { ...revision, sequence: 2 } }, candidate, adjusted), /STALE/);
+  const protectedInput = { ...input, analysis: { ...input.analysis, protectedSegments: [{ kind: "speech" as const, start: 2, end: 2.1 }] } };
+  assert.throws(() => adjustNarrativeCut(protectedInput, candidate, adjusted), /STALE|UNSAFE/);
+});
