@@ -184,6 +184,15 @@ test("clean package analyzes registered headless media with configured providers
     const changedDuringAnalysis = await client.callTool({ name: "media.understand", arguments: { projectId, mediaId } });
     assert.equal(changedDuringAnalysis.isError, true);
     assert.match(JSON.stringify(changedDuringAnalysis.content), /MEDIA_CHANGED|ANALYZER_SOURCE_CHANGED/);
+    await writeFile(source, original);
+    await client.close(); await transport.close();
+    transport = new StdioClientTransport({ command: executable, args: ["mcp", "--editor", "final-cut-live", "--headless"], cwd: directory,
+      env: { ...environment, FRAMEKIT_SPEECH_BACKEND: "" }, stderr: "pipe" });
+    client = new Client({ name: "package-analysis-missing-setup", version: "1" }); await client.connect(transport);
+    const unavailable = await client.callTool({ name: "speech.analyze", arguments: { projectId, mediaId } });
+    assert.equal(unavailable.isError, true);
+    assert.match(JSON.stringify(unavailable.content), /SPEECH_ANALYZER_SETUP_REQUIRED/);
+    assert.doesNotMatch(JSON.stringify(unavailable.content), /\n\s+at /);
   } finally { await client?.close(); await transport?.close(); await rm(directory, { recursive: true, force: true }); }
 });
 

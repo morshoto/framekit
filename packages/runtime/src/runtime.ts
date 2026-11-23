@@ -281,8 +281,16 @@ export class AgentVideoRuntime {
     return this.media.analyzeSpeech(mediaId, range);
   }
 
+  public async analyzeSpeechInProject(mediaId: string, project: ProjectSnapshot, range?: TimeRange): Promise<SpeechAnalysis> {
+    return this.media.analyzeSpeechInProject(mediaId, project, range);
+  }
+
   public async analyzeAudio(mediaId: string, range?: TimeRange): Promise<AudioAnalysis> {
     return this.media.analyzeAudio(mediaId, range);
+  }
+
+  public async analyzeAudioInProject(mediaId: string, project: ProjectSnapshot, range?: TimeRange): Promise<AudioAnalysis> {
+    return this.media.analyzeAudioInProject(mediaId, project, range);
   }
 
   public async analyzeNoise(mediaId: string, range?: TimeRange): Promise<NoiseAnalysis> {

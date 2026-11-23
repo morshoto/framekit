@@ -290,6 +290,13 @@ standard output. `FRAMEKIT_ANALYZER_TIMEOUT_MS` changes the bounded provider
 timeout. Missing providers report unavailable analysis; they do not invent
 media descriptions.
 
+For a Framekit-owned headless project, pass its `projectId` and a registered
+`mediaId` to `speech.analyze`, `audio.analyze`, or `media.understand`. Speech
+and audio also accept an optional source-relative `range`. The project is
+reopened before and after analysis, so an observed missing or changed source or
+project revision fails the request. This is a source-file check, not proof of
+native Final Cut occurrence identity or continuous filesystem fencing.
+
 Pin speech and audio provider/model revisions with
 `FRAMEKIT_SPEECH_ANALYZER_VERSION` and `FRAMEKIT_AUDIO_ANALYZER_VERSION`.
 Command providers capture their execution environment and report a
@@ -333,6 +340,13 @@ The existing Whisper backend can optionally run local Silero VAD. Install
 `FRAMEKIT_SILERO_VAD_MODEL` plus its required SHA-256 in
 `FRAMEKIT_SILERO_VAD_SHA256`; the backend never downloads a model. Include the
 package/model/backend revisions in `FRAMEKIT_SPEECH_ANALYZER_VERSION`.
+For an npm installation, the executables are under
+`node_modules/@morshoto/framekit/dist-package/apps/mcp-server/runtime/`:
+set `FRAMEKIT_SPEECH_ANALYZER` to `speech-analyzer-wrapper.mjs`,
+`FRAMEKIT_SPEECH_BACKEND` to `whisper-speech-backend.py`, and
+`FRAMEKIT_AUDIO_ANALYZER` to `ffmpeg-audio-backend.py`. Put the Python
+environment containing the selected Whisper and optional Silero dependencies
+on `PATH`, and set `FRAMEKIT_WHISPER_MODEL` to a locally prepared model.
 FFmpeg decodes the first audio stream to mono 16 kHz. The detector uses threshold
 0.5, 250 ms minimum speech, 100 ms minimum silence and 30 ms speech padding.
 Detected sample intervals are validated and clipped to the requested source
