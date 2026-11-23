@@ -111,3 +111,27 @@ test("missing optional evidence stays explicit without inventing cuts or caption
     assert.equal((await createEditDecisionPlan(incompletePair, f.artifacts, verifyLocalMediaSource)).status, "unavailable");
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
+
+test("music proposal preserves the requested source, range and gain without claiming native support", async () => {
+  const f = await fixture();
+  try {
+    const music = { mediaId: "music", source: "music.wav", sourceDigest: "sha256:music", mediaKind: "audio" as const, duration: 10 };
+    const snapshot = { ...f.request.snapshot, media: [...f.request.snapshot.media, music] };
+    const musicBrief = { ...f.request.brief, musicPolicy: { kind: "specified" as const, value: "background" } };
+    const request = { ...f.request, snapshot, brief: musicBrief, accepted: acceptCreativeBrief(musicBrief), music: { ...f.request.music, music, gainDb: -18, capabilities: { ...f.request.music.capabilities, staticMusicPreview: true } } };
+    const result = await createEditDecisionPlan(request, f.artifacts, verifyLocalMediaSource);
+    assert.equal(result.status, "available");
+    if (result.status === "available") {
+      const decision = result.plan.decisions.find((item) => item.kind === "music-proposal");
+      assert.equal(decision?.kind, "music-proposal");
+      if (decision?.kind === "music-proposal") {
+        assert.equal(decision.support, "unavailable");
+        assert.equal(decision.musicPlan.placement?.sourceDigest, music.sourceDigest);
+        assert.equal(decision.musicPlan.placement?.gainDb, -18);
+        assert.deepEqual(decision.range, { start: 0, end: 5 });
+      }
+      const tampered = structuredClone(result.plan); tampered.planDigest = "sha256:tampered";
+      assert.equal((await assertEditDecisionPlanCurrent(request, tampered, f.artifacts, verifyLocalMediaSource)).status, "stale");
+    }
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
