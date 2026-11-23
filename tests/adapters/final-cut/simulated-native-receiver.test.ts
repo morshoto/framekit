@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { ScriptedNativeReceiver, assertSingleSimulatedDispatch } from "../../support/simulated-native-receiver.js";
+import { ScriptedNativeReceiver, assertSingleSimulatedDispatch, simulatedTargetIdentity } from "../../support/simulated-native-receiver.js";
 import { loadNativeEditingManifest, summarizeHeadedEvidence } from "../../../scripts/release/gate/native-editing.js";
 
 const request = {
@@ -148,4 +148,16 @@ test("simulated-native: receiver crash after dispatch remains uncertain after re
   const restored = ScriptedNativeReceiver.restore(JSON.parse(JSON.stringify(receiver.snapshot())));
   assert.deepEqual(await restored.dispatch(request), { state: "uncertain" });
   assertSingleSimulatedDispatch(restored.trace(), request.operationId);
+});
+
+
+test("simulated-native: incomplete duplicate identity is rejected", async () => {
+  const receiver = new ScriptedNativeReceiver([{ kind: "accept" }]);
+  await receiver.dispatch(request);
+  const { desiredDigest: _omitted, ...incomplete } = request;
+  await assert.rejects(receiver.dispatch(incomplete as typeof request), /SIMULATED_IDENTITY_MISMATCH/);
+});
+
+test("simulated-native: target tuple encoding is unambiguous", () => {
+  assert.notEqual(simulatedTargetIdentity(["a/b", "c", "d", "e"]), simulatedTargetIdentity(["a", "b/c", "d", "e"]));
 });
