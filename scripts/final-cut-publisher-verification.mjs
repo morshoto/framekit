@@ -80,8 +80,14 @@ export async function runPublishStages(call, input, onStage, beforeDispatch = as
     || !proofDigests.every((item) => typeof item.source === "string" && item.source.length > 0 && /^[a-f0-9]{64}$/.test(item.sha256 ?? "")))) {
     throw new Error("PUBLISH_SOURCE_PROOF_INCOMPLETE: the fixture requires four distinct hashed media sources");
   }
-  onStage("prepared", preview);
+  await onStage("prepared", preview);
   await beforeDispatch(preview.jobId);
+  const recordAfterDispatch = async (stage, snapshot, code) => {
+    try { await onStage(stage, snapshot); }
+    catch (cause) {
+      throw new Error(`${code}: job ${preview.jobId}; stage recording failed; inspect status and do not redispatch`, { cause });
+    }
+  };
   let dispatched;
   try {
     dispatched = await call("artifact.publish.execute", { jobId: preview.jobId, confirm: true });
@@ -90,11 +96,15 @@ export async function runPublishStages(call, input, onStage, beforeDispatch = as
   }
   if (dispatched.jobId !== preview.jobId || dispatched.state !== "verification-pending"
     || dispatched.nextAction !== "confirm-verification" || dispatched.delivery?.status !== "dispatched") {
-    onStage("dispatch-unconfirmed", dispatched);
+    await recordAfterDispatch("dispatch-unconfirmed", dispatched, "PUBLISH_DISPATCH_UNCERTAIN");
     throw new Error(`PUBLISH_DISPATCH_INCOMPLETE: job ${preview.jobId} is ${dispatched.state} (${dispatched.error?.code ?? "unconfirmed"}); inspect status and do not redispatch`);
   }
-  onStage("dispatched", dispatched);
-  const verified = await call("artifact.publish.execute", { jobId: preview.jobId, confirm: true, confirmVerification: true });
+  await recordAfterDispatch("dispatched", dispatched, "PUBLISH_DISPATCH_UNCERTAIN");
+  let verified;
+  try { verified = await call("artifact.publish.execute", { jobId: preview.jobId, confirm: true, confirmVerification: true }); }
+  catch (cause) {
+    throw new Error(`PUBLISH_VERIFICATION_INCOMPLETE: job ${preview.jobId}; inspect status and do not redispatch`, { cause });
+  }
   if (verified.jobId !== preview.jobId || verified.state !== "verified" || verified.result?.verified !== true) {
     throw new Error(`PUBLISH_VERIFICATION_INCOMPLETE: job ${preview.jobId} is ${verified.state}; inspect status without redispatching`);
   }
@@ -107,10 +117,10 @@ export async function runPublishStages(call, input, onStage, beforeDispatch = as
   }
   const recoveryReservation = verified.recoveryReservation ?? dispatched.recoveryReservation;
   if (recoveryReservation) {
-    onStage("verification-recovery-required", { ...verified, recoveryReservation });
+    await recordAfterDispatch("verification-recovery-required", { ...verified, recoveryReservation }, "PUBLISH_RECOVERY_REQUIRED");
     throw new Error(`PUBLISH_RECOVERY_REQUIRED: job ${preview.jobId} has verified readback but native quiescence is unproven; retain the reservation and do not redispatch`);
   }
-  onStage("verified", verified);
+  await recordAfterDispatch("verified", verified, "PUBLISH_EVIDENCE_INCOMPLETE");
   return verified;
 }
 

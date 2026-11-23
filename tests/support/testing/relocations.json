@@ -3084,6 +3084,12 @@
   },
   "recordedAtCommit": "37a92fa1",
   "addedTestNames": {
+    "tests/integration/publisher-e2e.test.ts": [
+      "\"publisher waits for asynchronous stage recording before proceeding\"",
+      "\"publisher never starts verification when recording dispatch fails\"",
+      "\"publisher never treats failed verified-stage recording as permission to redispatch\"",
+      "\"publisher reports lost verification response without allowing redispatch\""
+    ],
     "tests/integration/mcp.test.ts": [
       "\"MCP preserves omitted opaque input behavior across SDK migration\"",
       "\"all tools with required root inputs reject empty arguments\"",
