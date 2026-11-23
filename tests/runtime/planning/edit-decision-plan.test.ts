@@ -145,3 +145,9 @@ test("unsupported nonzero frame-grid origin cannot produce a plan", async () => 
     assert.equal(result.status, "unavailable");
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
+
+test("edit decision planning is exposed through the runtime package", async () => {
+  const runtime = await import("../../../packages/runtime/src/index.js");
+  assert.equal(typeof (runtime as Record<string, unknown>).createEditDecisionPlan, "function");
+  assert.equal(typeof (runtime as Record<string, unknown>).assertEditDecisionPlanCurrent, "function");
+});
