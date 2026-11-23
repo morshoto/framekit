@@ -196,6 +196,7 @@ test("clean package analyzes registered headless media with configured providers
     const changedDuringAnalysis = await client.callTool({ name: "media.understand", arguments: { projectId, mediaId } });
     assert.equal(changedDuringAnalysis.isError, true);
     assert.match(JSON.stringify(changedDuringAnalysis.content), /MEDIA_CHANGED|ANALYZER_SOURCE_CHANGED/);
+    await assert.rejects(readFile(join(directory, "state", "semantic-media-index.json")), (error: NodeJS.ErrnoException) => error.code === "ENOENT");
     await writeFile(source, original);
     await client.close(); await transport.close();
     transport = new StdioClientTransport({ command: executable, args: ["mcp", "--editor", "final-cut-live", "--headless"], cwd: directory,
