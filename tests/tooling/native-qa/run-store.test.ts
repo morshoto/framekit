@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { chmod, lstat, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -9,6 +10,7 @@ import { bindQaAuthorization, claimDispatchIntent, createOrInspectRun, inspectRu
 import { runPublishStages } from "../../../scripts/final-cut-publisher-verification.mjs";
 import { readQaEvidence, resumeHeadlessQaRun } from "../../../scripts/native-qa/supervisor.js";
 import { publishQaRecord } from "../../../scripts/native-qa/atomic-record.js";
+import { readQaArtifactEvidence, verifyQaArtifact } from "../../../scripts/native-qa/artifact-evidence.js";
 
 const manifest = {
   qaRunId: "qa-fixture-1", candidateCommit: "a".repeat(40), candidateTree: "b".repeat(40),
@@ -810,4 +812,42 @@ test("client loss before dispatch preserves a resumable headless run", async () 
     }
     await rm(root, { recursive: true, force: true });
   }
+});
+
+
+test("artifact verification records a sanitized digest snapshot without authorization", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-artifact-"));
+  try {
+    const path = join(root, "fixture.fcpxml");
+    const contents = "<fcpxml>fixture</fcpxml>\n";
+    await writeFile(path, contents);
+    const unapproved = { ...manifest, authorizationDigest: null, artifactDigest: createHash("sha256").update(contents).digest("hex") };
+    await createOrInspectRun(root, unapproved);
+    const evidence = await verifyQaArtifact(root, unapproved.qaRunId, path);
+    assert.equal(evidence.result, "digest-matched");
+    assert.equal(evidence.tier, "artifact");
+    assert.equal(evidence.artifactDigest, unapproved.artifactDigest);
+    assert.equal(evidence.dispatchAllowed, false);
+    assert.equal(JSON.stringify(evidence).includes(path), false);
+    assert.deepEqual(await readQaArtifactEvidence(root, unapproved.qaRunId), evidence);
+    assert.deepEqual(await verifyQaArtifact(root, unapproved.qaRunId, path), evidence);
+    await writeFile(path, "changed artifact");
+    await assert.rejects(verifyQaArtifact(root, unapproved.qaRunId, path), /QA_ARTIFACT_DIGEST_MISMATCH/);
+    assert.deepEqual(await readQaArtifactEvidence(root, unapproved.qaRunId), evidence);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("artifact mismatch and symlinks never create matching evidence", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-artifact-invalid-"));
+  try {
+    const path = join(root, "fixture.fcpxml");
+    const link = join(root, "fixture-link.fcpxml");
+    await writeFile(path, "unapproved");
+    await symlink(path, link);
+    const unapproved = { ...manifest, authorizationDigest: null };
+    await createOrInspectRun(root, unapproved);
+    await assert.rejects(verifyQaArtifact(root, unapproved.qaRunId, path), /QA_ARTIFACT_DIGEST_MISMATCH/);
+    await assert.rejects(verifyQaArtifact(root, unapproved.qaRunId, link), /QA_ARTIFACT_UNSAFE/);
+    assert.equal(await readQaArtifactEvidence(root, unapproved.qaRunId), null);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
