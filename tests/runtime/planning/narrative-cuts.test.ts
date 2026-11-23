@@ -138,3 +138,13 @@ test("adjusted cuts must stay inside the freshly recomputed safe candidate", asy
   const protectedInput = { ...input, analysis: { ...input.analysis, protectedSegments: [{ kind: "speech" as const, start: 2, end: 2.1 }] } };
   assert.throws(() => adjustNarrativeCut(protectedInput, candidate, adjusted), /STALE|UNSAFE/);
 });
+
+test("adjustment rejects unchanged geometry when target or transcript evidence changes", async () => {
+  const { adjustNarrativeCut } = await import("../../../packages/runtime/src/planning/narrative-cuts.js");
+  const candidate = rankNarrativeCuts(input).candidates[0]!;
+  const adjusted = { start: 21.5, end: 22.5, startTime: { value: "215", timescale: "10" }, durationTime: { value: "10", timescale: "10" } };
+  assert.throws(() => adjustNarrativeCut({ ...input, projectId: "other-project" }, candidate, adjusted), /STALE/);
+  assert.throws(() => adjustNarrativeCut({ ...input, timelineId: "other-timeline" }, candidate, adjusted), /STALE/);
+  const changedWords = [{ ...input.analysis.words[0]!, text: "Different." }, input.analysis.words[1]!];
+  assert.throws(() => adjustNarrativeCut({ ...input, analysis: { ...input.analysis, words: changedWords } }, candidate, adjusted), /STALE/);
+});
