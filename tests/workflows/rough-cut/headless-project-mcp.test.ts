@@ -1341,6 +1341,41 @@ test("headless project media can be understood and planned without a Final Cut c
   }
 });
 
+test("production headless analysis rejects source changes during the analyzer call", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-analysis-source-change-"));
+  const here = dirname(fileURLToPath(import.meta.url));
+  const sourcePath = join(directory, "source.mp4");
+  const stateDirectory = join(directory, "state");
+  const analyzer = await makeHeadlessSpeechAnalyzer(directory);
+  const program = await readFile(analyzer, "utf8");
+  await writeFile(analyzer, program.replace('const request = JSON.parse(input);',
+    'const request = JSON.parse(input);\nawait (await import("node:fs/promises")).appendFile(request.media.source, "changed");'));
+  const environment: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1",
+    FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0", FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"),
+    FRAMEKIT_STATE_DIR: stateDirectory, FRAMEKIT_SPEECH_ANALYZER: analyzer,
+    FRAMEKIT_SPEECH_ANALYZER_VERSION: "test-vad@1", FRAMEKIT_SPEECH_REQUIRE_VAD: "1",
+  };
+  let client: Client | undefined;
+  let transport: StdioClientTransport | undefined;
+  try {
+    await generateSegmentedSource(sourcePath, [{ color: "blue", duration: 5 }], 440);
+    ({ client, transport } = await connectProductionClient(here, environment));
+    const created = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: emptyTimeline() } }));
+    const projectId = created.timeline.project.id;
+    const registered = payload(await client.callTool({ name: "headless.media.register", arguments: {
+      projectId, sourcePath, expectedRevision: created.timeline.revision,
+    } }));
+    const result = await client.callTool({ name: "media.understand", arguments: { projectId, mediaId: registered.resource.id } });
+    assert.equal(result.isError, true);
+    assert.match(toolErrorText(result), /ANALYZER_SOURCE_CHANGED/);
+    assert.equal(existsSync(join(stateDirectory, "semantic-media-index.json")), false);
+  } finally {
+    await client?.close(); await transport?.close(); await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("production rough-cut MCP workflow previews and commits B-A-C video, title, and mixed music", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-issue-517-mvp-"));
   const here = dirname(fileURLToPath(import.meta.url));
