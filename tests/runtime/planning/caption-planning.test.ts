@@ -10,14 +10,14 @@ import { planCaptionGroups } from "../../../packages/runtime/src/planning/captio
 const revision = { id: "r1", sequence: 1, timestamp: "2026-01-01T00:00:00.000Z" };
 const provider = { id: "speech", provider: "fixture", version: "1", model: "model-v1", configurationDigest: "config-v1" };
 
-async function fixture() {
+async function fixture(words = [{ text: "Hello", start: 1, end: 1.4, confidence: 0.98 }, { text: "world.", start: 1.5, end: 2, confidence: 0.96 }, { text: "Again", start: 3, end: 3.4, confidence: 0.6 }]) {
   const dir = await mkdtemp(join(tmpdir(), "framekit-captions-"));
   const path = join(dir, "source.mov");
   await writeFile(path, "known source");
   const source = { mediaId: "m", source: path, sourceDigest: createHash("sha256").update("known source").digest("hex"), mediaKind: "video" as const, duration: 10 };
   const speech = { coverageProvenance: "provider" as const, schemaVersion: 1 as const, mediaId: "m", sourceIdentity: source, revision, provider,
     requestedRange: { start: 0, end: 10 }, observedRange: { start: 0, end: 10 }, sourceTimebase: { value: "1", timescale: "1000" }, capability: "transcription-only" as const,
-    words: [{ text: "Hello", start: 1, end: 1.4, confidence: 0.98 }, { text: "world.", start: 1.5, end: 2, confidence: 0.96 }, { text: "Again", start: 3, end: 3.4, confidence: 0.6 }] };
+    words };
   const record = { mediaId: "m", source: path, sourceIdentity: source, analysisRevision: revision, speech,
     semantic: { subjects: [], scenes: [], environments: [], timeOfDay: [], moods: [], usableRanges: [] },
     analysis: [{ capability: "speech" as const, status: "analyzed" as const, provenance: { source, analyzer: provider, ranges: [{ start: 0, end: 10 }] } }] };
@@ -70,5 +70,33 @@ test("trimmed boundaries and insufficient transcript coverage are explicit", asy
     const snapshot = { ...f.snapshot, timeline: { ...f.snapshot.timeline, clips: [crossing] } };
     const result = await planCaptionGroups({ ...f.request, snapshot }, f.ref, f.current, f.artifacts, verifyLocalMediaSource);
     assert.equal(result.status, "unavailable");
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+
+test("trim and repeated occurrences map source words independently", async () => {
+  const f = await fixture();
+  try {
+    const trimmed = { ...f.snapshot.timeline.clips[0]!, id: "trim", start: 10, startTime: { value: "10", timescale: "1" }, sourceStart: 1, sourceStartTime: { value: "1", timescale: "1" }, duration: 3, durationTime: { value: "3", timescale: "1" } };
+    const repeated = { ...f.snapshot.timeline.clips[0]!, id: "repeat", start: 0, startTime: { value: "0", timescale: "1" } };
+    const snapshot = { ...f.snapshot, timeline: { ...f.snapshot.timeline, clips: [trimmed, repeated] } };
+    const first = await planCaptionGroups({ ...f.request, snapshot, occurrenceId: "trim" }, f.ref, f.current, f.artifacts, verifyLocalMediaSource);
+    const second = await planCaptionGroups({ ...f.request, snapshot, occurrenceId: "repeat" }, f.ref, f.current, f.artifacts, verifyLocalMediaSource);
+    assert.equal(first.status, "available"); assert.equal(second.status, "available");
+    if (first.status === "available" && second.status === "available") {
+      assert.equal(first.plan.groups[0]!.words[0]!.sequenceRange.start, 10);
+      assert.equal(second.plan.groups[0]!.words[0]!.sequenceRange.start, 1);
+    }
+    const partial = { ...f.current, range: { start: 0, end: 2 } };
+    assert.equal((await planCaptionGroups({ ...f.request, snapshot, occurrenceId: "trim" }, f.ref, partial, f.artifacts, verifyLocalMediaSource)).status, "unavailable");
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test("overlapping frame-rounded groups are unavailable rather than silently shifted", async () => {
+  const f = await fixture([{ text: "First.", start: 1.01, end: 1.04, confidence: 0.9 }, { text: "Next", start: 1.05, end: 1.08, confidence: 0.9 }]);
+  try {
+    const result = await planCaptionGroups({ ...f.request, maxWordsPerGroup: 1 }, f.ref, f.current, f.artifacts, verifyLocalMediaSource);
+    assert.equal(result.status, "unavailable");
+    if (result.status === "unavailable") assert.match(result.reason, /overlap/i);
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
