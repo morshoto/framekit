@@ -32,7 +32,7 @@ async function fixture() {
   const request = { snapshot, projectId: "p", timelineId: "t", revision, occurrenceId: "clip", brief, accepted: acceptCreativeBrief(brief), speechRef, vadRef, speechContext, vadContext,
     caption: { style: "basic", maxWordsPerGroup: 3, maxCharsPerLine: 20, maxLines: 2, emphasisWordIndices: [] },
     music: { occurrenceId: "music", placement: { start: 0, end: 5 }, targetLane: -1, context: { speech: "present" as const, audioEvidence: "unavailable" as const }, capabilities: { staticMusicPreview: false, ducking: false, fades: false } } };
-  return { dir, path, request, artifacts };
+  return { dir, path, request, artifacts, index, record };
 }
 
 test("integrates verified speech cuts, captions and explicit music omission without mutation", async () => {
@@ -63,5 +63,34 @@ test("changes to the approved brief, target, source or evidence reject the plan"
     assert.notEqual((await assertEditDecisionPlanCurrent(changedTarget, result.plan, f.artifacts, verifyLocalMediaSource)).status, "current");
     await writeFile(f.path, "replacement");
     assert.notEqual((await assertEditDecisionPlanCurrent(f.request, result.plan, f.artifacts, verifyLocalMediaSource)).status, "current");
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test("caption omission follows the accepted brief and ambiguous preferences remain explicit", async () => {
+  const f = await fixture();
+  try {
+    const noCaptions = { ...f.request.brief, captionPolicy: { kind: "specified" as const, value: "none" } };
+    const result = await createEditDecisionPlan({ ...f.request, brief: noCaptions, accepted: acceptCreativeBrief(noCaptions) }, f.artifacts, verifyLocalMediaSource);
+    assert.equal(result.status, "available");
+    if (result.status === "available") {
+      assert.equal(result.plan.decisions.some((item) => item.kind === "caption"), false);
+      assert.ok(result.plan.decisions.some((item) => item.kind === "caption-omission"));
+    }
+    const unspecified = { ...f.request.brief, captionPolicy: { kind: "no-preference" as const } };
+    const uncertain = await createEditDecisionPlan({ ...f.request, brief: unspecified, accepted: acceptCreativeBrief(unspecified) }, f.artifacts, verifyLocalMediaSource);
+    assert.equal(uncertain.status, "available");
+    if (uncertain.status === "available") assert.ok(uncertain.plan.decisions.some((item) => item.kind === "caption-clarification"));
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test("mismatched speech and VAD artifacts cannot be combined into one plan", async () => {
+  const f = await fixture();
+  try {
+    const changedRecord = { ...f.record, speech: { ...f.record.speech, words: [{ ...f.record.speech.words[0]!, text: "Different." }, f.record.speech.words[1]!] } };
+    await f.index.save(changedRecord);
+    const changed = await pinAnalysisEvidence(f.index, f.artifacts, f.request.vadContext, verifyLocalMediaSource);
+    assert.notEqual(changed.artifactDigest, f.request.speechRef.artifactDigest);
+    const result = await createEditDecisionPlan({ ...f.request, vadRef: changed }, f.artifacts, verifyLocalMediaSource);
+    assert.equal(result.status, "unavailable");
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
