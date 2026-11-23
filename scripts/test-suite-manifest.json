@@ -4000,6 +4000,27 @@
       "network": "none"
     },
     {
+      "path": "tests/workflows/creative-brief/brief-service.test.ts",
+      "owner": "packages/headless-application",
+      "tags": [
+        "contract",
+        "fast-integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "apps/mcp-server",
+        "packages/headless-application",
+        "packages/runtime",
+        "packages/testkit"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
       "path": "tests/workflows/rough-cut/headless-project-mcp.test.ts",
       "owner": "adapters/final-cut/typescript",
       "tags": [

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { MediaSourceIdentity } from "../domain/media.js";
 
 export type BriefChoice = { kind: "specified"; value: string } | { kind: "no-preference" };
 
@@ -18,7 +19,7 @@ export interface CreativeBrief {
   speechPolicy: BriefChoice;
   musicPolicy: BriefChoice;
   captionPolicy: BriefChoice;
-  sourceCoverage: { requirement: string; sourceId: string; start: number; end: number }[];
+  sourceCoverage: { requirement: string; sourceId: string; sourceDigest?: string; start: number; end: number }[];
   inferences: { field: string; value: string; reason: string; accepted: boolean }[];
   reviewPrompts: string[];
 }
@@ -70,7 +71,7 @@ export function reviewCreativeBrief(brief: CreativeBrief): CreativeBriefReview {
   if (!Array.isArray(brief.requiredContent) || !Array.isArray(brief.excludedContent) || !Array.isArray(brief.reviewPrompts) || !Array.isArray(brief.sourceCoverage) || !Array.isArray(brief.inferences)) throw new Error("INVALID_BRIEF: content and review lists are required");
   if (![...brief.requiredContent, ...brief.excludedContent, ...brief.reviewPrompts].every(nonempty)) throw new Error("INVALID_BRIEF: empty content or review prompt");
   for (const coverage of brief.sourceCoverage) {
-    if (!coverage || !nonempty(coverage.requirement) || !nonempty(coverage.sourceId) || !Number.isFinite(coverage.start) || !Number.isFinite(coverage.end) || coverage.start < 0 || coverage.end <= coverage.start) throw new Error("INVALID_BRIEF: invalid source coverage");
+    if (!coverage || !nonempty(coverage.requirement) || !nonempty(coverage.sourceId) || (coverage.sourceDigest !== undefined && !/^(?:sha256:)?[a-f0-9]{64}$/.test(coverage.sourceDigest)) || !Number.isFinite(coverage.start) || !Number.isFinite(coverage.end) || coverage.start < 0 || coverage.end <= coverage.start) throw new Error("INVALID_BRIEF: invalid source coverage");
   }
   const explicitChoices: Record<string, BriefChoice> = {
     purpose: brief.purpose, audience: brief.audience, speechPolicy: brief.speechPolicy,
@@ -81,7 +82,7 @@ export function reviewCreativeBrief(brief: CreativeBrief): CreativeBriefReview {
     if (explicitChoices[item.field]?.kind === "specified" || ["aspectRatio", "theme", "visualDirection"].includes(item.field)) throw new Error("INVALID_BRIEF: inference conflicts with explicit user choice");
   }
   return {
-    missingCoverage: brief.requiredContent.filter((item) => !brief.sourceCoverage.some((coverage) => coverage.requirement === item)),
+    missingCoverage: [...new Set([...brief.requiredContent.filter((item) => !brief.sourceCoverage.some((coverage) => coverage.requirement === item && coverage.sourceDigest)), ...brief.sourceCoverage.filter((coverage) => !coverage.sourceDigest).map((coverage) => coverage.requirement)])],
     pendingInferences: brief.inferences.filter((item) => !item.accepted).map((item) => item.field),
   };
 }
@@ -108,4 +109,20 @@ export function reviseCreativeBrief(previous: CreativeBrief, proposed: CreativeB
 export function assertBriefBinding(accepted: AcceptedCreativeBrief, current: CreativeBrief): void {
   if (accepted.id !== current.id || accepted.version !== current.version || accepted.digest !== digest(current)) throw new Error("STALE_BRIEF: accepted brief has changed");
   acceptCreativeBrief(current);
+}
+
+
+/** Check accepted source IDs, byte digests and ranges against a current registry. This does not verify content meaning or read source bytes. */
+export function assertBriefSourceCoverage(accepted: AcceptedCreativeBrief, brief: CreativeBrief, media: readonly MediaSourceIdentity[]): void {
+  assertBriefBinding(accepted, brief);
+  if (!Array.isArray(media)) throw new Error("BRIEF_COVERAGE_UNAVAILABLE: current source registry is required");
+  for (const coverage of brief.sourceCoverage) {
+    const matches = media.filter((source) => source.mediaId === coverage.sourceId);
+    const source = matches.length === 1 ? matches[0] : undefined;
+    if (!source || !coverage.sourceDigest || !source.sourceDigest
+      || source.sourceDigest.replace(/^sha256:/, "") !== coverage.sourceDigest.replace(/^sha256:/, "")
+      || !Number.isFinite(source.duration) || source.duration! < coverage.end) {
+      throw new Error("BRIEF_COVERAGE_UNAVAILABLE: source identity, digest or range no longer matches the registry");
+    }
+  }
 }
