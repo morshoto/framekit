@@ -72,3 +72,19 @@ test("brief identity is stable across object key ordering", () => {
   const reordered = { ...brief, purpose: { value: "interview short", kind: "specified" } } as CreativeBrief;
   assert.deepEqual(acceptCreativeBrief(brief), acceptCreativeBrief(reordered));
 });
+
+test("an inference cannot override an explicit user policy", () => {
+  const conflicting = { ...brief, inferences: [{ field: "musicPolicy", value: "add music", reason: "upbeat", accepted: true }] };
+  assert.throws(() => acceptCreativeBrief(conflicting), /explicit.*choice/i);
+  const noPreference = { ...conflicting, musicPolicy: { kind: "no-preference" as const } };
+  assert.doesNotThrow(() => acceptCreativeBrief(noPreference));
+});
+
+test("review examples cover different purposes and identify uncovered requirements", async () => {
+  const { reviewCreativeBrief } = await import("../../../packages/runtime/src/planning/creative-brief.js");
+  for (const purpose of ["talking-head interview", "highlights", "product demo"]) {
+    const example = { ...brief, purpose: { kind: "specified" as const, value: purpose }, requiredContent: ["opening", "ending"], sourceCoverage: [{ requirement: "opening", sourceId: "source", start: 0, end: 1 }] };
+    assert.deepEqual(reviewCreativeBrief(example).missingCoverage, ["ending"]);
+    assert.throws(() => acceptCreativeBrief(example), /coverage/i);
+  }
+});
