@@ -428,13 +428,15 @@ test("evidence publication is complete and exclusive for concurrent readers", as
     const path = join(root, "record.json");
     const content = JSON.stringify({ value: "a".repeat(2 * 1024 * 1024) }) + "\n";
     let finished = false;
-    const writing = publishQaRecord(path, content).then(() => { finished = true; });
+    let writingError: unknown;
+    const writing = publishQaRecord(path, content).then(() => { finished = true; }, error => { writingError = error; finished = true; });
     while (!finished) {
       try { assert.equal(await readFile(path, "utf8"), content); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
       await new Promise(resolve => setTimeout(resolve, 1));
     }
     await writing;
+    if (writingError) throw writingError;
     assert.equal(await readFile(path, "utf8"), content);
     await assert.rejects(publishQaRecord(path, "replacement"), (error: NodeJS.ErrnoException) => error.code === "EEXIST");
     assert.equal(await readFile(path, "utf8"), content);
