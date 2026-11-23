@@ -1,15 +1,40 @@
-## はじめの一歩
+## フィクスチャサーバーを起動する
 
-**銀色の小石** は架空のサンプルです。
+Node.js 22.23.5 と pnpm 12.18.0 を用意し、リポジトリのルートで実行します。
 
 ```sh
-printf 'sample\n'
+pnpm install --frozen-lockfile
+pnpm run build
 ```
 
-### 設定例
+MCP クライアントに以下を設定してください。`cwd` はチェックアウトしたリポジトリのルートの絶対パスに、`FRAMEKIT_STATE_DIR` は既存のプロジェクトとは別の専用ディレクトリの絶対パスに置き換えます（設定形式はクライアントにより異なります）。
 
-```json title="config.json"
-{"example": "placeholder"}
+```toml
+[mcp_servers.framekit-fixture]
+command = "pnpm"
+args = ["--silent", "run", "mcp"]
+cwd = "/path/to/framekit"
+env = { FRAMEKIT_EDITOR = "fixture", FRAMEKIT_STATE_DIR = "/path/to/disposable-framekit-state" }
 ```
 
-[はじめに](/ja/docs/introduction/) に戻ります。
+クライアント自身が `pnpm run mcp` を起動し、標準入出力（stdio）を接続します。フィクスチャエディタの固定テストデータはメモリ上にありますが、同じサーバーのヘッドレスプロジェクトツールは `FRAMEKIT_STATE_DIR` 内のプロジェクトを読み書きできます。未設定の場合は `~/.framekit/projects` が使われます。専用ディレクトリを指定して既存プロジェクトと分離してください。ターミナルで別に起動したプロセスには後から接続できません。`connection.status`、`editor.inspect`、`editing.route` でバックエンドが対応する操作を調べてください。
+
+## 応答を確認する
+
+リポジトリのルートで実行します。
+
+```sh
+pnpm run smoke:fixture-mcp
+```
+
+このコマンドは検証専用のフィクスチャサーバーを起動して接続を確認します。成功すると `Fixture MCP stdio smoke passed: connection.status ready.` と表示されます。
+
+## チェックアウトを検証する
+
+```sh
+pnpm run test
+pnpm run check:boundaries
+pnpm run check:docs
+```
+
+フィクスチャの設定と任意の Nix プロファイルは[セットアップガイド](https://github.com/morshoto/framekit/blob/main/docs/getting-started.md)を参照してください。フィクスチャでの成功だけでは、Final Cut Pro での編集結果は確認できません。

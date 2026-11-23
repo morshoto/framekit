@@ -17,7 +17,7 @@ describe('documentation registry', () => {
 it('marks draft metadata as noindex while preserving available language routes', async () => {
   const { documentMetadata } = await import('./metadata');
   const draft = documents.find(doc => doc.locale === 'ja' && doc.slug === 'installation')!;
-  const metadata = documentMetadata(draft, 'https://example.com', '/framekit');
+  const metadata = documentMetadata({ ...draft, status: 'draft' }, 'https://example.com', '/framekit');
   expect(metadata.robots).toEqual({ index: false, follow: true });
   expect(metadata.alternates).toEqual({ canonical: '/framekit/ja/docs/installation/', languages: { en: '/framekit/en/docs/installation/', ja: '/framekit/ja/docs/installation/' } });
 });
