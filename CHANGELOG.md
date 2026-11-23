@@ -1,5 +1,20 @@
 # Changelog
 
+## [v0.2.6](https://github.com/morshoto/framekit/compare/v0.2.5...v0.2.6) - 2026-11-22
+
+### New Features
+- feat: preview rough cuts without FCPXML by @morshoto in https://github.com/morshoto/framekit/pull/835
+- feat: warn about future milestone blockers by @morshoto in https://github.com/morshoto/framekit/pull/842
+### Bug Fixes
+- fix: return actionable headless runtime errors by @morshoto in https://github.com/morshoto/framekit/pull/811
+- fix: surface headless edit delivery limitations by @morshoto in https://github.com/morshoto/framekit/pull/832
+- fix: return coded MCP input errors by @morshoto in https://github.com/morshoto/framekit/pull/834
+- fix: normalize transformed video segment aspect ratios by @morshoto in https://github.com/morshoto/framekit/pull/843
+- fix: detect sparse rendered video by @morshoto in https://github.com/morshoto/framekit/pull/844
+### Documentation
+- docs: add Japanese repository onboarding by @morshoto in https://github.com/morshoto/framekit/pull/808
+- WIP: migrate MCP server to SDK v2 by @morshoto in https://github.com/morshoto/framekit/pull/837
+
 ## [v0.2.5](https://github.com/morshoto/framekit/compare/v0.2.4...v0.2.5) - 2026-11-21
 
 ### New Features
