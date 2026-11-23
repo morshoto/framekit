@@ -17,6 +17,7 @@ export interface CreativeBriefStore {
   read(projectId: string): Promise<StoredCreativeBrief>;
   revise(projectId: string, expectedDigest: string, proposed: CreativeBrief): Promise<StoredCreativeBrief>;
   accept(projectId: string, expectedDigest: string): Promise<StoredCreativeBrief>;
+  withAcceptedBrief<T>(projectId: string, accepted: AcceptedCreativeBrief, operation: () => Promise<T>): Promise<T>;
 }
 
 function validProjectId(projectId: unknown): projectId is string {
@@ -90,6 +91,14 @@ export class JsonCreativeBriefStore implements CreativeBriefStore {
       const next: StoredCreativeBrief = { ...current, state: "accepted", accepted };
       await this.publish(next, false);
       return structuredClone(next);
+    });
+  }
+
+  /** Serialize a bound operation with cooperating brief writers; this is not a source or editor lock. */
+  async withAcceptedBrief<T>(projectId: string, accepted: AcceptedCreativeBrief, operation: () => Promise<T>): Promise<T> {
+    return this.locked(async () => {
+      await assertCurrentAcceptedBrief(this, projectId, accepted);
+      return operation();
     });
   }
 
