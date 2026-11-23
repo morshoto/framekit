@@ -97,6 +97,7 @@ export async function previewMusicPlan(
   request: MusicPlanRequest,
   reviewed: MusicPlan,
   occurrenceId: string,
+  verifySource: (source: MediaSourceIdentity) => Promise<void>,
 ): Promise<CompositeEditPreview> {
   if (!occurrenceId?.trim() || occurrenceId !== request.occurrenceId) throw new Error("INVALID_MUSIC_PLAN: reviewed occurrence identity is required");
   const current = await runtime.inspectProject();
@@ -104,10 +105,14 @@ export async function previewMusicPlan(
   if (recomputed.decision !== "propose-music" || !recomputed.placement || !isDeepStrictEqual(recomputed, reviewed)) {
     throw new Error("STALE_MUSIC_PLAN: reviewed proposal no longer matches current inputs");
   }
-  return runtime.previewMusic({
+  if (typeof verifySource !== "function" || !request.music) throw new Error("CAPABILITY_UNAVAILABLE: music source verification is required");
+  await verifySource(request.music);
+  const preview = await runtime.previewMusic({
     baseRevision: structuredClone(recomputed.revision), occurrenceId, mediaId: recomputed.placement.mediaId,
     placement: "insert", start: recomputed.placement.range.start,
     duration: recomputed.placement.range.end - recomputed.placement.range.start,
     targetLane: recomputed.placement.targetLane, gainDb: recomputed.placement.gainDb,
   });
+  await verifySource(request.music);
+  return preview;
 }
