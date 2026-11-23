@@ -1136,7 +1136,7 @@ test("publisher inspection never creates a missing store or follows a linked sto
   const parent = await mkdtemp(join(tmpdir(), "framekit-qa-store-parent-"));
   try {
     await createOrInspectRun(root, manifest);
-    await claimDispatchIntent(root, manifest, "publish-job-1");
+    await claimDispatchIntent(root, manifest, "publish-job-00000000-0000-0000-0000-000000000001");
     const missing = join(parent, "missing");
     const observed = await inspectQaPublisherFromStore(root, manifest.qaRunId, missing);
     assert.equal(observed.nextAction, "status-unavailable");
@@ -1145,4 +1145,24 @@ test("publisher inspection never creates a missing store or follows a linked sto
     await symlink(root, link, "dir");
     assert.equal((await inspectQaPublisherFromStore(root, manifest.qaRunId, link)).nextAction, "status-unavailable");
   } finally { await rm(root, { recursive: true, force: true }); await rm(parent, { recursive: true, force: true }); }
+});
+
+
+test("publisher inspection rejects corrupt or linked persisted job files", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-store-invalid-"));
+  const store = await mkdtemp(join(tmpdir(), "framekit-qa-publisher-invalid-"));
+  try {
+    const jobId = "publish-job-00000000-0000-0000-0000-000000000001";
+    await createOrInspectRun(root, manifest);
+    await claimDispatchIntent(root, manifest, jobId);
+    const jobPath = join(store, `${jobId}.json`);
+    await writeFile(jobPath, "{");
+    assert.equal((await inspectQaPublisherFromStore(root, manifest.qaRunId, store)).nextAction, "status-unavailable");
+    await rm(jobPath);
+    const target = join(store, "unrelated");
+    await writeFile(target, "fixture");
+    await symlink(target, jobPath);
+    assert.equal((await inspectQaPublisherFromStore(root, manifest.qaRunId, store)).nextAction, "status-unavailable");
+    assert.equal(await readFile(target, "utf8"), "fixture");
+  } finally { await rm(root, { recursive: true, force: true }); await rm(store, { recursive: true, force: true }); }
 });

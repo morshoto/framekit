@@ -1,4 +1,5 @@
 import { inspectRun, type QaRunManifest } from "./run-store.js";
+import { readPersistedFinalCutPublishJobStatus } from "../../adapters/final-cut/typescript/src/publisher.js";
 
 const states = ["awaiting-confirmation", "awaiting-final-cut", "verification-pending", "verified", "failed"] as const;
 type PublisherState = typeof states[number];
@@ -34,4 +35,10 @@ export async function inspectQaPublisher(root: string, qaRunId: string, callStat
   if (item.jobId !== jobId) throw new Error("QA_PUBLISH_STATUS_IDENTITY_MISMATCH");
   if (!states.includes(item.state as PublisherState)) return { ...base, nextAction: "status-unavailable" as const };
   return { ...base, jobId, observedState: item.state as PublisherState, nextAction: "inspect-recovery" as const };
+}
+
+
+/** Read the existing publisher store without constructing a native adapter or modifying it. */
+export async function inspectQaPublisherFromStore(root: string, qaRunId: string, directory: string, options: { timeoutMs?: number } = {}) {
+  return inspectQaPublisher(root, qaRunId, async (_name, args, request) => readPersistedFinalCutPublishJobStatus(directory, args.jobId, request.signal), options);
 }

@@ -989,33 +989,9 @@ export class FinalCutProjectPublisher {
       } catch (error) {
         throw new Error(`PUBLISH_JOB_STORE_INVALID: could not read ${path}`, { cause: error });
       }
-      const job = persisted?.job;
-      const validStates: FinalCutProjectPublishJobState[] = [
-        "awaiting-confirmation",
-        "awaiting-final-cut",
-        "verification-pending",
-        "verified",
-        "failed",
-      ];
-      if (!persisted || persisted.version !== 1 || !job || typeof job.jobId !== "string"
-        || !/^publish-job-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(job.jobId)
-        || !validStates.includes(job.state) || name !== `${job.jobId}.json`) {
-        throw new Error(`PUBLISH_JOB_STORE_INVALID: invalid publish job record ${path}`);
-      }
-      if (job.state === "verification-pending" && !persisted.runtime) {
-        throw new Error(`PUBLISH_JOB_STORE_INVALID: pending job is missing recovery state ${path}`);
-      }
-      if (persisted.runtime?.importAttempted === true && job.state !== "verification-pending" && job.state !== "verified") {
-        throw new Error(`PUBLISH_JOB_STORE_INVALID: spent import has a re-dispatchable state ${path}`);
-      }
-      if (job.state === "verified" && !isVerifiedPublishJob(job, job.jobId)) {
-        throw new Error(`PUBLISH_JOB_STORE_INVALID: verified job is missing consistent native target proof ${path}`);
-      }
-      job.handoff.route ??= "background-document-open";
-      if (job.handoff.route !== "background-document-open" && job.handoff.route !== "headed-apple-event") {
-        throw new Error(`PUBLISH_JOB_STORE_INVALID: invalid publish route in ${path}`);
-      }
-      if (!job.delivery && persisted.runtime?.delivery) job.delivery = structuredClone(persisted.runtime.delivery);
+      const normalized = normalizePersistedPublishJob(persisted, name);
+      const job = normalized.job;
+      persisted = normalized;
       this.publishJobs.set(job.jobId, job);
       if (persisted.runtime) this.publishJobRuntime.set(job.jobId, persisted.runtime);
     }
@@ -1482,6 +1458,70 @@ function normalizeLibraryPath(path: string): string {
   } catch {
     return resolve(path);
   }
+}
+
+function normalizePersistedPublishJob(value: unknown, filename: string): PersistedPublishJob {
+  const persisted = value as PersistedPublishJob | undefined;
+  const job = persisted?.job;
+  const validStates: FinalCutProjectPublishJobState[] = ["awaiting-confirmation", "awaiting-final-cut", "verification-pending", "verified", "failed"];
+  if (!persisted || persisted.version !== 1 || !job || typeof job.jobId !== "string"
+    || !/^publish-job-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(job.jobId)
+    || !validStates.includes(job.state) || filename !== `${job.jobId}.json` || !job.handoff || typeof job.handoff !== "object") {
+    throw new Error("PUBLISH_JOB_STORE_INVALID: invalid publish job record");
+  }
+  if (job.state === "verification-pending" && !persisted.runtime) throw new Error("PUBLISH_JOB_STORE_INVALID: pending job is missing recovery state");
+  if (persisted.runtime?.importAttempted === true && job.state !== "verification-pending" && job.state !== "verified") throw new Error("PUBLISH_JOB_STORE_INVALID: spent import has a re-dispatchable state");
+  if (job.state === "verified" && !isVerifiedPublishJob(job, job.jobId)) throw new Error("PUBLISH_JOB_STORE_INVALID: verified job is missing consistent native target proof");
+  job.handoff.route ??= "background-document-open";
+  if (job.handoff.route !== "background-document-open" && job.handoff.route !== "headed-apple-event") throw new Error("PUBLISH_JOB_STORE_INVALID: invalid publish route");
+  if (!job.delivery && persisted.runtime?.delivery) job.delivery = structuredClone(persisted.runtime.delivery);
+  return persisted;
+}
+
+/** Read a stored job status without constructing a publisher or changing the store. */
+export async function readPersistedFinalCutPublishJobStatus(directory: string, jobId: string, signal?: AbortSignal): Promise<{ jobId: string; state: FinalCutProjectPublishJobState }> {
+  if (!isAbsolute(directory) || !/^publish-job-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(jobId)) throw new Error("PUBLISH_JOB_STORE_INVALID");
+  const root = await lstat(directory);
+  if (!root.isDirectory() || root.isSymbolicLink()) throw new Error("PUBLISH_JOB_STORE_INVALID");
+  const modern = `${jobId}.json`;
+  const legacy = `${createHash("sha256").update(jobId).digest("hex")}.json`;
+  let filename = modern;
+  let initial;
+  try { initial = await lstat(join(directory, filename), { bigint: true }); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    filename = legacy;
+    initial = await lstat(join(directory, filename), { bigint: true });
+  }
+  if (!initial.isFile() || initial.isSymbolicLink() || initial.size > 64n * 1024n * 1024n || signal?.aborted) throw new Error("PUBLISH_JOB_STORE_INVALID");
+  const file = await open(join(directory, filename), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  let text: string;
+  try {
+    const before = await file.stat({ bigint: true });
+    if (!before.isFile() || before.dev !== initial.dev || before.ino !== initial.ino || before.size !== initial.size || before.mtimeNs !== initial.mtimeNs || before.ctimeNs !== initial.ctimeNs) throw new Error("PUBLISH_JOB_STORE_INVALID");
+    const chunks: Buffer[] = [];
+    let total = 0;
+    for (;;) {
+      if (signal?.aborted) throw new Error("PUBLISH_JOB_STORE_INVALID");
+      const chunk = Buffer.allocUnsafe(64 * 1024);
+      const { bytesRead } = await file.read(chunk, 0, chunk.length, null);
+      if (bytesRead === 0) break;
+      total += bytesRead;
+      if (total > 64 * 1024 * 1024) throw new Error("PUBLISH_JOB_STORE_INVALID");
+      chunks.push(chunk.subarray(0, bytesRead));
+    }
+    const after = await file.stat({ bigint: true });
+    const current = await lstat(join(directory, filename), { bigint: true });
+    if (BigInt(total) !== before.size || [after, current].some(item => !item.isFile() || item.isSymbolicLink() || item.dev !== before.dev || item.ino !== before.ino || item.size !== before.size || item.mtimeNs !== before.mtimeNs || item.ctimeNs !== before.ctimeNs) || signal?.aborted) throw new Error("PUBLISH_JOB_STORE_INVALID");
+    text = Buffer.concat(chunks).toString("utf8");
+  } finally { await file.close(); }
+  const value: unknown = JSON.parse(text);
+  if (filename === legacy) {
+    if (!isVerifiedPublishJob(value, jobId)) throw new Error("PUBLISH_JOB_STORE_INVALID");
+    return { jobId, state: value.state };
+  }
+  const record = normalizePersistedPublishJob(value, filename);
+  return { jobId: record.job.jobId, state: record.job.state };
 }
 
 function clonePublishJob(job: FinalCutProjectPublishJob): FinalCutProjectPublishJob {
