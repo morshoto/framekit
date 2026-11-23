@@ -3,10 +3,11 @@ import { bindQaAuthorization, inspectRun, type QaRunManifest } from "./run-store
 import { readQaEvidence, resumeHeadlessQaRun, startQaRun } from "./supervisor.js";
 import { readQaArtifactEvidence, verifyQaArtifact } from "./artifact-evidence.js";
 import { inspectQaPublisherFromStore } from "./publisher-inspection.js";
+import { readQaPublisherFixtureEvidence, verifyQaPublisherFixture } from "./publisher-fixture-evidence.js";
 
 const [command, root, input, ...extra] = process.argv.slice(2);
-const commands = ["start", "inspect", "evidence", "record-authorization", "resume-headless", "verify-artifact", "artifact-evidence", "inspect-publisher-store"];
-const expectsExtra = command === "record-authorization" || command === "verify-artifact" || command === "inspect-publisher-store";
+const commands = ["start", "inspect", "evidence", "record-authorization", "resume-headless", "verify-artifact", "artifact-evidence", "inspect-publisher-store", "verify-publisher-fixture", "publisher-fixture-evidence"];
+const expectsExtra = command === "record-authorization" || command === "verify-artifact" || command === "inspect-publisher-store" || command === "verify-publisher-fixture";
 const allowsOptionalArtifact = command === "start" || command === "resume-headless";
 if (!root || !input || !commands.includes(command ?? "") || (expectsExtra ? extra.length !== 1 : allowsOptionalArtifact ? extra.length > 1 : extra.length !== 0)) throw new Error("QA_CLI_ARGUMENTS_INVALID");
 let result: unknown;
@@ -16,6 +17,8 @@ else if (command === "resume-headless") result = await resumeHeadlessQaRun(root,
 else if (command === "verify-artifact") result = await verifyQaArtifact(root, input, extra[0]!);
 else if (command === "artifact-evidence") result = await readQaArtifactEvidence(root, input);
 else if (command === "inspect-publisher-store") result = await inspectQaPublisherFromStore(root, input, extra[0]!);
+else if (command === "verify-publisher-fixture") result = await verifyQaPublisherFixture(root, input, extra[0]!);
+else if (command === "publisher-fixture-evidence") result = await readQaPublisherFixtureEvidence(root, input);
 else if (command === "record-authorization") {
   const run = await inspectRun(root, input);
   result = { ...await bindQaAuthorization(root, run.manifest, extra[0]!), authorizationVerified: false, dispatchAllowed: false };

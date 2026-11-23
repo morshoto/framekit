@@ -56,15 +56,20 @@ test("publisher fixture evidence binds the artifact bytes and expected edit", as
     const cli = spawnSync(process.execPath, ["--import", "tsx", "scripts/native-qa/cli.ts", "publisher-fixture-evidence", root, bound.qaRunId], { encoding: "utf8", timeout: 10000 });
     assert.equal(cli.status, 0, cli.stderr);
     assert.deepEqual(JSON.parse(cli.stdout), evidence);
+    const verifyCli = spawnSync(process.execPath, ["--import", "tsx", "scripts/native-qa/cli.ts", "verify-publisher-fixture", root, bound.qaRunId, path], { encoding: "utf8", timeout: 10000 });
+    assert.equal(verifyCli.status, 0, verifyCli.stderr);
+    assert.deepEqual(JSON.parse(verifyCli.stdout), evidence);
     await writeFile(path, xml.replace('start="5s" duration="8s"', 'start="4s" duration="8s"'));
     await assert.rejects(verifyQaPublisherFixture(root, bound.qaRunId, path), /QA_ARTIFACT_DIGEST_MISMATCH/);
     const altered = await readFile(path, "utf8");
-    const changed = { ...manifest, qaRunId: "qa-fixture-changed", artifactDigest: digest(altered) };
+    const changed = { ...manifest, qaRunId: "qa-fixture-changed", artifactDigest: digest(altered), authorizationDigest: "9".repeat(64) };
     await createOrInspectRun(root, changed);
     await assert.rejects(verifyQaPublisherFixture(root, changed.qaRunId, path), /QA_PUBLISH_FIXTURE_MISMATCH/);
     assert.equal(await readQaPublisherFixtureEvidence(root, changed.qaRunId), null);
     const linked = join(artifacts, "linked.fcpxml"); await symlink(path, linked);
     await assert.rejects(verifyQaPublisherFixture(root, changed.qaRunId, linked), /QA_ARTIFACT_UNSAFE/);
+    await writeFile(join(root, bound.qaRunId, "publisher-fixture-evidence.json"), "{");
+    await assert.rejects(readQaPublisherFixtureEvidence(root, bound.qaRunId), /QA_EVIDENCE_CORRUPT/);
   } finally { await rm(root, { recursive: true, force: true }); await rm(artifacts, { recursive: true, force: true }); }
 });
 
