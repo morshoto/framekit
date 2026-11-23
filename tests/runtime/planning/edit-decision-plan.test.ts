@@ -94,3 +94,20 @@ test("mismatched speech and VAD artifacts cannot be combined into one plan", asy
     assert.equal(result.status, "unavailable");
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
+
+test("missing optional evidence stays explicit without inventing cuts or captions", async () => {
+  const f = await fixture();
+  try {
+    const noSpeech = { ...f.request, speechRef: undefined, speechContext: undefined, vadRef: undefined, vadContext: undefined };
+    const result = await createEditDecisionPlan(noSpeech, f.artifacts, verifyLocalMediaSource);
+    assert.equal(result.status, "available");
+    if (result.status === "available") {
+      assert.ok(result.plan.decisions.some((item) => item.kind === "cut-unavailable"));
+      assert.ok(result.plan.decisions.some((item) => item.kind === "caption-unavailable"));
+      assert.ok(result.plan.decisions.some((item) => item.kind === "music-omission"));
+      assert.equal(result.plan.decisions.some((item) => item.kind === "cut" || item.kind === "caption"), false);
+    }
+    const incompletePair = { ...f.request, vadContext: undefined };
+    assert.equal((await createEditDecisionPlan(incompletePair, f.artifacts, verifyLocalMediaSource)).status, "unavailable");
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
