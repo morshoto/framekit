@@ -1117,3 +1117,29 @@ test("simulated-native: lost reply retains a reservation through MCP reconnect",
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("simulated-native: wrong canonical target cannot become a verified success", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-simulated-target-"));
+  const receiver = new ScriptedNativeReceiver([{ kind: "accept" }]);
+  const basePublisher = simulatedMaterializationPublisher(receiver);
+  const publisher: SessionMaterializationPublisher = {
+    async publish(request) {
+      const result = await basePublisher.publish(request);
+      if (result.state !== "completed") return result;
+      return { ...result, canonicalTarget: { ...result.canonicalTarget, projectUid: "wrong-simulated-project" } };
+    },
+  };
+  const connected = await connect(directory, publisher);
+  try {
+    await connected.client.callTool({ name: "session.create", arguments: { sessionId: "simulated-target", provider: { id: "final-cut" }, base: timeline() } });
+    const result = payload(await connected.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "simulated-target", target, confirm: true } }));
+    assert.equal(receiver.trace().filter(event => event.kind === "dispatch").length, 1);
+    assert.equal(result.state, "failed");
+    assert.equal(result.error.code, "MATERIALIZATION_TARGET_READBACK_MISMATCH");
+    assert.equal(result.evidence.canonicalReadback, false);
+    assert.equal(result.evidence.headedNative, false);
+  } finally {
+    await connected.client.close(); await connected.server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});

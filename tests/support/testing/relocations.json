@@ -2090,7 +2090,8 @@
       "\"an overridden built-in publisher does not use the unavailable shortcut\"",
       "\"invalid persisted provenance is rejected before materialization reservation\"",
       "\"invalid provenance is checked before the unavailable-provider shortcut\"",
-      "\"simulated-native: lost reply retains a reservation through MCP reconnect\""
+      "\"simulated-native: lost reply retains a reservation through MCP reconnect\"",
+      "\"simulated-native: wrong canonical target cannot become a verified success\""
     ],
     "tests/integration/mcp.test.ts": [
       "\"MCP presents invalid tool arguments as actionable coded errors\"",
