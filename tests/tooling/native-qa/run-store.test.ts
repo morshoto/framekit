@@ -1722,5 +1722,12 @@ test("plugin observation binds a clean candidate and installed directory without
     await rm(join(checkout, "untracked"));
     await symlink(join(installed, "plugin.txt"), join(installed, "link"));
     await assert.rejects(() => verifyQaPluginIdentity(root, target.qaRunId, { checkout, codexHome, installedPath: installed }), /QA_PLUGIN_UNSAFE/);
+    await rm(join(installed, "link"));
+    const { truncate } = await import("node:fs/promises");
+    await writeFile(join(installed, "large"), ""); await truncate(join(installed, "large"), 128 * 1024 * 1024 + 1);
+    await assert.rejects(() => verifyQaPluginIdentity(root, target.qaRunId, { checkout, codexHome, installedPath: installed }), /QA_PLUGIN_UNSAFE/);
+    await assert.rejects(() => verifyQaPluginIdentity(root, target.qaRunId, { checkout, codexHome, installedPath: join(codexHome, "missing") }), (error: Error) => !error.message.includes(parent));
+    await writeFile(join(root, target.qaRunId, "plugin-evidence.json"), "corrupt");
+    await assert.rejects(() => readQaPluginEvidence(root, target.qaRunId), /QA_EVIDENCE_CORRUPT/);
   } finally { await rm(parent, { recursive: true, force: true }); }
 });
