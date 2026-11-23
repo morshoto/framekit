@@ -1709,6 +1709,9 @@ test("plugin observation binds a clean candidate and installed directory without
     const viaCli = spawnSync(process.execPath, ["--import", "tsx", "scripts/native-qa/cli.ts", "verify-plugin", root, target.qaRunId, spec], { encoding: "utf8", timeout: 10000 });
     assert.equal(viaCli.status, 0, viaCli.stderr);
     assert.deepEqual(JSON.parse(viaCli.stdout), evidence);
+    const missingSpec = spawnSync(process.execPath, ["--import", "tsx", "scripts/native-qa/cli.ts", "verify-plugin", root, target.qaRunId, join(parent, "missing-spec")], { encoding: "utf8", timeout: 10000 });
+    assert.notEqual(missingSpec.status, 0);
+    assert.equal(missingSpec.stderr.includes(parent), false);
     const bundle = await readQaEvidenceBundle(root, target.qaRunId);
     assert.deepEqual(bundle.plugin, evidence);
     assert.equal(bundle.dispatchAllowed, false);
