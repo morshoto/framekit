@@ -5,6 +5,7 @@ import { once } from "node:events";
 import { chmod, lstat, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -19,6 +20,7 @@ import { publishQaRecord } from "../../../scripts/native-qa/atomic-record.js";
 import { readQaArtifactEvidence, verifyQaArtifact } from "../../../scripts/native-qa/artifact-evidence.js";
 import { inspectQaPublisher, inspectQaPublisherFromStore } from "../../../scripts/native-qa/publisher-inspection.js";
 import { verifyQaPublisherFixture, readQaPublisherFixtureEvidence } from "../../../scripts/native-qa/publisher-fixture-evidence.js";
+import { verifyQaPublisherSources, readQaPublisherSourceEvidence } from "../../../scripts/native-qa/publisher-source-evidence.js";
 
 const manifest = {
   qaRunId: "qa-fixture-1", candidateCommit: "a".repeat(40), candidateTree: "b".repeat(40),
@@ -26,6 +28,44 @@ const manifest = {
   artifactDigest: "4".repeat(64), sourceDigest: "5".repeat(64), targetDigest: "6".repeat(64),
   operation: "rough-cut-publish" as const, authorizationDigest: "7".repeat(64),
 };
+
+test("publisher source evidence binds four file identities and bytes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-source-evidence-"));
+  const sources = await mkdtemp(join(tmpdir(), "framekit-qa-source-files-"));
+  const names = [["a", "clip-a.mp4"], ["b", "clip-b.mp4"], ["c", "clip-c.mp4"], ["m", "generated-music.wav"]] as const;
+  try {
+    const entries = [];
+    for (const [mediaId, name] of names) {
+      const source = join(sources, name); const content = `synthetic-${mediaId}`;
+      await writeFile(source, content);
+      entries.push({ mediaId, source, sha256: createHash("sha256").update(content).digest("hex") });
+    }
+    const url = (name: string) => pathToFileURL(join(sources, name)).href;
+    const xml = `<?xml version="1.0"?><fcpxml version="1.11"><resources><format id="f" frameDuration="1/24s" width="1280" height="720"/>
+      <asset id="a" name="clip-a.mp4" src="${url("clip-a.mp4")}" duration="24s" hasVideo="1" format="f"/>
+      <asset id="b" name="clip-b.mp4" src="${url("clip-b.mp4")}" duration="15s" hasVideo="1" format="f"/>
+      <asset id="c" name="clip-c.mp4" src="${url("clip-c.mp4")}" duration="14s" hasVideo="1" format="f"/>
+      <asset id="m" name="generated-music.wav" src="${url("generated-music.wav")}" duration="30s" hasAudio="1"/>
+      <effect id="t" name="Basic Title" uid="basic"/></resources><library><event><project uid="p" name="Fixture"><sequence format="f" duration="30s"><spine>
+      <asset-clip ref="b" offset="0s" start="5s" duration="8s"><title ref="t" lane="1" offset="5s" duration="6s"><text>FrameKit MVP Test</text></title><asset-clip ref="m" lane="1" audioRole="music" offset="5s" start="0s" duration="30s"><adjust-volume amount="-12dB"/></asset-clip></asset-clip>
+      <asset-clip ref="a" offset="8s" start="10s" duration="12s"/><asset-clip ref="c" offset="20s" start="2s" duration="10s"/>
+      </spine></sequence></project></event></library></fcpxml>`;
+    const artifact = join(sources, "fixture.fcpxml"); await writeFile(artifact, xml);
+    const bound = { ...manifest, artifactDigest: createHash("sha256").update(xml).digest("hex"),
+      sourceDigest: createHash("sha256").update(JSON.stringify({ profile: "publisher-e2e-v1", sources: entries })).digest("hex") };
+    await createOrInspectRun(root, bound);
+    const evidence = await verifyQaPublisherSources(root, bound.qaRunId, artifact);
+    assert.equal(evidence.sourceDigest, bound.sourceDigest);
+    assert.equal(evidence.result, "matched"); assert.equal(evidence.scope, "snapshot-only");
+    assert.equal(evidence.dispatchAllowed, false); assert.equal(evidence.nativeQuiescence, "unproven");
+    assert.equal(JSON.stringify(evidence).includes(sources), false);
+    assert.deepEqual(await readQaPublisherSourceEvidence(root, bound.qaRunId), evidence);
+    await writeFile(entries[0]!.source, "replaced bytes");
+    await assert.rejects(verifyQaPublisherSources(root, bound.qaRunId, artifact), /QA_SOURCE_DIGEST_MISMATCH/);
+    await rm(entries[0]!.source); await symlink(entries[1]!.source, entries[0]!.source);
+    await assert.rejects(verifyQaPublisherSources(root, bound.qaRunId, artifact), /QA_SOURCE_UNSAFE/);
+  } finally { await rm(root, { recursive: true, force: true }); await rm(sources, { recursive: true, force: true }); }
+});
 
 test("headless profile is bound to the original run across clients", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-qa-profile-"));
