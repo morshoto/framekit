@@ -128,6 +128,100 @@ test("published package contains the runnable Framekit CLI and MCP sources", asy
   assert.match(identity.commit ?? "", /^[0-9a-f]{40}$/);
 });
 
+test("clean package analyzes registered headless media with configured providers", { timeout: 180_000 }, async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-package-analysis-"));
+  let client: Client | undefined; let transport: StdioClientTransport | undefined;
+  try {
+    const { archive } = await packageArtifact();
+    await exec("npm", ["install", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund", archive], { cwd: directory });
+    const runtime = join(directory, "node_modules", "@morshoto", "framekit", "dist-package", "apps", "mcp-server", "runtime");
+    const executable = join(directory, "node_modules", ".bin", "framekit");
+    const source = join(directory, "tone.wav");
+    await exec("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=3", "-c:a", "pcm_s16le", source]);
+    const fakeSpeech = join(directory, "fake-speech.mjs");
+    await writeFile(fakeSpeech, '#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify({words:[{text:"fixture",start:0.5,end:1,confidence:0.9}],vadUnavailableReason:"FIXTURE_NO_VAD"}));\n');
+    await chmod(fakeSpeech, 0o755);
+    const environment = { ...Object.fromEntries(Object.entries(process.env).filter(([key, value]) => value !== undefined && !key.startsWith("FRAMEKIT_"))),
+      FRAMEKIT_STATE_DIR: join(directory, "state"), FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0", FRAMEKIT_AUTO_CONNECT: "0",
+      FRAMEKIT_SPEECH_ANALYZER: join(runtime, "speech-analyzer-wrapper.mjs"), FRAMEKIT_SPEECH_BACKEND: fakeSpeech,
+      FRAMEKIT_SPEECH_ANALYZER_VERSION: "fixture@1", FRAMEKIT_AUDIO_ANALYZER: join(runtime, "ffmpeg-audio-backend.py"), FRAMEKIT_AUDIO_ANALYZER_VERSION: "ffmpeg-fixture@1" } as Record<string, string>;
+    transport = new StdioClientTransport({ command: executable, args: ["mcp", "--editor", "final-cut-live", "--headless"], cwd: directory, env: environment, stderr: "pipe" });
+    client = new Client({ name: "package-analysis-smoke", version: "1" }); await client.connect(transport);
+    const invoke = async (name: string, args: Record<string, unknown>) => {
+      const result = await client!.callTool({ name, arguments: args });
+      assert.notEqual(result.isError, true, JSON.stringify(result.content));
+      return JSON.parse((result.content as Array<{ text: string }>)[0]!.text);
+    };
+    const timeline = { schemaVersion: 1, project: { id: "package-analysis", name: "Package analysis" },
+      sequence: { id: "sequence", name: "Sequence", durationTime: { value: "0", timescale: "1" }, frameDuration: { value: "1", timescale: "30" }, occurrences: [], storyElements: [], markers: [], captions: [] },
+      resources: [], revision: { id: "initial", sequence: 0, timestamp: "2026-01-01T00:00:00.000Z" } };
+    const created = await invoke("headless.project.create", { timeline });
+    const projectId = created.timeline.project.id;
+    const registered = await invoke("headless.media.register", { projectId, sourcePath: source, expectedRevision: created.timeline.revision });
+    const mediaId = registered.resource.id;
+    const speech = await invoke("speech.analyze", { projectId, mediaId });
+    assert.equal(speech.words[0].text, "fixture");
+    assert.equal(speech.sourceIdentity.sourceDigest, registered.resource.sourceDigest);
+    assert.equal(speech.provider.version, "fixture@1");
+    assert.equal(speech.capability, "transcription-only");
+    assert.equal(speech.vadUnavailableReason, "FIXTURE_NO_VAD");
+    const audio = await invoke("audio.analyze", { projectId, mediaId });
+    assert.equal(audio.sourceIdentity.sourceDigest, registered.resource.sourceDigest);
+    assert.equal(audio.provider.version, "ffmpeg-fixture@1");
+    assert.ok(audio.integratedLufs < -15 && audio.integratedLufs > -30);
+    const combined = await invoke("media.understand", { projectId, mediaId });
+    assert.equal(combined.speech.words[0].text, "fixture");
+    assert.equal(combined.audio.signalScope, "source");
+    const unregisteredTimeline = structuredClone(created.timeline);
+    unregisteredTimeline.project.id = "unregistered-analysis";
+    unregisteredTimeline.sequence.id = "unregistered-sequence";
+    const unregistered = structuredClone(registered.resource); delete unregistered.sourceKind;
+    unregisteredTimeline.resources = [unregistered];
+    await invoke("headless.project.create", { timeline: unregisteredTimeline });
+    for (const name of ["speech.analyze", "audio.analyze", "media.understand"]) {
+      const result = await client.callTool({ name, arguments: { projectId: unregisteredTimeline.project.id, mediaId } });
+      assert.equal(result.isError, true);
+      assert.match(JSON.stringify(result.content), /MEDIA_NOT_REGISTERED/);
+    }
+    const original = await readFile(source);
+    await writeFile(source, "changed");
+    for (const name of ["speech.analyze", "audio.analyze", "media.understand"]) {
+      const result = await client.callTool({ name, arguments: { projectId, mediaId } });
+      assert.equal(result.isError, true);
+      assert.match(JSON.stringify(result.content), /MEDIA_CHANGED/);
+    }
+    await writeFile(source, original);
+    await rm(join(directory, "state", "semantic-media-index.json"), { force: true });
+    await writeFile(fakeSpeech, '#!/usr/bin/env node\nlet input=""; for await (const chunk of process.stdin) input+=chunk; const request=JSON.parse(input); await (await import("node:fs/promises")).appendFile(request.media.source,"changed"); process.stdout.write(JSON.stringify({words:[]}));\n');
+    const changedDuringAnalysis = await client.callTool({ name: "media.understand", arguments: { projectId, mediaId } });
+    assert.equal(changedDuringAnalysis.isError, true);
+    assert.match(JSON.stringify(changedDuringAnalysis.content), /MEDIA_CHANGED|ANALYZER_SOURCE_CHANGED/);
+    await assert.rejects(readFile(join(directory, "state", "semantic-media-index.json")), (error: NodeJS.ErrnoException) => error.code === "ENOENT");
+    await writeFile(source, original);
+    await client.close(); await transport.close();
+    transport = new StdioClientTransport({ command: executable, args: ["mcp", "--editor", "final-cut-live", "--headless"], cwd: directory,
+      env: { ...environment, FRAMEKIT_SPEECH_BACKEND: "" }, stderr: "pipe" });
+    client = new Client({ name: "package-analysis-missing-setup", version: "1" }); await client.connect(transport);
+    const unavailable = await client.callTool({ name: "speech.analyze", arguments: { projectId, mediaId } });
+    assert.equal(unavailable.isError, true);
+    const unavailableMessage = JSON.parse((unavailable.content as Array<{ text: string }>)[0]!.text).message;
+    assert.match(unavailableMessage, /SPEECH_ANALYZER_SETUP_REQUIRED/);
+    assert.doesNotMatch(unavailableMessage, /Traceback|\n\s+at /);
+    await client.close(); await transport.close();
+    const fakePython = join(directory, "fake-python"); await mkdir(fakePython);
+    await writeFile(join(fakePython, "mlx_whisper.py"), "# Importable stub; no inference is invoked.\n");
+    transport = new StdioClientTransport({ command: executable, args: ["mcp", "--editor", "final-cut-live", "--headless"], cwd: directory,
+      env: { ...environment, FRAMEKIT_SPEECH_BACKEND: join(runtime, "whisper-speech-backend.py"), FRAMEKIT_WHISPER_BACKEND: "mlx-whisper",
+        FRAMEKIT_WHISPER_MODEL: "", FRAMEKIT_SPEECH_REQUIRE_VAD: "0", FRAMEKIT_SILERO_VAD_MODEL: "", PYTHONPATH: fakePython }, stderr: "pipe" });
+    client = new Client({ name: "package-analysis-missing-model", version: "1" }); await client.connect(transport);
+    const noModel = await client.callTool({ name: "speech.analyze", arguments: { projectId, mediaId } });
+    assert.equal(noModel.isError, true);
+    const noModelMessage = JSON.parse((noModel.content as Array<{ text: string }>)[0]!.text).message;
+    assert.match(noModelMessage, /WHISPER_SETUP_REQUIRED.*FRAMEKIT_WHISPER_MODEL/);
+    assert.doesNotMatch(noModelMessage, /Traceback|\n\s+at /);
+  } finally { await client?.close(); await transport?.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test("clean local and global installs expose the supported CLI and MCP entrypoints", { timeout: 180_000 }, async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-package-smoke-"));
   let client: Client | undefined;
