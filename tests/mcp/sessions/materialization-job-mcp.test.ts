@@ -1211,7 +1211,8 @@ test("simulated-native: concurrent clients cannot dispatch twice", async () => {
     await started;
     const operationId = receiver.trace()[0]!.operationId;
     const competing = await second.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "simulated-concurrent", target, confirm: true } });
-    assert.ok(competing.isError || payload(competing).state !== "completed");
+    assert.equal(competing.isError, true);
+    assert.equal(payload(competing).code, "FINAL_CUT_CANONICAL_RECOVERY_REQUIRED");
     assertSingleSimulatedDispatch(receiver.trace(), operationId);
     assert.equal(receiver.trace().filter(event => event.kind === "dispatch").length, 1);
     receiver.reply(operationId, "accepted");
