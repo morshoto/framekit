@@ -5,7 +5,8 @@ import { rankNarrativeCuts } from "../../../packages/runtime/src/planning/narrat
 const revision = { id: "rev-1", sequence: 1, timestamp: "2026-01-01T00:00:00.000Z" };
 const source = { mediaId: "source", source: "source.mov", sourceDigest: "sha256:source", duration: 10 };
 const input = {
-  source, revision, occurrenceId: "clip-1", sourceRange: { start: 0, end: 10 }, sequenceRange: { start: 20, end: 30 },
+  source, revision, occurrenceId: "clip-1", sourceRange: { start: 0, end: 10, startTime: { value: "0", timescale: "1" }, durationTime: { value: "10", timescale: "1" } }, sequenceRange: { start: 20, end: 30, startTime: { value: "20", timescale: "1" }, durationTime: { value: "10", timescale: "1" } },
+  sequenceFrameDuration: { value: "1", timescale: "10" },
   analysis: {
     schemaVersion: 1 as const, mediaId: source.mediaId, sourceIdentity: source, revision,
     requestedRange: { start: 0, end: 10 }, observedRange: { start: 0, end: 10 },
@@ -22,8 +23,9 @@ test("ranks a review-only pause between complete thoughts with source and sequen
   assert.deepEqual(input, before);
   assert.equal(result.candidates.length, 1);
   const candidate = result.candidates[0]!;
-  assert.deepEqual(candidate.sourceRange, { start: 1, end: 3 });
-  assert.deepEqual(candidate.sequenceRange, { start: 21, end: 23 });
+  assert.ok(candidate.sourceRange.start >= 1.2 && candidate.sourceRange.end <= 2.8);
+  assert.ok(candidate.sequenceRange.start >= 21.2 && candidate.sequenceRange.end <= 22.8);
+  assert.ok(candidate.sequenceRange.startTime && candidate.sequenceRange.durationTime);
   assert.equal(candidate.occurrenceId, "clip-1");
   assert.equal(candidate.reviewRequired, true);
   assert.ok(candidate.rationale);
@@ -47,4 +49,19 @@ test("visual gaps alone never authorize a cut, and stale or retimed mappings fai
   assert.equal(rankNarrativeCuts(visualOnly).candidates.length, 0);
   assert.throws(() => rankNarrativeCuts({ ...input, revision: { ...revision, sequence: 2 } }), /STALE/);
   assert.throws(() => rankNarrativeCuts({ ...input, sequenceRange: { start: 20, end: 25 } }), /AMBIGUOUS/);
+});
+
+
+test("rejects low-confidence or overlapping words, VAD contradictions and stale source", () => {
+  const low = { ...input, analysis: { ...input.analysis, words: [{ ...input.analysis.words[0]!, confidence: 0.1 }, input.analysis.words[1]!] } };
+  assert.equal(rankNarrativeCuts(low).candidates.length, 0);
+  const overlap = { ...input, analysis: { ...input.analysis, vadSegments: [...input.analysis.vadSegments, { kind: "speech" as const, start: 1.5, end: 2 }] } };
+  assert.equal(rankNarrativeCuts(overlap).candidates.length, 0);
+  assert.throws(() => rankNarrativeCuts({ ...input, source: { ...source, sourceDigest: "sha256:changed" } }), /SOURCE|TARGET/);
+});
+
+test("requires exact timeline identity and reports unavailable evidence", () => {
+  assert.throws(() => rankNarrativeCuts({ ...input, sequenceRange: { start: 20, end: 30 } }), /AMBIGUOUS|ANALYSIS/);
+  const result = rankNarrativeCuts({ ...input, analysis: { ...input.analysis, vadSegments: undefined } });
+  assert.ok(result.warnings.length > 0);
 });
