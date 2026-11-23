@@ -13,6 +13,7 @@ export interface MusicPlanRequest {
   accepted: AcceptedCreativeBrief;
   snapshot: ProjectSnapshot;
   projectId: string;
+  occurrenceId: string;
   timelineId: string;
   revision: ContextRevision;
   music?: MediaSourceIdentity;
@@ -36,7 +37,7 @@ export interface MusicPlan {
   reason: string;
   warnings: string[];
   dialogueVerificationRequired: boolean;
-  placement?: { mediaId: string; sourceDigest: string; range: TimeRange; sourceRange: TimeRange; targetLane: number; gainDb: number };
+  placement?: { occurrenceId: string; mediaId: string; sourceDigest: string; range: TimeRange; sourceRange: TimeRange; targetLane: number; gainDb: number };
 }
 
 /** Create a proposal only; preview, approval and audio verification are separate operations. */
@@ -67,6 +68,7 @@ export function planMusic(request: MusicPlanRequest): MusicPlan {
     return { ...base, decision: "unavailable", reason: "An exactly matching registered music source is required." };
   }
   const range = request.placement;
+  if (!request.occurrenceId?.trim() || actual.timeline.clips.some((clip) => clip.id === request.occurrenceId)) return { ...base, decision: "unsupported", reason: "A new music occurrence identity is required." };
   if (!range || !Number.isFinite(range.start) || !Number.isFinite(range.end) || range.start < 0 || range.end <= range.start
     || range.end > actual.timeline.duration || range.end - range.start > music.duration
     || !Number.isInteger(request.targetLane) || request.targetLane === 0) {
@@ -80,7 +82,7 @@ export function planMusic(request: MusicPlanRequest): MusicPlan {
   return {
     ...base, decision: "propose-music", reason: "The accepted brief requests a background music proposal.", warnings,
     dialogueVerificationRequired: true,
-    placement: { mediaId: music.mediaId, sourceDigest: music.sourceDigest, range: structuredClone(range), sourceRange: { start: 0, end: range.end - range.start }, targetLane: request.targetLane, gainDb: request.gainDb },
+    placement: { occurrenceId: request.occurrenceId, mediaId: music.mediaId, sourceDigest: music.sourceDigest, range: structuredClone(range), sourceRange: { start: 0, end: range.end - range.start }, targetLane: request.targetLane, gainDb: request.gainDb },
   };
 }
 
@@ -96,7 +98,7 @@ export async function previewMusicPlan(
   reviewed: MusicPlan,
   occurrenceId: string,
 ): Promise<CompositeEditPreview> {
-  if (!occurrenceId?.trim()) throw new Error("INVALID_MUSIC_PLAN: an occurrence identity is required");
+  if (!occurrenceId?.trim() || occurrenceId !== request.occurrenceId) throw new Error("INVALID_MUSIC_PLAN: reviewed occurrence identity is required");
   const current = await runtime.inspectProject();
   const recomputed = planMusic({ ...request, snapshot: current });
   if (recomputed.decision !== "propose-music" || !recomputed.placement || !isDeepStrictEqual(recomputed, reviewed)) {
