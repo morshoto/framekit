@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmod, lstat, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -619,5 +619,20 @@ test("racing authorized and unapproved starts create at most one job", async () 
     const results = await Promise.allSettled([createOrInspectRun(root, unapproved), createOrInspectRun(root, authorized)]);
     assert.equal(results.filter(result => result.status === "fulfilled" && result.value.created).length, 1);
     for (const result of results) if (result.status === "rejected") assert.match(String(result.reason), /QA_RUN_NOT_FOUND_OR_INCOMPLETE|QA_RUN_IDENTITY_MISMATCH/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+
+test("a missing job index cannot turn an uncertain run into a new job", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-lost-index-"));
+  try {
+    const first = { ...manifest, authorizationDigest: null };
+    await createOrInspectRun(root, first);
+    await markDispatchUncertain(root, first);
+    const indices = (await readdir(root)).filter(name => name.startsWith(".job-"));
+    assert.equal(indices.length, 1);
+    await rm(join(root, indices[0]!), { recursive: true });
+    await assert.rejects(createOrInspectRun(root, { ...first, qaRunId: "replacement-run" }), /QA_INDEX_RECONCILIATION_REQUIRED/);
+    assert.equal((await inspectRun(root, first.qaRunId)).dispatch, "UNKNOWN_AFTER_DISPATCH");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
