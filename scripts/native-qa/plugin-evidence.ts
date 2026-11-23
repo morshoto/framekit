@@ -83,7 +83,7 @@ async function verifyQaPluginIdentityInner(root: string, qaRunId: string, input:
   if (!child || child === ".." || child.startsWith(`..${sep}`) || isAbsolute(child)) throw new Error("QA_PLUGIN_UNSAFE");
   const candidateMatches = async () => {
     const options = { cwd: checkout, timeout: 10000, maxBuffer: 1024 * 1024 };
-    const [head, tree, status] = await Promise.all([exec("git", ["rev-parse", "HEAD"], options), exec("git", ["rev-parse", "HEAD^{tree}"], options), exec("git", ["status", "--porcelain", "--untracked-files=normal"], options)]);
+    const [head, tree, status] = await Promise.all([exec("git", ["rev-parse", "HEAD"], options), exec("git", ["rev-parse", "HEAD^{tree}"], options), exec("git", ["-c", "core.fsmonitor=false", "status", "--porcelain", "--untracked-files=normal"], options)]);
     return head.stdout.trim() === run.manifest.candidateCommit && tree.stdout.trim() === run.manifest.candidateTree && !status.stdout.trim();
   };
   if (!await candidateMatches()) throw new Error("QA_CANDIDATE_MISMATCH");
