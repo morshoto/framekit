@@ -129,3 +129,26 @@ test("concurrent uncertainty records converge without enabling dispatch", async 
     assert.equal((await createOrInspectRun(root, manifest)).created, false);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("creation binds the input snapshot before asynchronous work", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-input-race-"));
+  try {
+    const supplied = { ...manifest };
+    const pending = createOrInspectRun(root, supplied);
+    supplied.targetDigest = "8".repeat(64);
+    const result = await pending;
+    assert.equal(result.run.manifest.targetDigest, manifest.targetDigest);
+    assert.equal((await inspectRun(root, manifest.qaRunId)).manifest.targetDigest, manifest.targetDigest);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("uncertainty recording binds the input snapshot before asynchronous work", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-mark-input-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    const supplied = { ...manifest };
+    const pending = markDispatchUncertain(root, supplied);
+    supplied.authorizationDigest = "9".repeat(64);
+    assert.equal((await pending).dispatch, "UNKNOWN_AFTER_DISPATCH");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
