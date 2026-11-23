@@ -141,7 +141,8 @@ test("clean package analyzes registered headless media with configured providers
     const fakeSpeech = join(directory, "fake-speech.mjs");
     await writeFile(fakeSpeech, '#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify({words:[{text:"fixture",start:0.5,end:1,confidence:0.9}],vadUnavailableReason:"FIXTURE_NO_VAD"}));\n');
     await chmod(fakeSpeech, 0o755);
-    const environment = { ...process.env, FRAMEKIT_STATE_DIR: join(directory, "state"), FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0", FRAMEKIT_AUTO_CONNECT: "0",
+    const environment = { ...Object.fromEntries(Object.entries(process.env).filter(([key, value]) => value !== undefined && !key.startsWith("FRAMEKIT_"))),
+      FRAMEKIT_STATE_DIR: join(directory, "state"), FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0", FRAMEKIT_AUTO_CONNECT: "0",
       FRAMEKIT_SPEECH_ANALYZER: join(runtime, "speech-analyzer-wrapper.mjs"), FRAMEKIT_SPEECH_BACKEND: fakeSpeech,
       FRAMEKIT_SPEECH_ANALYZER_VERSION: "fixture@1", FRAMEKIT_AUDIO_ANALYZER: join(runtime, "ffmpeg-audio-backend.py"), FRAMEKIT_AUDIO_ANALYZER_VERSION: "ffmpeg-fixture@1" } as Record<string, string>;
     transport = new StdioClientTransport({ command: executable, args: ["mcp", "--editor", "final-cut-live", "--headless"], cwd: directory, env: environment, stderr: "pipe" });
