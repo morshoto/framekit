@@ -23,6 +23,7 @@ import { verifyQaPublisherFixture, readQaPublisherFixtureEvidence } from "../../
 import { verifyQaPublisherSources, readQaPublisherSourceEvidence } from "../../../scripts/native-qa/publisher-source-evidence.js";
 import { recordQaPublisherStage, readQaPublisherStages } from "../../../scripts/native-qa/publisher-stages.js";
 import { runSupervisedQaPublisher } from "../../../scripts/native-qa/publisher-supervision.js";
+import { readQaEvidenceBundle } from "../../../scripts/native-qa/evidence-bundle.js";
 
 const manifest = {
   qaRunId: "qa-fixture-1", candidateCommit: "a".repeat(40), candidateTree: "b".repeat(40),
@@ -30,6 +31,26 @@ const manifest = {
   artifactDigest: "4".repeat(64), sourceDigest: "5".repeat(64), targetDigest: "6".repeat(64),
   operation: "rough-cut-publish" as const, authorizationDigest: "7".repeat(64),
 };
+
+test("evidence entry point returns persisted publisher observations without native proof", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-bundle-"));
+  try {
+    await createOrInspectRun(root, manifest);
+    await recordQaPublisherStage(root, manifest.qaRunId, "prepared", { jobId: "job-123", state: "awaiting-confirmation", artifactDigest: manifest.artifactDigest });
+    await claimDispatchIntent(root, manifest, "job-123");
+    const bundle = await readQaEvidenceBundle(root, manifest.qaRunId);
+    assert.equal(bundle.dispatch, "UNKNOWN_AFTER_DISPATCH");
+    assert.equal(bundle.verdict, "BLOCKED");
+    assert.equal(bundle.nativeQuiescence, "unproven");
+    assert.equal(bundle.publisherStages.stages[0]?.jobId, "job-123");
+    assert.equal(bundle.headless.result, "pending-or-interrupted");
+    const cli = spawnSync(process.execPath, ["--import", "tsx", "scripts/native-qa/cli.ts", "evidence-bundle", root, manifest.qaRunId], { encoding: "utf8", timeout: 10000 });
+    assert.equal(cli.status, 0, cli.stderr);
+    assert.deepEqual(JSON.parse(cli.stdout), bundle);
+    await writeFile(join(root, manifest.qaRunId, "publisher-stage-1.json"), "invalid");
+    await assert.rejects(readQaEvidenceBundle(root, manifest.qaRunId), /QA_STAGE_CORRUPT/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 test("supervised publisher retains uncertain intent after a lost receiver response", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-supervised-publish-"));
