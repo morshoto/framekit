@@ -1360,6 +1360,9 @@ test("headless project media can be understood and planned without a Final Cut c
     const projects = payload(await client.callTool({ name: "headless.project.list", arguments: {} }));
     assert.ok(projects.some((project: any) => project.projectId === projectId));
     await writeFile(sourcePath, "replaced source");
+    const changedPin = await client.callTool({ name: "headless.analysis.pin", arguments: pinArgs });
+    assert.equal(changedPin.isError, true);
+    assert.match(toolErrorText(changedPin), /MEDIA_CHANGED/);
     for (const name of ["speech.analyze", "audio.analyze"]) {
       const changed = await client.callTool({ name, arguments: { projectId, mediaId: registered.resource.id } });
       assert.equal(changed.isError, true);
