@@ -7,10 +7,10 @@
 | `FRAMEKIT_FINAL_CUT_SOCKET` | Workflow Extension のソケットを指定します。 |
 | `FRAMEKIT_STATE_DIR` | ネイティブ操作の予約情報などを保存するディレクトリを指定します。 |
 
-CLI では `mcp --editor fixture` や `mcp --editor final-cut-live --headless` も指定できます。起動後、選択したバックエンドで必要な操作が利用できるか確認してください。
+公開 CLI の `framekit mcp` は `FRAMEKIT_EDITOR` より `--editor` を優先し、省略時は `final-cut-live` を設定します。CLI でフィクスチャを使うには `framekit mcp --editor fixture` を指定してください。ヘッドレスでは `framekit mcp --editor final-cut-live --headless` を指定できます。起動後、選択したバックエンドで必要な操作が利用できるか確認してください。
 
 ## 解析コマンドを指定する
 
-`FRAMEKIT_SPEECH_ANALYZER`、`FRAMEKIT_AUDIO_ANALYZER`、`FRAMEKIT_VISUAL_ANALYZER`、`FRAMEKIT_METADATA_ANALYZER` でローカルの解析コマンドを指定できます。各コマンドは標準入力から JSON リクエストを受け取り、規定の型に従った結果を標準出力に JSON で返します。`FRAMEKIT_ANALYZER_TIMEOUT_MS` でタイムアウトを設定できます。プロバイダーがない場合、解析結果は生成されず、解析を利用できないことが応答に示されます。
+`final-cut-live` モードでは、`FRAMEKIT_SPEECH_ANALYZER`、`FRAMEKIT_AUDIO_ANALYZER`、`FRAMEKIT_VISUAL_ANALYZER`、`FRAMEKIT_METADATA_ANALYZER` でローカルの解析コマンドを指定できます。各コマンドは標準入力から JSON リクエストを受け取り、規定の型に従った結果を標準出力に JSON で返します。`FRAMEKIT_ANALYZER_TIMEOUT_MS` でタイムアウトを設定できます。プロバイダーがない場合、解析結果は生成されず、解析を利用できないことが応答に示されます。fixture モードではこれらの変数を使わず、内蔵のフィクスチャ解析器を使います。
 
 開発環境やネイティブ接続の設定は[セットアップガイド](https://github.com/morshoto/framekit/blob/main/docs/getting-started.md)を参照してください。
