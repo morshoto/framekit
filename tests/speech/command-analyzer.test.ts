@@ -6,7 +6,7 @@ import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { CommandAudioAnalyzer, CommandSpeechAnalyzer } from "@framekit/final-cut";
-import { AgentVideoRuntime, type AnalysisInput } from "@framekit/runtime";
+import { AgentVideoRuntime, JsonSemanticMediaIndexStore, type AnalysisInput } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 
 function createInput(mediaSource: string): AnalysisInput {
@@ -50,7 +50,8 @@ test("command speech analyzer sends a safe identity-bound request and returns VA
   }, capturePath);
   const input = createInput(mediaPath);
 
-  const result = await new CommandSpeechAnalyzer({ command: wrapper }).analyze(
+  const analyzer = new CommandSpeechAnalyzer({ command: wrapper });
+  const result = await analyzer.analyze(
     input,
     { start: 2, end: 6 },
   );
@@ -67,7 +68,8 @@ test("command speech analyzer sends a safe identity-bound request and returns VA
   assert.deepEqual(result.requestedRange, { start: 2, end: 6 });
   assert.deepEqual(result.observedRange, { start: 2, end: 6 });
   assert.deepEqual(result.revision, input.project.revision);
-  assert.deepEqual(result.provider, { id: "command.speech", provider: "command" });
+  assert.deepEqual(result.provider, analyzer.descriptor);
+  assert.match(result.provider.configurationDigest!, /^[0-9a-f]{64}$/);
   assert.equal(result.capability, "transcription-plus-vad");
 });
 
@@ -114,7 +116,9 @@ test("configured local speech analyzer requires VAD and reports provider version
     id: "command.speech",
     provider: "command",
     version: "local-whisper-vad@1",
+    configurationDigest: analyzer.descriptor.configurationDigest,
   });
+  assert.match(analyzer.descriptor.configurationDigest!, /^[0-9a-f]{64}$/);
   assert.deepEqual(analyzer.capabilities, { transcription: true, vad: true });
   assert.equal(result.provider?.version, "local-whisper-vad@1");
   assert.equal(result.capability, "transcription-plus-vad");
@@ -227,6 +231,43 @@ test("command speech analyzer fails closed for missing executables and malformed
   );
 });
 
+
+test("command speech identity changes with effective model configuration", () => {
+  const first = new CommandSpeechAnalyzer({ command: "/providers/speech", environment: { FRAMEKIT_WHISPER_MODEL: "model-a" } });
+  const second = new CommandSpeechAnalyzer({ command: "/providers/speech", environment: { FRAMEKIT_WHISPER_MODEL: "model-b" } });
+  assert.notEqual(first.descriptor.configurationDigest, second.descriptor.configurationDigest);
+  assert.match(first.descriptor.configurationDigest!, /^[0-9a-f]{64}$/);
+});
+
+test("command audio identity distinguishes executable and provider version", () => {
+  const descriptor = (command: string, providerVersion: string) =>
+    new CommandAudioAnalyzer({ command, providerVersion, environment: {} }).descriptor;
+  assert.notEqual(descriptor("/providers/audio-a", "1").configurationDigest, descriptor("/providers/audio-b", "1").configurationDigest);
+  assert.notEqual(descriptor("/providers/audio-a", "1").configurationDigest, descriptor("/providers/audio-a", "2").configurationDigest);
+  assert.equal(descriptor("/providers/audio-a", "2").version, "2");
+});
+
+test("command provider executes the environment bound to its analysis identity", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-provider-config-"));
+  const mediaPath = join(directory, "source.wav");
+  await writeFile(mediaPath, "media");
+  const command = join(directory, "configured-speech.mjs");
+  await writeFile(command, [
+    "#!/usr/bin/env node",
+    'for await (const chunk of process.stdin) {}',
+    'process.stdout.write(JSON.stringify({words:[{text:process.env.MODEL_SETTING ?? "missing",start:0,end:1,confidence:1}]}));',
+  ].join("\n"));
+  await chmod(command, 0o755);
+  const environment = { ...process.env, MODEL_SETTING: "configured-value" };
+  const analyzer = new CommandSpeechAnalyzer({ command, environment });
+  const configuredIdentity = structuredClone(analyzer.descriptor);
+  environment.MODEL_SETTING = "different-value";
+  const result = await analyzer.analyze(createInput(mediaPath));
+  assert.equal(result.words[0]?.text, "configured-value");
+  assert.deepEqual(result.provider, configuredIdentity);
+  assert.doesNotMatch(JSON.stringify(result.provider), /configured-value|different-value/);
+});
+
 for (const kind of ["speech", "audio"] as const) {
   const output = kind === "speech"
     ? { words: [{ text: "hello", start: 0, end: 1, confidence: 0.9 }] }
@@ -271,6 +312,45 @@ for (const kind of ["speech", "audio"] as const) {
     assert.ok(result);
     assert.deepEqual(input, baseline);
     assert.equal(await readFile(mediaPath, "utf8"), "media");
+  });
+}
+
+for (const kind of ["speech", "audio"] as const) {
+  test(`persisted ${kind} cache rechecks source bytes after restart`, async (t) => {
+    const directory = await mkdtemp(join(os.tmpdir(), "framekit-cache-source-"));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const mediaPath = join(directory, "source.wav");
+    await writeFile(mediaPath, "media");
+    const command = await createWrapper(directory, kind === "speech"
+      ? { words: [{ text: "old-source", start: 0, end: 1, confidence: 0.9 }] }
+      : { integratedLufs: -20, truePeakDb: -6, silenceMs: 0 });
+    const input = createInput(mediaPath);
+    const adapter = new InMemoryEditorAdapter({
+      projectId: input.project.projectId, projectName: input.project.projectName,
+      timelineId: input.project.timeline.id, timelineName: input.project.timeline.name,
+      clips: [], media: [input.media],
+    });
+    const analyzers = kind === "speech"
+      ? { speechAnalyzer: new CommandSpeechAnalyzer({ command }) }
+      : { audioAnalyzer: new CommandAudioAnalyzer({ command }) };
+    const storePath = join(directory, "source-index.json");
+    const runtime = () => new AgentVideoRuntime(adapter, {
+      ...analyzers, semanticMediaIndexStore: new JsonSemanticMediaIndexStore(storePath),
+    });
+    const originalRuntime = runtime();
+    const first = await originalRuntime.understandMedia("media-1");
+    assert.equal(first.analysis.find((entry) => entry.capability === kind)?.status, "analyzed");
+    // Simulate source replacement while the editor's logical media identity remains unchanged.
+    await writeFile(mediaPath, "replacement");
+    const indexed = await runtime().indexMedia();
+    assert.equal(indexed.some((entry) => entry.analysis.some((status) => status.status === "analyzed")), false);
+    const attachedIndex = await originalRuntime.indexMedia();
+    assert.equal(attachedIndex.some((entry) => entry.analysis.some((status) => status.status === "analyzed")), false);
+    const second = await runtime().understandMedia("media-1");
+    assert.equal(second[kind], undefined);
+    const status = second.analysis.find((entry) => entry.capability === kind);
+    assert.equal(status?.status, "unavailable");
+    assert.match(status?.reason ?? "", /ANALYZER_SOURCE_CHANGED/);
   });
 }
 
@@ -336,15 +416,15 @@ test("command audio bounds source verification before and after the provider", {
   const childCode = [
     'import { CommandAudioAnalyzer } from "@framekit/final-cut";',
     'const input = JSON.parse(process.env.FRAMEKIT_TEST_INPUT);',
-    'try { await new CommandAudioAnalyzer({ command: process.env.FRAMEKIT_TEST_COMMAND, timeoutMs: 1000 }).analyze(input); process.exitCode = 3; }',
+    'try { const analyzer = new CommandAudioAnalyzer({ command: process.env.FRAMEKIT_TEST_COMMAND, timeoutMs: 1000 }); if (process.env.FRAMEKIT_TEST_CACHE === "1") await analyzer.validateSource(input); else await analyzer.analyze(input); process.exitCode = 3; }',
     'catch (error) { console.log(String(error)); }',
   ].join("\n");
-  for (const phase of ["before", "after"] as const) {
+  for (const phase of ["before", "after", "cache"] as const) {
     if (phase === "after") await writeFile(source, "media");
-    const input = createInput(phase === "before" ? "/dev/zero" : source);
-    if (phase === "before") delete input.media.sourceDigest;
+    const input = createInput(phase === "after" ? source : "/dev/zero");
+    if (phase !== "after") delete input.media.sourceDigest;
     const result = await new Promise<{ code: number | null; output: string; timedOut: boolean }>((resolve, reject) => {
-      const environment: NodeJS.ProcessEnv = { ...process.env, NODE_OPTIONS: "", FRAMEKIT_TEST_INPUT: JSON.stringify(input), FRAMEKIT_TEST_COMMAND: command };
+      const environment: NodeJS.ProcessEnv = { ...process.env, NODE_OPTIONS: "", FRAMEKIT_TEST_INPUT: JSON.stringify(input), FRAMEKIT_TEST_COMMAND: command, FRAMEKIT_TEST_CACHE: phase === "cache" ? "1" : "0" };
       delete environment.NODE_TEST_CONTEXT;
       const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", childCode], { env: environment });
       let output = "";
