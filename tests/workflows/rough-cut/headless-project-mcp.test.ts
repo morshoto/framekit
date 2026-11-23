@@ -68,9 +68,27 @@ test("reviewed music decision previews the exact headless placement without chan
     const rejectedTiming = await client.callTool({ name: "headless.decision.preview-music", arguments: { ...unaligned, planDigest: unalignedPlan.plan.planDigest } });
     assert.equal(rejectedTiming.isError, true);
     assert.match(toolErrorText(rejectedTiming), /frame grid/i);
+    const musicBytes = await readFile(musicPath);
     await writeFile(musicPath, "changed");
     const changed = await client.callTool({ name: "headless.decision.preview-music", arguments: { ...input, planDigest: decision.plan.planDigest } });
     assert.equal(changed.isError, true);
+    await writeFile(musicPath, musicBytes);
+    // The generic approval path is deliberately separate: this demonstrates the
+    // handoff, not evidence-bound native execution or atomic brief approval.
+    const approval = payload(await client.callTool({ name: "headless.edit.approved-preview", arguments: { projectId, sequenceId, expectedRevision: revision, operations: preview.preview.command.operations } }));
+    assert.deepEqual(approval.command.operations, preview.preview.command.operations);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, before.timeline);
+    const applied = payload(await client.callTool({ name: "headless.edit.approved-execute", arguments: { projectId, sequenceId, previewToken: approval.previewToken, approved: true } }));
+    const outputPath = join(directory, "music-output.mp4");
+    const rendered = payload(await client.callTool({ name: "headless.render", arguments: { projectId, sequenceId, expectedRevision: applied.after.timeline.revision,
+      parameters: { outputPath, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } } }));
+    assert.equal(rendered.status, "passed", JSON.stringify(rendered));
+    const mixed = await readAudioWindow(outputPath, 0.2); const afterMusic = await readAudioWindow(outputPath, 1.2);
+    const sourceTone = toneAmplitude(mixed, 440); const musicTone = toneAmplitude(mixed, 220);
+    assert.ok(sourceTone > 0.01, `source tone missing: ${sourceTone}`);
+    assert.ok(musicTone / sourceTone > 0.08 && musicTone / sourceTone < 0.2, `unexpected music/source ratio: ${musicTone / sourceTone}`);
+    assert.ok(toneAmplitude(afterMusic, 440) > 0.01, "source tone must continue after music");
+    assert.ok(toneAmplitude(afterMusic, 220) < musicTone * 0.1, "music must stop at its reviewed endpoint");
   } finally { await connection?.client.close(); await connection?.transport.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
