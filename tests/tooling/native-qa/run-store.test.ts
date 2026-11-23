@@ -941,3 +941,13 @@ test("invalid worker artifact input is rejected before creating a run", async ()
     await assert.rejects(lstat(join(root, unapproved.qaRunId)), (error: NodeJS.ErrnoException) => error.code === "ENOENT");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("oversized encoded worker input is rejected before recording a run", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-worker-input-limit-"));
+  try {
+    const unapproved = { ...manifest, authorizationDigest: null };
+    const path = "/" + "\u0001".repeat(3000);
+    await assert.rejects(startQaRun(root, unapproved, path), /QA_ARTIFACT_UNSAFE/);
+    await assert.rejects(lstat(join(root, unapproved.qaRunId)), (error: NodeJS.ErrnoException) => error.code === "ENOENT");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
