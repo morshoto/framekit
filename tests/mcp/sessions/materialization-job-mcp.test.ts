@@ -1090,9 +1090,10 @@ test("simulated lost reply retains a reservation through MCP reconnect", async (
     assert.equal(declined.isError, true);
     assert.equal(receiver.trace().length, 0);
     const result = payload(await first.client.callTool({ name: "session.materialize.execute", arguments: { sessionId: "simulated", target, confirm: true } }));
-    assert.equal(result.state, "blocked");
+    assert.equal(result.state, "failed");
+    assert.equal(result.nextAction, "none");
     assert.equal(result.evidence.headedNative, false);
-    assert.equal(result.error.code, "FINAL_CUT_CANONICAL_RECOVERY_REQUIRED");
+    assert.equal(result.recoveryReservation.reason, "native-quiescence-unproven");
     assert.equal(receiver.trace().filter(event => event.kind === "dispatch").length, 1);
     assert.equal(receiver.trace()[0]?.operationId, result.jobId);
     await first.client.close();
@@ -1100,7 +1101,8 @@ test("simulated lost reply retains a reservation through MCP reconnect", async (
     const second = await connect(directory, simulatedMaterializationPublisher(receiver.restart()), undefined, "default", new FileCanonicalRecoveryGuard(path));
     try {
       const status = payload(await second.client.callTool({ name: "session.materialize.status", arguments: { jobId: result.jobId } }));
-      assert.equal(status.state, "blocked");
+      assert.equal(status.state, "failed");
+      assert.equal(status.recoveryReservation.reason, "native-quiescence-unproven");
       await second.client.callTool({ name: "session.materialize.retry", arguments: { jobId: result.jobId } });
       assert.equal(receiver.trace().filter(event => event.kind === "dispatch").length, 1);
       await assert.rejects(new FileCanonicalRecoveryGuard(path).assertClear(), /FINAL_CUT_CANONICAL_RECOVERY_REQUIRED/);

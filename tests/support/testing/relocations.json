@@ -2089,7 +2089,8 @@
       "\"materialization tracker lookup occurs only with a reservation\"",
       "\"an overridden built-in publisher does not use the unavailable shortcut\"",
       "\"invalid persisted provenance is rejected before materialization reservation\"",
-      "\"invalid provenance is checked before the unavailable-provider shortcut\""
+      "\"invalid provenance is checked before the unavailable-provider shortcut\"",
+      "\"simulated lost reply retains a reservation through MCP reconnect\""
     ],
     "tests/integration/mcp.test.ts": [
       "\"MCP presents invalid tool arguments as actionable coded errors\"",

@@ -67,3 +67,25 @@ export class ScriptedNativeReceiver {
     this.storage.events.push({ tick: ++this.storage.tick, kind, ...identity });
   }
 }
+
+/** Inject the fake at the production materialization publisher boundary. */
+export function simulatedMaterializationPublisher(receiver: ScriptedNativeReceiver): import("../../apps/mcp-server/src/materialization-jobs.js").SessionMaterializationPublisher {
+  return {
+    async publish(request) {
+      const result = await receiver.dispatch({
+        operationId: request.jobId,
+        targetId: [request.target.libraryUid, request.target.eventUid, request.destination.projectUid, request.destination.sequenceUid].join("/"),
+        sourceDigest: request.desiredDigest,
+        revisionId: request.baseRevision.id,
+      });
+      if (result.state === "uncertain") throw new Error("SIMULATED_RESPONSE_LOST");
+      if (result.state === "rejected") return { state: "blocked", code: "SIMULATED_REJECTION", message: "Simulated receiver rejected the request", retryable: false };
+      return {
+        state: "completed",
+        canonicalReadback: request.desired,
+        canonicalTarget: { libraryUid: request.target.libraryUid, eventUid: request.target.eventUid, projectUid: request.destination.projectUid, sequenceUid: request.destination.sequenceUid },
+        headedNativeVerified: false,
+      };
+    },
+  };
+}
