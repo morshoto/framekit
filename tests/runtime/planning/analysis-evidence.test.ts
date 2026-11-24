@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { InMemorySemanticMediaIndexStore } from "../../../packages/runtime/src/application/semantic-media-index-store.js";
 import { InMemoryAnalysisArtifactStore, pinAnalysisEvidence, verifyAnalysisEvidence } from "../../../packages/runtime/src/planning/analysis-evidence.js";
-import type { MediaUnderstanding } from "../../../packages/runtime/src/domain/media.js";
+import type { MediaSourceIdentity, MediaUnderstanding } from "../../../packages/runtime/src/domain/media.js";
 
 const source = { mediaId: "m1", source: "fixture.mov", sourceDigest: "sha256:source", mediaKind: "video" as const, duration: 10 };
 const revision = { id: "r1", sequence: 1, timestamp: "2026-01-01T00:00:00.000Z" };
@@ -145,6 +145,45 @@ test("source verification is required and brackets evidence access", async () =>
   let calls = 0;
   const changedDuringRead = async () => { if (++calls === 2) throw new Error("source changed"); };
   assert.equal((await verifyAnalysisEvidence(artifacts, ref, context, changedDuringRead)).status, "invalid");
+});
+
+test("pinning binds the requested context before asynchronous artifact storage", async () => {
+  const { index, artifacts } = await fixture();
+  const requested = structuredClone(context);
+  const expected = structuredClone(requested);
+  const changingStore = {
+    get: (digest: string) => artifacts.get(digest),
+    put: async (digest: string, bytes: Uint8Array) => {
+      requested.range.end = 9;
+      requested.provider.model = "different-model";
+      await artifacts.put(digest, bytes);
+    },
+  };
+  const ref = await pinAnalysisEvidence(index, changingStore, requested, fixtureVerifier);
+  assert.deepEqual(ref.range, expected.range);
+  assert.deepEqual(ref.provider, expected.provider);
+  assert.equal((await verifyAnalysisEvidence(artifacts, ref, expected, fixtureVerifier)).status, "verified");
+});
+
+test("verification cannot be changed from stale to current during source checking", async () => {
+  const { index, artifacts } = await fixture();
+  const ref = await pinAnalysisEvidence(index, artifacts, context, fixtureVerifier);
+  const stale = structuredClone({ ...context, revision: { ...revision, sequence: 2 } });
+  const result = await verifyAnalysisEvidence(artifacts, ref, stale, async () => { stale.revision.sequence = 1; });
+  assert.notEqual(result.status, "verified");
+  const staleRef = structuredClone({ ...ref, revision: { ...ref.revision, sequence: 2 } });
+  const refResult = await verifyAnalysisEvidence(artifacts, staleRef, context, async () => { staleRef.revision.sequence = 1; });
+  assert.notEqual(refResult.status, "verified");
+});
+
+test("source verifiers cannot mutate the bound evidence identity", async () => {
+  const { index, artifacts } = await fixture();
+  const observed: Array<string | undefined> = [];
+  const verifier = async (value: MediaSourceIdentity) => { observed.push(value.sourceDigest); value.sourceDigest = "modified"; };
+  const ref = await pinAnalysisEvidence(index, artifacts, context, verifier);
+  assert.equal(ref.source.sourceDigest, source.sourceDigest);
+  assert.equal((await verifyAnalysisEvidence(artifacts, ref, context, verifier)).status, "verified");
+  assert.deepEqual(observed, Array(4).fill(source.sourceDigest));
 });
 
 test("command analysis can be pinned from the persisted semantic index", async () => {

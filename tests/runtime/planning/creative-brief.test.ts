@@ -73,6 +73,11 @@ test("brief identity is stable across object key ordering", () => {
   assert.deepEqual(acceptCreativeBrief(brief), acceptCreativeBrief(reordered));
 });
 
+test("acceptance rejects values that cannot survive JSON persistence", () => {
+  const unsafe = { ...brief, extra: undefined } as CreativeBrief;
+  assert.throws(() => acceptCreativeBrief(unsafe), /INVALID_BRIEF.*JSON-safe/);
+});
+
 test("an inference cannot override an explicit user policy", () => {
   const conflicting = { ...brief, inferences: [{ field: "musicPolicy", value: "add music", reason: "upbeat", accepted: true }] };
   assert.throws(() => acceptCreativeBrief(conflicting), /explicit.*choice/i);

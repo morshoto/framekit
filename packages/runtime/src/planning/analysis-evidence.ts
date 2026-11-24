@@ -149,36 +149,40 @@ function validateRecord(record: MediaUnderstanding, context: AnalysisEvidenceCon
 
 /** Pin the exact serialized index record as derived data; this does not approve a plan. */
 export async function pinAnalysisEvidence(index: SemanticMediaIndexStore, artifacts: AnalysisArtifactStore, context: AnalysisEvidenceContext, verifySource: AnalysisSourceVerifier): Promise<AnalysisRef> {
-  validateContext(context);
+  const bound = structuredClone(context);
+  validateContext(bound);
   if (typeof verifySource !== "function") throw new Error("ANALYSIS_UNAVAILABLE: current source verification is required");
-  await verifySource(context.source);
-  const record = await index.load(context.source);
-  if (!record) throw new Error("ANALYSIS_UNAVAILABLE: source analysis is missing");
-  validateRecord(record, context);
+  await verifySource(structuredClone(bound.source));
+  const loaded = await index.load(structuredClone(bound.source));
+  if (!loaded) throw new Error("ANALYSIS_UNAVAILABLE: source analysis is missing");
+  const record = structuredClone(loaded);
+  validateRecord(record, bound);
   const bytes = Buffer.from(JSON.stringify(record), "utf8");
   const artifactDigest = hash(bytes);
   await artifacts.put(artifactDigest, bytes);
-  await verifySource(context.source);
-  return { schemaVersion: 1, ...structuredClone(context), artifactDigest, analysisRevision: structuredClone(record.analysisRevision) };
+  await verifySource(structuredClone(bound.source));
+  return { schemaVersion: 1, ...bound, artifactDigest, analysisRevision: structuredClone(record.analysisRevision) };
 }
 
 /** Verify a pinned artifact against independently supplied current source, provider and revision. */
 export async function verifyAnalysisEvidence(artifacts: AnalysisArtifactStore, ref: AnalysisRef, current: AnalysisEvidenceContext, verifySource: AnalysisSourceVerifier): Promise<AnalysisEvidenceVerification> {
   try {
-    validateContext(current);
+    const bound = structuredClone(current);
+    const reference = structuredClone(ref);
+    validateContext(bound);
     if (typeof verifySource !== "function") return { status: "unavailable", reason: "current source verification is required" };
-    await verifySource(current.source);
-    if (!ref || ref.schemaVersion !== 1 || !/^sha256:[a-f0-9]{64}$/.test(ref.artifactDigest)
-      || ref.kind !== current.kind || !sameMediaSourceIdentity(ref.source, current.source)
-      || !sameAnalyzerDescriptor(ref.provider, current.provider) || !sameRevision(ref.revision, current.revision)
-      || !sameRange(ref.range, current.range)) return { status: "invalid", reason: "analysis reference no longer matches the current request" };
-    const bytes = await artifacts.get(ref.artifactDigest);
+    await verifySource(structuredClone(bound.source));
+    if (!reference || reference.schemaVersion !== 1 || !/^sha256:[a-f0-9]{64}$/.test(reference.artifactDigest)
+      || reference.kind !== bound.kind || !sameMediaSourceIdentity(reference.source, bound.source)
+      || !sameAnalyzerDescriptor(reference.provider, bound.provider) || !sameRevision(reference.revision, bound.revision)
+      || !sameRange(reference.range, bound.range)) return { status: "invalid", reason: "analysis reference no longer matches the current request" };
+    const bytes = await artifacts.get(reference.artifactDigest);
     if (!bytes) return { status: "unavailable", reason: "pinned analysis artifact is missing" };
-    if (hash(bytes) !== ref.artifactDigest) return { status: "invalid", reason: "analysis artifact digest mismatch" };
+    if (hash(bytes) !== reference.artifactDigest) return { status: "invalid", reason: "analysis artifact digest mismatch" };
     const record = JSON.parse(Buffer.from(bytes).toString("utf8")) as MediaUnderstanding;
-    validateRecord(record, current);
-    if (!sameRevision(ref.analysisRevision, record.analysisRevision)) return { status: "invalid", reason: "analysis revision mismatch" };
-    await verifySource(current.source);
+    validateRecord(record, bound);
+    if (!sameRevision(reference.analysisRevision, record.analysisRevision)) return { status: "invalid", reason: "analysis revision mismatch" };
+    await verifySource(structuredClone(bound.source));
     return { status: "verified" };
   } catch (error) {
     return { status: "invalid", reason: error instanceof Error ? error.message : "invalid analysis evidence" };
