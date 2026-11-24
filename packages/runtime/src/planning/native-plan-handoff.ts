@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import type { CreativeBriefStore } from "../application/creative-brief-store.js";
 import type { RationalTime } from "../domain/primitives.js";
 import { addRationalTimes } from "../timeline/rational-time.js";
@@ -12,6 +13,19 @@ export interface NativePlanTarget {
   eventId: string;
   projectId: string;
   sequenceId: string;
+}
+
+/** Recheck the entire proposal against current evidence; this does not authorize execution. */
+export async function assertNativeCutHandoffCurrent(
+  request: EditDecisionPlanRequest, plan: EditDecisionPlan, decisionIndex: number, target: NativePlanTarget,
+  proposal: NativeCutHandoff, artifacts: AnalysisArtifactStore, verifySource: AnalysisSourceVerifier, briefStore: CreativeBriefStore,
+): Promise<{ status: "current" } | { status: "stale"; reason: string }> {
+  let expected: NativeCutHandoff;
+  try { expected = structuredClone(proposal); }
+  catch { return { status: "stale", reason: "Proposal cannot be safely inspected." }; }
+  const current = await prepareNativeCutHandoff(request, plan, decisionIndex, target, artifacts, verifySource, briefStore);
+  if (current.status !== "proposed") return { status: "stale", reason: current.reason };
+  return isDeepStrictEqual(current, expected) ? { status: "current" } : { status: "stale", reason: "Native proposal or target changed." };
 }
 
 export type NativeCutHandoff =

@@ -497,3 +497,28 @@ test("native cut handoff snapshots inputs and excludes non-cut decisions", async
     }
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
+
+test("native cut proposal revalidation detects changed operation, target and evidence", async () => {
+  const { prepareNativeCutHandoff, assertNativeCutHandoffCurrent } = await import("../../../packages/runtime/src/planning/native-plan-handoff.js");
+  const f = await fixture();
+  try {
+    const planned = await createEditDecisionPlan(f.request, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(planned.status, "available"); if (planned.status !== "available") return;
+    const index = planned.plan.decisions.findIndex((item) => item.kind === "cut");
+    const target = { libraryId: "library", eventId: "event", projectId: "p", sequenceId: "t" };
+    const proposal = await prepareNativeCutHandoff(f.request, planned.plan, index, target, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(proposal.status, "proposed"); if (proposal.status !== "proposed") return;
+    assert.equal((await assertNativeCutHandoffCurrent(f.request, planned.plan, index, target, proposal, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "current");
+    const changed = structuredClone(proposal); changed.operation.end.value = "999";
+    assert.equal((await assertNativeCutHandoffCurrent(f.request, planned.plan, index, target, changed, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "stale");
+    const changedWhileChecking = structuredClone(proposal); changedWhileChecking.operation.end.value = "999";
+    const checked = await assertNativeCutHandoffCurrent(f.request, planned.plan, index, target, changedWhileChecking, f.artifacts, async (source) => {
+      changedWhileChecking.operation.end.value = proposal.operation.end.value;
+      await verifyLocalMediaSource(source);
+    }, f.briefStore);
+    assert.equal(checked.status, "stale");
+    assert.equal((await assertNativeCutHandoffCurrent(f.request, planned.plan, index, { ...target, libraryId: "other" }, proposal, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "stale");
+    await writeFile(f.path, "changed source");
+    assert.equal((await assertNativeCutHandoffCurrent(f.request, planned.plan, index, target, proposal, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "stale");
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
