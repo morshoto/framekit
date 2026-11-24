@@ -56,6 +56,38 @@ test("integrates verified speech cuts, captions and explicit music omission with
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
+test("planning binds the request before asynchronous brief reads", async () => {
+  const f = await fixture();
+  try {
+    const expected = await createEditDecisionPlan(f.request, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(expected.status, "available");
+    const request = structuredClone(f.request);
+    const store = Object.create(f.briefStore) as typeof f.briefStore;
+    store.read = async (projectId) => {
+      const result = await f.briefStore.read(projectId);
+      request.caption.maxWordsPerGroup = 1;
+      return result;
+    };
+    assert.deepEqual(await createEditDecisionPlan(request, f.artifacts, verifyLocalMediaSource, store), expected);
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test("plan validation cannot be changed from stale to current during verification", async () => {
+  const f = await fixture();
+  try {
+    const result = await createEditDecisionPlan(f.request, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(result.status, "available");
+    if (result.status !== "available") return;
+    const stale = structuredClone(result.plan);
+    stale.planDigest = "sha256:stale";
+    const checked = await assertEditDecisionPlanCurrent(f.request, stale, f.artifacts, async (source) => {
+      stale.planDigest = result.plan.planDigest;
+      await verifyLocalMediaSource(source);
+    }, f.briefStore);
+    assert.equal(checked.status, "stale");
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
 test("integrated plans explain withheld speech candidates", async () => {
   const f = await fixture();
   try {
