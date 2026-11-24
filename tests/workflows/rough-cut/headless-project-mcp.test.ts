@@ -1718,6 +1718,14 @@ test("headless project media can be understood and planned without a Final Cut c
     const captionRender = payload(await client.callTool({ name: "headless.render", arguments: { projectId: freshTimeline.project.id, sequenceId: freshTimeline.sequence.id,
       expectedRevision: captionApplied.edit.after.timeline.revision, parameters: { outputPath: captionOutput, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } } }));
     assert.equal(captionRender.status, "passed", JSON.stringify(captionRender));
+    // Opt in to independent glyph recognition when Tesseract and English data are installed.
+    if (process.env.FRAMEKIT_TEST_CAPTION_OCR === "1") {
+      const sampledFrame = join(directory, "reviewed-caption-frame.png");
+      await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-hide_banner", "-loglevel", "error", "-ss", "0.8", "-i", captionOutput,
+        "-frames:v", "1", "-vf", "scale=1280:720:flags=lanczos", "-y", sampledFrame]);
+      const recognized = await execFileAsync(process.env.TESSERACT_BIN || "tesseract", [sampledFrame, "stdout", "--psm", "7", "-l", "eng"]);
+      assert.equal(recognized.stdout.trim().toLowerCase(), "highlight", "independent OCR must read the reviewed title in the rendered frame");
+    }
     assert.ok(countBrightPixels(await readVideoFrame(captionOutput, 0.8)) > 50, "reviewed title must appear during the mapped range");
     assert.equal(countBrightPixels(await readVideoFrame(captionOutput, 0.2)), 0, "title must not appear before its mapped range");
     assert.equal(countBrightPixels(await readVideoFrame(captionOutput, 1.7)), 0, "title must not appear after its mapped range");
