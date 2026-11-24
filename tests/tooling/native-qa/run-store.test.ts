@@ -83,6 +83,7 @@ test("supervised verification resumes once without another publish dispatch", as
     assert.equal(outcomes.filter(outcome => outcome.status === "fulfilled").length, 1);
     assert.equal(verifies, 1);
     assert.deepEqual((await readQaPublisherStages(root, fixture.bound.qaRunId)).stages.map(stage => stage.stage), ["prepared", "dispatched", "verification-recovery-required"]);
+    assert.equal((await readQaEvidenceBundle(root, fixture.bound.qaRunId)).publisherVerification?.status, "observation-recorded");
     assert.equal((await inspectRun(root, fixture.bound.qaRunId)).dispatch, "UNKNOWN_AFTER_DISPATCH");
     await assert.rejects(resumeSupervisedQaPublisherVerification(root, fixture.bound, fixture.artifact, publisherTarget, async () => {}, verify));
     assert.equal(verifies, 1);
@@ -106,6 +107,11 @@ test("verification response loss retains the claim and cannot trigger another re
     assert.equal(verifies, 1);
     assert.deepEqual((await readQaPublisherStages(root, fixture.bound.qaRunId)).stages.map(stage => stage.stage), ["prepared", "dispatched"]);
     assert.equal((await inspectRun(root, fixture.bound.qaRunId)).verdict, "BLOCKED");
+    const bundle = await readQaEvidenceBundle(root, fixture.bound.qaRunId);
+    assert.equal(bundle.publisherVerification?.status, "claimed-outcome-unknown");
+    assert.equal(bundle.publisherVerification?.dispatchAllowed, false);
+    await writeFile(join(root, fixture.bound.qaRunId, "verification-attempt.json"), "{}");
+    await assert.rejects(readQaEvidenceBundle(root, fixture.bound.qaRunId), /QA_VERIFICATION_CLAIM_CORRUPT/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
