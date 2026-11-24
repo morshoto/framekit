@@ -549,3 +549,26 @@ test("headless planning snapshots request before project reads", async () => {
     assert.deepEqual(observed, expected);
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
+
+test("headless execution preserves committed Undo data across verifier mutation", async () => {
+  const f = await fixture();
+  try {
+    const { HeadlessDecisionPlanService } = await import("../../../apps/mcp-server/src/headless-decision-plan.js");
+    const service = new HeadlessDecisionPlanService({ readProject: async () => structuredClone(f.request.snapshot),
+      storeForProject: () => f.briefStore, artifacts: f.artifacts, index: f.index,
+      verifySource: verifyLocalMediaSource, currentProvider: () => f.request.speechContext.provider });
+    const { snapshot: _snapshot, brief: _brief, accepted: _accepted, speechContext: _speechContext, vadContext: _vadContext, ...input } = structuredClone(f.request);
+    const planned = await service.plan(input);
+    assert.equal(planned.status, "available"); if (planned.status !== "available") return;
+    const original = { undoId: "original" };
+    const result = await service.executeAcceptedPlan(input, planned.plan.planDigest, async () => original, async (edit) => {
+      edit.undoId = "altered";
+      original.undoId = "altered";
+    });
+    assert.equal(result.edit.undoId, "original");
+    const uncloneable = await service.executeAcceptedPlan(input, planned.plan.planDigest,
+      async () => ({ undoId: "recoverable", unsupported: () => {} }), async () => {});
+    assert.equal(uncloneable.status, "applied-unverified");
+    assert.equal(uncloneable.edit.undoId, "recoverable");
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});

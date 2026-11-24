@@ -63,9 +63,10 @@ export class HeadlessDecisionPlanService {
       return await this.withAcceptedPlan(input, digest, async (plan) => {
         committed = await execute();
         completed = true;
-        await verify(committed);
+        committed = structuredClone(committed);
+        await verify(structuredClone(committed));
         await this.recheckEvidence(input, plan);
-        await verify(committed);
+        await verify(structuredClone(committed));
         return { status: "applied" as const, edit: committed, planDigest: digest,
           notice: "Headless edit only; evidence checks are point-in-time and do not establish native execution or dialogue audibility." };
       });
