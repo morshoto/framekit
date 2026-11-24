@@ -413,9 +413,26 @@ export class FinalCutProjectPublisher {
     confirm: boolean,
     confirmVerification = false,
   ): Promise<FinalCutProjectPublishJob> {
+    return this.executePublishJobInternal(jobId, confirm, confirmVerification, false);
+  }
+
+  /** Resume readback only; a prepared or retryable job must never be dispatched here. */
+  public async verifyPublishJob(jobId: string): Promise<FinalCutProjectPublishJob> {
+    return this.executePublishJobInternal(jobId, true, true, true);
+  }
+
+  private async executePublishJobInternal(
+    jobId: string,
+    confirm: boolean,
+    confirmVerification: boolean,
+    verificationOnly: boolean,
+  ): Promise<FinalCutProjectPublishJob> {
     const storedJob = this.publishJobs.get(jobId) ?? await this.loadPublishJob(jobId);
     const job = clonePublishJob(storedJob);
     if (job.state === "verified") return clonePublishJob(job);
+    if (verificationOnly && job.state !== "verification-pending") {
+      throw new Error("PUBLISH_VERIFICATION_ONLY_UNAVAILABLE: job is not awaiting verification; no import was attempted");
+    }
     if (job.state === "failed" && !job.retryable) return clonePublishJob(job);
     if (!confirm) throw new Error("PUBLISH_CONFIRMATION_REQUIRED: set confirm=true to create a new Final Cut project");
 

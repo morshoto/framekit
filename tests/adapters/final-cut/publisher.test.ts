@@ -1459,6 +1459,9 @@ test("FCPXML publish jobs remain resumable while Final Cut is unavailable", asyn
   });
   assert.deepEqual(publisher.getPublishJob(prepared.jobId), waiting);
   assert.equal(executorCalled, false);
+  await assert.rejects(publisher.verifyPublishJob(prepared.jobId), /PUBLISH_VERIFICATION_ONLY_UNAVAILABLE/);
+  assert.deepEqual(publisher.getPublishJob(prepared.jobId), waiting);
+  assert.equal(executorCalled, false);
 });
 
 test("FCPXML publish jobs report success only after live target verification", async () => {
@@ -1505,6 +1508,8 @@ test("FCPXML publish jobs report success only after live target verification", a
   const dispatched = await publisher.executePublishJob(prepared.jobId, true);
   assert.equal(dispatched.state, "verification-pending");
   const verified = await publisher.verifyPublishJob(prepared.jobId);
+  assert.deepEqual(await publisher.verifyPublishJob(prepared.jobId), verified);
+  assert.equal(executorCalls, 1, "verification and repeated inspection must not redispatch");
 
   assert.equal(verified.state, "verified");
   assert.equal(verified.nextAction, "none");
