@@ -146,6 +146,19 @@ test("detached simulation blocks changed source before dispatch", async () => {
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("simulation runs cannot use a supplied publisher callback", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-simulation-native-route-"));
+  try {
+    const fixture = await createQaPublisherFixture(root, false);
+    await createOrInspectRun(root, fixture.bound, "publisher-simulation-v1");
+    let calls = 0;
+    const input = { artifactPath: fixture.artifact, headlessExecutionId: "fixture-execution", targetLibraryPath: publisherTarget.libraryPath, artifactDigest: fixture.bound.artifactDigest };
+    await assert.rejects(runSupervisedQaPublisher(root, fixture.bound, input, async () => { calls++; throw new Error("unexpected publisher"); }, async () => {}, publisherTarget), /QA_WORKER_PROFILE_MISMATCH/);
+    assert.equal(calls, 0);
+    assert.equal((await inspectRun(root, fixture.bound.qaRunId)).dispatch, "NOT_DISPATCHED");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("concurrent simulation clients create at most one worker", async () => {
   const { startQaPublisherSimulation, readQaPublisherSimulation } = await import("../../../scripts/native-qa/publisher-simulation.js");
   const root = await mkdtemp(join(tmpdir(), "framekit-simulation-start-race-"));
