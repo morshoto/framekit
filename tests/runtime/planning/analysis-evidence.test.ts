@@ -82,6 +82,27 @@ test("exact timing changes and contradictory rational ranges are rejected", asyn
   await assert.rejects(() => pinAnalysisEvidence(index, artifacts, { ...context, range: { ...range, startTime: { value: "2", timescale: "1" } } }, fixtureVerifier), /ANALYSIS_/);
 });
 
+test("artifact publication snapshots caller bytes before asynchronous filesystem work", async () => {
+  const { createHash } = await import("node:crypto");
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { FileAnalysisArtifactStore } = await import("../../../packages/runtime/src/planning/analysis-evidence.js");
+  const directory = await mkdtemp(join(tmpdir(), "framekit-evidence-race-"));
+  try {
+    const store = new FileAnalysisArtifactStore(directory);
+    const bytes = Buffer.from("original analysis");
+    const digest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+    const pending = store.put(digest, bytes);
+    bytes.fill(0);
+    await pending;
+    assert.deepEqual(await store.get(digest), Buffer.from("original analysis"));
+    await store.put(digest, Buffer.from("original analysis"));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("content-addressed artifacts survive restart and detect corrupt stored bytes", async () => {
   const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
