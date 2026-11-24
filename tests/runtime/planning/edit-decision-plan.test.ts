@@ -529,6 +529,15 @@ test("headless evidence recheck rejects provider drift during final index read",
     const service = new HeadlessDecisionPlanService({ ...common, index,
       currentProvider: (kind) => kind === "speech" && changed ? { ...provider, version: "changed" } : provider });
     await assert.rejects(service.recheckEvidence(input, planned.plan), /ANALYSIS_STALE_PROVIDER/);
+    changed = false;
+    const executing = new HeadlessDecisionPlanService({ ...common, index: f.index,
+      currentProvider: (kind) => kind === "speech" && changed ? { ...provider, version: "changed" } : provider });
+    let verifies = 0;
+    const outcome = await executing.executeAcceptedPlan(input, planned.plan.planDigest, async () => ({ undoId: "undo-provider" }), async () => {
+      if (++verifies === 2) changed = true;
+    });
+    assert.equal(outcome.status, "applied-unverified");
+    assert.equal(outcome.edit.undoId, "undo-provider");
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
