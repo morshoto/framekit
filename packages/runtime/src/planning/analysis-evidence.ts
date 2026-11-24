@@ -53,11 +53,12 @@ export class FileAnalysisArtifactStore implements AnalysisArtifactStore {
   }
   async put(digest: string, bytes: Uint8Array): Promise<void> {
     const destination = this.path(digest);
-    if (hash(bytes) !== digest) throw new Error("ANALYSIS_INVALID: artifact digest mismatch");
+    const boundBytes = Uint8Array.from(bytes);
+    if (hash(boundBytes) !== digest) throw new Error("ANALYSIS_INVALID: artifact digest mismatch");
     await mkdir(this.directory, { recursive: true });
     const temporary = join(this.directory, `.analysis-${randomUUID()}.tmp`);
     try {
-      await writeFile(temporary, bytes, { flag: "wx" });
+      await writeFile(temporary, boundBytes, { flag: "wx" });
       try {
         await link(temporary, destination);
       } catch (error) {
