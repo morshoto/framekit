@@ -471,3 +471,45 @@ test("planning rechecks brief after the final evidence reads", async () => {
     assert.equal(result.status, "unavailable");
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
+
+test("brief conformance requires a verified artifact bound to the approved target and revision", async () => {
+  const { assessBriefArtifact } = await import("../../../packages/runtime/src/planning/brief-conformance.js");
+  const f = await fixture();
+  try {
+    const planned = await createEditDecisionPlan(f.request, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(planned.status, "available"); if (planned.status !== "available") return;
+    const finalRevision = { ...f.request.revision, id: "r2", sequence: 2 };
+    const execution = { status: "verified" as const, planDigest: planned.plan.planDigest, baseRevision: f.request.revision, finalRevision };
+    const artifact = { status: "passed" as const, target: { projectId: "p", sequenceId: "t" }, revision: finalRevision,
+      fileDigest: `sha256:${"a".repeat(64)}`, durationSeconds: 6, width: 1080, height: 1920 };
+    const result = assessBriefArtifact(f.request.brief, f.request.accepted, planned.plan, execution, artifact);
+    assert.equal(result.status, "incomplete");
+    assert.equal(result.checks.find((check) => check.name === "duration")?.status, "passed");
+    assert.equal(result.checks.find((check) => check.name === "aspect-ratio")?.status, "passed");
+    assert.equal(result.nativeAcceptance, "unavailable");
+    assert.equal(result.binding?.artifactDigest, artifact.fileDigest);
+    assert.equal(assessBriefArtifact(f.request.brief, f.request.accepted, planned.plan, execution, { ...artifact, fileDigest: "a".repeat(64) }).checks[0]?.status, "passed");
+    for (const alteredExecution of [
+      { ...execution, status: "unavailable" as const },
+      { ...execution, planDigest: "other" },
+      { ...execution, baseRevision: { ...execution.baseRevision, id: "other" } },
+    ]) {
+      assert.equal(assessBriefArtifact(f.request.brief, f.request.accepted, planned.plan, alteredExecution, artifact).checks[0]?.status, "unavailable");
+    }
+    const revisedBrief = { ...f.request.brief, theme: "changed" };
+    assert.equal(assessBriefArtifact(revisedBrief, f.request.accepted, planned.plan, execution, artifact).checks[0]?.status, "unavailable");
+    for (const changed of [
+      { ...artifact, target: { ...artifact.target, sequenceId: "wrong" } },
+      { ...artifact, revision: { ...artifact.revision, sequence: 999 } },
+      { ...artifact, status: "failed" as const },
+      { ...artifact, fileDigest: "" },
+    ]) {
+      const rejected = assessBriefArtifact(f.request.brief, f.request.accepted, planned.plan, execution, changed);
+      assert.equal(rejected.checks.find((check) => check.name === "duration")?.status, "unavailable");
+      assert.equal(rejected.nativeAcceptance, "unavailable");
+    }
+    const failed = assessBriefArtifact(f.request.brief, f.request.accepted, planned.plan, execution, { ...artifact, durationSeconds: 20, width: 1920, height: 1080 });
+    assert.equal(failed.checks.find((check) => check.name === "duration")?.status, "failed");
+    assert.equal(failed.checks.find((check) => check.name === "aspect-ratio")?.status, "failed");
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
