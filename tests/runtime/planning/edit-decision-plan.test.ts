@@ -458,6 +458,10 @@ test("native cut handoff binds the current plan and rejects changed target and e
     assert.notEqual((await prepareNativeCutHandoff(f.request, result.plan, index, { ...target, sequenceId: "other" }, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "proposed");
     const changed = structuredClone(result.plan); changed.decisions.splice(index, 1);
     assert.notEqual((await prepareNativeCutHandoff(f.request, changed, index, target, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "proposed");
+    const unavailableArtifacts = { put: f.artifacts.put.bind(f.artifacts), get: async () => undefined };
+    assert.equal((await prepareNativeCutHandoff(f.request, result.plan, index, target, unavailableArtifacts, verifyLocalMediaSource, f.briefStore)).status, "unavailable");
+    const tamperedArtifacts = { put: f.artifacts.put.bind(f.artifacts), get: async () => new Uint8Array([1, 2, 3]) };
+    assert.equal((await prepareNativeCutHandoff(f.request, result.plan, index, target, tamperedArtifacts, verifyLocalMediaSource, f.briefStore)).status, "unavailable");
     await writeFile(f.path, "changed source");
     assert.notEqual((await prepareNativeCutHandoff(f.request, result.plan, index, target, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "proposed");
   } finally { await rm(f.dir, { recursive: true, force: true }); }
