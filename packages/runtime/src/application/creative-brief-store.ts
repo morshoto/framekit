@@ -72,10 +72,11 @@ export class JsonCreativeBriefStore implements CreativeBriefStore {
   }
 
   async revise(projectId: string, expectedDigest: string, proposed: CreativeBrief): Promise<StoredCreativeBrief> {
+    const bound = structuredClone(proposed);
     return this.locked(async () => {
       const current = await this.read(projectId);
       if (current.digest !== expectedDigest) throw new Error("STALE_BRIEF: the reviewed draft changed");
-      const brief = reviseCreativeBrief(current.brief, proposed);
+      const brief = reviseCreativeBrief(current.brief, bound);
       const next: StoredCreativeBrief = { schemaVersion: 1, projectId, brief, digest: creativeBriefDigest(brief), state: "draft" };
       await this.publish(next, false);
       return structuredClone(next);
