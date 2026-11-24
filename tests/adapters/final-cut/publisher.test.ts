@@ -1500,9 +1500,11 @@ test("FCPXML publish jobs report success only after live target verification", a
     artifactDigest: digest(source),
   });
 
+  await assert.rejects(publisher.verifyPublishJob(prepared.jobId), /PUBLISH_VERIFICATION_ONLY_UNAVAILABLE/);
+  assert.equal(executorCalls, 0, "verification-only must not dispatch a prepared job");
   const dispatched = await publisher.executePublishJob(prepared.jobId, true);
   assert.equal(dispatched.state, "verification-pending");
-  const verified = await publisher.executePublishJob(prepared.jobId, true, true);
+  const verified = await publisher.verifyPublishJob(prepared.jobId);
 
   assert.equal(verified.state, "verified");
   assert.equal(verified.nextAction, "none");
