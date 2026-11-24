@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import type { ContextRevision } from "../domain/primitives.js";
-import type { FramekitRenderAndVerifyResult } from "../render/render-and-verify.js";
+import type { FramekitRenderAndVerifyResult, FramekitRenderArtifactVerifier } from "../render/render-and-verify.js";
 import { assertBriefBinding } from "./creative-brief.js";
 import type { AcceptedCreativeBrief, CreativeBrief } from "./creative-brief.js";
 import type { EditDecisionPlan } from "./edit-decision-plan.js";
@@ -58,6 +58,20 @@ export function briefArtifactObservationFromRender(result: FramekitRenderAndVeri
       || artifact.width !== plan.parameters.width || artifact.height !== plan.parameters.height) return undefined;
     return { status: "passed", target: structuredClone(plan.target), revision: structuredClone(plan.projectRevision),
       fileDigest: artifact.fileDigest, durationSeconds: artifact.durationSeconds, width: artifact.width, height: artifact.height };
+  } catch { return undefined; }
+}
+
+/** Recheck artifact bytes and metadata at the time of this call; this is not continuous fencing. */
+export async function reverifyBriefArtifactObservation(
+  result: FramekitRenderAndVerifyResult, verifier: FramekitRenderArtifactVerifier,
+): Promise<BriefArtifactObservation | undefined> {
+  try {
+    const bound = structuredClone(result);
+    const original = briefArtifactObservationFromRender(bound);
+    if (!original || !bound.plan || !bound.render || typeof verifier?.verify !== "function") return undefined;
+    const verification = await verifier.verify(structuredClone(bound.plan), structuredClone(bound.render));
+    const current = briefArtifactObservationFromRender({ ...bound, verification });
+    return current && isDeepStrictEqual(original, current) ? current : undefined;
   } catch { return undefined; }
 }
 

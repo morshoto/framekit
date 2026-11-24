@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { appendFile, chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
@@ -12,6 +12,7 @@ import {
   createFramekitRenderResult,
   renderAndVerifyFramekitProject,
   briefArtifactObservationFromRender,
+  reverifyBriefArtifactObservation,
   type FramekitRenderArtifactVerifier,
   type FramekitRenderParameters,
   type TimelineIr,
@@ -79,6 +80,14 @@ test("render-and-verify returns verified provenance and independent artifact met
     assert.equal(outcome.verification?.checks.every(({ passed }) => passed), true);
     const observed = briefArtifactObservationFromRender(outcome);
     assert.ok(observed);
+    const verifier = new FfmpegRenderVerifier({ ffprobePath: process.env.FFPROBE_BIN || "ffprobe" });
+    assert.deepEqual(await reverifyBriefArtifactObservation(outcome, verifier), observed);
+    const changing = structuredClone(outcome);
+    const duringVerification = { verify: async (plan: Parameters<typeof verifier.verify>[0], render: Parameters<typeof verifier.verify>[1]) => {
+      changing.plan!.target.sequenceId = "changed-during-verification";
+      return verifier.verify(plan, render);
+    } };
+    assert.deepEqual(await reverifyBriefArtifactObservation(changing, duringVerification), observed);
     assert.equal(observed.fileDigest, outcome.verification?.artifact?.fileDigest);
     assert.deepEqual(observed.revision, timeline.revision);
     assert.equal(briefArtifactObservationFromRender({ ...outcome, status: "failed" }), undefined);
@@ -112,6 +121,8 @@ test("render-and-verify returns verified provenance and independent artifact met
     await unrangedRenderer.render(unrangedPlan);
     const unrangedFrame = await frameAt(unrangedParameters.outputPath, 1.1, directory, "range-ignored");
     assert.notEqual(frameDigest(rangedFrame), frameDigest(unrangedFrame), "sourceStartTime must change the verified artifact segment");
+    await appendFile(outcome.verification!.artifact!.path, "changed after verification");
+    assert.equal(await reverifyBriefArtifactObservation(outcome, verifier), undefined);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
