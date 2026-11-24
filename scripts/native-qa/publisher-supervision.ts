@@ -5,6 +5,7 @@ import { claimDispatchIntent, inspectRun, type QaRunManifest } from "./run-store
 import { readQaPublisherStages, recordQaPublisherStage, type PublisherStage } from "./publisher-stages.js";
 import { verifyQaPublisherSourcesWithEntries } from "./publisher-source-evidence.js";
 import { publishQaRecord } from "./atomic-record.js";
+import { readQaRecord } from "./read-record.js";
 
 type PublisherInput = Parameters<typeof runPublishStages>[1];
 type PublisherCall = Parameters<typeof runPublishStages>[0];
@@ -92,4 +93,26 @@ export async function resumeSupervisedQaPublisherVerification(
   await recordQaPublisherStage(root, bound.qaRunId, recoveryReported ? "verification-recovery-required" : "verified",
     recoveryReported ? { ...verified, recoveryReservation: verified.recoveryReservation ?? { retained: true } } : verified);
   return { verdict: "BLOCKED" as const, dispatchAllowed: false as const, nativeQuiescence: "unproven" as const, scope: "publisher-response-observation" as const };
+}
+
+/** A claim is only evidence of a possible attempt, never proof that readback started or finished. */
+export async function readQaPublisherVerificationClaim(root: string, qaRunId: string) {
+  const run = await inspectRun(root, qaRunId);
+  const history = await readQaPublisherStages(root, qaRunId);
+  let value: unknown;
+  try { value = JSON.parse(await readQaRecord(join(root, qaRunId, "verification-attempt.json"))); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    if (error instanceof Error && error.message === "QA_RUN_UNSAFE_PATH") throw error;
+    throw new Error("QA_VERIFICATION_CLAIM_CORRUPT");
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("QA_VERIFICATION_CLAIM_CORRUPT");
+  const claim = value as Record<string, unknown>;
+  if (Object.keys(claim).sort().join(",") !== "jobId,schemaVersion" || claim.schemaVersion !== 1
+    || run.dispatch !== "UNKNOWN_AFTER_DISPATCH" || !run.publishJobId || claim.jobId !== run.publishJobId
+    || history.stages.length < 2 || history.stages[1]?.stage !== "dispatched" || history.stages[1].jobId !== claim.jobId) {
+    throw new Error("QA_VERIFICATION_CLAIM_CORRUPT");
+  }
+  return { jobId: run.publishJobId, status: history.stages.length === 3 ? "observation-recorded" as const : "claimed-outcome-unknown" as const,
+    scope: "publisher-response-observation" as const, verdict: "BLOCKED" as const, nativeQuiescence: "unproven" as const, dispatchAllowed: false as const };
 }
