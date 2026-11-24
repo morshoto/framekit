@@ -1669,6 +1669,21 @@ test("headless project media can be understood and planned without a Final Cut c
     assert.equal(decision.status, "available", decision.reason);
     assert.equal(decision.plan.reviewRequired, true);
     assert.ok(decision.plan.decisions.some((item: any) => item.kind === "caption"));
+    const captions = decision.plan.decisions.filter((item: any) => item.kind === "caption");
+    const captionPreview = payload(await client.callTool({ name: "headless.decision.preview-captions", arguments: { ...decisionInput, planDigest: decision.plan.planDigest } }));
+    assert.equal(captionPreview.scope, "headless-preview");
+    assert.deepEqual(captionPreview.preview.after.timeline.sequence.titles.map((title: any) => title.text), captions.map((item: any) => item.group.lines.join("\n")));
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId: freshTimeline.project.id } })).timeline, beforePlan.timeline);
+    const captionApproval = payload(await client.callTool({ name: "headless.decision.approved-preview-captions", arguments: { ...decisionInput, planDigest: decision.plan.planDigest } }));
+    assert.deepEqual(captionApproval.preview.command.operations, captionPreview.preview.command.operations);
+    const speechArtifactPath = join(stateDirectory, "analysis-artifacts", speechRef.artifactDigest.slice(7));
+    const speechArtifact = await readFile(speechArtifactPath);
+    await writeFile(speechArtifactPath, "changed after preview");
+    const rejectedCaptions = await client.callTool({ name: "headless.decision.approved-execute-captions", arguments: { projectId: freshTimeline.project.id, sequenceId: freshTimeline.sequence.id, previewToken: captionApproval.previewToken, approved: true } });
+    assert.equal(rejectedCaptions.isError, true);
+    await writeFile(speechArtifactPath, speechArtifact);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId: freshTimeline.project.id } })).timeline, beforePlan.timeline);
+    assert.equal((await client.callTool({ name: "headless.decision.approved-execute-captions", arguments: { projectId: freshTimeline.project.id, sequenceId: freshTimeline.sequence.id, previewToken: captionApproval.previewToken, approved: true } })).isError, true);
     const changedPlanningProvider = await connectProductionClient(here, { ...environment, FRAMEKIT_SPEECH_ANALYZER_MODEL_ID: "different-model" });
     try {
       const rejected = payload(await changedPlanningProvider.client.callTool({ name: "headless.decision.plan", arguments: decisionInput }));
