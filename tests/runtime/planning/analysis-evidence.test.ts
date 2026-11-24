@@ -147,6 +147,32 @@ test("source verification is required and brackets evidence access", async () =>
   assert.equal((await verifyAnalysisEvidence(artifacts, ref, context, changedDuringRead)).status, "invalid");
 });
 
+test("pinning binds the requested context before asynchronous artifact storage", async () => {
+  const { index, artifacts } = await fixture();
+  const requested = structuredClone(context);
+  const expected = structuredClone(requested);
+  const changingStore = {
+    get: (digest: string) => artifacts.get(digest),
+    put: async (digest: string, bytes: Uint8Array) => {
+      requested.range.end = 9;
+      requested.provider.model = "different-model";
+      await artifacts.put(digest, bytes);
+    },
+  };
+  const ref = await pinAnalysisEvidence(index, changingStore, requested, fixtureVerifier);
+  assert.deepEqual(ref.range, expected.range);
+  assert.deepEqual(ref.provider, expected.provider);
+  assert.equal((await verifyAnalysisEvidence(artifacts, ref, expected, fixtureVerifier)).status, "verified");
+});
+
+test("verification cannot be changed from stale to current during source checking", async () => {
+  const { index, artifacts } = await fixture();
+  const ref = await pinAnalysisEvidence(index, artifacts, context, fixtureVerifier);
+  const stale = structuredClone({ ...context, revision: { ...revision, sequence: 2 } });
+  const result = await verifyAnalysisEvidence(artifacts, ref, stale, async () => { stale.revision.sequence = 1; });
+  assert.notEqual(result.status, "verified");
+});
+
 test("command analysis can be pinned from the persisted semantic index", async () => {
   const { mkdtemp, rm, writeFile, chmod } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
