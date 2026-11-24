@@ -448,6 +448,7 @@ test("native cut handoff binds the current plan and rejects changed target and e
     const cut = result.plan.decisions[index]!;
     assert.equal(cut.kind, "cut");
     if (cut.kind !== "cut") return;
+    assert.deepEqual(proposal.sourceRange, cut.candidate.sourceRange);
     assert.deepEqual(proposal.operation.start, cut.range.startTime);
     const repeated = await prepareNativeCutHandoff(f.request, result.plan, index, target, f.artifacts, verifyLocalMediaSource, f.briefStore);
     assert.equal(repeated.status, "proposed");
@@ -511,6 +512,8 @@ test("native cut proposal revalidation detects changed operation, target and evi
     assert.equal((await assertNativeCutHandoffCurrent(f.request, planned.plan, index, target, proposal, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "current");
     const changed = structuredClone(proposal); changed.operation.end.value = "999";
     assert.equal((await assertNativeCutHandoffCurrent(f.request, planned.plan, index, target, changed, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "stale");
+    const changedSourceRange = structuredClone(proposal); changedSourceRange.sourceRange.start = 0;
+    assert.equal((await assertNativeCutHandoffCurrent(f.request, planned.plan, index, target, changedSourceRange, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "stale");
     const changedWhileChecking = structuredClone(proposal); changedWhileChecking.operation.end.value = "999";
     const checked = await assertNativeCutHandoffCurrent(f.request, planned.plan, index, target, changedWhileChecking, f.artifacts, async (source) => {
       changedWhileChecking.operation.end.value = proposal.operation.end.value;

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import type { CreativeBriefStore } from "../application/creative-brief-store.js";
-import type { RationalTime } from "../domain/primitives.js";
+import type { RationalTime, TimeRange } from "../domain/primitives.js";
 import { addRationalTimes } from "../timeline/rational-time.js";
 import type { AnalysisArtifactStore, AnalysisRef, AnalysisSourceVerifier } from "./analysis-evidence.js";
 import { assertEditDecisionPlanCurrent } from "./edit-decision-plan.js";
@@ -38,6 +38,7 @@ export type NativeCutHandoff =
       planDigest: string;
       revision: EditDecisionPlan["revision"];
       source: EditDecisionPlan["source"];
+      sourceRange: TimeRange;
       occurrenceId: string;
       analysisRef: AnalysisRef;
       operation: { type: "delete-range"; start: RationalTime; end: RationalTime };
@@ -70,14 +71,14 @@ export async function prepareNativeCutHandoff(
     const start = structuredClone(decision.range.startTime);
     const end = addRationalTimes(start, decision.range.durationTime);
     const identity = { target: boundTarget, planDigest: boundPlan.planDigest, decisionIndex,
-      revision: boundPlan.revision, source: boundPlan.source, occurrenceId: boundPlan.occurrenceId,
+      revision: boundPlan.revision, source: boundPlan.source, sourceRange: decision.candidate.sourceRange, occurrenceId: boundPlan.occurrenceId,
       analysisRef: decision.analysisRef, operation: { type: "delete-range", start, end } };
     const encoded = JSON.stringify(identity, (_key, value: unknown) =>
       value && typeof value === "object" && !Array.isArray(value)
         ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) : value);
     const operationId = `sha256:${createHash("sha256").update(encoded).digest("hex")}`;
     return { status: "proposed", authorization: "not-authorized", operationId, target: boundTarget,
-      planDigest: boundPlan.planDigest, revision: boundPlan.revision, source: boundPlan.source,
+      planDigest: boundPlan.planDigest, revision: boundPlan.revision, source: boundPlan.source, sourceRange: decision.candidate.sourceRange,
       occurrenceId: boundPlan.occurrenceId, analysisRef: decision.analysisRef,
       operation: { type: "delete-range", start, end } };
   } catch (error) {
