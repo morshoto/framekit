@@ -74,6 +74,11 @@ function digest(value: unknown): string {
 /** Integrate verified proposals without executing or silently switching editor backends. */
 export async function createEditDecisionPlan(request: EditDecisionPlanRequest, artifacts: AnalysisArtifactStore, verifySource: AnalysisSourceVerifier, briefStore: CreativeBriefStore): Promise<EditDecisionPlanResult> {
   try {
+    request = structuredClone(request);
+    if (typeof verifySource === "function") {
+      const delegate = verifySource;
+      verifySource = (source) => delegate(structuredClone(source));
+    }
     if (!briefStore) return { status: "unavailable", reason: "Authoritative creative brief store is required." };
     assertBriefBinding(request.accepted, request.brief);
     await assertCurrentAcceptedBrief(briefStore, request.projectId, request.accepted);
@@ -193,7 +198,10 @@ export async function createEditDecisionPlan(request: EditDecisionPlanRequest, a
 
 /** Recompute against current evidence; a matching plan is not execution authorization. */
 export async function assertEditDecisionPlanCurrent(request: EditDecisionPlanRequest, plan: EditDecisionPlan, artifacts: AnalysisArtifactStore, verifySource: AnalysisSourceVerifier, briefStore: CreativeBriefStore): Promise<EditDecisionPlanValidity> {
+  let expected: EditDecisionPlan;
+  try { expected = structuredClone(plan); }
+  catch { return { status: "stale", reason: "Plan cannot be safely inspected." }; }
   const current = await createEditDecisionPlan(request, artifacts, verifySource, briefStore);
   if (current.status !== "available") return { status: "stale", reason: current.reason };
-  return isDeepStrictEqual(current.plan, plan) ? { status: "current" } : { status: "stale", reason: "Plan inputs, decisions or digest changed." };
+  return isDeepStrictEqual(current.plan, expected) ? { status: "current" } : { status: "stale", reason: "Plan inputs, decisions or digest changed." };
 }
