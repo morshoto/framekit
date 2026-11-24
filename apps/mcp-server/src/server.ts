@@ -2529,6 +2529,80 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     });
   }));
 
+  const decisionCaptionApprovals = new Map<string, { input: HeadlessDecisionRequest; planDigest: string; editToken: string; expiresAt: number }>();
+  const previewDecisionCaptions = async (input: HeadlessDecisionRequest, planDigest: string) => {
+    const plans = options.headlessDecisionPlans;
+    if (!plans) throw new Error("DECISION_PLAN_UNAVAILABLE: headless planning is not configured");
+    const initial = await plans.plan(input);
+    if (initial.status !== "available" || initial.plan.planDigest !== planDigest) throw new Error("STALE_DECISION_PLAN: review the current plan before previewing");
+    const captions = initial.plan.decisions.filter((item) => item.kind === "caption");
+    if (!captions.length || captions.some((item) => !item.range.startTime || !item.range.durationTime)) {
+      throw new Error("CAPTION_PREVIEW_UNAVAILABLE: exact reviewed caption ranges are required");
+    }
+    const service = requireHeadlessProjects();
+    const font = service.selectTitleFont(captions.map((item) => item.group.lines.join("\n")));
+    const operations = captions.map((item, index) => ({ type: "add-title" as const, title: {
+      id: `decision-caption-${planDigest.slice(7, 23)}-${index}`, text: item.group.lines.join("\n"),
+      startTime: item.range.startTime!, durationTime: item.range.durationTime!, lane: 1, font: structuredClone(font),
+    } }));
+    const preview = await service.previewEdit(input.projectId, { schemaVersion: 1, expectedRevision: input.revision, operations }, input.timelineId);
+    const frame = preview.before.timeline.sequence.frameDuration;
+    const aligned = (time: { value: string; timescale: string }) =>
+      (BigInt(time.value) * BigInt(frame.timescale)) % (BigInt(time.timescale) * BigInt(frame.value)) === 0n;
+    if (operations.some((operation) => !aligned(operation.title.startTime) || !aligned(operation.title.durationTime))) {
+      throw new Error("CAPTION_PREVIEW_UNAVAILABLE: captions must align to the sequence frame grid");
+    }
+    const current = await plans.plan(input);
+    if (current.status !== "available" || current.plan.planDigest !== planDigest) throw new Error("STALE_DECISION_PLAN: inputs changed during preview");
+    const after = await service.open(input.projectId);
+    if (timelineIrDigest(after.timeline) !== timelineIrDigest(preview.before.timeline)) throw new Error("STALE_DECISION_PLAN: project changed during preview");
+    return { scope: "headless-preview", planDigest, preview, notice: "Basic text only; emphasis is a review suggestion. This is not approval or native title proof." };
+  };
+  registerValidatedTool(server, "headless.decision.preview-captions", {
+    description: "Preview reviewed basic captions in a Framekit-owned headless timeline without executing edits.",
+    inputSchema: { ...decisionPlanSchema, planDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/) },
+  }, async ({ planDigest, ...input }) => sessionResult(() => previewDecisionCaptions(input, planDigest)));
+  registerValidatedTool(server, "headless.decision.approved-preview-captions", {
+    description: "Prepare a single-use headless caption preview bound to the reviewed decision plan.",
+    inputSchema: { ...decisionPlanSchema, planDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/) },
+  }, async ({ planDigest, ...input }) => sessionResult(async () => {
+    const reviewed = await previewDecisionCaptions(input, planDigest);
+    const approved = await requireHeadlessProjects().previewApprovedEdit(input.projectId, {
+      schemaVersion: 1, expectedRevision: input.revision, operations: reviewed.preview.command.operations,
+    }, input.timelineId);
+    if (timelineIrDigest(approved.before.timeline) !== timelineIrDigest(reviewed.preview.before.timeline)
+      || timelineIrDigest(approved.after.timeline) !== timelineIrDigest(reviewed.preview.after.timeline)) throw new Error("STALE_DECISION_PLAN: approved preview differs from the reviewed proposal");
+    await previewDecisionCaptions(input, planDigest);
+    const now = Date.now();
+    for (const [token, entry] of decisionCaptionApprovals) if (entry.expiresAt <= now) decisionCaptionApprovals.delete(token);
+    while (decisionCaptionApprovals.size >= 256) decisionCaptionApprovals.delete(decisionCaptionApprovals.keys().next().value!);
+    const previewToken = `decision-captions-${randomUUID()}`;
+    decisionCaptionApprovals.set(previewToken, { input: structuredClone(input), planDigest, editToken: approved.previewToken, expiresAt: now + 10 * 60 * 1000 });
+    return { ...reviewed, previewToken };
+  }));
+  registerValidatedTool(server, "headless.decision.approved-execute-captions", {
+    description: "Execute one separately approved, decision-bound headless caption preview; native Final Cut is not used.",
+    inputSchema: { projectId: z.string().min(1), sequenceId: z.string().min(1), previewToken: z.string().min(1), approved: z.literal(true) },
+  }, async ({ projectId, sequenceId, previewToken }) => sessionResult(async () => {
+    const entry = decisionCaptionApprovals.get(previewToken);
+    if (!entry || entry.expiresAt <= Date.now() || entry.input.projectId !== projectId || entry.input.timelineId !== sequenceId) {
+      throw new Error("DECISION_PREVIEW_INVALID: token is unknown, expired or belongs to another target");
+    }
+    decisionCaptionApprovals.delete(previewToken);
+    const plans = options.headlessDecisionPlans;
+    if (!plans) throw new Error("DECISION_PLAN_UNAVAILABLE: headless planning is not configured");
+    return plans.executeAcceptedPlan(entry.input, entry.planDigest, () =>
+      requireHeadlessProjects().executeApprovedEdit(projectId, sequenceId, entry.editToken), async (edit) => {
+      const observed = await requireHeadlessProjects().open(projectId);
+      const revision = observed.timeline.revision; const expected = edit.after.timeline.revision;
+      if (observed.timeline.project.id !== projectId || observed.timeline.sequence.id !== sequenceId
+        || revision.id !== expected.id || revision.sequence !== expected.sequence || revision.timestamp !== expected.timestamp
+        || timelineIrDigest(observed.timeline) !== timelineIrDigest(edit.after.timeline)) {
+        throw new Error("HEADLESS_DECISION_READBACK_MISMATCH: committed project differs from independent readback");
+      }
+    });
+  }));
+
   registerValidatedTool(server, "headless.analysis.pin", {
     description: "Pin existing provider-reported source analysis for a headless project. This read-only reference does not approve or authorize an edit.",
     inputSchema: { projectId: z.string().min(1), sequenceId: z.string().min(1), expectedRevision: revisionValueSchema,

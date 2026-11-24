@@ -1705,6 +1705,22 @@ test("headless project media can be understood and planned without a Final Cut c
     const tamperedDecision = payload(await client.callTool({ name: "headless.decision.plan", arguments: decisionInput }));
     assert.equal(tamperedDecision.status, "unavailable");
     assert.match(tamperedDecision.reason, /digest/i);
+    await writeFile(speechArtifactPath, speechArtifact);
+    const readyCaptions = payload(await client.callTool({ name: "headless.decision.approved-preview-captions", arguments: { ...decisionInput, planDigest: decision.plan.planDigest } }));
+    const captionApplied = payload(await client.callTool({ name: "headless.decision.approved-execute-captions", arguments: { projectId: freshTimeline.project.id, sequenceId: freshTimeline.sequence.id, previewToken: readyCaptions.previewToken, approved: true } }));
+    assert.equal(captionApplied.status, "applied");
+    const appliedTitle = captionApplied.edit.after.timeline.sequence.titles[0];
+    assert.equal(appliedTitle.text, "highlight");
+    assert.deepEqual(appliedTitle.startTime, captions[0].range.startTime);
+    assert.deepEqual(appliedTitle.durationTime, captions[0].range.durationTime);
+    assert.equal((await client.callTool({ name: "headless.decision.approved-execute-captions", arguments: { projectId: freshTimeline.project.id, sequenceId: freshTimeline.sequence.id, previewToken: readyCaptions.previewToken, approved: true } })).isError, true);
+    const captionOutput = join(directory, "reviewed-captions.mp4");
+    const captionRender = payload(await client.callTool({ name: "headless.render", arguments: { projectId: freshTimeline.project.id, sequenceId: freshTimeline.sequence.id,
+      expectedRevision: captionApplied.edit.after.timeline.revision, parameters: { outputPath: captionOutput, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } } }));
+    assert.equal(captionRender.status, "passed", JSON.stringify(captionRender));
+    assert.ok(countBrightPixels(await readVideoFrame(captionOutput, 0.8)) > 50, "reviewed title must appear during the mapped range");
+    assert.equal(countBrightPixels(await readVideoFrame(captionOutput, 0.2)), 0, "title must not appear before its mapped range");
+    assert.equal(countBrightPixels(await readVideoFrame(captionOutput, 1.7)), 0, "title must not appear after its mapped range");
     await writeFile(sourcePath, "replaced source");
     const changedPin = await client.callTool({ name: "headless.analysis.pin", arguments: pinArgs });
     assert.equal(changedPin.isError, true);

@@ -130,6 +130,19 @@ the correction itself still requires review and changes the plan digest.
 Music capability and speech-presence inputs are caller-supplied context, not
 independent capability discovery or verified speech detection.
 
+For reviewed basic captions, call `headless.decision.preview-captions` with the
+same planning inputs and `planDigest`. To prepare execution, call
+`headless.decision.approved-preview-captions`, review the exact text, timing,
+and bound font, then call `headless.decision.approved-execute-captions` with
+the project and sequence IDs, returned `previewToken`, and `approved: true`.
+The token is single-use and expires after ten minutes or a server restart.
+The server rechecks the accepted brief, pinned evidence and project, and reloads
+the project after execution. An `applied-unverified` result means the edit
+committed but a subsequent verification failed; inspect the returned edit and
+Undo information. Emphasis remains a review suggestion rather than styling.
+These operations affect only the Framekit-owned headless timeline and do not
+prove editable native Final Cut titles or continuous media-file fencing.
+
 For a proposed background-music placement, call
 `headless.decision.preview-music` with the same planning inputs and returned
 `planDigest`. Supply frame-aligned rational `startTime` and `durationTime` in
