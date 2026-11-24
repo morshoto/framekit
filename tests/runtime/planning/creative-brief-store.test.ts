@@ -58,6 +58,27 @@ test("concurrent revisions admit one winner and preserve project identity", asyn
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
+test("accepted-brief operation excludes a concurrent revision and rejects stale approval", async () => {
+  const f = await fixture();
+  try {
+    const draft = await f.store.create("project-1", brief);
+    const accepted = await f.store.accept("project-1", draft.digest);
+    if (accepted.state !== "accepted") throw new Error("expected accepted brief");
+    let entered!: () => void; let release!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const operation = f.store.withAcceptedBrief("project-1", accepted.accepted!, async () => { entered(); await blocked; return "done"; });
+    await started;
+    await assert.rejects(new JsonCreativeBriefStore(f.path).revise("project-1", draft.digest, { ...brief, theme: "changed" }), /BRIEF_BUSY/);
+    release(); assert.equal(await operation, "done");
+    await assert.rejects(f.store.withAcceptedBrief("project-1", accepted.accepted!, async () => { throw new Error("operation failed"); }), /operation failed/);
+    await f.store.revise("project-1", draft.digest, { ...brief, theme: "changed" });
+    let ran = false;
+    await assert.rejects(f.store.withAcceptedBrief("project-1", accepted.accepted!, async () => { ran = true; }), /BRIEF_NOT_ACCEPTED|STALE_BRIEF/);
+    assert.equal(ran, false);
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
 test("unreviewed drafts cannot be accepted and corrupt persisted approval fails closed", async () => {
   const f = await fixture();
   try {

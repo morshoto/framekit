@@ -92,7 +92,7 @@ export function acceptCreativeBrief(brief: CreativeBrief): AcceptedCreativeBrief
   const review = reviewCreativeBrief(brief);
   if (review.missingCoverage.length) throw new Error("INVALID_BRIEF: missing source coverage");
   if (review.pendingInferences.length) throw new Error("INVALID_BRIEF: inference requires review");
-  return { id: brief.id, version: brief.version, digest: digest(brief) };
+  return { id: brief.id, version: brief.version, digest: creativeBriefDigest(brief) };
 }
 
 /** Make a detached new version; existing acceptance remains bound to the old version. */
