@@ -32,8 +32,9 @@ export class JsonCreativeBriefStore implements CreativeBriefStore {
   constructor(private readonly path: string) {}
 
   async create(projectId: string, brief: CreativeBrief): Promise<StoredCreativeBrief> {
-    if (!validProjectId(projectId) || brief.version !== 1) throw new Error("INVALID_BRIEF: project identity and initial version are required");
-    const document: StoredCreativeBrief = { schemaVersion: 1, projectId, brief: structuredClone(brief), digest: creativeBriefDigest(brief), state: "draft" };
+    const bound = structuredClone(brief);
+    if (!validProjectId(projectId) || bound.version !== 1) throw new Error("INVALID_BRIEF: project identity and initial version are required");
+    const document: StoredCreativeBrief = { schemaVersion: 1, projectId, brief: bound, digest: creativeBriefDigest(bound), state: "draft" };
     return this.locked(async () => {
       try { await lstat(this.path); throw new Error("BRIEF_ALREADY_EXISTS: project already has a brief"); }
       catch (error) { if (!isCode(error, "ENOENT")) throw error; }
