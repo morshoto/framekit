@@ -36,7 +36,7 @@ const manifest = {
 };
 const cleanGitEnvironment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
 
-async function createQaPublisherFixture(root: string) {
+async function createQaPublisherFixture(root: string, createRun = true) {
   const sources = join(root, ".publisher-sources");
   await mkdir(sources);
   const names = [["a", "clip-a.mp4"], ["b", "clip-b.mp4"], ["c", "clip-c.mp4"], ["m", "generated-music.wav"]] as const;
@@ -59,9 +59,51 @@ async function createQaPublisherFixture(root: string) {
     const artifact = join(sources, "fixture.fcpxml"); await writeFile(artifact, xml);
     const bound = { ...manifest, artifactDigest: createHash("sha256").update(xml).digest("hex"),
       sourceDigest: createHash("sha256").update(JSON.stringify({ profile: "publisher-e2e-v1", sources: entries })).digest("hex") };
-    await createOrInspectRun(root, bound);
+    if (createRun) await createOrInspectRun(root, bound);
   return { bound, artifact, entries, sources };
 }
+
+test("detached publisher simulation survives client exit without redispatch", async () => {
+  const { readQaPublisherSimulation } = await import("../../../scripts/native-qa/publisher-simulation.js");
+  for (const mode of ["pending", "accepted-response-lost"] as const) {
+    const root = await mkdtemp(join(tmpdir(), "framekit-detached-publisher-simulation-"));
+    try {
+      const fixture = await createQaPublisherFixture(root, false);
+      const manifestPath = join(root, "manifest.json");
+      const specPath = join(root, "spec.json");
+      const spec = { artifactPath: fixture.artifact, target: publisherTarget, mode };
+      await writeFile(manifestPath, JSON.stringify(fixture.bound));
+      await writeFile(specPath, JSON.stringify(spec));
+      const cli = ["--import", "tsx", "scripts/native-qa/cli.ts"];
+      const start = spawnSync(process.execPath, [...cli, "start-publisher-simulation", root, manifestPath, specPath], { encoding: "utf8", timeout: 10000 });
+      assert.equal(start.status, 0, start.stderr);
+      assert.equal(JSON.parse(start.stdout).scheduled, true);
+      let result: Awaited<ReturnType<typeof readQaPublisherSimulation>> | undefined;
+      for (let i = 0; i < 200; i++) {
+        result = await readQaPublisherSimulation(root, fixture.bound.qaRunId);
+        if (result.status !== "pending-or-interrupted") break;
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      assert.equal(result?.status, mode === "pending" ? "verification-pending" : "response-lost");
+      assert.equal(result?.scope, "simulated-receiver");
+      assert.equal(result?.verdict, "BLOCKED");
+      assert.equal(result?.dispatchAllowed, false);
+      const run = await inspectRun(root, fixture.bound.qaRunId);
+      assert.equal(run.headlessProfile, "publisher-simulation-v1");
+      assert.equal(run.dispatch, "UNKNOWN_AFTER_DISPATCH");
+      const stages = await readQaPublisherStages(root, fixture.bound.qaRunId);
+      assert.deepEqual(stages.stages.map(stage => stage.stage), mode === "pending" ? ["prepared", "dispatched"] : ["prepared"]);
+      const duplicate = spawnSync(process.execPath, [...cli, "start-publisher-simulation", root, manifestPath, specPath], { encoding: "utf8", timeout: 10000 });
+      assert.equal(duplicate.status, 0, duplicate.stderr);
+      assert.equal(JSON.parse(duplicate.stdout).scheduled, false);
+      await writeFile(specPath, JSON.stringify({ ...spec, mode: mode === "pending" ? "accepted-response-lost" : "pending" }));
+      const changed = spawnSync(process.execPath, [...cli, "start-publisher-simulation", root, manifestPath, specPath], { encoding: "utf8", timeout: 10000 });
+      assert.notEqual(changed.status, 0);
+      assert.match(changed.stderr, /QA_SIMULATION_IDENTITY_MISMATCH/);
+      assert.deepEqual((await readQaPublisherStages(root, fixture.bound.qaRunId)).stages, stages.stages);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  }
+});
 
 test("supervised verification resumes once without another publish dispatch", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-qa-verify-resume-"));
