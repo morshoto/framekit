@@ -52,6 +52,26 @@ test("known words produce read-only frame-mapped caption groups and traceable em
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
+test("caption planning cannot swap pinned evidence during source verification", async () => {
+  const f = await fixture();
+  try {
+    const baseline = await planCaptionGroups(f.request, f.ref, f.current, f.artifacts, verifyLocalMediaSource);
+    assert.equal(baseline.status, "available");
+    const record = await f.index.load(f.source);
+    assert.ok(record?.speech);
+    record.speech.words[0]!.text = "Changed";
+    await f.index.save(record);
+    const other = await pinAnalysisEvidence(f.index, f.artifacts, f.current, verifyLocalMediaSource);
+    assert.notEqual(other.artifactDigest, f.ref.artifactDigest);
+    const mutableRef = structuredClone(f.ref);
+    const result = await planCaptionGroups(f.request, mutableRef, f.current, f.artifacts, async (source) => {
+      mutableRef.artifactDigest = other.artifactDigest;
+      await verifyLocalMediaSource(source);
+    });
+    assert.deepEqual(result, baseline);
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
 test("stale source and unsupported animation never produce a caption plan", async () => {
   const f = await fixture();
   try {
