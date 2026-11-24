@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { InMemorySemanticMediaIndexStore } from "../../../packages/runtime/src/application/semantic-media-index-store.js";
 import { InMemoryAnalysisArtifactStore, pinAnalysisEvidence, verifyAnalysisEvidence } from "../../../packages/runtime/src/planning/analysis-evidence.js";
-import type { MediaUnderstanding } from "../../../packages/runtime/src/domain/media.js";
+import type { MediaSourceIdentity, MediaUnderstanding } from "../../../packages/runtime/src/domain/media.js";
 
 const source = { mediaId: "m1", source: "fixture.mov", sourceDigest: "sha256:source", mediaKind: "video" as const, duration: 10 };
 const revision = { id: "r1", sequence: 1, timestamp: "2026-01-01T00:00:00.000Z" };
@@ -171,6 +171,19 @@ test("verification cannot be changed from stale to current during source checkin
   const stale = structuredClone({ ...context, revision: { ...revision, sequence: 2 } });
   const result = await verifyAnalysisEvidence(artifacts, ref, stale, async () => { stale.revision.sequence = 1; });
   assert.notEqual(result.status, "verified");
+  const staleRef = structuredClone({ ...ref, revision: { ...ref.revision, sequence: 2 } });
+  const refResult = await verifyAnalysisEvidence(artifacts, staleRef, context, async () => { staleRef.revision.sequence = 1; });
+  assert.notEqual(refResult.status, "verified");
+});
+
+test("source verifiers cannot mutate the bound evidence identity", async () => {
+  const { index, artifacts } = await fixture();
+  const observed: Array<string | undefined> = [];
+  const verifier = async (value: MediaSourceIdentity) => { observed.push(value.sourceDigest); value.sourceDigest = "modified"; };
+  const ref = await pinAnalysisEvidence(index, artifacts, context, verifier);
+  assert.equal(ref.source.sourceDigest, source.sourceDigest);
+  assert.equal((await verifyAnalysisEvidence(artifacts, ref, context, verifier)).status, "verified");
+  assert.deepEqual(observed, Array(4).fill(source.sourceDigest));
 });
 
 test("command analysis can be pinned from the persisted semantic index", async () => {
