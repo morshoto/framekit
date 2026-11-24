@@ -111,6 +111,17 @@ test("a proposed revision is fixed before waiting for the store lock", async () 
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
+test("creating a brief hashes the same snapshot that is saved", async () => {
+  const f = await fixture();
+  try {
+    let reads = 0;
+    const input = { ...brief, get theme() { return ++reads === 1 ? "first" : "changed"; } };
+    const created = await f.store.create("project-1", input);
+    assert.equal(created.brief.theme, "first");
+    assert.deepEqual(await f.store.read("project-1"), created);
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
 test("unreviewed drafts cannot be accepted and corrupt persisted approval fails closed", async () => {
   const f = await fixture();
   try {
