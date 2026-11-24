@@ -590,3 +590,39 @@ test("planning rechecks brief after the final evidence reads", async () => {
     assert.equal(result.status, "unavailable");
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
+
+test("headless execution retains reviewed evidence when caller mutates its request", async () => {
+  const f = await fixture();
+  try {
+    const { HeadlessDecisionPlanService } = await import("../../../apps/mcp-server/src/headless-decision-plan.js");
+    const service = new HeadlessDecisionPlanService({ readProject: async () => structuredClone(f.request.snapshot),
+      storeForProject: () => f.briefStore, artifacts: f.artifacts, index: f.index,
+      verifySource: verifyLocalMediaSource, currentProvider: () => f.request.speechContext.provider });
+    const { snapshot: _snapshot, brief: _brief, accepted: _accepted, speechContext: _speechContext, vadContext: _vadContext, ...input } = structuredClone(f.request);
+    const planned = await service.plan(input);
+    assert.equal(planned.status, "available"); if (planned.status !== "available") return;
+    const result = await service.executeAcceptedPlan(input, planned.plan.planDigest, async () => {
+      delete (input as { speechRef?: unknown }).speechRef;
+      delete (input as { vadRef?: unknown }).vadRef;
+      await f.index.save({ ...f.record, speech: { ...f.record.speech, words: [] } });
+      return { undoId: "undo-fixture" };
+    }, async () => {});
+    assert.equal(result.status, "applied-unverified");
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test("headless planning snapshots request before project reads", async () => {
+  const f = await fixture();
+  try {
+    const { HeadlessDecisionPlanService } = await import("../../../apps/mcp-server/src/headless-decision-plan.js");
+    const { snapshot: _snapshot, brief: _brief, accepted: _accepted, speechContext: _speechContext, vadContext: _vadContext, ...input } = structuredClone(f.request);
+    const common = { storeForProject: () => f.briefStore, artifacts: f.artifacts, index: f.index,
+      verifySource: verifyLocalMediaSource, currentProvider: () => f.request.speechContext.provider };
+    const expected = await new HeadlessDecisionPlanService({ ...common, readProject: async () => structuredClone(f.request.snapshot) }).plan(input);
+    const observed = await new HeadlessDecisionPlanService({ ...common, readProject: async () => {
+      input.caption.maxWordsPerGroup = 1;
+      return structuredClone(f.request.snapshot);
+    } }).plan(input);
+    assert.deepEqual(observed, expected);
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
