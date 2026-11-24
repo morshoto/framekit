@@ -26,9 +26,12 @@ const execFileAsync = promisify(execFile);
 test("reviewed music decision previews the exact headless placement without changing the project", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-music-decision-"));
   const here = dirname(fileURLToPath(import.meta.url));
+  const ffmpegVersion = (await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-version"])).stdout.split("\n")[0]!.trim();
   const environment = { ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
     FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1", FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
-    FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"), FRAMEKIT_STATE_DIR: join(directory, "state") };
+    FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"), FRAMEKIT_STATE_DIR: join(directory, "state"),
+    FRAMEKIT_SPEECH_ANALYZER: "", FRAMEKIT_AUDIO_ANALYZER: join(process.cwd(), "apps/mcp-server/runtime/ffmpeg-audio-backend.py"),
+    FRAMEKIT_AUDIO_ANALYZER_VERSION: ffmpegVersion };
   let connection: { client: Client; transport: StdioClientTransport } | undefined;
   try {
     await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory]);
@@ -44,11 +47,13 @@ test("reviewed music decision previews the exact headless placement without chan
       operations: [{ type: "insert-occurrence", occurrence: { id: "interview", name: "Interview", mediaId: video.resource.id, startTime: { value: "0", timescale: "1" }, durationTime: { value: "2", timescale: "1" }, sourceStartTime: { value: "0", timescale: "1" }, track: 0, role: "video" } }] } }));
     const revision = placed.after.timeline.revision;
     const target = { projectId, sequenceId, expectedRevision: revision };
+    payload(await client.callTool({ name: "media.understand", arguments: { projectId, mediaId: video.resource.id } }));
+    const audioRef = payload(await client.callTool({ name: "headless.analysis.pin", arguments: { ...target, mediaId: video.resource.id, kind: "audio", range: { start: 0, end: 2 } } })).ref;
     const brief = { schemaVersion: 1, id: "music-brief", version: 1, purpose: { kind: "specified", value: "interview" }, audience: { kind: "no-preference" }, durationSeconds: { min: 1, max: 2 }, aspectRatio: "9:16", theme: "natural", visualDirection: "natural", requiredContent: [], excludedContent: [], sourceCoverage: [], speechPolicy: { kind: "specified", value: "preserve" }, musicPolicy: { kind: "specified", value: "background" }, captionPolicy: { kind: "specified", value: "none" }, inferences: [], reviewPrompts: [] };
     const draft = payload(await client.callTool({ name: "headless.brief.create", arguments: { ...target, brief } }));
     payload(await client.callTool({ name: "headless.brief.accept", arguments: { ...target, expectedDigest: draft.record.digest, confirmed: true } }));
     const duration = music.resource.metadata.durationTime;
-    const input = { projectId, timelineId: sequenceId, revision, occurrenceId: "interview", caption: { style: "basic", maxWordsPerGroup: 3, maxCharsPerLine: 20, maxLines: 2 },
+    const input = { projectId, timelineId: sequenceId, revision, occurrenceId: "interview", audioRef, caption: { style: "basic", maxWordsPerGroup: 3, maxCharsPerLine: 20, maxLines: 2 },
       music: { occurrenceId: "music-track", music: { mediaId: music.resource.id, source: musicPath, sourceDigest: music.resource.sourceDigest, mediaKind: "audio", duration: Number(duration.value) / Number(duration.timescale) },
         placement: { start: 0, end: 1, startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" } }, gainDb: -18, targetLane: 1,
         context: { speech: "unknown", audioEvidence: "unavailable" }, capabilities: { staticMusicPreview: true, ducking: false, fades: false } } };
@@ -85,6 +90,41 @@ test("reviewed music decision previews the exact headless placement without chan
     payload(await client.callTool({ name: "headless.brief.accept", arguments: { ...target, expectedDigest: revised.record.digest, confirmed: true } }));
     const replanned = payload(await client.callTool({ name: "headless.decision.plan", arguments: input }));
     assert.equal(replanned.status, "available", replanned.reason);
+    const staleEvidence = payload(await client.callTool({ name: "headless.decision.approved-preview-music", arguments: { ...input, planDigest: replanned.plan.planDigest } }));
+    const artifactPath = join(directory, "state", "analysis-artifacts", audioRef.artifactDigest.slice(7));
+    const artifactBytes = await readFile(artifactPath);
+    await writeFile(artifactPath, "tampered analysis");
+    const rejectedPreview = await client.callTool({ name: "headless.decision.preview-music", arguments: { ...input, planDigest: replanned.plan.planDigest } });
+    assert.equal(rejectedPreview.isError, true);
+    const rejectedEvidence = await client.callTool({ name: "headless.decision.approved-execute-music", arguments: { projectId, sequenceId, previewToken: staleEvidence.previewToken, approved: true } });
+    assert.equal(rejectedEvidence.isError, true);
+    assert.match(toolErrorText(rejectedEvidence), /STALE|ANALYSIS/i);
+    await writeFile(artifactPath, artifactBytes);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, before.timeline);
+    const evidenceReplay = await client.callTool({ name: "headless.decision.approved-execute-music", arguments: { projectId, sequenceId, previewToken: staleEvidence.previewToken, approved: true } });
+    assert.equal(evidenceReplay.isError, true);
+    const missingEvidence = payload(await client.callTool({ name: "headless.decision.approved-preview-music", arguments: { ...input, planDigest: replanned.plan.planDigest } }));
+    await unlink(artifactPath);
+    const rejectedMissing = await client.callTool({ name: "headless.decision.approved-execute-music", arguments: { projectId, sequenceId, previewToken: missingEvidence.previewToken, approved: true } });
+    assert.equal(rejectedMissing.isError, true);
+    assert.match(toolErrorText(rejectedMissing), /STALE|ANALYSIS/i);
+    await writeFile(artifactPath, artifactBytes);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, before.timeline);
+    assert.equal((await client.callTool({ name: "headless.decision.approved-execute-music", arguments: { projectId, sequenceId, previewToken: missingEvidence.previewToken, approved: true } })).isError, true);
+    const staleIndex = payload(await client.callTool({ name: "headless.decision.approved-preview-music", arguments: { ...input, planDigest: replanned.plan.planDigest } }));
+    const indexPath = join(directory, "state", "semantic-media-index.json");
+    const originalIndex = await readFile(indexPath, "utf8");
+    const modifiedIndex = JSON.parse(originalIndex);
+    const audioEntry = modifiedIndex.entries.find((entry: any) => entry.mediaId === video.resource.id);
+    assert.ok(audioEntry?.audio);
+    audioEntry.audio.integratedLufs += 1;
+    await writeFile(indexPath, JSON.stringify(modifiedIndex));
+    const rejectedIndex = await client.callTool({ name: "headless.decision.approved-execute-music", arguments: { projectId, sequenceId, previewToken: staleIndex.previewToken, approved: true } });
+    assert.equal(rejectedIndex.isError, true);
+    assert.match(toolErrorText(rejectedIndex), /STALE|ANALYSIS/i);
+    await writeFile(indexPath, originalIndex);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, before.timeline);
+    assert.equal((await client.callTool({ name: "headless.decision.approved-execute-music", arguments: { projectId, sequenceId, previewToken: staleIndex.previewToken, approved: true } })).isError, true);
     const wrongTarget = payload(await client.callTool({ name: "headless.decision.approved-preview-music", arguments: { ...input, planDigest: replanned.plan.planDigest } }));
     const rejectedTarget = await client.callTool({ name: "headless.decision.approved-execute-music", arguments: { projectId, sequenceId: "wrong-sequence", previewToken: wrongTarget.previewToken, approved: true } });
     assert.equal(rejectedTarget.isError, true);
