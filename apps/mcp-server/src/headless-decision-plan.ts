@@ -18,6 +18,7 @@ export class HeadlessDecisionPlanService {
 
   async plan(input: HeadlessDecisionRequest): Promise<EditDecisionPlanResult> {
     try {
+      input = structuredClone(input);
       const before = await this.options.readProject(input.projectId);
       const store = this.options.storeForProject(input.projectId);
       const brief = await store.read(input.projectId);
@@ -42,6 +43,7 @@ export class HeadlessDecisionPlanService {
 
   /** Hold the cooperating brief-writer lock through the bound operation. */
   async withAcceptedPlan<T>(input: HeadlessDecisionRequest, digest: string, operation: (plan: EditDecisionPlan) => Promise<T>): Promise<T> {
+    input = structuredClone(input);
     const store = this.options.storeForProject(input.projectId);
     const brief = await store.read(input.projectId);
     if (brief.state !== "accepted") throw new Error("BRIEF_NOT_ACCEPTED: the current brief requires review");
@@ -54,6 +56,7 @@ export class HeadlessDecisionPlanService {
 
   /** Preserve the edit and Undo record if a post-commit check or lock release fails. */
   async executeAcceptedPlan<T>(input: HeadlessDecisionRequest, digest: string, execute: () => Promise<T>, verify: (edit: T) => Promise<void>) {
+    input = structuredClone(input);
     let committed: T | undefined;
     let completed = false;
     try {
@@ -75,6 +78,8 @@ export class HeadlessDecisionPlanService {
 
   /** Recheck point-in-time source and analysis observations after a committed edit. */
   async recheckEvidence(input: HeadlessDecisionRequest, plan: EditDecisionPlan): Promise<void> {
+    input = structuredClone(input);
+    plan = structuredClone(plan);
     const store = this.options.storeForProject(input.projectId);
     const brief = await store.read(input.projectId);
     if (brief.state !== "accepted") throw new Error("BRIEF_NOT_ACCEPTED: the current brief requires review");
