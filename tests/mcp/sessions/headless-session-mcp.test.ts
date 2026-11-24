@@ -464,3 +464,42 @@ test("fails closed on stale revisions and provider mismatch before reconciliatio
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("analysis pin rejects a configured provider changed while publishing evidence", async () => {
+  const { writeFile } = await import("node:fs/promises");
+  const { createHash } = await import("node:crypto");
+  const { InMemorySemanticMediaIndexStore, InMemoryAnalysisArtifactStore } = await import("@framekit/runtime");
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-pin-provider-"));
+  const path = join(directory, "media.mov");
+  const bytes = Buffer.from("source bytes"); await writeFile(path, bytes);
+  const sourceDigest = createHash("sha256").update(bytes).digest("hex");
+  const source = { mediaId: "media-1", source: path, sourceDigest, mediaKind: "video" as const };
+  const provider = { id: "speech", provider: "fixture", version: "1", model: "model", configurationDigest: "config" };
+  const initial = timeline();
+  initial.resources = [{ id: "media-1", name: "media.mov", mediaKind: "video", source: path, sourceKind: "local-file", sourceDigest }];
+  const revision = initial.revision;
+  const index = new InMemorySemanticMediaIndexStore();
+  await index.save({ mediaId: source.mediaId, source: path, sourceIdentity: source, analysisRevision: revision,
+    semantic: { subjects: [], scenes: [], environments: [], timeOfDay: [], moods: [], usableRanges: [] },
+    analysis: [{ capability: "speech", status: "analyzed", provenance: { source, analyzer: provider, ranges: [{ start: 0, end: 10 }] } }],
+    speech: { coverageProvenance: "provider", schemaVersion: 1, mediaId: source.mediaId, sourceIdentity: source, revision, provider,
+      requestedRange: { start: 0, end: 10 }, observedRange: { start: 0, end: 10 }, sourceTimebase: { value: "1", timescale: "1000" },
+      capability: "transcription-plus-vad", words: [{ text: "hello", start: 1, end: 2, confidence: 0.9 }], vadSegments: [{ kind: "speech", start: 1, end: 2 }] } });
+  let configured = provider;
+  const backing = new InMemoryAnalysisArtifactStore();
+  const artifacts = { get: backing.get.bind(backing), put: async (digest: string, data: Uint8Array) => {
+    await backing.put(digest, data); configured = { ...provider, model: "changed" };
+  } };
+  const server = createMcpServer(runtime(), { sessionDirectory: directory,
+    headlessProjects: { open: async () => ({ timeline: initial }) } as never,
+    analysisEvidence: { index, artifacts, currentProvider: () => configured } });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "provider-race-test", version: "1" });
+  try {
+    await server.connect(serverTransport); await client.connect(clientTransport);
+    const result = await client.callTool({ name: "headless.analysis.pin", arguments: { projectId: initial.project.id, sequenceId: initial.sequence.id,
+      expectedRevision: revision, mediaId: source.mediaId, kind: "speech", range: { start: 1, end: 4 } } });
+    assert.equal(result.isError, true);
+    assert.match(JSON.stringify(result), /ANALYSIS_STALE_PROVIDER/);
+  } finally { await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
+});

@@ -2629,6 +2629,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     const ref = await pinAnalysisEvidence(options.analysisEvidence.index, options.analysisEvidence.artifacts, context, verifyLocalMediaSource);
     const after = await projects.open(projectId);
     if (timelineIrDigest(before.timeline) !== timelineIrDigest(after.timeline)) throw new Error("STALE_CONTEXT: project changed during evidence pinning");
+    const currentProvider = options.analysisEvidence.currentProvider(kind);
+    if (!currentProvider || !sameAnalyzerDescriptor(ref.provider, currentProvider)) {
+      throw new Error("ANALYSIS_STALE_PROVIDER: configured analyzer changed during evidence pinning");
+    }
     return { ref, notice: "Pinned source evidence is not edit approval or native occurrence proof." };
   }));
 
