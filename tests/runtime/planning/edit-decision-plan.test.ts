@@ -462,6 +462,12 @@ test("native cut handoff binds the current plan and rejects changed target and e
     assert.equal((await prepareNativeCutHandoff(f.request, result.plan, index, target, unavailableArtifacts, verifyLocalMediaSource, f.briefStore)).status, "unavailable");
     const tamperedArtifacts = { put: f.artifacts.put.bind(f.artifacts), get: async () => new Uint8Array([1, 2, 3]) };
     assert.equal((await prepareNativeCutHandoff(f.request, result.plan, index, target, tamperedArtifacts, verifyLocalMediaSource, f.briefStore)).status, "unavailable");
+    const staleRevision = structuredClone(f.request);
+    staleRevision.revision.id = "stale";
+    assert.equal((await prepareNativeCutHandoff(staleRevision, result.plan, index, target, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "unavailable");
+    const changedProvider = structuredClone(f.request);
+    changedProvider.speechContext.provider.model = "different-model";
+    assert.equal((await prepareNativeCutHandoff(changedProvider, result.plan, index, target, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "unavailable");
     await writeFile(f.path, "changed source");
     assert.notEqual((await prepareNativeCutHandoff(f.request, result.plan, index, target, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "proposed");
   } finally { await rm(f.dir, { recursive: true, force: true }); }
