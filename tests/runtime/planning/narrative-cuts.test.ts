@@ -211,6 +211,12 @@ test("pinned VAD evidence is verified before ranking and changed artifacts fail 
     const alternateRef = await pinAnalysisEvidence(index, artifacts, evidenceContext, verifyLocalMediaSource);
     assert.notEqual(alternateRef.artifactDigest, ref.artifactDigest);
     assert.notEqual((await adjustNarrativeCutWithEvidence(localRequest, alternateRef, evidenceContext, artifacts, verifyLocalMediaSource, candidate, adjusted)).status, "available");
+    const mutableRef = structuredClone(ref);
+    const swapped = await rankNarrativeCutsWithEvidence(localRequest, mutableRef, evidenceContext, artifacts, async (source) => {
+      mutableRef.artifactDigest = alternateRef.artifactDigest;
+      await verifyLocalMediaSource(source);
+    });
+    assert.deepEqual(swapped, result, "ranking must use the evidence reference supplied before awaiting");
     const original = await artifacts.get(ref.artifactDigest);
     let reads = 0;
     const changedBetweenReads = { get: async () => ++reads === 1 ? original : Buffer.from("{}"), put: async () => {} };

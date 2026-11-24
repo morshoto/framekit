@@ -280,9 +280,16 @@ export async function rankNarrativeCutsWithEvidence(
   artifacts: AnalysisArtifactStore,
   verifySource: AnalysisSourceVerifier,
 ): Promise<EvidenceBoundNarrativePlan> {
-  const loaded = await loadVerifiedRequest(request, ref, current, artifacts, verifySource);
-  if (loaded.status !== "available") return loaded;
   try {
+    request = structuredClone(request);
+    ref = structuredClone(ref);
+    current = structuredClone(current);
+    if (typeof verifySource === "function") {
+      const delegate = verifySource;
+      verifySource = (source) => delegate(structuredClone(source));
+    }
+    const loaded = await loadVerifiedRequest(request, ref, current, artifacts, verifySource);
+    if (loaded.status !== "available") return loaded;
     const plan = rankNarrativeCuts(loaded.request);
     const analysisRefDigest = digestValue(ref);
     plan.candidates = plan.candidates.map((candidate) => ({ ...candidate, analysisRefDigest }));
@@ -306,9 +313,18 @@ export async function adjustNarrativeCutWithEvidence(
   candidate: NarrativeCutCandidate,
   adjusted: TimeRange,
 ): Promise<EvidenceBoundNarrativeAdjustment> {
-  const loaded = await loadVerifiedRequest(request, ref, current, artifacts, verifySource);
-  if (loaded.status !== "available") return loaded;
   try {
+    request = structuredClone(request);
+    ref = structuredClone(ref);
+    current = structuredClone(current);
+    candidate = structuredClone(candidate);
+    adjusted = structuredClone(adjusted);
+    if (typeof verifySource === "function") {
+      const delegate = verifySource;
+      verifySource = (source) => delegate(structuredClone(source));
+    }
+    const loaded = await loadVerifiedRequest(request, ref, current, artifacts, verifySource);
+    if (loaded.status !== "available") return loaded;
     const analysisRefDigest = digestValue(ref);
     if (candidate.analysisRefDigest !== analysisRefDigest) return { status: "unavailable", reason: "STALE_CANDIDATE: pinned analysis reference changed." };
     const { analysisRefDigest: _refDigest, ...unboundCandidate } = candidate;

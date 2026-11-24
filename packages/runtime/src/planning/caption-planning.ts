@@ -82,8 +82,15 @@ export async function planCaptionGroups(
   artifacts: AnalysisArtifactStore,
   verifySource: AnalysisSourceVerifier,
 ): Promise<CaptionPlanResult> {
-  if (request.style !== "basic") return { status: "unsupported", reason: "Only basic caption groups are planned; requested styling or animation is unsupported." };
   try {
+    request = structuredClone(request);
+    ref = structuredClone(ref);
+    current = structuredClone(current);
+    if (typeof verifySource === "function") {
+      const delegate = verifySource;
+      verifySource = (source) => delegate(structuredClone(source));
+    }
+    if (request.style !== "basic") return { status: "unsupported", reason: "Only basic caption groups are planned; requested styling or animation is unsupported." };
     if (!Number.isSafeInteger(request.maxWordsPerGroup) || request.maxWordsPerGroup < 1 || request.maxWordsPerGroup > 20
       || !Number.isSafeInteger(request.maxCharsPerLine) || request.maxCharsPerLine < 1 || request.maxCharsPerLine > 100
       || !Number.isSafeInteger(request.maxLines) || request.maxLines < 1 || request.maxLines > 2
