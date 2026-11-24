@@ -89,6 +89,26 @@ test("supervised verification resumes once without another publish dispatch", as
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("verification response loss retains the claim and cannot trigger another readback", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-verify-loss-"));
+  try {
+    const fixture = await createQaPublisherFixture(root);
+    const jobId = "publish-job-123";
+    await recordQaPublisherStage(root, fixture.bound.qaRunId, "prepared", { jobId, state: "awaiting-confirmation", artifactDigest: fixture.bound.artifactDigest });
+    await claimDispatchIntent(root, fixture.bound, jobId);
+    await recordQaPublisherStage(root, fixture.bound.qaRunId, "dispatched", { jobId, state: "verification-pending", nextAction: "confirm-verification", delivery: { status: "dispatched" } });
+    let verifies = 0;
+    const verify = async () => { verifies++; throw new Error("lost verification response"); };
+    await assert.rejects(resumeSupervisedQaPublisherVerification(root, fixture.bound, fixture.artifact, publisherTarget, async () => { throw new Error("not ready"); }, verify), /not ready/);
+    assert.equal(verifies, 0);
+    await assert.rejects(resumeSupervisedQaPublisherVerification(root, fixture.bound, fixture.artifact, publisherTarget, async () => {}, verify), /lost verification response/);
+    await assert.rejects(resumeSupervisedQaPublisherVerification(root, fixture.bound, fixture.artifact, publisherTarget, async () => {}, verify), /QA_VERIFICATION_ALREADY_CLAIMED/);
+    assert.equal(verifies, 1);
+    assert.deepEqual((await readQaPublisherStages(root, fixture.bound.qaRunId)).stages.map(stage => stage.stage), ["prepared", "dispatched"]);
+    assert.equal((await inspectRun(root, fixture.bound.qaRunId)).verdict, "BLOCKED");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("late simulated receiver acceptance does not trigger a second publisher dispatch", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-qa-late-receiver-"));
   try {

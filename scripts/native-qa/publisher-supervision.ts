@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { runPublishStages } from "../final-cut-publisher-verification.mjs";
 import { claimDispatchIntent, inspectRun, type QaRunManifest } from "./run-store.js";
-import { recordQaPublisherStage, type PublisherStage } from "./publisher-stages.js";
+import { readQaPublisherStages, recordQaPublisherStage, type PublisherStage } from "./publisher-stages.js";
 import { verifyQaPublisherSourcesWithEntries } from "./publisher-source-evidence.js";
+import { publishQaRecord } from "./atomic-record.js";
 
 type PublisherInput = Parameters<typeof runPublishStages>[1];
 type PublisherCall = Parameters<typeof runPublishStages>[0];
@@ -55,4 +56,40 @@ export async function runSupervisedQaPublisher(
       await recordQaPublisherStage(root, bound.qaRunId, stage as PublisherStage, snapshot);
     },
     async jobId => { await assertReady(jobId, Object.freeze({ ...boundTarget })); await verifyQaPublisherSourcesWithEntries(root, bound.qaRunId, request.artifactPath); await claimDispatchIntent(root, bound, jobId); });
+}
+
+/** Internal verification-only seam. The injected gate and verifier are not native authorization evidence. */
+export async function resumeSupervisedQaPublisherVerification(
+  root: string, manifest: QaRunManifest, artifactPath: string, target: QaPublisherTarget,
+  assertReady: (jobId: string, target: Readonly<QaPublisherTarget>) => Promise<void>,
+  verifyJob: (jobId: string) => Promise<unknown>,
+) {
+  const bound = structuredClone(manifest);
+  const boundTarget = structuredClone(target);
+  const run = await inspectRun(root, bound.qaRunId);
+  if (JSON.stringify(run.manifest) !== JSON.stringify(bound)) throw new Error("QA_RUN_IDENTITY_MISMATCH");
+  if (publisherTargetDigest(boundTarget) !== bound.targetDigest) throw new Error("QA_RUN_TARGET_MISMATCH");
+  const history = await readQaPublisherStages(root, bound.qaRunId);
+  const jobId = run.publishJobId;
+  if (run.dispatch !== "UNKNOWN_AFTER_DISPATCH" || !jobId || history.stages.length !== 2
+    || history.stages[1]?.stage !== "dispatched" || history.stages[1].jobId !== jobId) throw new Error("QA_VERIFICATION_UNAVAILABLE");
+  const checked = await verifyQaPublisherSourcesWithEntries(root, bound.qaRunId, artifactPath);
+  await assertReady(jobId, Object.freeze({ ...boundTarget }));
+  await verifyQaPublisherSourcesWithEntries(root, bound.qaRunId, artifactPath);
+  if (JSON.stringify(await inspectRun(root, bound.qaRunId)) !== JSON.stringify(run)
+    || JSON.stringify(await readQaPublisherStages(root, bound.qaRunId)) !== JSON.stringify(history)) throw new Error("QA_RUN_IDENTITY_MISMATCH");
+  try { await publishQaRecord(join(root, bound.qaRunId, "verification-attempt.json"), `${JSON.stringify({ schemaVersion: 1, jobId })}\n`); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error("QA_VERIFICATION_ALREADY_CLAIMED"); throw error; }
+  const verified = structuredClone(await verifyJob(jobId)) as Record<string, any>;
+  const integrity = verified?.result?.sourceMediaIntegrity;
+  if (verified?.jobId !== jobId || verified?.state !== "verified" || verified?.result?.verified !== true
+    || integrity?.unchanged !== true || !Array.isArray(integrity.digests) || integrity.digests.length !== checked.sourceDigests.length
+    || !checked.sourceDigests.every(expected => integrity.digests.some((actual: { source?: unknown; sha256?: unknown }) => actual.source === expected.source && actual.sha256 === expected.sha256))) {
+    throw new Error("QA_VERIFICATION_UNCONFIRMED");
+  }
+  await verifyQaPublisherSourcesWithEntries(root, bound.qaRunId, artifactPath);
+  const recoveryReported = Boolean(verified.recoveryReservation) || history.stages[1].recoveryReported;
+  await recordQaPublisherStage(root, bound.qaRunId, recoveryReported ? "verification-recovery-required" : "verified",
+    recoveryReported ? { ...verified, recoveryReservation: verified.recoveryReservation ?? { retained: true } } : verified);
+  return { verdict: "BLOCKED" as const, dispatchAllowed: false as const, nativeQuiescence: "unproven" as const, scope: "publisher-response-observation" as const };
 }
