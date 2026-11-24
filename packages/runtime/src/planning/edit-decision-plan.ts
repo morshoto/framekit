@@ -190,6 +190,16 @@ export async function createEditDecisionPlan(request: EditDecisionPlanRequest, a
       if (evidence.status !== "verified") return { status: "unavailable", reason: `Audio evidence: ${evidence.reason}` };
     }
     await assertCurrentAcceptedBrief(briefStore, request.projectId, request.accepted);
+    for (const [label, ref, context] of [
+      ["Speech", request.speechRef, request.speechContext],
+      ["VAD", request.vadRef, request.vadContext],
+      ["Audio", request.audioRef, request.audioContext],
+    ] as const) {
+      if (!ref || !context) continue;
+      const evidence = await verifyAnalysisEvidence(artifacts, ref, context, verifySource);
+      if (evidence.status !== "verified") return { status: "unavailable", reason: `${label} evidence: ${evidence.reason}` };
+    }
+    await assertCurrentAcceptedBrief(briefStore, request.projectId, request.accepted);
     return { status: "available", plan: { ...content, planDigest: digest(content) } };
   } catch (error) {
     return { status: "unavailable", reason: error instanceof Error ? error.message : "Edit decision planning failed." };
