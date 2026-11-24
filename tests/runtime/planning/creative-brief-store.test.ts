@@ -79,6 +79,25 @@ test("accepted-brief operation excludes a concurrent revision and rejects stale 
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
+test("a stale approval cannot be changed while stored acceptance is read", async () => {
+  const f = await fixture();
+  try {
+    const draft = await f.store.create("project-1", brief);
+    const accepted = await f.store.accept("project-1", draft.digest);
+    if (accepted.state !== "accepted") throw new Error("expected accepted brief");
+    const stale = { ...accepted.accepted, digest: "0".repeat(64) };
+    const checking = assertCurrentAcceptedBrief(f.store, "project-1", stale);
+    stale.digest = accepted.accepted.digest;
+    await assert.rejects(checking, /STALE_BRIEF/);
+    const staleForOperation = { ...accepted.accepted, digest: "0".repeat(64) };
+    let ran = false;
+    const operation = f.store.withAcceptedBrief("project-1", staleForOperation, async () => { ran = true; });
+    staleForOperation.digest = accepted.accepted.digest;
+    await assert.rejects(operation, /STALE_BRIEF/);
+    assert.equal(ran, false);
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
 test("unreviewed drafts cannot be accepted and corrupt persisted approval fails closed", async () => {
   const f = await fixture();
   try {

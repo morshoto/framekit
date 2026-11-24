@@ -104,10 +104,16 @@ export async function previewMusicPlan(
   verifySource: (source: MediaSourceIdentity) => Promise<void>,
   briefStore: CreativeBriefStore,
 ): Promise<CompositeEditPreview> {
+  request = structuredClone(request);
+  reviewed = structuredClone(reviewed);
+  if (typeof verifySource === "function") {
+    const delegate = verifySource;
+    verifySource = (source) => delegate(structuredClone(source));
+  }
   if (!occurrenceId?.trim() || occurrenceId !== request.occurrenceId) throw new Error("INVALID_MUSIC_PLAN: reviewed occurrence identity is required");
   if (!briefStore) throw new Error("CAPABILITY_UNAVAILABLE: authoritative brief store is required");
   await assertCurrentAcceptedBrief(briefStore, request.projectId, request.accepted);
-  const current = await runtime.inspectProject();
+  const current = structuredClone(await runtime.inspectProject());
   assertBriefSourceCoverage(request.accepted, request.brief, current.media);
   if (typeof verifySource !== "function") throw new Error("CAPABILITY_UNAVAILABLE: source verification is required");
   for (const id of new Set(request.brief.sourceCoverage.map((coverage) => coverage.sourceId))) {
@@ -119,12 +125,12 @@ export async function previewMusicPlan(
   }
   if (typeof verifySource !== "function" || !request.music) throw new Error("CAPABILITY_UNAVAILABLE: music source verification is required");
   await verifySource(request.music);
-  const preview = await runtime.previewMusic({
+  const preview = structuredClone(await runtime.previewMusic({
     baseRevision: structuredClone(recomputed.revision), occurrenceId, mediaId: recomputed.placement.mediaId,
     placement: "insert", start: recomputed.placement.range.start,
     duration: recomputed.placement.range.end - recomputed.placement.range.start,
     targetLane: recomputed.placement.targetLane, gainDb: recomputed.placement.gainDb,
-  });
+  }));
   if (preview.target.kind !== "editor.timeline" || preview.target.projectId !== request.projectId
     || preview.target.sequenceId !== request.timelineId || !isDeepStrictEqual(preview.baseRevision, recomputed.revision)) {
     throw new Error("STALE_MUSIC_PREVIEW: preview target or revision differs from the reviewed proposal");
@@ -138,7 +144,7 @@ export async function previewMusicPlan(
     throw new Error("MUSIC_PREVIEW_MISMATCH: operations differ from the reviewed proposal");
   }
   await verifySource(request.music);
-  const after = await runtime.inspectProject();
+  const after = structuredClone(await runtime.inspectProject());
   assertBriefSourceCoverage(request.accepted, request.brief, after.media);
   for (const id of new Set(request.brief.sourceCoverage.map((coverage) => coverage.sourceId))) {
     await verifySource(after.media.find((source) => source.mediaId === id)!);
