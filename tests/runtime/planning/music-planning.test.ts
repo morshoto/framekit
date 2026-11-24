@@ -102,6 +102,14 @@ test("reviewed music proposal previews through the existing workflow without mut
   await assert.rejects(() => previewMusicPlan(runtime, liveRequest, plan, "music-clip", fixtureVerifySource, undefined as never), /UNAVAILABLE|INVALID/);
   const altered = { ...plan, placement: { ...plan.placement!, gainDb: -3 } };
   await assert.rejects(() => previewMusicPlan(runtime, liveRequest, altered, "music-clip", fixtureVerifySource, briefStore), /STALE|INVALID/);
+  const mutable = structuredClone(altered);
+  const mutatingStore = Object.create(briefStore) as typeof briefStore;
+  mutatingStore.read = async (projectId) => {
+    const value = await briefStore.read(projectId);
+    mutable.placement!.gainDb = plan.placement!.gainDb;
+    return value;
+  };
+  await assert.rejects(() => previewMusicPlan(runtime, liveRequest, mutable, "music-clip", fixtureVerifySource, mutatingStore), /STALE|INVALID/);
   await assert.rejects(() => previewMusicPlan(runtime, { ...liveRequest, revision: { ...before.revision, sequence: before.revision.sequence + 1 } }, plan, "music-clip", fixtureVerifySource, briefStore), /STALE/);
   let inspections = 0;
   const projectRace = { inspectProject: async () => ++inspections === 1 ? before : { ...before, revision: { ...before.revision, sequence: before.revision.sequence + 1 } },
