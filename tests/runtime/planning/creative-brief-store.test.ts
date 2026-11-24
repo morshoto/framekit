@@ -98,6 +98,30 @@ test("a stale approval cannot be changed while stored acceptance is read", async
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
+test("a proposed revision is fixed before waiting for the store lock", async () => {
+  const f = await fixture();
+  try {
+    const draft = await f.store.create("project-1", brief);
+    const proposed = { ...brief, theme: "reviewed" };
+    const operation = f.store.revise("project-1", draft.digest, proposed);
+    proposed.theme = "changed while waiting";
+    const revised = await operation;
+    assert.equal(revised.brief.theme, "reviewed");
+    assert.equal((await f.store.read("project-1")).brief.theme, "reviewed");
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test("creating a brief hashes the same snapshot that is saved", async () => {
+  const f = await fixture();
+  try {
+    let reads = 0;
+    const input = { ...brief, get theme() { return ++reads === 1 ? "first" : "changed"; } };
+    const created = await f.store.create("project-1", input);
+    assert.equal(created.brief.theme, "first");
+    assert.deepEqual(await f.store.read("project-1"), created);
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
 test("unreviewed drafts cannot be accepted and corrupt persisted approval fails closed", async () => {
   const f = await fixture();
   try {
