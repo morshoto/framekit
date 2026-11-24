@@ -4,10 +4,9 @@ import { isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { publishQaRecord } from "./atomic-record.js";
 import { readQaRecord } from "./read-record.js";
-import { assertQaHeadlessProfile, assertQaJobIndex, claimDispatchIntent, createOrInspectRun, inspectRun, type QaRunManifest } from "./run-store.js";
-import { publisherTargetDigest, runSupervisedQaPublisher, type QaPublisherTarget } from "./publisher-supervision.js";
+import { assertQaHeadlessProfile, assertQaJobIndex, createOrInspectRun, inspectRun, type QaRunManifest } from "./run-store.js";
+import { publisherTargetDigest, runSupervisedQaPublisherSimulation, type QaPublisherTarget } from "./publisher-supervision.js";
 import { readQaPublisherStages } from "./publisher-stages.js";
-import { verifyQaPublisherSourcesWithEntries } from "./publisher-source-evidence.js";
 
 type Mode = "pending" | "accepted-response-lost" | "intent-before-dispatch";
 export interface QaPublisherSimulationSpec { artifactPath: string; target: QaPublisherTarget; mode: Mode }
@@ -113,26 +112,9 @@ export async function performQaPublisherSimulation(root: string, runId: string, 
   if (request.digest !== requestDigest(spec) || publisherTargetDigest(spec.target) !== run.manifest.targetDigest) throw new Error("QA_SIMULATION_IDENTITY_MISMATCH");
   try { await publishQaRecord(join(root, runId, "simulation-worker-started.json"), `${JSON.stringify({ schemaVersion: 1, requestDigest: request.digest })}\n`); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === "EEXIST") return; throw error; }
-  let executed = false;
   let status: "verification-pending" | "dispatch-outcome-unknown" | "preflight-blocked" = "preflight-blocked";
   try {
-    const sources = await verifyQaPublisherSourcesWithEntries(root, runId, spec.artifactPath);
-    const jobId = `simulation-${hash(runId).slice(0, 24)}`;
-    const call = async (name: string, args: Record<string, unknown>) => {
-      if (name === "artifact.publish.preview") return { jobId, state: "awaiting-confirmation", artifactDigest: run.manifest.artifactDigest,
-        targetLibraryPath: spec.target.libraryPath, sourceProof: { sourceMediaDigests: sources.sourceDigests } };
-      if (name !== "artifact.publish.execute" || args.confirmVerification === true || executed) throw new Error("QA_SIMULATION_UNEXPECTED_CALL");
-      executed = true;
-      if (spec.mode === "accepted-response-lost") throw new Error("simulated response loss after acceptance");
-      return { jobId, state: "verification-pending", nextAction: "confirm-verification", delivery: { status: "dispatched" } };
-    };
-    await runSupervisedQaPublisher(root, run.manifest, { artifactPath: spec.artifactPath, headlessExecutionId: "simulation-only",
-      targetLibraryPath: spec.target.libraryPath, artifactDigest: run.manifest.artifactDigest }, call, async () => {
-      if (spec.mode === "intent-before-dispatch") {
-        await claimDispatchIntent(root, run.manifest, jobId);
-        throw new Error("simulated interruption after durable intent");
-      }
-    }, spec.target);
+    await runSupervisedQaPublisherSimulation(root, run.manifest, spec.artifactPath, spec.target, spec.mode);
     status = "verification-pending";
   } catch {
     const observed = await inspectRun(root, runId);

@@ -154,8 +154,20 @@ test("simulation runs cannot use a supplied publisher callback", async () => {
     let calls = 0;
     const input = { artifactPath: fixture.artifact, headlessExecutionId: "fixture-execution", targetLibraryPath: publisherTarget.libraryPath, artifactDigest: fixture.bound.artifactDigest };
     await assert.rejects(runSupervisedQaPublisher(root, fixture.bound, input, async () => { calls++; throw new Error("unexpected publisher"); }, async () => {}, publisherTarget), /QA_WORKER_PROFILE_MISMATCH/);
+    await assert.rejects(resumeSupervisedQaPublisherVerification(root, fixture.bound, fixture.artifact, publisherTarget, async () => {}, async () => { calls++; throw new Error("unexpected verifier"); }), /QA_WORKER_PROFILE_MISMATCH/);
     assert.equal(calls, 0);
     assert.equal((await inspectRun(root, fixture.bound.qaRunId)).dispatch, "NOT_DISPATCHED");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("the fixed fake publisher cannot consume a non-simulation run", async () => {
+  const { runSupervisedQaPublisherSimulation } = await import("../../../scripts/native-qa/publisher-supervision.js");
+  const root = await mkdtemp(join(tmpdir(), "framekit-real-run-simulation-route-"));
+  try {
+    const fixture = await createQaPublisherFixture(root);
+    await assert.rejects(runSupervisedQaPublisherSimulation(root, fixture.bound, fixture.artifact, publisherTarget, "pending"), /QA_WORKER_PROFILE_MISMATCH/);
+    assert.equal((await inspectRun(root, fixture.bound.qaRunId)).dispatch, "NOT_DISPATCHED");
+    assert.deepEqual((await readQaPublisherStages(root, fixture.bound.qaRunId)).stages, []);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

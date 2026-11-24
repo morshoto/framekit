@@ -35,10 +35,18 @@ export async function runSupervisedQaPublisher(
   root: string, manifest: QaRunManifest, input: PublisherInput, call: PublisherCall,
   assertReady: (jobId: string, target: Readonly<QaPublisherTarget>) => Promise<void>, target: QaPublisherTarget,
 ): Promise<unknown> {
+  return runSupervisedQaPublisherInternal(root, manifest, input, call, assertReady, target, false);
+}
+
+async function runSupervisedQaPublisherInternal(
+  root: string, manifest: QaRunManifest, input: PublisherInput, call: PublisherCall,
+  assertReady: (jobId: string, target: Readonly<QaPublisherTarget>) => Promise<void>, target: QaPublisherTarget, simulation: boolean,
+): Promise<unknown> {
   const bound = structuredClone(manifest);
   const request = structuredClone(input);
   const boundTarget = structuredClone(target);
   const run = await inspectRun(root, bound.qaRunId);
+  if ((run.headlessProfile === "publisher-simulation-v1") !== simulation) throw new Error("QA_WORKER_PROFILE_MISMATCH");
   if (JSON.stringify(run.manifest) !== JSON.stringify(bound) || request.artifactDigest !== bound.artifactDigest) throw new Error("QA_RUN_IDENTITY_MISMATCH");
   if (publisherTargetDigest(boundTarget) !== bound.targetDigest || request.targetLibraryPath !== boundTarget.libraryPath) throw new Error("QA_RUN_TARGET_MISMATCH");
   if (run.dispatch !== "NOT_DISPATCHED") throw new Error("QA_DISPATCH_ALREADY_CLAIMED");
@@ -60,6 +68,38 @@ export async function runSupervisedQaPublisher(
     { stopAfterDispatch: true });
 }
 
+/** Run only the fixed fake publisher for a simulation-profile run; no caller supplies native callbacks. */
+export async function runSupervisedQaPublisherSimulation(
+  root: string, manifest: QaRunManifest, artifactPath: string, target: QaPublisherTarget,
+  mode: "pending" | "accepted-response-lost" | "intent-before-dispatch",
+): Promise<unknown> {
+  const bound = structuredClone(manifest);
+  const boundTarget = structuredClone(target);
+  const run = await inspectRun(root, bound.qaRunId);
+  if (run.headlessProfile !== "publisher-simulation-v1") throw new Error("QA_WORKER_PROFILE_MISMATCH");
+  if (JSON.stringify(run.manifest) !== JSON.stringify(bound)) throw new Error("QA_RUN_IDENTITY_MISMATCH");
+  if (publisherTargetDigest(boundTarget) !== bound.targetDigest) throw new Error("QA_RUN_TARGET_MISMATCH");
+  if (mode !== "pending" && mode !== "accepted-response-lost" && mode !== "intent-before-dispatch") throw new Error("QA_SIMULATION_INPUT_INVALID");
+  const sources = await verifyQaPublisherSourcesWithEntries(root, bound.qaRunId, artifactPath);
+  const jobId = `simulation-${createHash("sha256").update(bound.qaRunId).digest("hex").slice(0, 24)}`;
+  let executed = false;
+  const call: PublisherCall = async (name, args) => {
+    if (name === "artifact.publish.preview") return { jobId, state: "awaiting-confirmation", artifactDigest: bound.artifactDigest,
+      targetLibraryPath: boundTarget.libraryPath, sourceProof: { sourceMediaDigests: sources.sourceDigests } };
+    if (name !== "artifact.publish.execute" || args.confirmVerification === true || executed) throw new Error("QA_SIMULATION_UNEXPECTED_CALL");
+    executed = true;
+    if (mode === "accepted-response-lost") throw new Error("simulated response loss after acceptance");
+    return { jobId, state: "verification-pending", nextAction: "confirm-verification", delivery: { status: "dispatched" } };
+  };
+  return runSupervisedQaPublisherInternal(root, bound, { artifactPath, headlessExecutionId: "simulation-only",
+    targetLibraryPath: boundTarget.libraryPath, artifactDigest: bound.artifactDigest }, call, async () => {
+    if (mode === "intent-before-dispatch") {
+      await claimDispatchIntent(root, bound, jobId);
+      throw new Error("simulated interruption after durable intent");
+    }
+  }, boundTarget, true);
+}
+
 /** Internal verification-only seam. The injected gate and verifier are not native authorization evidence. */
 export async function resumeSupervisedQaPublisherVerification(
   root: string, manifest: QaRunManifest, artifactPath: string, target: QaPublisherTarget,
@@ -69,6 +109,7 @@ export async function resumeSupervisedQaPublisherVerification(
   const bound = structuredClone(manifest);
   const boundTarget = structuredClone(target);
   const run = await inspectRun(root, bound.qaRunId);
+  if (run.headlessProfile === "publisher-simulation-v1") throw new Error("QA_WORKER_PROFILE_MISMATCH");
   if (JSON.stringify(run.manifest) !== JSON.stringify(bound)) throw new Error("QA_RUN_IDENTITY_MISMATCH");
   if (publisherTargetDigest(boundTarget) !== bound.targetDigest) throw new Error("QA_RUN_TARGET_MISMATCH");
   const history = await readQaPublisherStages(root, bound.qaRunId);
