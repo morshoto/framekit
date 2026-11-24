@@ -428,3 +428,62 @@ test("caption corrections are not silently dropped when captions lack evidence o
     if (omitted.status === "unavailable") assert.match(omitted.reason, /correction/i);
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
+
+test("native cut handoff binds the current plan and rejects changed target and evidence", async () => {
+  const { prepareNativeCutHandoff } = await import("../../../packages/runtime/src/planning/native-plan-handoff.js");
+  const f = await fixture();
+  try {
+    const result = await createEditDecisionPlan(f.request, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(result.status, "available"); if (result.status !== "available") return;
+    const index = result.plan.decisions.findIndex((item) => item.kind === "cut");
+    assert.ok(index >= 0);
+    const target = { libraryId: "library", eventId: "event", projectId: "p", sequenceId: "t" };
+    const proposal = await prepareNativeCutHandoff(f.request, result.plan, index, target, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(proposal.status, "proposed");
+    if (proposal.status !== "proposed") return;
+    assert.equal(proposal.operation.type, "delete-range");
+    assert.equal(proposal.planDigest, result.plan.planDigest);
+    assert.equal(proposal.target.libraryId, "library");
+    assert.equal(proposal.authorization, "not-authorized");
+    const cut = result.plan.decisions[index]!;
+    assert.equal(cut.kind, "cut");
+    if (cut.kind !== "cut") return;
+    assert.deepEqual(proposal.operation.start, cut.range.startTime);
+    const repeated = await prepareNativeCutHandoff(f.request, result.plan, index, target, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(repeated.status, "proposed");
+    if (repeated.status === "proposed") assert.equal(repeated.operationId, proposal.operationId);
+    const differentLibrary = await prepareNativeCutHandoff(f.request, result.plan, index, { ...target, libraryId: "other" }, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(differentLibrary.status, "proposed");
+    if (differentLibrary.status === "proposed") assert.notEqual(differentLibrary.operationId, proposal.operationId);
+    assert.notEqual((await prepareNativeCutHandoff(f.request, result.plan, index, { ...target, sequenceId: "other" }, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "proposed");
+    const changed = structuredClone(result.plan); changed.decisions.splice(index, 1);
+    assert.notEqual((await prepareNativeCutHandoff(f.request, changed, index, target, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "proposed");
+    await writeFile(f.path, "changed source");
+    assert.notEqual((await prepareNativeCutHandoff(f.request, result.plan, index, target, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "proposed");
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test("native cut handoff snapshots inputs and excludes non-cut decisions", async () => {
+  const { prepareNativeCutHandoff } = await import("../../../packages/runtime/src/planning/native-plan-handoff.js");
+  const f = await fixture();
+  try {
+    const result = await createEditDecisionPlan(f.request, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(result.status, "available"); if (result.status !== "available") return;
+    const index = result.plan.decisions.findIndex((item) => item.kind === "cut");
+    const captionIndex = result.plan.decisions.findIndex((item) => item.kind === "caption");
+    const target = { libraryId: "library", eventId: "event", projectId: "p", sequenceId: "t" };
+    assert.equal((await prepareNativeCutHandoff(f.request, result.plan, captionIndex, target, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "unavailable");
+    const pending = prepareNativeCutHandoff(f.request, result.plan, index, target, f.artifacts, async (source) => {
+      target.libraryId = "changed";
+      result.plan.planDigest = "changed";
+      await verifyLocalMediaSource(source);
+    }, f.briefStore);
+    const proposal = await pending;
+    assert.equal(proposal.status, "proposed");
+    if (proposal.status === "proposed") {
+      assert.equal(proposal.target.libraryId, "library");
+      assert.notEqual(proposal.planDigest, "changed");
+      assert.match(proposal.operationId, /^sha256:[a-f0-9]{64}$/);
+    }
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
