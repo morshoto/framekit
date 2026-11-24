@@ -64,8 +64,8 @@ async function createQaPublisherFixture(root: string, createRun = true) {
 }
 
 test("detached publisher simulation survives client exit without redispatch", async () => {
-  const { readQaPublisherSimulation } = await import("../../../scripts/native-qa/publisher-simulation.js");
-  for (const mode of ["pending", "accepted-response-lost"] as const) {
+  const { performQaPublisherSimulation, readQaPublisherSimulation } = await import("../../../scripts/native-qa/publisher-simulation.js");
+  for (const mode of ["pending", "accepted-response-lost", "intent-before-dispatch"] as const) {
     const root = await mkdtemp(join(tmpdir(), "framekit-detached-publisher-simulation-"));
     try {
       const fixture = await createQaPublisherFixture(root, false);
@@ -84,25 +84,86 @@ test("detached publisher simulation survives client exit without redispatch", as
         if (result.status !== "pending-or-interrupted") break;
         await new Promise(resolve => setTimeout(resolve, 50));
       }
-      assert.equal(result?.status, mode === "pending" ? "verification-pending" : "response-lost");
+      assert.equal(result?.status, mode === "pending" ? "verification-pending" : "dispatch-outcome-unknown");
       assert.equal(result?.scope, "simulated-receiver");
       assert.equal(result?.verdict, "BLOCKED");
       assert.equal(result?.dispatchAllowed, false);
+      const reopened = spawnSync(process.execPath, [...cli, "publisher-simulation", root, fixture.bound.qaRunId], { encoding: "utf8", timeout: 10000 });
+      assert.equal(reopened.status, 0, reopened.stderr);
+      assert.deepEqual(JSON.parse(reopened.stdout), result);
       const run = await inspectRun(root, fixture.bound.qaRunId);
       assert.equal(run.headlessProfile, "publisher-simulation-v1");
       assert.equal(run.dispatch, "UNKNOWN_AFTER_DISPATCH");
+      const bundle = await readQaEvidenceBundle(root, fixture.bound.qaRunId);
+      assert.deepEqual(bundle.publisherSimulation, result);
+      assert.doesNotMatch(JSON.stringify(bundle), /clip-a\.mp4|source\.mov/);
       const stages = await readQaPublisherStages(root, fixture.bound.qaRunId);
       assert.deepEqual(stages.stages.map(stage => stage.stage), mode === "pending" ? ["prepared", "dispatched"] : ["prepared"]);
       const duplicate = spawnSync(process.execPath, [...cli, "start-publisher-simulation", root, manifestPath, specPath], { encoding: "utf8", timeout: 10000 });
       assert.equal(duplicate.status, 0, duplicate.stderr);
       assert.equal(JSON.parse(duplicate.stdout).scheduled, false);
+      await performQaPublisherSimulation(root, fixture.bound.qaRunId, spec);
       await writeFile(specPath, JSON.stringify({ ...spec, mode: mode === "pending" ? "accepted-response-lost" : "pending" }));
       const changed = spawnSync(process.execPath, [...cli, "start-publisher-simulation", root, manifestPath, specPath], { encoding: "utf8", timeout: 10000 });
       assert.notEqual(changed.status, 0);
       assert.match(changed.stderr, /QA_SIMULATION_IDENTITY_MISMATCH/);
       assert.deepEqual((await readQaPublisherStages(root, fixture.bound.qaRunId)).stages, stages.stages);
+      await assert.rejects(resumeHeadlessQaRun(root, fixture.bound.qaRunId, fixture.artifact, { publisherFixture: true }), /QA_WORKER_PROFILE_MISMATCH/);
+      await writeFile(join(root, fixture.bound.qaRunId, "simulation-result.json"), "{}");
+      await assert.rejects(readQaPublisherSimulation(root, fixture.bound.qaRunId), /QA_SIMULATION_RESULT_CORRUPT/);
     } finally { await rm(root, { recursive: true, force: true }); }
   }
+});
+
+test("detached simulation blocks changed source before dispatch", async () => {
+  const { startQaPublisherSimulation, readQaPublisherSimulation } = await import("../../../scripts/native-qa/publisher-simulation.js");
+  const root = await mkdtemp(join(tmpdir(), "framekit-simulation-source-drift-"));
+  try {
+    const fixture = await createQaPublisherFixture(root, false);
+    await writeFile(fixture.entries[0]!.source, "changed after approval");
+    const spec = { artifactPath: fixture.artifact, target: publisherTarget, mode: "pending" as const };
+    const preload = join(root, "preload.cjs");
+    const marker = join(root, "preload-ran");
+    await writeFile(preload, `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'ran')`);
+    const oldNodeOptions = process.env.NODE_OPTIONS;
+    process.env.NODE_OPTIONS = `--require=${preload}`;
+    try { assert.equal((await startQaPublisherSimulation(root, fixture.bound, spec)).scheduled, true); }
+    finally {
+      if (oldNodeOptions === undefined) delete process.env.NODE_OPTIONS;
+      else process.env.NODE_OPTIONS = oldNodeOptions;
+    }
+    let result: Awaited<ReturnType<typeof readQaPublisherSimulation>> | undefined;
+    for (let i = 0; i < 200; i++) {
+      result = await readQaPublisherSimulation(root, fixture.bound.qaRunId);
+      if (result.status !== "pending-or-interrupted") break;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.equal(result?.status, "preflight-blocked");
+    assert.equal((await inspectRun(root, fixture.bound.qaRunId)).dispatch, "NOT_DISPATCHED");
+    await assert.rejects(lstat(marker), (error: NodeJS.ErrnoException) => error.code === "ENOENT");
+    assert.deepEqual((await readQaPublisherStages(root, fixture.bound.qaRunId)).stages, []);
+    assert.equal((await startQaPublisherSimulation(root, fixture.bound, spec)).scheduled, false);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("concurrent simulation clients create at most one worker", async () => {
+  const { startQaPublisherSimulation, readQaPublisherSimulation } = await import("../../../scripts/native-qa/publisher-simulation.js");
+  const root = await mkdtemp(join(tmpdir(), "framekit-simulation-start-race-"));
+  try {
+    const fixture = await createQaPublisherFixture(root, false);
+    const spec = { artifactPath: fixture.artifact, target: publisherTarget, mode: "pending" as const };
+    const attempts = await Promise.allSettled(Array.from({ length: 8 }, () => startQaPublisherSimulation(root, fixture.bound, spec)));
+    assert.equal(attempts.filter(item => item.status === "fulfilled" && item.value.scheduled).length, 1);
+    assert.ok(attempts.filter(item => item.status === "rejected").every(item => /QA_RUN_NOT_FOUND_OR_INCOMPLETE|QA_RUN_CORRUPT|QA_SIMULATION_REQUEST_CORRUPT/.test(String(item.reason))));
+    let result: Awaited<ReturnType<typeof readQaPublisherSimulation>> | undefined;
+    for (let i = 0; i < 200; i++) {
+      result = await readQaPublisherSimulation(root, fixture.bound.qaRunId);
+      if (result.status !== "pending-or-interrupted") break;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.equal(result?.status, "verification-pending");
+    assert.deepEqual((await readQaPublisherStages(root, fixture.bound.qaRunId)).stages.map(stage => stage.stage), ["prepared", "dispatched"]);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test("supervised verification resumes once without another publish dispatch", async () => {

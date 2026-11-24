@@ -7,18 +7,20 @@ import { readQaPublisherStages } from "./publisher-stages.js";
 import { readQaPluginEvidence } from "./plugin-evidence.js";
 import { readQaPublisherObservations } from "./publisher-observation.js";
 import { readQaPublisherVerificationClaim } from "./publisher-supervision.js";
+import { readQaPublisherSimulation } from "./publisher-simulation.js";
 
 /** Return a bounded observation of persisted evidence, never a native outcome or authorization. */
 export async function readQaEvidenceBundle(root: string, qaRunId: string) {
   const collect = async () => {
     const run = await inspectRun(root, qaRunId);
-    const [headless, artifact, publisherFixture, publisherSources, publisherStages, plugin, publisherObservations, publisherVerification] = await Promise.all([
+    const [headless, artifact, publisherFixture, publisherSources, publisherStages, plugin, publisherObservations, publisherVerification, publisherSimulation] = await Promise.all([
       readQaEvidence(root, qaRunId), readQaArtifactEvidence(root, qaRunId),
       readQaPublisherFixtureEvidence(root, qaRunId), readQaPublisherSourceEvidence(root, qaRunId),
       readQaPublisherStages(root, qaRunId), readQaPluginEvidence(root, qaRunId), readQaPublisherObservations(root, qaRunId), readQaPublisherVerificationClaim(root, qaRunId),
+      run.headlessProfile === "publisher-simulation-v1" ? readQaPublisherSimulation(root, qaRunId) : null,
     ]);
     if (headless.dispatch !== run.dispatch || publisherStages.dispatch !== run.dispatch) throw new Error("QA_EVIDENCE_CHANGED");
-    return { run, headless, artifact, publisherFixture, publisherSources, publisherStages, plugin, publisherObservations, publisherVerification };
+    return { run, headless, artifact, publisherFixture, publisherSources, publisherStages, plugin, publisherObservations, publisherVerification, publisherSimulation };
   };
   const first = await collect();
   const second = await collect();
