@@ -3,15 +3,20 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { documents } from '../src/lib/docs/source.ts';
 
-test('exports every translated article with its language, canonical URL and searchable body', async () => {
+test('exports ready and draft articles with correct indexing behavior', async () => {
   const prefix = process.env.DOCS_BASE_PATH || '';
-  for (const { locale, slug } of documents) {
+  for (const { locale, slug, status } of documents) {
     const route = `/${locale}/docs/${slug}/`;
     const html = await readFile(new URL(`../out${route}index.html`, import.meta.url), 'utf8');
     assert.match(html, new RegExp(`<html lang="${locale}"`));
     assert.ok(html.match(/<link rel="canonical" href="([^"]+)"/)?.[1].endsWith(prefix + route), route);
-    assert.match(html, /<article[^>]*data-pagefind-body/);
-    assert.doesNotMatch(html, /<meta name="robots" content="noindex|日本語版は準備中|内容は準備中|Placeholder: this page/);
+    if (status === 'ready') {
+      assert.match(html, /<article[^>]*data-pagefind-body/);
+      assert.doesNotMatch(html, /<meta name="robots" content="noindex|日本語版は準備中|内容は準備中|Placeholder: this page/);
+    } else {
+      assert.match(html, /<article[^>]*data-pagefind-ignore/);
+      assert.match(html, /<meta name="robots" content="noindex/);
+    }
   }
 });
 
