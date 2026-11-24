@@ -22,7 +22,7 @@ import { inspectQaPublisher, inspectQaPublisherFromStore } from "../../../script
 import { verifyQaPublisherFixture, readQaPublisherFixtureEvidence } from "../../../scripts/native-qa/publisher-fixture-evidence.js";
 import { verifyQaPublisherSources, readQaPublisherSourceEvidence } from "../../../scripts/native-qa/publisher-source-evidence.js";
 import { recordQaPublisherStage, readQaPublisherStages } from "../../../scripts/native-qa/publisher-stages.js";
-import { publisherTargetDigest, runSupervisedQaPublisher } from "../../../scripts/native-qa/publisher-supervision.js";
+import { publisherTargetDigest, resumeSupervisedQaPublisherVerification, runSupervisedQaPublisher } from "../../../scripts/native-qa/publisher-supervision.js";
 import { readQaEvidenceBundle } from "../../../scripts/native-qa/evidence-bundle.js";
 import { readQaPublisherObservation, startQaPublisherObservation } from "../../../scripts/native-qa/publisher-observation.js";
 import { ScriptedNativeReceiver } from "../../support/simulated-native-receiver.js";
@@ -62,6 +62,32 @@ async function createQaPublisherFixture(root: string) {
     await createOrInspectRun(root, bound);
   return { bound, artifact, entries, sources };
 }
+
+test("supervised verification resumes once without another publish dispatch", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-verify-resume-"));
+  try {
+    const fixture = await createQaPublisherFixture(root);
+    const jobId = "publish-job-123";
+    await recordQaPublisherStage(root, fixture.bound.qaRunId, "prepared", { jobId, state: "awaiting-confirmation", artifactDigest: fixture.bound.artifactDigest });
+    await claimDispatchIntent(root, fixture.bound, jobId);
+    await recordQaPublisherStage(root, fixture.bound.qaRunId, "dispatched", { jobId, state: "verification-pending", nextAction: "confirm-verification", delivery: { status: "dispatched" }, recoveryReservation: { retained: true } });
+    let verifies = 0;
+    const verify = async (id: string) => {
+      verifies++;
+      assert.equal(id, jobId);
+      return { jobId, state: "verified", result: { verified: true, sourceMediaIntegrity: { unchanged: true, digests: fixture.entries.map(({ source, sha256 }) => ({ source, sha256 })) } }, recoveryReservation: { retained: true } };
+    };
+    await assert.rejects(resumeSupervisedQaPublisherVerification(root, fixture.bound, fixture.artifact, { ...publisherTarget, projectId: "wrong" }, async () => {}, verify), /QA_RUN_TARGET_MISMATCH/);
+    assert.equal(verifies, 0);
+    const outcomes = await Promise.allSettled(Array.from({ length: 4 }, () => resumeSupervisedQaPublisherVerification(root, fixture.bound, fixture.artifact, publisherTarget, async () => {}, verify)));
+    assert.equal(outcomes.filter(outcome => outcome.status === "fulfilled").length, 1);
+    assert.equal(verifies, 1);
+    assert.deepEqual((await readQaPublisherStages(root, fixture.bound.qaRunId)).stages.map(stage => stage.stage), ["prepared", "dispatched", "verification-recovery-required"]);
+    assert.equal((await inspectRun(root, fixture.bound.qaRunId)).dispatch, "UNKNOWN_AFTER_DISPATCH");
+    await assert.rejects(resumeSupervisedQaPublisherVerification(root, fixture.bound, fixture.artifact, publisherTarget, async () => {}, verify));
+    assert.equal(verifies, 1);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 test("late simulated receiver acceptance does not trigger a second publisher dispatch", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-qa-late-receiver-"));
