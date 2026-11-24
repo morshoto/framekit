@@ -3086,6 +3086,9 @@
   },
   "recordedAtCommit": "37a92fa1",
   "addedTestNames": {
+    "tests/integration/headless-session-mcp.test.ts": [
+      "\"analysis pin rejects a configured provider changed while publishing evidence\""
+    ],
     "tests/integration/mcp.test.ts": [
       "\"MCP preserves omitted opaque input behavior across SDK migration\"",
       "\"all tools with required root inputs reject empty arguments\"",
