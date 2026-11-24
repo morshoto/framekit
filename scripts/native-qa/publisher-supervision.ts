@@ -56,7 +56,8 @@ export async function runSupervisedQaPublisher(
       }
       await recordQaPublisherStage(root, bound.qaRunId, stage as PublisherStage, snapshot);
     },
-    async jobId => { await assertReady(jobId, Object.freeze({ ...boundTarget })); await verifyQaPublisherSourcesWithEntries(root, bound.qaRunId, request.artifactPath); await claimDispatchIntent(root, bound, jobId); });
+    async jobId => { await assertReady(jobId, Object.freeze({ ...boundTarget })); await verifyQaPublisherSourcesWithEntries(root, bound.qaRunId, request.artifactPath); await claimDispatchIntent(root, bound, jobId); },
+    { stopAfterDispatch: true });
 }
 
 /** Internal verification-only seam. The injected gate and verifier are not native authorization evidence. */

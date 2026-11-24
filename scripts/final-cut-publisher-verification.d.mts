@@ -3,6 +3,7 @@ export declare function runPublishStages(
   input: { artifactPath: string; targetLibraryPath: string; artifactDigest: string } & ({ transactionId: string; headlessExecutionId?: never } | { headlessExecutionId: string; transactionId?: never }),
   onStage: (stage: string, job: any) => unknown,
   beforeDispatch?: (jobId: string) => Promise<void>,
+  options?: { stopAfterDispatch?: boolean },
 ): Promise<any>;
 export declare function verifyPublishedTarget(input: {
   result: any;

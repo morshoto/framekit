@@ -294,6 +294,18 @@ test("supervised publish stops after dispatch for separate verification", async 
     assert.equal(calls.some(item => item.args.confirmVerification === true), false);
     assert.deepEqual((await readQaPublisherStages(root, fixture.bound.qaRunId)).stages.map(item => item.stage), ["prepared", "dispatched"]);
     assert.equal((await inspectRun(root, fixture.bound.qaRunId)).dispatch, "UNKNOWN_AFTER_DISPATCH");
+    let verifications = 0;
+    const resumed = await resumeSupervisedQaPublisherVerification(root, fixture.bound, fixture.artifact, publisherTarget, async () => {}, async (id) => {
+      verifications++;
+      return { jobId: id, state: "verified", result: { verified: true, sourceMediaIntegrity: { unchanged: true,
+        digests: fixture.entries.map(({ source, sha256 }) => ({ source, sha256 })) } }, recoveryReservation: { retained: true } };
+    });
+    assert.equal(verifications, 1);
+    assert.equal(resumed.verdict, "BLOCKED");
+    assert.equal(resumed.nativeQuiescence, "unproven");
+    assert.deepEqual((await readQaPublisherStages(root, fixture.bound.qaRunId)).stages.map(item => item.stage), ["prepared", "dispatched", "verification-recovery-required"]);
+    await assert.rejects(runSupervisedQaPublisher(root, fixture.bound, input, call, async () => {}, publisherTarget), /QA_DISPATCH_ALREADY_CLAIMED/);
+    assert.equal(calls.filter(item => item.name === "artifact.publish.execute").length, 1);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

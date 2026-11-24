@@ -67,7 +67,7 @@ export function verifyAcceptanceFixture(snapshot) {
     || !seconds(titles[0].startTime, 0) || !seconds(titles[0].durationTime, 6)) fail();
 }
 
-export async function runPublishStages(call, input, onStage, beforeDispatch = async () => {}) {
+export async function runPublishStages(call, input, onStage, beforeDispatch = async () => {}, options = {}) {
   const boundInput = structuredClone(input);
   const { artifactDigest, ...previewInput } = boundInput;
   const preview = structuredClone(await call("artifact.publish.preview", previewInput));
@@ -101,6 +101,7 @@ export async function runPublishStages(call, input, onStage, beforeDispatch = as
     throw new Error(`PUBLISH_DISPATCH_INCOMPLETE: job ${preview.jobId} is ${dispatched?.state ?? "unknown"} (${dispatched?.error?.code ?? "unconfirmed"}); inspect status and do not redispatch`);
   }
   await recordAfterDispatch("dispatched", dispatched, "PUBLISH_DISPATCH_UNCERTAIN");
+  if (options.stopAfterDispatch === true) return dispatched;
   let verified;
   try { verified = structuredClone(await call("artifact.publish.execute", { jobId: preview.jobId, confirm: true, confirmVerification: true })); }
   catch (cause) {
