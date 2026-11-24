@@ -36,8 +36,8 @@ export interface BriefArtifactAssessment {
   reviewPrompts: string[];
 }
 
-/** Adapt a verified headless render result; this does not establish native execution provenance. */
-export function briefArtifactObservationFromRender(result: FramekitRenderAndVerifyResult): BriefArtifactObservation | undefined {
+/** Inspect a previously verified headless result; callers must reverify the file before use. */
+function briefArtifactObservationFromRender(result: FramekitRenderAndVerifyResult): BriefArtifactObservation | undefined {
   try {
     const { plan, render, verification } = result;
     if (result.status !== "passed" || !plan || !render || verification?.status !== "passed" || !verification.artifact
