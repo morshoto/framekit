@@ -547,3 +547,46 @@ test("native range preview requires matching target, revision, range and live to
     assert.equal(checkNativeCutPreview(proposal, observed, { ...preview, expiresAt: "2026-11-01T00:00:00Z" }, now).status, "unavailable");
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
+
+test("planning rejects missing speech evidence at the final brief check", async () => {
+  const f = await fixture();
+  try {
+    let reads = 0;
+    let missing = false;
+    const store = Object.create(f.briefStore) as typeof f.briefStore;
+    store.read = async (projectId) => {
+      const result = await f.briefStore.read(projectId);
+      if (++reads === 2) missing = true;
+      return result;
+    };
+    const artifacts = {
+      put: f.artifacts.put.bind(f.artifacts),
+      get: async (digest: string) => missing ? undefined : f.artifacts.get(digest),
+    };
+    const result = await createEditDecisionPlan(f.request, artifacts, verifyLocalMediaSource, store);
+    assert.equal(result.status, "unavailable");
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test("planning rechecks brief after the final evidence reads", async () => {
+  const f = await fixture();
+  try {
+    let reads = 0;
+    let changed = false;
+    const store = Object.create(f.briefStore) as typeof f.briefStore;
+    store.read = async (projectId) => {
+      const result = await f.briefStore.read(projectId);
+      reads++;
+      return changed ? { ...result, state: "draft" as const } : result;
+    };
+    const artifacts = {
+      put: f.artifacts.put.bind(f.artifacts),
+      get: async (digest: string) => {
+        if (reads >= 2) changed = true;
+        return f.artifacts.get(digest);
+      },
+    };
+    const result = await createEditDecisionPlan(f.request, artifacts, verifyLocalMediaSource, store);
+    assert.equal(result.status, "unavailable");
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
