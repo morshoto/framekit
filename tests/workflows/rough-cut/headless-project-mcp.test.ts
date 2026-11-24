@@ -85,6 +85,10 @@ test("reviewed music decision previews the exact headless placement without chan
     payload(await client.callTool({ name: "headless.brief.accept", arguments: { ...target, expectedDigest: revised.record.digest, confirmed: true } }));
     const replanned = payload(await client.callTool({ name: "headless.decision.plan", arguments: input }));
     assert.equal(replanned.status, "available", replanned.reason);
+    const wrongTarget = payload(await client.callTool({ name: "headless.decision.approved-preview-music", arguments: { ...input, planDigest: replanned.plan.planDigest } }));
+    const rejectedTarget = await client.callTool({ name: "headless.decision.approved-execute-music", arguments: { projectId, sequenceId: "wrong-sequence", previewToken: wrongTarget.previewToken, approved: true } });
+    assert.equal(rejectedTarget.isError, true);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, before.timeline);
     const staleSource = payload(await client.callTool({ name: "headless.decision.approved-preview-music", arguments: { ...input, planDigest: replanned.plan.planDigest } }));
     await writeFile(musicPath, "changed after preview");
     const rejectedSource = await client.callTool({ name: "headless.decision.approved-execute-music", arguments: { projectId, sequenceId, previewToken: staleSource.previewToken, approved: true } });
