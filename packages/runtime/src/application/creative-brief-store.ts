@@ -96,8 +96,9 @@ export class JsonCreativeBriefStore implements CreativeBriefStore {
 
   /** Serialize a bound operation with cooperating brief writers; this is not a source or editor lock. */
   async withAcceptedBrief<T>(projectId: string, accepted: AcceptedCreativeBrief, operation: () => Promise<T>): Promise<T> {
+    const bound = structuredClone(accepted);
     return this.locked(async () => {
-      await assertCurrentAcceptedBrief(this, projectId, accepted);
+      await assertCurrentAcceptedBrief(this, projectId, bound);
       return operation();
     });
   }
@@ -128,6 +129,7 @@ export class JsonCreativeBriefStore implements CreativeBriefStore {
 
 /** Check the current stored state, not a caller-supplied historical draft. */
 export async function assertCurrentAcceptedBrief(store: CreativeBriefStore, projectId: string, accepted: AcceptedCreativeBrief): Promise<void> {
+  accepted = structuredClone(accepted);
   const current = await store.read(projectId);
   if (current.state !== "accepted") throw new Error("BRIEF_NOT_ACCEPTED: the current brief requires review");
   if (!accepted || accepted.id !== current.accepted.id || accepted.version !== current.accepted.version || accepted.digest !== current.accepted.digest) throw new Error("STALE_BRIEF: acceptance is not current");
