@@ -11,6 +11,7 @@ import {
   createFramekitRenderRequest,
   createFramekitRenderResult,
   renderAndVerifyFramekitProject,
+  briefArtifactObservationFromRender,
   type FramekitRenderArtifactVerifier,
   type FramekitRenderParameters,
   type TimelineIr,
@@ -76,6 +77,26 @@ test("render-and-verify returns verified provenance and independent artifact met
     assert.equal(outcome.verification?.artifact?.height, 180);
     assert.match(outcome.verification?.artifact?.fileDigest ?? "", /^[a-f0-9]{64}$/);
     assert.equal(outcome.verification?.checks.every(({ passed }) => passed), true);
+    const observed = briefArtifactObservationFromRender(outcome);
+    assert.ok(observed);
+    assert.equal(observed.fileDigest, outcome.verification?.artifact?.fileDigest);
+    assert.deepEqual(observed.revision, timeline.revision);
+    assert.equal(briefArtifactObservationFromRender({ ...outcome, status: "failed" }), undefined);
+    const changed = structuredClone(outcome);
+    changed.render!.planDigest = "wrong";
+    assert.equal(briefArtifactObservationFromRender(changed), undefined);
+    const missingCheck = structuredClone(outcome);
+    missingCheck.verification!.checks = missingCheck.verification!.checks.filter((check) => check.name !== "output-stability");
+    assert.equal(briefArtifactObservationFromRender(missingCheck), undefined);
+    const changedArtifact = structuredClone(outcome);
+    changedArtifact.verification!.artifact!.fileDigest = "f".repeat(64);
+    assert.equal(briefArtifactObservationFromRender(changedArtifact), undefined);
+    const changedTarget = structuredClone(outcome);
+    changedTarget.render!.target.sequenceId = "other";
+    assert.equal(briefArtifactObservationFromRender(changedTarget), undefined);
+    const contradictoryCheck = structuredClone(outcome);
+    contradictoryCheck.verification!.checks.push({ name: "dimensions", passed: false, detail: "contradiction" });
+    assert.equal(briefArtifactObservationFromRender(contradictoryCheck), undefined);
 
     const rangedFrame = await frameAt(outcome.verification!.artifact!.path, 1.1, directory, "range-selected");
     const unrangedTimeline = structuredClone(timeline);

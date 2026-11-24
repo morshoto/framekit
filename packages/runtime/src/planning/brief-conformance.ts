@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import type { ContextRevision } from "../domain/primitives.js";
+import type { FramekitRenderAndVerifyResult } from "../render/render-and-verify.js";
 import { assertBriefBinding } from "./creative-brief.js";
 import type { AcceptedCreativeBrief, CreativeBrief } from "./creative-brief.js";
 import type { EditDecisionPlan } from "./edit-decision-plan.js";
@@ -33,6 +34,31 @@ export interface BriefArtifactAssessment {
   binding?: { planDigest: string; artifactDigest: string; target: BriefArtifactObservation["target"]; finalRevision: ContextRevision };
   checks: BriefArtifactCheck[];
   reviewPrompts: string[];
+}
+
+/** Adapt a verified headless render result; this does not establish native execution provenance. */
+export function briefArtifactObservationFromRender(result: FramekitRenderAndVerifyResult): BriefArtifactObservation | undefined {
+  try {
+    const { plan, render, verification } = result;
+    if (result.status !== "passed" || !plan || !render || verification?.status !== "passed" || !verification.artifact
+      || render.status !== "rendered" || render.contractVersion !== plan.contractVersion
+      || render.planDigest !== plan.planDigest || !isDeepStrictEqual(render.target, plan.target)
+      || !isDeepStrictEqual(render.projectRevision, plan.projectRevision) || !isDeepStrictEqual(render.renderer, plan.renderer)
+      || render.output.path !== plan.parameters.outputPath || render.output.format !== plan.parameters.format
+      || render.verificationRequired !== true || verification.artifact.path !== render.output.path
+      || !Array.isArray(verification.checks) || verification.checks.some((check) => check.passed !== true)) return undefined;
+    const required = ["output-exists", "output-digest", "output-stability", "playable", "format", "dimensions", "frame-rate", "duration"];
+    if (required.some((name) => verification.checks.filter((check) => check.name === name && check.passed).length !== 1)) return undefined;
+    const artifact = verification.artifact;
+    const digestCheck = verification.checks.find((check) => check.name === "output-digest");
+    if (digestCheck?.observed !== artifact.fileDigest || !/^[a-f0-9]{64}$/.test(artifact.fileDigest)
+      || !Number.isSafeInteger(artifact.sizeBytes) || artifact.sizeBytes <= 0
+      || !Number.isFinite(artifact.durationSeconds) || artifact.durationSeconds <= 0
+      || !Number.isSafeInteger(artifact.width) || artifact.width <= 0 || !Number.isSafeInteger(artifact.height) || artifact.height <= 0
+      || artifact.width !== plan.parameters.width || artifact.height !== plan.parameters.height) return undefined;
+    return { status: "passed", target: structuredClone(plan.target), revision: structuredClone(plan.projectRevision),
+      fileDigest: artifact.fileDigest, durationSeconds: artifact.durationSeconds, width: artifact.width, height: artifact.height };
+  } catch { return undefined; }
 }
 
 /** Compare supplied observations only. No authenticated native receipt or file read is implied. */
