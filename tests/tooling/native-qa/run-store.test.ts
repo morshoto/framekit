@@ -274,6 +274,29 @@ test("supervised publisher never dispatches when readiness fails", async () => {
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("supervised publish stops after dispatch for separate verification", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-supervised-separate-verification-"));
+  try {
+    const fixture = await createQaPublisherFixture(root);
+    const jobId = "job-123";
+    const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+    const call = async (name: string, args: Record<string, unknown>) => {
+      calls.push({ name, args });
+      if (name === "artifact.publish.preview") return { jobId, state: "awaiting-confirmation", artifactDigest: fixture.bound.artifactDigest,
+        targetLibraryPath: publisherTarget.libraryPath, sourceProof: { sourceMediaDigests: fixture.entries.map(({ source, sha256 }) => ({ source, sha256 })) } };
+      if (name === "artifact.publish.execute" && args.confirmVerification !== true) return { jobId, state: "verification-pending", nextAction: "confirm-verification", delivery: { status: "dispatched" } };
+      throw new Error("verification must not run in the dispatch phase");
+    };
+    const input = { artifactPath: fixture.artifact, headlessExecutionId: "fixture-execution", targetLibraryPath: publisherTarget.libraryPath, artifactDigest: fixture.bound.artifactDigest };
+    const result = await runSupervisedQaPublisher(root, fixture.bound, input, call, async () => {}, publisherTarget) as { state: string };
+    assert.equal(result.state, "verification-pending");
+    assert.equal(calls.filter(item => item.name === "artifact.publish.execute").length, 1);
+    assert.equal(calls.some(item => item.args.confirmVerification === true), false);
+    assert.deepEqual((await readQaPublisherStages(root, fixture.bound.qaRunId)).stages.map(item => item.stage), ["prepared", "dispatched"]);
+    assert.equal((await inspectRun(root, fixture.bound.qaRunId)).dispatch, "UNKNOWN_AFTER_DISPATCH");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("concurrent supervised publisher attempts dispatch at most once", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-supervised-race-"));
   try {
