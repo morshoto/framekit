@@ -345,7 +345,7 @@ test("ffprobe verifier rejects a sparse video despite its nominal frame rate", a
   }
 });
 
-test("ffprobe verifier rejects a missing decoded frame count despite matching rate metadata", async () => {
+test("ffprobe verifier requires decoded frame count despite matching rate metadata", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-frame-count-"));
   try {
     const outputPath = join(directory, "output.mp4");
@@ -355,16 +355,19 @@ test("ffprobe verifier rejects a missing decoded frame count despite matching ra
       streams: [{ codec_type: "video", codec_name: "h264", width: 320, height: 180, r_frame_rate: "30/1", avg_frame_rate: "30/1", nb_read_frames: "2" }],
       format: { format_name: "mp4", duration: "2" },
     };
-    await writeFile(ffprobePath, `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(JSON.stringify(probe))});\n`);
-    await chmod(ffprobePath, 0o755);
     const timeline = minimalTimeline();
     const request = createFramekitRenderRequest({ timeline, target: { projectId: timeline.project.id, sequenceId: timeline.sequence.id }, parameters: renderParameters(outputPath) });
     const plan = createFramekitRenderPlan(request, { renderer: { id: "ffmpeg-headless", version: "1" }, features: { "local-media": "supported", "structural-edits": "supported" } });
     const result = createFramekitRenderResult(plan, { path: outputPath, format: "mp4" });
-    const verification = await new FfmpegRenderVerifier({ ffprobePath }).verify(plan, result);
-    const check = verification.checks.find((item) => item.name === "frame-count");
-    assert.equal(check?.passed, false);
-    assert.equal(verification.status, "failed");
+    for (const [count, expected] of [["2", false], ["N/A", false], ["60", true]] as const) {
+      probe.streams[0]!.nb_read_frames = count;
+      await writeFile(ffprobePath, `#!/usr/bin/env node\nif (!process.argv.includes("-count_frames")) process.exit(1);\nprocess.stdout.write(${JSON.stringify(JSON.stringify(probe))});\n`);
+      await chmod(ffprobePath, 0o755);
+      const verification = await new FfmpegRenderVerifier({ ffprobePath }).verify(plan, result);
+      const check = verification.checks.find((item) => item.name === "frame-count");
+      assert.equal(check?.passed, expected, count);
+      if (!expected) assert.equal(verification.status, "failed");
+    }
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
