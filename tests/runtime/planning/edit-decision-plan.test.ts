@@ -525,3 +525,25 @@ test("native cut proposal revalidation detects changed operation, target and evi
     assert.equal((await assertNativeCutHandoffCurrent(f.request, planned.plan, index, target, proposal, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "stale");
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
+
+test("native range preview requires matching target, revision, range and live token", async () => {
+  const { prepareNativeCutHandoff, checkNativeCutPreview } = await import("../../../packages/runtime/src/planning/native-plan-handoff.js");
+  const f = await fixture();
+  try {
+    const planned = await createEditDecisionPlan(f.request, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(planned.status, "available"); if (planned.status !== "available") return;
+    const index = planned.plan.decisions.findIndex((item) => item.kind === "cut");
+    const target = { libraryId: "library", eventId: "event", projectId: "p", sequenceId: "t" };
+    const proposal = await prepareNativeCutHandoff(f.request, planned.plan, index, target, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(proposal.status, "proposed"); if (proposal.status !== "proposed") return;
+    const observed = { ...target, revision: "r1", targetIdentity: "native-clip" };
+    const preview = { previewToken: "token", operation: "delete-range", range: { start: proposal.operation.start, end: proposal.operation.end }, sequenceId: "t", revision: "r1", targetIdentity: "native-clip", expiresAt: "2027-01-01T00:00:00Z" };
+    const now = Date.parse("2026-12-01T00:00:00Z");
+    assert.deepEqual(checkNativeCutPreview(proposal, observed, preview, now), { status: "matched" });
+    assert.equal(checkNativeCutPreview(proposal, { ...observed, libraryId: "other" }, preview, now).status, "unavailable");
+    assert.equal(checkNativeCutPreview(proposal, observed, { ...preview, targetIdentity: undefined }, now).status, "unavailable");
+    assert.equal(checkNativeCutPreview(proposal, observed, { ...preview, revision: "stale" }, now).status, "unavailable");
+    assert.equal(checkNativeCutPreview(proposal, observed, { ...preview, range: { ...preview.range, end: { value: "999", timescale: "1" } } }, now).status, "unavailable");
+    assert.equal(checkNativeCutPreview(proposal, observed, { ...preview, expiresAt: "2026-11-01T00:00:00Z" }, now).status, "unavailable");
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});

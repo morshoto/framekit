@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import type { CreativeBriefStore } from "../application/creative-brief-store.js";
 import type { RationalTime, TimeRange } from "../domain/primitives.js";
-import { addRationalTimes } from "../timeline/rational-time.js";
+import { addRationalTimes, parseRational } from "../timeline/rational-time.js";
 import type { AnalysisArtifactStore, AnalysisRef, AnalysisSourceVerifier } from "./analysis-evidence.js";
 import { assertEditDecisionPlanCurrent } from "./edit-decision-plan.js";
 import type { EditDecisionPlan, EditDecisionPlanRequest } from "./edit-decision-plan.js";
@@ -13,6 +13,47 @@ export interface NativePlanTarget {
   eventId: string;
   projectId: string;
   sequenceId: string;
+}
+
+export interface NativeCutTargetObservation extends NativePlanTarget {
+  revision: string;
+  targetIdentity: string;
+}
+
+export interface NativeCutRangePreview {
+  previewToken: string;
+  operation: string;
+  range: { start: RationalTime; end: RationalTime };
+  sequenceId?: string;
+  revision?: string;
+  targetIdentity?: string;
+  expiresAt: string;
+}
+
+/** Compare supplied observations only; this neither establishes their independence nor authorizes a write. */
+export function checkNativeCutPreview(
+  proposal: NativeCutHandoff, observation: NativeCutTargetObservation, preview: NativeCutRangePreview, now: number,
+): { status: "matched" } | { status: "unavailable"; reason: string } {
+  try {
+    if (proposal.status !== "proposed" || !observation || !preview || !Number.isFinite(now)
+      || !observation.targetIdentity?.trim() || !preview.previewToken?.trim()
+      || observation.libraryId !== proposal.target.libraryId || observation.eventId !== proposal.target.eventId
+      || observation.projectId !== proposal.target.projectId || observation.sequenceId !== proposal.target.sequenceId
+      || observation.revision !== proposal.revision.id || preview.revision !== observation.revision
+      || preview.sequenceId !== observation.sequenceId || preview.targetIdentity !== observation.targetIdentity
+      || preview.operation !== proposal.operation.type || !Number.isFinite(Date.parse(preview.expiresAt))
+      || Date.parse(preview.expiresAt) <= now) throw new Error("Native preview target, revision or token does not match.");
+    const sameTime = (left: RationalTime, right: RationalTime): boolean => {
+      const a = parseRational(left, "INVALID_OPERATION"), b = parseRational(right, "INVALID_OPERATION");
+      return a.value * b.timescale === b.value * a.timescale;
+    };
+    if (!sameTime(preview.range.start, proposal.operation.start) || !sameTime(preview.range.end, proposal.operation.end)) {
+      throw new Error("Native preview range does not match the proposal.");
+    }
+    return { status: "matched" };
+  } catch (error) {
+    return { status: "unavailable", reason: error instanceof Error ? error.message : "Native preview cannot be inspected." };
+  }
 }
 
 /** Recheck the entire proposal against current evidence; this does not authorize execution. */
