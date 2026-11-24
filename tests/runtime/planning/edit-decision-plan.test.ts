@@ -508,6 +508,30 @@ test("headless planning snapshots request before project reads", async () => {
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
+test("headless evidence recheck rejects provider drift during final index read", async () => {
+  const f = await fixture();
+  try {
+    const { HeadlessDecisionPlanService } = await import("../../../apps/mcp-server/src/headless-decision-plan.js");
+    const { snapshot: _snapshot, brief: _brief, accepted: _accepted, speechContext: _speechContext, vadContext: _vadContext, ...input } = structuredClone(f.request);
+    const provider = f.request.speechContext.provider;
+    const common = { readProject: async () => structuredClone(f.request.snapshot), storeForProject: () => f.briefStore,
+      artifacts: f.artifacts, verifySource: verifyLocalMediaSource };
+    const planned = await new HeadlessDecisionPlanService({ ...common, index: f.index, currentProvider: () => provider }).plan(input);
+    assert.equal(planned.status, "available"); if (planned.status !== "available") return;
+    let changed = false;
+    let reads = 0;
+    const index = Object.create(f.index) as typeof f.index;
+    index.load = async (source) => {
+      const result = await f.index.load(source);
+      if (++reads === 4) changed = true;
+      return result;
+    };
+    const service = new HeadlessDecisionPlanService({ ...common, index,
+      currentProvider: (kind) => kind === "speech" && changed ? { ...provider, version: "changed" } : provider });
+    await assert.rejects(service.recheckEvidence(input, planned.plan), /ANALYSIS_STALE_PROVIDER/);
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
 test("headless execution preserves committed Undo data across verifier mutation", async () => {
   const f = await fixture();
   try {
