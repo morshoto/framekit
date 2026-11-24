@@ -258,3 +258,19 @@ test("partially corroborated neighboring words retain both VAD and transcript ma
     { kind: "speech" as const, start: 3.99, end: 4 }] } };
   assert.equal(rankNarrativeCuts(weakOverlap).candidates.length, 0);
 });
+
+test("retains a VAD-observed word omitted by the transcript at a real conversational boundary", () => {
+  // AMI EN2002a, 120–180 s; the reference places a missed word at 42.68–43.00 s.
+  // The corpus word timings are automatically aligned and are not precise ground truth.
+  const duration = { value: "60", timescale: "1" };
+  const range = { start: 0, end: 60, startTime: { value: "0", timescale: "1" }, durationTime: duration };
+  const realBoundary = { ...input, source: { ...source, duration: 60 }, sourceRange: range, sequenceRange: range,
+    sequenceFrameDuration: { value: "1", timescale: "30" },
+    analysis: { ...input.analysis, sourceIdentity: { ...source, duration: 60 }, requestedRange: { start: 0, end: 60 }, observedRange: { start: 0, end: 60 },
+      words: [{ text: "think.", start: 40.4, end: 40.7, confidence: 1 }, { text: "So", start: 42.88, end: 43.18, confidence: 0.84 }],
+      vadSegments: [{ kind: "speech" as const, start: 38.978, end: 40.766 }, { kind: "speech" as const, start: 42.69, end: 46.046 }] } };
+  const plan = rankNarrativeCuts(realBoundary);
+  assert.equal(plan.candidates.length, 1);
+  assert.ok(plan.candidates[0]!.sourceRange.end < 42.68, "the candidate must end before the independently timed missing word");
+  assert.ok(plan.warnings.some((warning) => /uncertain.*listening/i.test(warning)));
+});
