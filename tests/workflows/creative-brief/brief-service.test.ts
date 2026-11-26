@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FramekitProjectStore, JsonCreativeBriefStore, type CreativeBrief, type FramekitProjectDocument } from "../../../packages/runtime/src/index.js";
-import { HeadlessCreativeBriefService } from "../../../packages/headless-application/src/creative-brief-service.js";
+import { assertCreativeBriefProjectBinding, HeadlessCreativeBriefService } from "../../../packages/headless-application/src/creative-brief-service.js";
 
 const revision = { id: "r1", sequence: 1, timestamp: "2026-01-01T00:00:00.000Z" };
 const digest = "a".repeat(64);
@@ -20,7 +20,7 @@ const project = { timeline: { project: { id: "p" }, sequence: { id: "t" }, revis
 async function fixture() {
   const dir = await mkdtemp(join(tmpdir(), "framekit-brief-service-"));
   let current = structuredClone(project);
-  const store = new JsonCreativeBriefStore(join(dir, "brief.json"));
+  const store = new JsonCreativeBriefStore(join(dir, "brief.json"), async (binding) => assertCreativeBriefProjectBinding(binding, current));
   const service = new HeadlessCreativeBriefService({ openProject: async () => structuredClone(current), withProjectLock: async (_projectId, operation) => operation(), storeForProject: () => store });
   return { dir, store, service, setProject: (value: FramekitProjectDocument) => { current = structuredClone(value); } };
 }
@@ -58,6 +58,44 @@ test("source drift and stale targets cannot accept an old brief", async () => {
     f.setProject(project);
     await assert.rejects(() => f.service.accept({ ...target, expectedRevision: { ...revision, sequence: 2 }, expectedDigest: draft.record.digest, confirmed: true }), /STALE/);
     assert.equal((await f.store.read("p")).state, "draft");
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test("accepted brief cannot authorize a consumer after the project revision changes", async () => {
+  const f = await fixture();
+  try {
+    const draft = await f.service.create({ ...target, brief });
+    const accepted = await f.service.accept({ ...target, expectedDigest: draft.record.digest, confirmed: true });
+    if (accepted.record.state !== "accepted") throw new Error("expected acceptance");
+    const approval = accepted.record.accepted;
+    const reopenedWithoutVerifier = new JsonCreativeBriefStore(join(f.dir, "brief.json"));
+    await assert.rejects(() => reopenedWithoutVerifier.withAcceptedBrief("p", approval, async () => {}), /BRIEF_TARGET_UNVERIFIED/);
+    assert.equal(await f.store.withAcceptedBrief("p", approval, async () => "current"), "current");
+    const changed = structuredClone(project);
+    changed.timeline.revision = { ...revision, id: "r2", sequence: 2 };
+    f.setProject(changed);
+    let executed = false;
+    await assert.rejects(() => f.store.withAcceptedBrief("p", approval, async () => { executed = true; }), /STALE|BRIEF_NOT_ACCEPTED/);
+    assert.equal(executed, false);
+    const changedWithoutRevision = structuredClone(project);
+    changedWithoutRevision.timeline.resources[0]!.sourceDigest = "b".repeat(64);
+    f.setProject(changedWithoutRevision);
+    await assert.rejects(() => f.store.withAcceptedBrief("p", approval, async () => { executed = true; }), /STALE/);
+    assert.equal(executed, false);
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test("malformed stored project bindings fail closed", async () => {
+  const f = await fixture();
+  try {
+    const draft = await f.service.create({ ...target, brief });
+    await f.service.accept({ ...target, expectedDigest: draft.record.digest, confirmed: true });
+    const { readFile, writeFile } = await import("node:fs/promises");
+    const path = join(f.dir, "brief.json");
+    const data = JSON.parse(await readFile(path, "utf8"));
+    data.projectBinding = null;
+    await writeFile(path, JSON.stringify(data));
+    await assert.rejects(() => f.store.read("p"), /BRIEF_CORRUPT/);
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
