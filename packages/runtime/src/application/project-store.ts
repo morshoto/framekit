@@ -158,7 +158,8 @@ export class FramekitProjectStore implements ProjectStore {
     }
   }
 
-  private async withProjectLock<T>(operation: () => Promise<T>): Promise<T> {
+  /** Exclude cooperating project writers while a related state transition is published. */
+  public async withProjectLock<T>(operation: () => Promise<T>): Promise<T> {
     await this.fs.mkdir(dirname(this.path), { recursive: true });
     const lockPath = `${this.path}.lock`;
     const deadline = Date.now() + 2_000;

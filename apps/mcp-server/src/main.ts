@@ -322,6 +322,7 @@ const server = createMcpServer(runtime, {
   headlessProjects,
   headlessBriefs: new HeadlessCreativeBriefService({
     openProject: (projectId) => headlessProjects.open(projectId),
+    withProjectLock: (projectId, operation) => headlessProjects.withProjectLock(projectId, operation),
     storeForProject: (projectId) => new JsonCreativeBriefStore(join(framekitStateDirectory, "creative-briefs", `${createHash("sha256").update(projectId).digest("hex")}.json`)),
   }),
 });

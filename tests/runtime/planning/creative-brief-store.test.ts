@@ -3,6 +3,9 @@ import { test } from "node:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { pathToFileURL } from "node:url";
 import type { CreativeBrief } from "../../../packages/runtime/src/planning/creative-brief.js";
 import { JsonCreativeBriefStore, assertCurrentAcceptedBrief } from "../../../packages/runtime/src/application/creative-brief-store.js";
 
@@ -76,6 +79,30 @@ test("accepted-brief operation excludes a concurrent revision and rejects stale 
     let ran = false;
     await assert.rejects(f.store.withAcceptedBrief("project-1", accepted.accepted!, async () => { ran = true; }), /BRIEF_NOT_ACCEPTED|STALE_BRIEF/);
     assert.equal(ran, false);
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test("a killed acceptance publisher leaves the brief unavailable on restart", async () => {
+  const f = await fixture();
+  try {
+    const draft = await f.store.create("project-1", brief);
+    const moduleUrl = pathToFileURL(join(process.cwd(), "packages/runtime/src/application/creative-brief-store.ts")).href;
+    const script = `import { JsonCreativeBriefStore } from ${JSON.stringify(moduleUrl)};
+      const store = new JsonCreativeBriefStore(process.argv[1]);
+      await store.accept("project-1", process.argv[2], async () => {
+        process.stdout.write("ready\\n");
+        await new Promise(() => { setInterval(() => {}, 1000); });
+      });`;
+    const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script, f.path, draft.digest], { stdio: ["ignore", "pipe", "pipe"] });
+    try {
+      const [data] = await once(child.stdout, "data");
+      assert.match(String(data), /ready/);
+      child.kill("SIGKILL");
+      await once(child, "exit");
+      const reopened = new JsonCreativeBriefStore(f.path);
+      await assert.rejects(() => reopened.read("project-1"), /BRIEF_RECONCILIATION_REQUIRED/);
+      await assert.rejects(() => reopened.withAcceptedBrief("project-1", { id: brief.id, version: brief.version, digest: draft.digest }, async () => {}), /BRIEF_BUSY|BRIEF_RECONCILIATION_REQUIRED/);
+    } finally { if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL"); }
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
