@@ -157,6 +157,22 @@ test("reviewed music decision previews the exact headless placement without chan
     assert.ok(musicTone / sourceTone > 0.08 && musicTone / sourceTone < 0.2, `unexpected music/source ratio: ${musicTone / sourceTone}`);
     assert.ok(toneAmplitude(afterMusic, 440) > 0.01, "source tone must continue after music");
     assert.ok(toneAmplitude(afterMusic, 220) < musicTone * 0.1, "music must stop at its reviewed endpoint");
+    const newTarget = { ...target, expectedRevision: applied.after.timeline.revision };
+    const refreshedAudio = payload(await client.callTool({ name: "headless.analysis.pin", arguments: { ...newTarget, mediaId: video.resource.id, kind: "audio", range: { start: 0, end: 2 } } })).ref;
+    const newInput = { ...input, revision: newTarget.expectedRevision, audioRef: refreshedAudio, music: { ...input.music, occurrenceId: "music-track-2" } };
+    const newPlan = payload(await client.callTool({ name: "headless.decision.plan", arguments: newInput }));
+    assert.equal(newPlan.status, "available", newPlan.reason);
+    const newApproval = payload(await client.callTool({ name: "headless.decision.approved-preview-music", arguments: { ...newInput, planDigest: newPlan.plan.planDigest } }));
+    const rejectedStaleBrief = await client.callTool({ name: "headless.decision.approved-execute-music", arguments: { projectId, sequenceId, previewToken: newApproval.previewToken, approved: true } });
+    assert.equal(rejectedStaleBrief.isError, true);
+    assert.match(toolErrorText(rejectedStaleBrief), /STALE_CONTEXT/);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, applied.after.timeline);
+    payload(await client.callTool({ name: "headless.brief.accept", arguments: { ...newTarget, expectedDigest: revised.record.digest, confirmed: true } }));
+    const refreshedPlan = payload(await client.callTool({ name: "headless.decision.plan", arguments: newInput }));
+    assert.equal(refreshedPlan.status, "available", refreshedPlan.reason);
+    const refreshedApproval = payload(await client.callTool({ name: "headless.decision.approved-preview-music", arguments: { ...newInput, planDigest: refreshedPlan.plan.planDigest } }));
+    const secondEdit = payload(await client.callTool({ name: "headless.decision.approved-execute-music", arguments: { projectId, sequenceId, previewToken: refreshedApproval.previewToken, approved: true } }));
+    assert.equal(secondEdit.status, "applied");
   } finally { await connection?.client.close(); await connection?.transport.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
