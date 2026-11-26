@@ -16,7 +16,7 @@ export interface CreativeBriefStore {
   create(projectId: string, brief: CreativeBrief): Promise<StoredCreativeBrief>;
   read(projectId: string): Promise<StoredCreativeBrief>;
   revise(projectId: string, expectedDigest: string, proposed: CreativeBrief): Promise<StoredCreativeBrief>;
-  accept(projectId: string, expectedDigest: string): Promise<StoredCreativeBrief>;
+  accept(projectId: string, expectedDigest: string, guard?: (publish: () => Promise<StoredCreativeBrief>) => Promise<StoredCreativeBrief>): Promise<StoredCreativeBrief>;
   withAcceptedBrief<T>(projectId: string, accepted: AcceptedCreativeBrief, operation: () => Promise<T>): Promise<T>;
 }
 
@@ -44,6 +44,19 @@ export class JsonCreativeBriefStore implements CreativeBriefStore {
   }
 
   async read(projectId: string): Promise<StoredCreativeBrief> {
+    await this.assertNoPendingAcceptance();
+    const result = await this.readUnlocked(projectId);
+    await this.assertNoPendingAcceptance();
+    return result;
+  }
+
+  private async assertNoPendingAcceptance(): Promise<void> {
+    try { await lstat(`${this.path}.accepting`); }
+    catch (error) { if (isCode(error, "ENOENT")) return; throw error; }
+    throw new Error("BRIEF_RECONCILIATION_REQUIRED: acceptance publication was interrupted or is in progress");
+  }
+
+  private async readUnlocked(projectId: string): Promise<StoredCreativeBrief> {
     if (!validProjectId(projectId)) throw new Error("TARGET_MISMATCH: project identity is required");
     let raw: string;
     try {
@@ -84,15 +97,38 @@ export class JsonCreativeBriefStore implements CreativeBriefStore {
     });
   }
 
-  async accept(projectId: string, expectedDigest: string): Promise<StoredCreativeBrief> {
+  async accept(projectId: string, expectedDigest: string, guard?: (publish: () => Promise<StoredCreativeBrief>) => Promise<StoredCreativeBrief>): Promise<StoredCreativeBrief> {
     return this.locked(async () => {
       const current = await this.read(projectId);
       if (current.digest !== expectedDigest) throw new Error("STALE_BRIEF: the reviewed draft changed");
-      if (current.state === "accepted") return current;
       const accepted = acceptCreativeBrief(current.brief);
       const next: StoredCreativeBrief = { ...current, state: "accepted", accepted };
-      await this.publish(next, false);
-      return structuredClone(next);
+      if (!guard) {
+        await this.publish(next, false);
+        return structuredClone(next);
+      }
+      const marker = `${this.path}.accepting`;
+      await writeFile(marker, `${process.pid}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
+      let published = false;
+      let publicationStarted = false;
+      let called = false;
+      try {
+        const result = await guard(async () => {
+          if (called) throw new Error("BRIEF_RECONCILIATION_REQUIRED: duplicate publication");
+          called = true;
+          publicationStarted = true;
+          await this.publish(next, false);
+          published = true;
+          await unlink(marker);
+          return structuredClone(next);
+        });
+        if (!published) throw new Error("BRIEF_RECONCILIATION_REQUIRED: acceptance was not published");
+        return result;
+      } catch (error) {
+        // A failed publication may have reached disk; retain the marker if uncertain.
+        if (!publicationStarted) await unlink(marker);
+        throw error;
+      }
     });
   }
 
