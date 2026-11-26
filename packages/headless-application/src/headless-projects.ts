@@ -130,7 +130,7 @@ export interface HeadlessProjectWorkflow {
     sequenceId: string,
   ): Promise<ProjectEditResult & { undoId: string; warnings: string[] }>;
   previewApprovedEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string): Promise<Awaited<ReturnType<ProjectTransactionService["preview"]>> & { previewToken: string; warnings: string[] }>;
-  executeApprovedEdit(projectId: string, sequenceId: string, previewToken: string): Promise<ProjectEditResult & { undoId: string; warnings: string[] }>;
+  executeApprovedEdit(projectId: string, sequenceId: string, previewToken: string, lockedProject?: ProjectStore): Promise<ProjectEditResult & { undoId: string; warnings: string[] }>;
   undoEdit(projectId: string, sequenceId: string, undoId: string, expectedRevision: ContextRevision): Promise<HeadlessUndoResult>;
   exportFcpxml(projectId: string, sequenceId: string, expectedRevision: ContextRevision, outputPath: string, target: TimelineIrToFcpxmlTarget): Promise<{ artifact: { path: string; digest: string; bytes: number; verified: true }; provenance: TimelineIrToFcpxmlResult["provenance"]; coverage: TimelineIrToFcpxmlResult["coverage"] }>;
   previewRoughCut(request: HeadlessRoughCutRequest, signal?: AbortSignal, requireStoryboard?: boolean): Promise<HeadlessRoughCutPreview>;
@@ -424,7 +424,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     return project;
   }
 
-  public async withProjectLock<T>(projectId: string, operation: () => Promise<T>): Promise<T> {
+  public async withProjectLock<T>(projectId: string, operation: (lockedProject: ProjectStore) => Promise<T>): Promise<T> {
     return this.store(projectId).withProjectLock(operation);
   }
 
@@ -469,20 +469,22 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     return { ...preview, previewToken };
   }
 
-  public async executeApprovedEdit(projectId: string, sequenceId: string, previewToken: string) {
+  public async executeApprovedEdit(projectId: string, sequenceId: string, previewToken: string, lockedProject?: ProjectStore) {
+    if (lockedProject && !this.store(projectId).ownsProjectLock(lockedProject)) throw new Error("PROJECT_LOCK_INVALID: project lock is expired or belongs to another project");
     const entry = this.approvedEdits.get(previewToken);
     if (!entry || entry.expiresAt <= Date.now() || entry.projectId !== projectId || entry.sequenceId !== sequenceId) {
       throw new Error("HEADLESS_EDIT_PREVIEW_INVALID: preview token is unknown, expired or belongs to another target");
     }
     // Consume synchronously before the first await so concurrent requests cannot reuse the token.
     this.approvedEdits.delete(previewToken);
-    return this.executeEdit(projectId, entry.command, sequenceId, entry);
+    return this.executeEdit(projectId, entry.command, sequenceId, entry, lockedProject);
   }
 
-  public async executeEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string, approvedDigests?: { baseDigest: string; resultDigest: string }) {
+  public async executeEdit(projectId: string, command: HeadlessProjectEditCommand, sequenceId: string, approvedDigests?: { baseDigest: string; resultDigest: string }, lockedProject?: ProjectStore) {
+    if (lockedProject && !this.store(projectId).ownsProjectLock(lockedProject)) throw new Error("PROJECT_LOCK_INVALID: project lock is expired or belongs to another project");
     const project = await this.open(projectId);
     const timestamp = this.clock();
-    const transaction = new ProjectTransactionService(this.snapshotStore(projectId, project), { clock: () => timestamp });
+    const transaction = new ProjectTransactionService(this.snapshotStore(projectId, project, lockedProject), { clock: () => timestamp });
     const editCommand = {
       ...command,
       target: command.target ?? { projectId, sequenceId },
@@ -1056,8 +1058,8 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     return new FramekitProjectStore(this.projectPath(projectId));
   }
 
-  private snapshotStore(projectId: string, project: FramekitProjectDocument): ProjectStore {
-    const store = this.store(projectId);
+  private snapshotStore(projectId: string, project: FramekitProjectDocument, lockedProject?: ProjectStore): ProjectStore {
+    const store = lockedProject ?? this.store(projectId);
     return {
       create: (value) => store.create(value),
       load: async () => {

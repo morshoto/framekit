@@ -20,7 +20,11 @@ const project = { timeline: { project: { id: "p" }, sequence: { id: "t" }, revis
 async function fixture() {
   const dir = await mkdtemp(join(tmpdir(), "framekit-brief-service-"));
   let current = structuredClone(project);
-  const store = new JsonCreativeBriefStore(join(dir, "brief.json"), async (binding) => assertCreativeBriefProjectBinding(binding, current));
+  const projectStore = new FramekitProjectStore(join(dir, "project.json"));
+  const store = new JsonCreativeBriefStore(join(dir, "brief.json"), (binding, operation) => projectStore.withProjectLock(async (locked) => {
+    assertCreativeBriefProjectBinding(binding, current);
+    return operation(locked);
+  }));
   const service = new HeadlessCreativeBriefService({ openProject: async () => structuredClone(current), withProjectLock: async (_projectId, operation) => operation(), storeForProject: () => store });
   return { dir, store, service, setProject: (value: FramekitProjectDocument) => { current = structuredClone(value); } };
 }
@@ -97,6 +101,65 @@ test("malformed stored project bindings fail closed", async () => {
     await writeFile(path, JSON.stringify(data));
     await assert.rejects(() => f.store.read("p"), /BRIEF_CORRUPT/);
   } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test("a bound consumer excludes a cooperating project change through its operation", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "framekit-brief-use-race-"));
+  let release!: () => void;
+  let entered!: () => void;
+  const paused = new Promise<void>((resolve) => { release = resolve; });
+  const validating = new Promise<void>((resolve) => { entered = resolve; });
+  let current = structuredClone(project);
+  try {
+    const projectStore = new FramekitProjectStore(join(dir, "project.json"));
+    const store = new JsonCreativeBriefStore(join(dir, "brief.json"), (binding, operation) => projectStore.withProjectLock(async (locked) => {
+      assertCreativeBriefProjectBinding(binding, current);
+      entered(); await paused;
+      return operation(locked);
+    }));
+    const service = new HeadlessCreativeBriefService({ openProject: async () => structuredClone(current),
+      withProjectLock: async (_id, operation) => operation(), storeForProject: () => store });
+    const draft = await service.create({ ...target, brief });
+    const accepted = await service.accept({ ...target, expectedDigest: draft.record.digest, confirmed: true });
+    if (accepted.record.state !== "accepted") throw new Error("expected accepted");
+    let ran = false;
+    const operation = store.withAcceptedBrief("p", accepted.record.accepted, async () => { ran = true; });
+    await validating;
+    let changed = false;
+    const writer = projectStore.withProjectLock(async () => { current.timeline.revision = { ...revision, id: "r2", sequence: 2 }; changed = true; });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(changed, false);
+    release();
+    await operation; await writer;
+    assert.equal(ran, true);
+    assert.equal(changed, true);
+  } finally { release(); await rm(dir, { recursive: true, force: true }); }
+});
+
+test("a project change while the bound consumer waits for the lock is rejected", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "framekit-brief-wait-race-"));
+  let release!: () => void; let entered!: () => void;
+  const paused = new Promise<void>((resolve) => { release = resolve; });
+  const started = new Promise<void>((resolve) => { entered = resolve; });
+  let current = structuredClone(project);
+  try {
+    const projectStore = new FramekitProjectStore(join(dir, "project.json"));
+    const store = new JsonCreativeBriefStore(join(dir, "brief.json"), (binding, operation) => projectStore.withProjectLock(async (locked) => {
+      assertCreativeBriefProjectBinding(binding, current); return operation(locked);
+    }));
+    const service = new HeadlessCreativeBriefService({ openProject: async () => structuredClone(current),
+      withProjectLock: async (_id, operation) => projectStore.withProjectLock(operation), storeForProject: () => store });
+    const draft = await service.create({ ...target, brief });
+    const accepted = await service.accept({ ...target, expectedDigest: draft.record.digest, confirmed: true });
+    if (accepted.record.state !== "accepted") throw new Error("expected accepted");
+    const writer = projectStore.withProjectLock(async () => { entered(); await paused; current.timeline.revision = { ...revision, id: "r2", sequence: 2 }; });
+    await started;
+    let ran = false;
+    const operation = store.withAcceptedBrief("p", accepted.record.accepted, async () => { ran = true; });
+    release(); await writer;
+    await assert.rejects(operation, /STALE_CONTEXT/);
+    assert.equal(ran, false);
+  } finally { release(); await rm(dir, { recursive: true, force: true }); }
 });
 
 test("a project change during acceptance invalidates the newly accepted state", async () => {
