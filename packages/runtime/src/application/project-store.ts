@@ -189,7 +189,7 @@ export class FramekitProjectStore implements ProjectStore {
     }
 
     const capability = { path: this.path, active: true };
-    const pending = new Set<Promise<unknown>>();
+    const saves: Promise<unknown>[] = [];
     let writing = false;
     const locked: ProjectStore = Object.freeze({
       create: async () => { throw new Error("PROJECT_LOCK_UNSUPPORTED: create is not supported by a locked project capability"); },
@@ -204,18 +204,26 @@ export class FramekitProjectStore implements ProjectStore {
         const boundRevision = expectedRevision === undefined ? undefined : structuredClone(expectedRevision);
         writing = true;
         const task = this.saveUnlocked(boundProject, boundRevision);
-        pending.add(task);
-        void task.finally(() => { writing = false; pending.delete(task); }).catch(() => {});
+        saves.push(task);
+        void task.finally(() => { writing = false; }).catch(() => {});
         return task;
       },
     });
     projectLockCapabilities.set(locked, capability);
+    let callbackFailed = false;
     try {
       return await operation(locked);
+    } catch (error) {
+      callbackFailed = true;
+      throw error;
     } finally {
       capability.active = false;
-      await Promise.allSettled([...pending]);
+      const results = await Promise.allSettled(saves);
       await this.removeTemporaryFile(lockPath);
+      const failed = results.find((result) => result.status === "rejected");
+      if (!callbackFailed && failed?.status === "rejected") {
+        throw new ProjectPersistenceError("PROJECT_SAVE_FAILED", "a save in the locked project scope failed", undefined, { cause: failed.reason });
+      }
     }
   }
 

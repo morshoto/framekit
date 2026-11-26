@@ -3149,7 +3149,8 @@
       "\"a legacy writer removing an initializing lock can bypass upgraded writer exclusion\"",
       "\"a scoped project lock permits a nested save and rejects a leaked capability\"",
       "\"a scoped project lock excludes other writers until its callback finishes\"",
-      "\"a scoped lock waits for an unawaited save and rejects concurrent saves\""
+      "\"a scoped lock waits for an unawaited save and rejects concurrent saves\"",
+      "\"a scoped lock reports a failed unawaited save\""
     ],
     "tests/integration/headless-project-mcp.test.ts": [
       "\"production MCP persists creative brief review across restarts\"",

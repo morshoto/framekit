@@ -152,6 +152,24 @@ test("a scoped lock waits for an unawaited save and rejects concurrent saves", a
   } finally { release(); await rm(root, { recursive: true, force: true }); }
 });
 
+test("a scoped lock reports a failed unawaited save", async () => {
+  const root = await directory(); const path = join(root, "project.json");
+  try {
+    const original = project(); await new FramekitProjectStore(path).create(original);
+    const fs: ProjectStoreFileSystem = {
+      mkdir: async (p, options) => { await mkdir(p, options); }, readFile: async (p, encoding) => readFile(p, encoding),
+      writeFile: async (p, data, options) => { await writeFile(p, data, options); }, link,
+      rename: async () => { throw new Error("injected save failure"); }, unlink: async (p) => rm(p, { force: true }),
+    };
+    const store = new FramekitProjectStore(path, fs);
+    const next = structuredClone(original); next.timeline.revision = { ...original.timeline.revision, id: "r2", sequence: 8 };
+    await assert.rejects(() => store.withProjectLock(async (locked) => {
+      void locked.save(next, original.timeline.revision).catch(() => {});
+    }), /PROJECT_SAVE_FAILED/);
+    assert.deepEqual(await store.load(), original);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("project encoding is deterministic for equivalent object key order", () => {
   const expected = project();
   const reordered = JSON.parse(JSON.stringify(expected)) as FramekitProjectDocument;
