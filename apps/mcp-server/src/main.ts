@@ -328,6 +328,7 @@ const server = createMcpServer(runtime, {
   headlessProjects,
   headlessBriefs: new HeadlessCreativeBriefService({
     openProject: (projectId) => headlessProjects.open(projectId),
+    withProjectLock: (projectId, operation) => headlessProjects.withProjectLock(projectId, operation),
     storeForProject: briefStoreForProject,
   }),
   analysisEvidence: { index: semanticMediaIndexStore, artifacts: analysisArtifacts,

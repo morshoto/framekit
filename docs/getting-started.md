@@ -110,6 +110,9 @@ with the same target, the returned `record.digest` as `expectedDigest`, and
 `confirmed: true`. Use `headless.brief.revise` with the current digest and the
 updated brief to return it to draft. If a source or revision changes, inspect
 and revise against the current project before accepting again.
+If acceptance is interrupted, the brief may report
+`BRIEF_RECONCILIATION_REQUIRED` and remains unavailable until the interrupted
+state is inspected and reconciled; do not treat it as approval for an edit.
 
 A matching source digest establishes source identity, not that the footage
 satisfies the requirement; review the content separately. Brief acceptance does

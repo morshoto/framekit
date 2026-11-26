@@ -437,6 +437,10 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     return project;
   }
 
+  public async withProjectLock<T>(projectId: string, operation: () => Promise<T>): Promise<T> {
+    return this.store(projectId).withProjectLock(operation);
+  }
+
   public async inspect(projectId: string): Promise<FramekitProjectDocument> {
     return this.open(projectId);
   }
