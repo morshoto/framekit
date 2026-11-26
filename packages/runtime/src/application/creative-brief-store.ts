@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import { acceptCreativeBrief, assertBriefBinding, creativeBriefDigest, reviseCreativeBrief } from "../planning/creative-brief.js";
 import type { AcceptedCreativeBrief, CreativeBrief } from "../planning/creative-brief.js";
 import type { ContextRevision } from "../domain/primitives.js";
+import type { ProjectStore } from "./project-store.js";
 
 export interface CreativeBriefProjectBinding {
   sequenceId: string;
@@ -24,8 +25,10 @@ export interface CreativeBriefStore {
   read(projectId: string): Promise<StoredCreativeBrief>;
   revise(projectId: string, expectedDigest: string, proposed: CreativeBrief): Promise<StoredCreativeBrief>;
   accept(projectId: string, expectedDigest: string, guard?: (publish: () => Promise<StoredCreativeBrief>) => Promise<StoredCreativeBrief>, projectBinding?: CreativeBriefProjectBinding): Promise<StoredCreativeBrief>;
-  withAcceptedBrief<T>(projectId: string, accepted: AcceptedCreativeBrief, operation: () => Promise<T>): Promise<T>;
+  withAcceptedBrief<T>(projectId: string, accepted: AcceptedCreativeBrief, operation: (lockedProject: ProjectStore) => Promise<T>): Promise<T>;
 }
+
+export type CreativeBriefProjectGuard = <T>(binding: CreativeBriefProjectBinding, operation: (lockedProject: ProjectStore) => Promise<T>) => Promise<T>;
 
 function validProjectId(projectId: unknown): projectId is string {
   return typeof projectId === "string" && projectId.trim().length > 0;
@@ -36,7 +39,7 @@ function isCode(error: unknown, code: string): boolean {
 
 /** Atomic local storage with compare-and-swap; uncertain locks are never reclaimed automatically. */
 export class JsonCreativeBriefStore implements CreativeBriefStore {
-  constructor(private readonly path: string, private readonly verifyProjectBinding?: (binding: CreativeBriefProjectBinding) => Promise<void>) {}
+  constructor(private readonly path: string, private readonly withVerifiedProject?: CreativeBriefProjectGuard) {}
 
   async create(projectId: string, brief: CreativeBrief): Promise<StoredCreativeBrief> {
     const bound = structuredClone(brief);
@@ -144,15 +147,14 @@ export class JsonCreativeBriefStore implements CreativeBriefStore {
   }
 
   /** Serialize a bound operation with cooperating brief writers; this is not a source or editor lock. */
-  async withAcceptedBrief<T>(projectId: string, accepted: AcceptedCreativeBrief, operation: () => Promise<T>): Promise<T> {
+  async withAcceptedBrief<T>(projectId: string, accepted: AcceptedCreativeBrief, operation: (lockedProject: ProjectStore) => Promise<T>): Promise<T> {
     const bound = structuredClone(accepted);
     return this.locked(async () => {
       await assertCurrentAcceptedBrief(this, projectId, bound);
       const current = await this.read(projectId);
       if (current.state !== "accepted") throw new Error("BRIEF_NOT_ACCEPTED: the current brief requires review");
-      if (!current.projectBinding || !this.verifyProjectBinding) throw new Error("BRIEF_TARGET_UNVERIFIED: a project-bound acceptance and verifier are required");
-      await this.verifyProjectBinding(structuredClone(current.projectBinding));
-      return operation();
+      if (!current.projectBinding || !this.withVerifiedProject) throw new Error("BRIEF_TARGET_UNVERIFIED: a project-bound acceptance and guard are required");
+      return this.withVerifiedProject(structuredClone(current.projectBinding), operation);
     });
   }
 
