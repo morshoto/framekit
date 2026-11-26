@@ -29,7 +29,7 @@ async function fixture() {
   const snapshot = { projectId: "p", projectName: "P", revision, media: [source], timeline: { id: "t", name: "T", duration: 10, frameDuration: { value: "1", timescale: "10" },
     clips: [{ id: "clip", mediaId: "m", name: "Interview", start: 0, duration: 10, sourceStart: 0, sourceStartTime: { value: "0", timescale: "1" }, startTime: { value: "0", timescale: "1" }, durationTime: { value: "10", timescale: "1" }, track: 1 }], storyElements: [], captions: [], markers: [] } };
   const brief: CreativeBrief = { schemaVersion: 1, id: "b", version: 1, purpose: { kind: "specified", value: "interview" }, audience: { kind: "no-preference" }, durationSeconds: { min: 5, max: 10 }, aspectRatio: "9:16", theme: "natural", visualDirection: "natural", requiredContent: [], excludedContent: [], sourceCoverage: [], speechPolicy: { kind: "specified", value: "preserve" }, musicPolicy: { kind: "specified", value: "none" }, captionPolicy: { kind: "specified", value: "basic" }, inferences: [], reviewPrompts: [] };
-  const briefStore = new JsonCreativeBriefStore(join(dir, "brief.json"), async () => {});
+  const briefStore = new JsonCreativeBriefStore(join(dir, "brief.json"), async (_binding, operation) => operation({} as import("@framekit/runtime").ProjectStore));
   const draft = await briefStore.create("p", brief);
   await briefStore.accept("p", draft.digest, (publish) => publish(), { sequenceId: "t", revision, timelineDigest: "a".repeat(64) });
   const request = { snapshot, projectId: "p", timelineId: "t", revision, occurrenceId: "clip", brief, accepted: acceptCreativeBrief(brief), speechRef, vadRef, speechContext, vadContext,

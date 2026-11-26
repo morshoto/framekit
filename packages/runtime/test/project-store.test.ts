@@ -78,6 +78,80 @@ test("project store round-trips stable identity, exact timing, bindings, and rev
   }
 });
 
+test("a scoped project lock permits a nested save and rejects a leaked capability", async () => {
+  const root = await directory();
+  const path = join(root, "project.json");
+  try {
+    const store = new FramekitProjectStore(path);
+    const original = project();
+    await store.create(original);
+    let leaked!: import("@framekit/runtime").ProjectStore;
+    const changed = structuredClone(original);
+    changed.timeline.revision = { ...changed.timeline.revision, id: "revision-next", sequence: 8 };
+    await store.withProjectLock(async (locked) => {
+      leaked = locked;
+      assert.equal(store.ownsProjectLock(locked), true);
+      assert.equal(new FramekitProjectStore(join(root, "other.json")).ownsProjectLock(locked), false);
+      await locked.save(changed, original.timeline.revision);
+    });
+    assert.deepEqual(await store.load(), changed);
+    assert.equal(store.ownsProjectLock(leaked), false);
+    await assert.rejects(() => leaked.save(original, changed.timeline.revision), /PROJECT_LOCK_EXPIRED/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("a scoped project lock excludes other writers until its callback finishes", async () => {
+  const root = await directory();
+  const path = join(root, "project.json");
+  let release!: () => void;
+  let entered!: () => void;
+  const paused = new Promise<void>((resolve) => { release = resolve; });
+  const started = new Promise<void>((resolve) => { entered = resolve; });
+  try {
+    const store = new FramekitProjectStore(path);
+    const original = project(); await store.create(original);
+    const held = store.withProjectLock(async () => { entered(); await paused; });
+    await started;
+    const changed = structuredClone(original);
+    changed.timeline.revision = { ...changed.timeline.revision, id: "revision-next", sequence: 8 };
+    let saved = false;
+    const competing = new FramekitProjectStore(path).save(changed, original.timeline.revision).then(() => { saved = true; });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(saved, false);
+    release(); await held; await competing;
+    assert.equal(saved, true);
+  } finally { release(); await rm(root, { recursive: true, force: true }); }
+});
+
+test("a scoped lock waits for an unawaited save and rejects concurrent saves", async () => {
+  const root = await directory(); const path = join(root, "project.json");
+  let release!: () => void; let entered!: () => void;
+  const paused = new Promise<void>((resolve) => { release = resolve; });
+  const started = new Promise<void>((resolve) => { entered = resolve; });
+  try {
+    const original = project(); await new FramekitProjectStore(path).create(original);
+    const fs: ProjectStoreFileSystem = {
+      mkdir: async (p, options) => { await mkdir(p, options); }, readFile: async (p, encoding) => readFile(p, encoding),
+      writeFile: async (p, data, options) => { await writeFile(p, data, options); }, link,
+      rename: async (a, b) => { entered(); await paused; await rename(a, b); }, unlink: async (p) => rm(p, { force: true }),
+    };
+    const store = new FramekitProjectStore(path, fs);
+    const next = structuredClone(original); next.timeline.revision = { ...original.timeline.revision, id: "r2", sequence: 8 };
+    let first!: Promise<FramekitProjectDocument>;
+    let completed = false;
+    const held = store.withProjectLock(async (locked) => {
+      first = locked.save(next, original.timeline.revision);
+      await started;
+      await assert.rejects(() => locked.save(next, original.timeline.revision), /PROJECT_LOCK_BUSY/);
+    }).then(() => { completed = true; });
+    await started;
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(completed, false);
+    release(); await first; await held;
+    assert.deepEqual(await store.load(), next);
+  } finally { release(); await rm(root, { recursive: true, force: true }); }
+});
+
 test("project encoding is deterministic for equivalent object key order", () => {
   const expected = project();
   const reordered = JSON.parse(JSON.stringify(expected)) as FramekitProjectDocument;

@@ -20,7 +20,7 @@ const projectBinding = { sequenceId: "sequence-1", revision: { id: "r1", sequenc
 async function fixture() {
   const dir = await mkdtemp(join(tmpdir(), "framekit-brief-store-"));
   const path = join(dir, "brief.json");
-  return { dir, path, store: new JsonCreativeBriefStore(path, async () => {}) };
+  return { dir, path, store: new JsonCreativeBriefStore(path, async (_binding, operation) => operation({} as import("@framekit/runtime").ProjectStore)) };
 }
 
 test("explicit acceptance is stored and revisions invalidate old approval across restart", async () => {
