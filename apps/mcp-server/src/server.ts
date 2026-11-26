@@ -2514,10 +2514,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     decisionMusicApprovals.delete(previewToken);
     const plans = options.headlessDecisionPlans;
     if (!plans) throw new Error("DECISION_PLAN_UNAVAILABLE: headless planning is not configured");
-    return plans.executeAcceptedPlan(entry.input, entry.planDigest, async () => {
+    return plans.executeAcceptedPlan(entry.input, entry.planDigest, async (lockedProject) => {
       if (!entry.input.music.music) throw new Error("MUSIC_PREVIEW_UNAVAILABLE: registered music is required");
       await verifyLocalMediaSource(entry.input.music.music);
-      return requireHeadlessProjects().executeApprovedEdit(projectId, sequenceId, entry.editToken);
+      return requireHeadlessProjects().executeApprovedEdit(projectId, sequenceId, entry.editToken, lockedProject);
     }, async (edit) => {
       const observed = await requireHeadlessProjects().open(projectId);
       const revision = observed.timeline.revision; const expected = edit.after.timeline.revision;
@@ -2591,8 +2591,8 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     decisionCaptionApprovals.delete(previewToken);
     const plans = options.headlessDecisionPlans;
     if (!plans) throw new Error("DECISION_PLAN_UNAVAILABLE: headless planning is not configured");
-    return plans.executeAcceptedPlan(entry.input, entry.planDigest, () =>
-      requireHeadlessProjects().executeApprovedEdit(projectId, sequenceId, entry.editToken), async (edit) => {
+    return plans.executeAcceptedPlan(entry.input, entry.planDigest, (lockedProject) =>
+      requireHeadlessProjects().executeApprovedEdit(projectId, sequenceId, entry.editToken, lockedProject), async (edit) => {
       const observed = await requireHeadlessProjects().open(projectId);
       const revision = observed.timeline.revision; const expected = edit.after.timeline.revision;
       if (observed.timeline.project.id !== projectId || observed.timeline.sequence.id !== sequenceId
