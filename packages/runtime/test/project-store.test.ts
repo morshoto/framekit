@@ -143,11 +143,11 @@ test("a scoped lock waits for an unawaited save and rejects concurrent saves", a
       first = locked.save(next, original.timeline.revision);
       await started;
       await assert.rejects(() => locked.save(next, original.timeline.revision), /PROJECT_LOCK_BUSY/);
-    }).then(() => { completed = true; });
+    }).then(() => { completed = true; }, (error) => { completed = true; throw error; });
     await started;
     await new Promise((resolve) => setTimeout(resolve, 30));
     assert.equal(completed, false);
-    release(); await first; await held;
+    release(); await first; await assert.rejects(held, /PROJECT_SAVE_FAILED/);
     assert.deepEqual(await store.load(), next);
   } finally { release(); await rm(root, { recursive: true, force: true }); }
 });
