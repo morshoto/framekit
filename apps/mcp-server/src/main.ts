@@ -29,7 +29,7 @@ import {
 } from "@framekit/final-cut";
 import { FixtureAudioAnalyzer, FixtureMetadataAnalyzer, FixtureSpeechAnalyzer, FixtureVisualAnalyzer } from "@framekit/testkit";
 import { AgentVideoRuntime, FileAnalysisArtifactStore, JsonCreativeBriefStore, JsonSemanticMediaIndexStore, verifyLocalMediaSource } from "@framekit/runtime";
-import { HeadlessCreativeBriefService, HeadlessProjectService } from "@framekit/headless-application";
+import { assertCreativeBriefProjectBinding, HeadlessCreativeBriefService, HeadlessProjectService } from "@framekit/headless-application";
 import { createMcpServer } from "./server.js";
 import { HeadlessDecisionPlanService } from "./headless-decision-plan.js";
 import { projectSnapshotFromTimelineIr } from "./headless-project-snapshot.js";
@@ -306,7 +306,8 @@ const videoExporter = liveMode && !headlessFinalCut && process.env.FRAMEKIT_FINA
       nativeOperationLease,
     })
   : undefined;
-const briefStoreForProject = (projectId: string) => new JsonCreativeBriefStore(join(framekitStateDirectory, "creative-briefs", `${createHash("sha256").update(projectId).digest("hex")}.json`));
+const briefStoreForProject = (projectId: string) => new JsonCreativeBriefStore(join(framekitStateDirectory, "creative-briefs", `${createHash("sha256").update(projectId).digest("hex")}.json`),
+  async (binding) => assertCreativeBriefProjectBinding(binding, await headlessProjects.open(projectId)));
 const analysisArtifacts = new FileAnalysisArtifactStore(join(framekitStateDirectory, "analysis-artifacts"));
 const server = createMcpServer(runtime, {
   processMode: liveMode && !headlessFinalCut ? "headed" : "headless",
