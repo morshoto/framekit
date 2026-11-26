@@ -199,7 +199,12 @@ export class FramekitProjectStore implements ProjectStore {
       },
       save: (project: FramekitProjectDocument, expectedRevision?: ContextRevision) => {
         if (!capability.active) return Promise.reject(new Error("PROJECT_LOCK_EXPIRED: project lock capability has expired"));
-        if (writing) return Promise.reject(new Error("PROJECT_LOCK_BUSY: concurrent saves through one capability are unsupported"));
+        if (writing) {
+          const rejected = Promise.reject(new Error("PROJECT_LOCK_BUSY: concurrent saves through one capability are unsupported"));
+          saves.push(rejected);
+          void rejected.catch(() => {});
+          return rejected;
+        }
         const boundProject = structuredClone(project);
         const boundRevision = expectedRevision === undefined ? undefined : structuredClone(expectedRevision);
         writing = true;
