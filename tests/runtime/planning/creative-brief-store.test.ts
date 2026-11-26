@@ -15,11 +15,12 @@ const brief: CreativeBrief = {
   requiredContent: [], excludedContent: [], sourceCoverage: [], speechPolicy: { kind: "specified", value: "preserve" },
   musicPolicy: { kind: "specified", value: "none" }, captionPolicy: { kind: "specified", value: "basic" }, inferences: [], reviewPrompts: [],
 };
+const projectBinding = { sequenceId: "sequence-1", revision: { id: "r1", sequence: 1, timestamp: "2026-01-01T00:00:00.000Z" }, timelineDigest: "a".repeat(64) };
 
 async function fixture() {
   const dir = await mkdtemp(join(tmpdir(), "framekit-brief-store-"));
   const path = join(dir, "brief.json");
-  return { dir, path, store: new JsonCreativeBriefStore(path) };
+  return { dir, path, store: new JsonCreativeBriefStore(path, async () => {}) };
 }
 
 test("explicit acceptance is stored and revisions invalidate old approval across restart", async () => {
@@ -31,6 +32,7 @@ test("explicit acceptance is stored and revisions invalidate old approval across
     const accepted = await f.store.accept("project-1", draft.digest);
     assert.equal(accepted.state, "accepted");
     const oldApproval = accepted.accepted!;
+    await assert.rejects(() => f.store.withAcceptedBrief("project-1", oldApproval, async () => {}), /BRIEF_TARGET_UNVERIFIED/);
     const reopened = new JsonCreativeBriefStore(f.path);
     await assertCurrentAcceptedBrief(reopened, "project-1", oldApproval);
     const revised = await reopened.revise("project-1", draft.digest, { ...brief, theme: "changed" });
@@ -65,7 +67,7 @@ test("accepted-brief operation excludes a concurrent revision and rejects stale 
   const f = await fixture();
   try {
     const draft = await f.store.create("project-1", brief);
-    const accepted = await f.store.accept("project-1", draft.digest);
+    const accepted = await f.store.accept("project-1", draft.digest, (publish) => publish(), projectBinding);
     if (accepted.state !== "accepted") throw new Error("expected accepted brief");
     let entered!: () => void; let release!: () => void;
     const started = new Promise<void>((resolve) => { entered = resolve; });
@@ -110,7 +112,7 @@ test("a stale approval cannot be changed while stored acceptance is read", async
   const f = await fixture();
   try {
     const draft = await f.store.create("project-1", brief);
-    const accepted = await f.store.accept("project-1", draft.digest);
+    const accepted = await f.store.accept("project-1", draft.digest, (publish) => publish(), projectBinding);
     if (accepted.state !== "accepted") throw new Error("expected accepted brief");
     const stale = { ...accepted.accepted, digest: "0".repeat(64) };
     const checking = assertCurrentAcceptedBrief(f.store, "project-1", stale);
