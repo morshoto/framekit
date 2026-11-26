@@ -173,6 +173,35 @@ test("detached headless worker rejects inherited Node preloads", async () => {
   }
 });
 
+test("detached publisher observation rejects inherited Node preloads", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-observer-preload-"));
+  const preload = join(root, "preload.cjs"); const marker = join(root, "preload-ran");
+  const oldNodeOptions = process.env.NODE_OPTIONS;
+  try {
+    await createOrInspectRun(root, manifest);
+    await claimDispatchIntent(root, manifest, "publish-job-fixture");
+    await writeFile(preload, `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'ran')`);
+    process.env.NODE_OPTIONS = `--require=${preload}`;
+    try { await startQaPublisherObservation(root, manifest.qaRunId, "status-0", join(root, "missing-store")); }
+    finally {
+      if (oldNodeOptions === undefined) delete process.env.NODE_OPTIONS;
+      else process.env.NODE_OPTIONS = oldNodeOptions;
+    }
+    let result;
+    for (let i = 0; i < 100; i++) {
+      result = await readQaPublisherObservation(root, manifest.qaRunId, "status-0");
+      if (result.status === "recorded") break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.equal(result?.status, "recorded");
+    assert.equal(result.dispatchAllowed, false);
+    await assert.rejects(lstat(marker), (error: NodeJS.ErrnoException) => error.code === "ENOENT");
+  } finally {
+    if (oldNodeOptions === undefined) delete process.env.NODE_OPTIONS; else process.env.NODE_OPTIONS = oldNodeOptions;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("simulation runs cannot use a supplied publisher callback", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-simulation-native-route-"));
   try {

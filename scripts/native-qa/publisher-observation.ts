@@ -51,9 +51,12 @@ export async function startQaPublisherObservation(root: string, runId: string, i
     if (JSON.stringify(existing) !== JSON.stringify(request)) throw new Error("QA_OBSERVATION_IDENTITY_MISMATCH");
     return { scheduled: false, verdict: "BLOCKED" as const, dispatchAllowed: false as const };
   }
+  const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
+    key !== "NODE_OPTIONS" && key !== "NODE_PATH" && !key.startsWith("GIT_")
+      && !key.startsWith("FRAMEKIT_FINAL_CUT_") && key !== "FRAMEKIT_FCPXML_PATH"));
   const child = spawn(process.execPath, ["--import", "tsx", worker, boundRoot, runId, id], {
     cwd: checkout, detached: true, stdio: ["pipe", "ignore", "ignore"],
-    env: { ...process.env, FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0" },
+    env: { ...environment, FRAMEKIT_EDITOR: "memory", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1" },
   });
   await new Promise<void>((resolvePromise, reject) => {
     child.once("error", reject);
