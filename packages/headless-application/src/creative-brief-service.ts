@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { acceptCreativeBrief, assertBriefSourceCoverage, assertCurrentAcceptedBrief, reviewCreativeBrief } from "@framekit/runtime";
+import { acceptCreativeBrief, assertBriefSourceCoverage, reviewCreativeBrief } from "@framekit/runtime";
 import type { CreativeBrief, CreativeBriefReview, CreativeBriefStore, FramekitProjectDocument, MediaSourceIdentity, StoredCreativeBrief, ContextRevision } from "@framekit/runtime";
 
 export interface CreativeBriefTarget {
@@ -16,6 +16,8 @@ export interface CreativeBriefView {
 export interface HeadlessCreativeBriefOptions {
   /** The project loader must validate registered source bytes before returning. */
   openProject(projectId: string): Promise<FramekitProjectDocument>;
+  /** Excludes cooperating project writes until the callback finishes. */
+  withProjectLock<T>(projectId: string, operation: () => Promise<T>): Promise<T>;
   storeForProject(projectId: string): CreativeBriefStore;
 }
 
@@ -41,6 +43,7 @@ export class HeadlessCreativeBriefService {
   }
 
   async accept(input: CreativeBriefTarget & { expectedDigest: string; confirmed: boolean }): Promise<CreativeBriefView> {
+    input = structuredClone(input);
     if (input.confirmed !== true) throw new Error("BRIEF_CONFIRMATION_REQUIRED: acceptance requires explicit confirmation");
     const before = await this.openTarget(input);
     const store = this.options.storeForProject(input.projectId);
@@ -48,22 +51,14 @@ export class HeadlessCreativeBriefService {
     if (draft.digest !== input.expectedDigest) throw new Error("STALE_BRIEF: reviewed brief changed");
     const acceptance = acceptCreativeBrief(draft.brief);
     assertBriefSourceCoverage(acceptance, draft.brief, registeredMedia(before));
-    const accepted = await store.accept(input.projectId, input.expectedDigest);
-    try {
-      const after = await this.openTarget(input);
+    let after!: FramekitProjectDocument;
+    const accepted = await store.accept(input.projectId, input.expectedDigest, (publish) => this.options.withProjectLock(input.projectId, async () => {
+      after = await this.openTarget(input);
       if (projectDigest(before) !== projectDigest(after)) throw new Error("STALE_CONTEXT: project changed during brief acceptance");
-      assertBriefSourceCoverage(acceptance, accepted.brief, registeredMedia(after));
-      await assertCurrentAcceptedBrief(store, input.projectId, acceptance);
-      return view(accepted, after);
-    } catch (error) {
-      // If the project drifted after acceptance, preserve no usable acceptance.
-      // A competing or interrupted writer requires explicit reconciliation.
-      try {
-        const current = await store.read(input.projectId);
-        if (current.state === "accepted" && current.digest === accepted.digest) await store.revise(input.projectId, accepted.digest, accepted.brief);
-      } catch (reconcileError) { throw new Error("BRIEF_RECONCILIATION_REQUIRED: acceptance may need inspection", { cause: reconcileError }); }
-      throw error;
-    }
+      assertBriefSourceCoverage(acceptance, draft.brief, registeredMedia(after));
+      return publish();
+    }));
+    return view(accepted, after);
   }
 
   private async openTarget(input: CreativeBriefTarget): Promise<FramekitProjectDocument> {
