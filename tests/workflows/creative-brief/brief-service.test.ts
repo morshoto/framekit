@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { JsonCreativeBriefStore, type CreativeBrief, type FramekitProjectDocument } from "../../../packages/runtime/src/index.js";
+import { FramekitProjectStore, JsonCreativeBriefStore, type CreativeBrief, type FramekitProjectDocument } from "../../../packages/runtime/src/index.js";
 import { HeadlessCreativeBriefService } from "../../../packages/headless-application/src/creative-brief-service.js";
 
 const revision = { id: "r1", sequence: 1, timestamp: "2026-01-01T00:00:00.000Z" };
@@ -21,7 +21,7 @@ async function fixture() {
   const dir = await mkdtemp(join(tmpdir(), "framekit-brief-service-"));
   let current = structuredClone(project);
   const store = new JsonCreativeBriefStore(join(dir, "brief.json"));
-  const service = new HeadlessCreativeBriefService({ openProject: async () => structuredClone(current), storeForProject: () => store });
+  const service = new HeadlessCreativeBriefService({ openProject: async () => structuredClone(current), withProjectLock: async (_projectId, operation) => operation(), storeForProject: () => store });
   return { dir, store, service, setProject: (value: FramekitProjectDocument) => { current = structuredClone(value); } };
 }
 const target = { projectId: "p", sequenceId: "t", expectedRevision: revision };
@@ -70,11 +70,79 @@ test("a project change during acceptance invalidates the newly accepted state", 
       const result = structuredClone(project);
       if (++opens >= 3) result.timeline.revision = { ...revision, sequence: 2 };
       return result;
-    }, storeForProject: () => store });
+    }, withProjectLock: async (_projectId, operation) => operation(), storeForProject: () => store });
     const draft = await service.create({ ...target, brief });
     await assert.rejects(() => service.accept({ ...target, expectedDigest: draft.record.digest, confirmed: true }), /STALE|RECONCILIATION/);
     assert.equal((await store.read("p")).state, "draft");
   } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test("acceptance is not usable while project validation is in progress", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "framekit-brief-publication-"));
+  let release!: () => void;
+  let entered!: () => void;
+  const paused = new Promise<void>((resolve) => { release = resolve; });
+  const validating = new Promise<void>((resolve) => { entered = resolve; });
+  try {
+    const store = new JsonCreativeBriefStore(join(dir, "brief.json"));
+    let opens = 0;
+    const service = new HeadlessCreativeBriefService({ openProject: async () => {
+      if (++opens === 3) { entered(); await paused; }
+      return structuredClone(project);
+    }, withProjectLock: async (_projectId, operation) => operation(), storeForProject: () => store });
+    const draft = await service.create({ ...target, brief });
+    const accepting = service.accept({ ...target, expectedDigest: draft.record.digest, confirmed: true });
+    await validating;
+    await assert.rejects(() => store.read("p"), /BRIEF_RECONCILIATION_REQUIRED/);
+    let ran = false;
+    await assert.rejects(() => store.withAcceptedBrief("p", { id: brief.id, version: brief.version, digest: draft.record.digest }, async () => { ran = true; }), /BRIEF_BUSY/);
+    assert.equal(ran, false);
+    release();
+    assert.equal((await accepting).record.state, "accepted");
+  } finally { release(); await rm(dir, { recursive: true, force: true }); }
+});
+
+test("an interrupted publication remains unavailable after reopening", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "framekit-brief-interrupted-"));
+  try {
+    const path = join(dir, "brief.json");
+    const store = new JsonCreativeBriefStore(path);
+    const draft = await store.create("p", brief);
+    await store.accept("p", draft.digest);
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(`${path}.accepting`, "interrupted\n");
+    const reopened = new JsonCreativeBriefStore(path);
+    await assert.rejects(() => reopened.read("p"), /BRIEF_RECONCILIATION_REQUIRED/);
+    await assert.rejects(() => reopened.withAcceptedBrief("p", { id: brief.id, version: brief.version, digest: draft.digest }, async () => {}), /BRIEF_RECONCILIATION_REQUIRED/);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test("publication holds the project writer lock through the final validation", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "framekit-brief-project-lock-"));
+  let release!: () => void;
+  let entered!: () => void;
+  const paused = new Promise<void>((resolve) => { release = resolve; });
+  const validating = new Promise<void>((resolve) => { entered = resolve; });
+  try {
+    const store = new JsonCreativeBriefStore(join(dir, "brief.json"));
+    const projectStore = new FramekitProjectStore(join(dir, "project.json"));
+    let opens = 0;
+    const service = new HeadlessCreativeBriefService({ openProject: async () => {
+      if (++opens === 3) { entered(); await paused; }
+      return structuredClone(project);
+    }, withProjectLock: async (_id, operation) => projectStore.withProjectLock(operation), storeForProject: () => store });
+    const draft = await service.create({ ...target, brief });
+    const accepting = service.accept({ ...target, expectedDigest: draft.record.digest, confirmed: true });
+    await validating;
+    let writerEntered = false;
+    const writer = new FramekitProjectStore(join(dir, "project.json")).withProjectLock(async () => { writerEntered = true; });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(writerEntered, false);
+    release();
+    assert.equal((await accepting).record.state, "accepted");
+    await writer;
+    assert.equal(writerEntered, true);
+  } finally { release(); await rm(dir, { recursive: true, force: true }); }
 });
 
 test("a concurrent brief revision cannot be reported as the accepted result", async () => {
@@ -86,9 +154,9 @@ test("a concurrent brief revision cannot be reported as the accepted result", as
     const service = new HeadlessCreativeBriefService({ openProject: async () => {
       if (++opens === 3) await store.revise("p", expectedDigest, { ...brief, theme: "concurrent" });
       return structuredClone(project);
-    }, storeForProject: () => store });
+    }, withProjectLock: async (_projectId, operation) => operation(), storeForProject: () => store });
     const draft = await service.create({ ...target, brief }); expectedDigest = draft.record.digest;
-    await assert.rejects(() => service.accept({ ...target, expectedDigest, confirmed: true }), /STALE|RECONCILIATION|NOT_ACCEPTED/);
+    await assert.rejects(() => service.accept({ ...target, expectedDigest, confirmed: true }), /STALE|RECONCILIATION|NOT_ACCEPTED|BRIEF_BUSY/);
     assert.equal((await store.read("p")).state, "draft");
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
