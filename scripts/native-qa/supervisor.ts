@@ -25,8 +25,13 @@ function workerInput(artifactPath: string | undefined, publisherFixture: boolean
   return input;
 }
 async function launchHeadlessWorker(root: string, qaRunId: string, input: string): Promise<void> {
+  // A Node preload runs before worker.ts can validate the run or disable native writes.
+  const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
+    key !== "NODE_OPTIONS" && key !== "NODE_PATH" && !key.startsWith("GIT_")
+      && !key.startsWith("FRAMEKIT_FINAL_CUT_") && key !== "FRAMEKIT_FCPXML_PATH"));
   const child = spawn(process.execPath, ["--import", "tsx", worker, root, qaRunId], {
     cwd: checkout, detached: true, stdio: ["pipe", "ignore", "ignore"],
+    env: { ...environment, FRAMEKIT_EDITOR: "memory", FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1" },
   });
   await new Promise<void>((resolve, reject) => {
     child.once("error", reject);
