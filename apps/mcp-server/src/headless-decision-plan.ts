@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { assertBriefSourceCoverage, assertCurrentAcceptedBrief, createEditDecisionPlan, sameAnalyzerDescriptor } from "@framekit/runtime";
-import type { AnalysisArtifactStore, AnalysisEvidenceContext, AnalysisRef, AnalysisSourceVerifier, CreativeBriefStore, EditDecisionPlan, EditDecisionPlanRequest, EditDecisionPlanResult, ProjectSnapshot, SemanticMediaIndexStore, MediaUnderstanding, AnalyzerDescriptor } from "@framekit/runtime";
+import type { AnalysisArtifactStore, AnalysisEvidenceContext, AnalysisRef, AnalysisSourceVerifier, CreativeBriefStore, EditDecisionPlan, EditDecisionPlanRequest, EditDecisionPlanResult, ProjectSnapshot, ProjectStore, SemanticMediaIndexStore, MediaUnderstanding, AnalyzerDescriptor } from "@framekit/runtime";
 
 export type HeadlessDecisionRequest = Omit<EditDecisionPlanRequest, "snapshot" | "brief" | "accepted" | "speechContext" | "vadContext" | "audioContext">;
 
@@ -43,26 +43,26 @@ export class HeadlessDecisionPlanService {
   }
 
   /** Hold the cooperating brief-writer lock through the bound operation. */
-  async withAcceptedPlan<T>(input: HeadlessDecisionRequest, digest: string, operation: (plan: EditDecisionPlan) => Promise<T>): Promise<T> {
+  async withAcceptedPlan<T>(input: HeadlessDecisionRequest, digest: string, operation: (plan: EditDecisionPlan, lockedProject: ProjectStore) => Promise<T>): Promise<T> {
     input = structuredClone(input);
     const store = this.options.storeForProject(input.projectId);
     const brief = await store.read(input.projectId);
     if (brief.state !== "accepted") throw new Error("BRIEF_NOT_ACCEPTED: the current brief requires review");
-    return store.withAcceptedBrief(input.projectId, brief.accepted, async () => {
+    return store.withAcceptedBrief(input.projectId, brief.accepted, async (lockedProject) => {
       const current = await this.plan(input);
       if (current.status !== "available" || current.plan.planDigest !== digest) throw new Error("STALE_DECISION_PLAN: inputs changed after review");
-      return operation(current.plan);
+      return operation(current.plan, lockedProject);
     });
   }
 
   /** Preserve the edit and Undo record if a post-commit check or lock release fails. */
-  async executeAcceptedPlan<T>(input: HeadlessDecisionRequest, digest: string, execute: () => Promise<T>, verify: (edit: T) => Promise<void>) {
+  async executeAcceptedPlan<T>(input: HeadlessDecisionRequest, digest: string, execute: (lockedProject: ProjectStore) => Promise<T>, verify: (edit: T) => Promise<void>) {
     input = structuredClone(input);
     let committed: T | undefined;
     let completed = false;
     try {
-      return await this.withAcceptedPlan(input, digest, async (plan) => {
-        committed = await execute();
+      return await this.withAcceptedPlan(input, digest, async (plan, lockedProject) => {
+        committed = await execute(lockedProject);
         completed = true;
         committed = structuredClone(committed);
         await verify(structuredClone(committed));
