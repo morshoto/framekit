@@ -56,6 +56,31 @@ test("headless edit reports primary gaps in preview and execution", async () => 
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
+test("an approved headless edit commits under its scoped project lock", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-locked-approved-edit-"));
+  try {
+    const service = new HeadlessProjectService({ directory });
+    const timeline = emptyTimeline();
+    timeline.resources.push({ id: "media", name: "media", mediaKind: "video" });
+    timeline.sequence.occurrences = [occurrence("a", "media")];
+    timeline.sequence.durationTime = { value: "1", timescale: "1" };
+    const initial = await service.create(timeline);
+    const command = { schemaVersion: 1 as const, expectedRevision: initial.timeline.revision,
+      operations: [{ type: "trim-occurrence" as const, occurrenceId: "a", durationTime: { value: "1", timescale: "2" }, sourceStartTime: { value: "0", timescale: "1" } }] };
+    const preview = await service.previewApprovedEdit(timeline.project.id, command, timeline.sequence.id);
+    let expired!: import("@framekit/runtime").ProjectStore;
+    await service.withProjectLock(timeline.project.id, async (locked) => { expired = locked; });
+    await assert.rejects(() => service.executeApprovedEdit(timeline.project.id, timeline.sequence.id, preview.previewToken, expired), /PROJECT_LOCK_INVALID/);
+    let competing!: Promise<unknown>;
+    const result = await service.withProjectLock(timeline.project.id, async (locked) => {
+      competing = service.executeEdit(timeline.project.id, command, timeline.sequence.id);
+      return service.executeApprovedEdit(timeline.project.id, timeline.sequence.id, preview.previewToken, locked);
+    });
+    await assert.rejects(competing, /STALE/);
+    assert.deepEqual((await service.open(timeline.project.id)).timeline, result.after.timeline);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("approved headless edits report overlap and unsupported dissolve consequences", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-edit-overlap-"));
   try {
