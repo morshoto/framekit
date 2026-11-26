@@ -29,7 +29,7 @@ import {
 } from "@framekit/final-cut";
 import { FixtureAudioAnalyzer, FixtureMetadataAnalyzer, FixtureSpeechAnalyzer, FixtureVisualAnalyzer } from "@framekit/testkit";
 import { AgentVideoRuntime, JsonCreativeBriefStore, JsonSemanticMediaIndexStore } from "@framekit/runtime";
-import { HeadlessCreativeBriefService, HeadlessProjectService } from "@framekit/headless-application";
+import { assertCreativeBriefProjectBinding, HeadlessCreativeBriefService, HeadlessProjectService } from "@framekit/headless-application";
 import { createMcpServer } from "./server.js";
 import { createCanonicalSessionChangeSource } from "./headless-sessions.js";
 import { createCanonicalNativeSnapshotReader } from "./canonical-native-snapshot.js";
@@ -323,7 +323,8 @@ const server = createMcpServer(runtime, {
   headlessBriefs: new HeadlessCreativeBriefService({
     openProject: (projectId) => headlessProjects.open(projectId),
     withProjectLock: (projectId, operation) => headlessProjects.withProjectLock(projectId, operation),
-    storeForProject: (projectId) => new JsonCreativeBriefStore(join(framekitStateDirectory, "creative-briefs", `${createHash("sha256").update(projectId).digest("hex")}.json`)),
+    storeForProject: (projectId) => new JsonCreativeBriefStore(join(framekitStateDirectory, "creative-briefs", `${createHash("sha256").update(projectId).digest("hex")}.json`),
+      async (binding) => assertCreativeBriefProjectBinding(binding, await headlessProjects.open(projectId))),
   }),
 });
 const transport = new StdioServerTransport();

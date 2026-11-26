@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { acceptCreativeBrief, assertBriefSourceCoverage, reviewCreativeBrief } from "@framekit/runtime";
-import type { CreativeBrief, CreativeBriefReview, CreativeBriefStore, FramekitProjectDocument, MediaSourceIdentity, StoredCreativeBrief, ContextRevision } from "@framekit/runtime";
+import type { CreativeBrief, CreativeBriefProjectBinding, CreativeBriefReview, CreativeBriefStore, FramekitProjectDocument, MediaSourceIdentity, StoredCreativeBrief, ContextRevision } from "@framekit/runtime";
 
 export interface CreativeBriefTarget {
   projectId: string;
@@ -57,7 +57,7 @@ export class HeadlessCreativeBriefService {
       if (projectDigest(before) !== projectDigest(after)) throw new Error("STALE_CONTEXT: project changed during brief acceptance");
       assertBriefSourceCoverage(acceptance, draft.brief, registeredMedia(after));
       return publish();
-    }));
+    }), creativeBriefProjectBinding(before));
     return view(accepted, after);
   }
 
@@ -75,6 +75,18 @@ export class HeadlessCreativeBriefService {
 
 function projectDigest(project: FramekitProjectDocument): string {
   return createHash("sha256").update(JSON.stringify(project.timeline)).digest("hex");
+}
+export function creativeBriefProjectBinding(project: FramekitProjectDocument): CreativeBriefProjectBinding {
+  return { sequenceId: project.timeline.sequence.id, revision: structuredClone(project.timeline.revision), timelineDigest: projectDigest(project) };
+}
+
+export function assertCreativeBriefProjectBinding(expected: CreativeBriefProjectBinding, project: FramekitProjectDocument): void {
+  const current = creativeBriefProjectBinding(project);
+  if (expected.sequenceId !== current.sequenceId || expected.timelineDigest !== current.timelineDigest
+    || expected.revision.id !== current.revision.id || expected.revision.sequence !== current.revision.sequence
+    || expected.revision.timestamp !== current.revision.timestamp) {
+    throw new Error("STALE_CONTEXT: accepted brief belongs to a different project revision");
+  }
 }
 function registeredMedia(project: FramekitProjectDocument): MediaSourceIdentity[] {
   return project.timeline.resources.flatMap((resource) => {
