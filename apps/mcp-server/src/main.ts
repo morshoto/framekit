@@ -307,7 +307,10 @@ const videoExporter = liveMode && !headlessFinalCut && process.env.FRAMEKIT_FINA
     })
   : undefined;
 const briefStoreForProject = (projectId: string) => new JsonCreativeBriefStore(join(framekitStateDirectory, "creative-briefs", `${createHash("sha256").update(projectId).digest("hex")}.json`),
-  async (binding) => assertCreativeBriefProjectBinding(binding, await headlessProjects.open(projectId)));
+  (binding, operation) => headlessProjects.withProjectLock(projectId, async (lockedProject) => {
+    assertCreativeBriefProjectBinding(binding, await headlessProjects.open(projectId));
+    return operation(lockedProject);
+  }));
 const analysisArtifacts = new FileAnalysisArtifactStore(join(framekitStateDirectory, "analysis-artifacts"));
 const server = createMcpServer(runtime, {
   processMode: liveMode && !headlessFinalCut ? "headed" : "headless",
