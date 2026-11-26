@@ -3,20 +3,27 @@ import { link, lstat, mkdir, readFile, rename, unlink, writeFile } from "node:fs
 import { dirname } from "node:path";
 import { acceptCreativeBrief, assertBriefBinding, creativeBriefDigest, reviseCreativeBrief } from "../planning/creative-brief.js";
 import type { AcceptedCreativeBrief, CreativeBrief } from "../planning/creative-brief.js";
+import type { ContextRevision } from "../domain/primitives.js";
+
+export interface CreativeBriefProjectBinding {
+  sequenceId: string;
+  revision: ContextRevision;
+  timelineDigest: string;
+}
 
 export type StoredCreativeBrief = {
   schemaVersion: 1;
   projectId: string;
   brief: CreativeBrief;
   digest: string;
-} & ({ state: "draft" } | { state: "accepted"; accepted: AcceptedCreativeBrief });
+} & ({ state: "draft" } | { state: "accepted"; accepted: AcceptedCreativeBrief; projectBinding?: CreativeBriefProjectBinding });
 
 /** Each store path is owned by one project; callers must resolve it from trusted project identity. */
 export interface CreativeBriefStore {
   create(projectId: string, brief: CreativeBrief): Promise<StoredCreativeBrief>;
   read(projectId: string): Promise<StoredCreativeBrief>;
   revise(projectId: string, expectedDigest: string, proposed: CreativeBrief): Promise<StoredCreativeBrief>;
-  accept(projectId: string, expectedDigest: string, guard?: (publish: () => Promise<StoredCreativeBrief>) => Promise<StoredCreativeBrief>): Promise<StoredCreativeBrief>;
+  accept(projectId: string, expectedDigest: string, guard?: (publish: () => Promise<StoredCreativeBrief>) => Promise<StoredCreativeBrief>, projectBinding?: CreativeBriefProjectBinding): Promise<StoredCreativeBrief>;
   withAcceptedBrief<T>(projectId: string, accepted: AcceptedCreativeBrief, operation: () => Promise<T>): Promise<T>;
 }
 
@@ -29,7 +36,7 @@ function isCode(error: unknown, code: string): boolean {
 
 /** Atomic local storage with compare-and-swap; uncertain locks are never reclaimed automatically. */
 export class JsonCreativeBriefStore implements CreativeBriefStore {
-  constructor(private readonly path: string) {}
+  constructor(private readonly path: string, private readonly verifyProjectBinding?: (binding: CreativeBriefProjectBinding) => Promise<void>) {}
 
   async create(projectId: string, brief: CreativeBrief): Promise<StoredCreativeBrief> {
     const bound = structuredClone(brief);
@@ -75,9 +82,10 @@ export class JsonCreativeBriefStore implements CreativeBriefStore {
       const keys = Object.keys(document).sort().join(",");
       if (document.schemaVersion !== 1 || !validProjectId(document.projectId)
         || (document.state === "draft" ? keys !== "brief,digest,projectId,schemaVersion,state"
-          : document.state === "accepted" ? keys !== "accepted,brief,digest,projectId,schemaVersion,state" : true)
+          : document.state === "accepted" ? keys !== "accepted,brief,digest,projectId,schemaVersion,state" && keys !== "accepted,brief,digest,projectBinding,projectId,schemaVersion,state" : true)
         || !/^[a-f0-9]{64}$/.test(document.digest) || creativeBriefDigest(document.brief) !== document.digest) throw new Error("invalid document");
       if (document.state === "accepted") assertBriefBinding(document.accepted, document.brief);
+      if (document.state === "accepted" && "projectBinding" in document) validateProjectBinding(document.projectBinding!);
     } catch (error) {
       throw new Error("BRIEF_CORRUPT: stored brief or approval is invalid", { cause: error });
     }
@@ -97,12 +105,15 @@ export class JsonCreativeBriefStore implements CreativeBriefStore {
     });
   }
 
-  async accept(projectId: string, expectedDigest: string, guard?: (publish: () => Promise<StoredCreativeBrief>) => Promise<StoredCreativeBrief>): Promise<StoredCreativeBrief> {
+  async accept(projectId: string, expectedDigest: string, guard?: (publish: () => Promise<StoredCreativeBrief>) => Promise<StoredCreativeBrief>, projectBinding?: CreativeBriefProjectBinding): Promise<StoredCreativeBrief> {
+    const binding = projectBinding === undefined ? undefined : structuredClone(projectBinding);
+    if (binding) validateProjectBinding(binding);
+    if (binding && !guard) throw new Error("BRIEF_TARGET_UNVERIFIED: guarded publication is required");
     return this.locked(async () => {
       const current = await this.read(projectId);
       if (current.digest !== expectedDigest) throw new Error("STALE_BRIEF: the reviewed draft changed");
       const accepted = acceptCreativeBrief(current.brief);
-      const next: StoredCreativeBrief = { ...current, state: "accepted", accepted };
+      const next: StoredCreativeBrief = { schemaVersion: 1, projectId, brief: current.brief, digest: current.digest, state: "accepted", accepted, ...(binding ? { projectBinding: binding } : {}) };
       if (!guard) {
         await this.publish(next, false);
         return structuredClone(next);
@@ -137,6 +148,10 @@ export class JsonCreativeBriefStore implements CreativeBriefStore {
     const bound = structuredClone(accepted);
     return this.locked(async () => {
       await assertCurrentAcceptedBrief(this, projectId, bound);
+      const current = await this.read(projectId);
+      if (current.state !== "accepted") throw new Error("BRIEF_NOT_ACCEPTED: the current brief requires review");
+      if (!current.projectBinding || !this.verifyProjectBinding) throw new Error("BRIEF_TARGET_UNVERIFIED: a project-bound acceptance and verifier are required");
+      await this.verifyProjectBinding(structuredClone(current.projectBinding));
       return operation();
     });
   }
@@ -162,6 +177,20 @@ export class JsonCreativeBriefStore implements CreativeBriefStore {
     } finally {
       try { await unlink(temporary); } catch (error) { if (!isCode(error, "ENOENT")) throw error; }
     }
+  }
+}
+
+function validateProjectBinding(binding: CreativeBriefProjectBinding): void {
+  if (!binding || typeof binding !== "object" || Array.isArray(binding)
+    || Object.keys(binding).sort().join(",") !== "revision,sequenceId,timelineDigest"
+    || typeof binding.sequenceId !== "string" || !binding.sequenceId.trim()
+    || !binding.revision || typeof binding.revision !== "object" || Array.isArray(binding.revision)
+    || Object.keys(binding.revision).sort().join(",") !== "id,sequence,timestamp"
+    || typeof binding.revision.id !== "string" || !binding.revision.id.trim()
+    || !Number.isSafeInteger(binding.revision.sequence) || binding.revision.sequence < 0
+    || typeof binding.revision.timestamp !== "string" || !binding.revision.timestamp.trim()
+    || typeof binding.timelineDigest !== "string" || !/^[a-f0-9]{64}$/.test(binding.timelineDigest)) {
+    throw new Error("INVALID_BRIEF_TARGET: invalid project binding");
   }
 }
 
