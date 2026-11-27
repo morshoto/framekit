@@ -66,7 +66,12 @@ export function mapSpeechAnalysisToOccurrence(
     const end = Math.min(span.end, occurrence.sourceRange.end);
     if (start >= end) return [];
     const sourceRange = { start, end };
-    const sequenceRange = mapSourceRangeToSequenceRange(sourceRange, occurrence);
+    const exactStart = start === occurrence.sourceRange.start && occurrence.sourceRange.startTime
+      ? occurrence.sourceRange.startTime : sourceClockTime(start, sourceTimebase);
+    const exactEnd = end === occurrence.sourceRange.end && occurrence.sourceRange.startTime && occurrence.sourceRange.durationTime
+      ? addRationalTimes(occurrence.sourceRange.startTime, occurrence.sourceRange.durationTime) : sourceClockTime(end, sourceTimebase);
+    const sequenceRange = mapSourceRangeToSequenceRange({ ...sourceRange, startTime: exactStart,
+      durationTime: subtractRationalTimes(exactEnd, exactStart) }, occurrence);
     return span.status === "available"
       ? [{ sourceRange, sequenceRange, status: "available", segments: mapEvidence(span.segments, occurrence, frame, sourceTimebase, "VAD segment", (segment) => segment) }]
       : [{ sourceRange, sequenceRange, status: "unavailable", reason: span.reason }];

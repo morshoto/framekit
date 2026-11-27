@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { validateAudioAnalysisRange } from "../../packages/runtime/src/audio/analysis.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -126,6 +127,16 @@ test("speech mapping retains partial VAD coverage and only advertises fully cove
   assert.throws(() => mapSpeechAnalysisToOccurrence({ ...mixed, vadCoverage: [
     { start: 0, end: 60, status: "available", segments: [] },
   ] }, covered, { sequenceFrameDuration: { value: "1", timescale: "10" } }), /ANALYSIS_INVALID.*conflicts/);
+});
+
+test("clipped VAD coverage retains exact fractional occurrence duration", () => {
+  const speech = { ...analysis, words: [], vadSegments: [], vadCoverage: [{ start: 0, end: 60, status: "available" as const, segments: [] }] };
+  const target = { ...occurrence(30), sourceRange: { start: 10, end: 10 + 1 / 3, startTime: { value: "10", timescale: "1" }, durationTime: { value: "1", timescale: "3" } },
+    sequenceRange: { start: 30, end: 30 + 1 / 3, startTime: { value: "30", timescale: "1" }, durationTime: { value: "1", timescale: "3" } } };
+  const mapped = mapSpeechAnalysisToOccurrence(speech, target, { sequenceFrameDuration: { value: "1", timescale: "30" } });
+  const span = mapped.vadCoverage![0]!;
+  validateAudioAnalysisRange(span.sequenceRange, "speech coverage");
+  assert.deepEqual(span.sequenceRange.durationTime, { value: "1", timescale: "3" });
 });
 
 test("speech mapping translates exact source ranges for edit planning", () => {
