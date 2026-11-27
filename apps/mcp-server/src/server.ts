@@ -1,4 +1,4 @@
-import { reviewedCutOperations } from "./headless-decision-cut.js";
+import { reviewedCutOperations, verifyReviewedCutReadback } from "./headless-decision-cut.js";
 import { registerValidatedTool } from "./tools/validated-tool.js";
 import type { SessionSqliteObservationProvider } from "./headless-sessions.js";
 import { McpServer } from "@modelcontextprotocol/server";
@@ -2449,7 +2449,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return options.headlessDecisionPlans.plan(input);
   }));
 
-  const decisionCutApprovals = new Map<string, { input: HeadlessDecisionRequest; planDigest: string; editToken: string; expiresAt: number }>();
+  const decisionCutApprovals = new Map<string, { input: HeadlessDecisionRequest; planDigest: string; candidateIndex: number; editToken: string; expiresAt: number }>();
   const samePreviewBase = (left: TimelineIr, right: TimelineIr) => left.revision.id === right.revision.id
     && left.revision.sequence === right.revision.sequence && left.revision.timestamp === right.revision.timestamp
     && timelineIrDigest(left) === timelineIrDigest(right);
@@ -2491,7 +2491,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     for (const [token, entry] of decisionCutApprovals) if (entry.expiresAt <= now) decisionCutApprovals.delete(token);
     while (decisionCutApprovals.size >= 256) decisionCutApprovals.delete(decisionCutApprovals.keys().next().value!);
     const previewToken = `decision-cut-${randomUUID()}`;
-    decisionCutApprovals.set(previewToken, { input: structuredClone(input), planDigest, editToken: approved.previewToken, expiresAt: now + 10 * 60 * 1000 });
+    decisionCutApprovals.set(previewToken, { input: structuredClone(input), planDigest, candidateIndex, editToken: approved.previewToken, expiresAt: now + 10 * 60 * 1000 });
     return { ...reviewed, previewToken };
   }));
   registerValidatedTool(server, "headless.decision.approved-execute-cut", {
@@ -2506,7 +2506,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     const plans = options.headlessDecisionPlans;
     if (!plans) throw new Error("DECISION_PLAN_UNAVAILABLE: headless planning is not configured");
     return plans.executeAcceptedPlan(entry.input, entry.planDigest, (lockedProject) =>
-      requireHeadlessProjects().executeApprovedEdit(projectId, sequenceId, entry.editToken, lockedProject), async (edit) => {
+      requireHeadlessProjects().executeApprovedEdit(projectId, sequenceId, entry.editToken, lockedProject), async (edit, plan) => {
       const observed = await requireHeadlessProjects().open(projectId);
       const revision = observed.timeline.revision; const expected = edit.after.timeline.revision;
       if (observed.timeline.project.id !== projectId || observed.timeline.sequence.id !== sequenceId
@@ -2514,6 +2514,9 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
         || timelineIrDigest(observed.timeline) !== timelineIrDigest(edit.after.timeline)) {
         throw new Error("HEADLESS_DECISION_READBACK_MISMATCH: committed project differs from independent readback");
       }
+      const decision = plan.decisions[entry.candidateIndex];
+      if (!decision || decision.kind !== "cut") throw new Error("HEADLESS_DECISION_READBACK_MISMATCH: reviewed cut is unavailable");
+      verifyReviewedCutReadback(edit.before.timeline, observed.timeline, decision.candidate, entry.planDigest);
     });
   }));
 

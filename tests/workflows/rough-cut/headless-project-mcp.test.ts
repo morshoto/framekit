@@ -3866,6 +3866,15 @@ test("reviewed headless cuts preserve exact source ranges and reject other timel
     const changed = structuredClone(observed); corrupt(changed);
     assert.throws(() => verifyReviewedCutReadback(timeline, changed, candidate, `sha256:${"a".repeat(64)}`), /READBACK_MISMATCH/);
   }
+  const withNext = structuredClone(timeline);
+  withNext.sequence.occurrences.push({ ...structuredClone(timeline.sequence.occurrences[0]!), id: "next", startTime: { value: "10", timescale: "1" } });
+  withNext.sequence.durationTime = { value: "20", timescale: "1" };
+  const shifted = structuredClone(observed);
+  shifted.sequence.occurrences.push({ ...structuredClone(withNext.sequence.occurrences[1]!), startTime: { value: "9", timescale: "1" } });
+  shifted.sequence.durationTime = { value: "19", timescale: "1" };
+  assert.doesNotThrow(() => verifyReviewedCutReadback(withNext, shifted, candidate, `sha256:${"a".repeat(64)}`));
+  shifted.sequence.occurrences[2]!.startTime = { value: "10", timescale: "1" };
+  assert.throws(() => verifyReviewedCutReadback(withNext, shifted, candidate, `sha256:${"a".repeat(64)}`), /READBACK_MISMATCH/);
   const operations = reviewedCutOperations(timeline, candidate, "sha256:" + "a".repeat(64));
   assert.deepEqual(operations.map((item: any) => item.type), ["split-occurrence", "split-occurrence", "remove-occurrence", "move-occurrence"]);
   assert.equal(operations[0]?.type, "split-occurrence");
