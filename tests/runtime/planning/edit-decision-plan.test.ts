@@ -528,6 +528,7 @@ test("native cut proposal revalidation detects changed operation, target and evi
 
 test("native range preview requires matching target, revision, range and live token", async () => {
   const { prepareNativeCutHandoff, checkNativeCutPreview } = await import("../../../packages/runtime/src/planning/native-plan-handoff.js");
+  const { subtractRationalTimes } = await import("../../../packages/runtime/src/timeline/rational-time.js");
   const f = await fixture();
   try {
     const planned = await createEditDecisionPlan(f.request, f.artifacts, verifyLocalMediaSource, f.briefStore);
@@ -536,8 +537,9 @@ test("native range preview requires matching target, revision, range and live to
     const target = { libraryId: "library", eventId: "event", projectId: "p", sequenceId: "t" };
     const proposal = await prepareNativeCutHandoff(f.request, planned.plan, index, target, f.artifacts, verifyLocalMediaSource, f.briefStore);
     assert.equal(proposal.status, "proposed"); if (proposal.status !== "proposed") return;
-    const observed = { ...target, revision: "r1", targetIdentity: "native-clip" };
-    const preview = { previewToken: "token", operation: "delete-range", range: { start: proposal.operation.start, end: proposal.operation.end }, sequenceId: "t", revision: "r1", targetIdentity: "native-clip", expiresAt: "2027-01-01T00:00:00Z" };
+    const observed = { ...target, revision: "r1", targetIdentity: "native-clip", sequenceStart: { value: "0", timescale: "1" }, sequenceDuration: { value: "10", timescale: "1" } };
+    const removed = subtractRationalTimes(proposal.operation.end, proposal.operation.start);
+    const preview = { previewToken: "token", operation: "delete-range", range: { start: proposal.operation.start, end: proposal.operation.end }, beforeDuration: observed.sequenceDuration, expectedAfterDuration: subtractRationalTimes(observed.sequenceDuration, removed), sequenceId: "t", revision: "r1", targetIdentity: "native-clip", expiresAt: "2027-01-01T00:00:00Z" };
     const now = Date.parse("2026-12-01T00:00:00Z");
     assert.deepEqual(checkNativeCutPreview(proposal, observed, preview, now), { status: "matched" });
     assert.equal(checkNativeCutPreview(proposal, { ...observed, libraryId: "other" }, preview, now).status, "unavailable");
@@ -545,6 +547,10 @@ test("native range preview requires matching target, revision, range and live to
     assert.equal(checkNativeCutPreview(proposal, observed, { ...preview, revision: "stale" }, now).status, "unavailable");
     assert.equal(checkNativeCutPreview(proposal, observed, { ...preview, range: { ...preview.range, end: { value: "999", timescale: "1" } } }, now).status, "unavailable");
     assert.equal(checkNativeCutPreview(proposal, observed, { ...preview, expiresAt: "2026-11-01T00:00:00Z" }, now).status, "unavailable");
+    assert.equal(checkNativeCutPreview(proposal, observed, { ...preview, beforeDuration: { value: "11", timescale: "1" } }, now).status, "unavailable");
+    assert.equal(checkNativeCutPreview(proposal, observed, { ...preview, expectedAfterDuration: { value: "10", timescale: "1" } }, now).status, "unavailable");
+    assert.equal(checkNativeCutPreview(proposal, { ...observed, sequenceStart: { value: "20", timescale: "1" } }, preview, now).status, "unavailable");
+    assert.equal(checkNativeCutPreview(proposal, { ...observed, sequenceDuration: { value: "0", timescale: "1" } }, preview, now).status, "unavailable");
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
