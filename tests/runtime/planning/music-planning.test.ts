@@ -81,6 +81,30 @@ test("static gain exposes its reviewable protection range without asserting audi
   assert.equal(planMusic({ ...request, requestedDucking: true }).dialogueProtection, undefined);
 });
 
+test("music review maps supplied speech overlaps and exposes incomplete coverage", () => {
+  const clip = { id: "dialogue", mediaId: "video", name: "Dialogue", start: 5, duration: 20, sourceStart: 10, track: 1 };
+  const segment = (start: number, end: number) => ({
+    segment: { start: start + 5, end: end + 5, kind: "speech" as const },
+    sourceRange: { start: start + 5, end: end + 5 }, sequenceRange: { start, end }, frameAlignedRange: { start, end },
+  });
+  const mapping = {
+    occurrenceId: "dialogue", mediaId: "video", revision, sourceRange: { start: 10, end: 30 }, sequenceRange: { start: 5, end: 25 },
+    sourceTimebase: { value: "1", timescale: "100" }, sequenceFrameDuration: { value: "1", timescale: "30" },
+    capability: "transcription-plus-vad" as const, words: [],
+    vadCoverage: [{ status: "available" as const, sourceRange: { start: 10, end: 30 }, sequenceRange: { start: 5, end: 25 }, segments: [segment(6, 9), segment(18, 23)] }],
+  };
+  const input = { ...request, snapshot: { ...snapshot, timeline: { ...snapshot.timeline, clips: [clip] } }, placement: { start: 7, end: 20 }, speechMapping: mapping };
+  const review = planMusic(input).dialogueProtection?.speechOverlap;
+  assert.deepEqual(review, { occurrenceId: "dialogue", coverage: "complete", ranges: [{ start: 7, end: 9 }, { start: 18, end: 20 }], verification: "unverified" });
+  const partial = { ...mapping, vadCoverage: [{ status: "unavailable" as const, sourceRange: { start: 10, end: 30 }, sequenceRange: { start: 5, end: 25 }, reason: "missing" }] };
+  assert.deepEqual(planMusic({ ...input, speechMapping: partial }).dialogueProtection?.speechOverlap, { occurrenceId: "dialogue", coverage: "unknown", ranges: [], verification: "unverified" });
+  const noSpeech = { ...mapping, vadCoverage: [{ ...mapping.vadCoverage[0], segments: [] }] };
+  assert.equal(planMusic({ ...input, speechMapping: noSpeech }).dialogueProtection?.speechOverlap?.coverage, "complete");
+  assert.throws(() => planMusic({ ...input, speechMapping: { ...mapping, revision: { ...revision, sequence: 2 } } }), /STALE|INVALID/);
+  assert.throws(() => planMusic({ ...input, speechMapping: { ...mapping, occurrenceId: "other" } }), /STALE|INVALID/);
+  assert.throws(() => planMusic({ ...input, speechMapping: { ...mapping, sequenceRange: { start: 6, end: 26 } } }), /STALE|INVALID/);
+});
+
 
 test("source must exist in the current exact project and range", () => {
   assert.equal(planMusic({ ...request, snapshot: { ...snapshot, media: [] } }).decision, "unavailable");
