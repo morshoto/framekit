@@ -79,6 +79,13 @@ test("music overlap is derived from pinned VAD instead of caller speech context"
       occurrenceId: "clip", coverage: "complete", ranges: [{ start: 1, end: 2 }, { start: 4, end: 5 }], verification: "unverified",
     });
     assert.ok(result.plan.warnings.some((warning) => /pinned.*vad/i.test(warning)));
+    const altered = structuredClone(result.plan);
+    const alteredMusic = altered.decisions.find((decision) => decision.kind === "music-proposal");
+    if (alteredMusic?.kind !== "music-proposal") throw new Error("missing music proposal");
+    alteredMusic.musicPlan.dialogueProtection!.speechOverlap!.ranges[0]!.start = 1.5;
+    assert.equal((await assertEditDecisionPlanCurrent(request, altered, f.artifacts, verifyLocalMediaSource, store)).status, "stale");
+    await writeFile(f.path, "changed speech source");
+    assert.equal((await assertEditDecisionPlanCurrent(request, result.plan, f.artifacts, verifyLocalMediaSource, store)).status, "stale");
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
