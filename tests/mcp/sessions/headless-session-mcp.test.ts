@@ -503,3 +503,54 @@ test("analysis pin rejects a configured provider changed while publishing eviden
     assert.match(JSON.stringify(result), /ANALYSIS_STALE_PROVIDER/);
   } finally { await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
 });
+
+test("analysis pin rejects index changes while publishing evidence", async () => {
+  const { writeFile } = await import("node:fs/promises");
+  const { createHash } = await import("node:crypto");
+  const { InMemorySemanticMediaIndexStore, InMemoryAnalysisArtifactStore } = await import("@framekit/runtime");
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-pin-index-"));
+  const path = join(directory, "media.mov");
+  const bytes = Buffer.from("source bytes"); await writeFile(path, bytes);
+  const sourceDigest = createHash("sha256").update(bytes).digest("hex");
+  const source = { mediaId: "media-1", source: path, sourceDigest, mediaKind: "video" as const };
+  const provider = { id: "speech", provider: "fixture", version: "1", model: "model", configurationDigest: "config" };
+  const initial = timeline();
+  initial.resources = [{ id: source.mediaId, name: "media.mov", mediaKind: "video", source: path, sourceKind: "local-file", sourceDigest }];
+  const revision = initial.revision;
+  const index = new InMemorySemanticMediaIndexStore();
+  const record = { mediaId: source.mediaId, source: path, sourceIdentity: source, analysisRevision: revision,
+    semantic: { subjects: [], scenes: [], environments: [], timeOfDay: [], moods: [], usableRanges: [] },
+    analysis: [{ capability: "speech" as const, status: "analyzed" as const, provenance: { source, analyzer: provider, ranges: [{ start: 0, end: 10 }] } }],
+    speech: { coverageProvenance: "provider" as const, schemaVersion: 1 as const, mediaId: source.mediaId, sourceIdentity: source, revision, provider,
+      requestedRange: { start: 0, end: 10 }, observedRange: { start: 0, end: 10 }, sourceTimebase: { value: "1", timescale: "1000" },
+      capability: "transcription-plus-vad" as const, words: [{ text: "hello", start: 1, end: 2, confidence: 0.9 }], vadSegments: [{ kind: "speech" as const, start: 1, end: 2 }] } };
+  await index.save(record);
+  let configured = provider; let loads = 0; let driftProvider = false; let driftIndex = true;
+  const observedIndex = { list: index.list.bind(index), save: index.save.bind(index), load: async (identity: typeof source) => {
+    const loaded = await index.load(identity);
+    if (++loads === 3 && driftProvider) configured = { ...provider, model: "changed" };
+    return loaded;
+  } };
+  const backing = new InMemoryAnalysisArtifactStore();
+  const artifacts = { get: backing.get.bind(backing), put: async (digest: string, data: Uint8Array) => {
+    await backing.put(digest, data);
+    if (driftIndex) await index.save({ ...record, speech: { ...record.speech, words: [{ ...record.speech.words[0]!, text: "changed" }] } });
+  } };
+  const server = createMcpServer(runtime(), { sessionDirectory: directory,
+    headlessProjects: { open: async () => ({ timeline: initial }) } as never,
+    analysisEvidence: { index: observedIndex, artifacts, currentProvider: () => configured } });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "index-race-test", version: "1" });
+  try {
+    await server.connect(serverTransport); await client.connect(clientTransport);
+    const result = await client.callTool({ name: "headless.analysis.pin", arguments: { projectId: initial.project.id, sequenceId: initial.sequence.id,
+      expectedRevision: revision, mediaId: source.mediaId, kind: "speech", range: { start: 1, end: 4 } } });
+    assert.equal(result.isError, true);
+    assert.match(JSON.stringify(result), /ANALYSIS_STALE/);
+    await index.save(record); loads = 0; driftIndex = false; driftProvider = true;
+    const providerResult = await client.callTool({ name: "headless.analysis.pin", arguments: { projectId: initial.project.id, sequenceId: initial.sequence.id,
+      expectedRevision: revision, mediaId: source.mediaId, kind: "speech", range: { start: 1, end: 4 } } });
+    assert.equal(providerResult.isError, true);
+    assert.match(JSON.stringify(providerResult), /ANALYSIS_STALE_PROVIDER/);
+  } finally { await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
+});
