@@ -422,7 +422,13 @@ Pin speech and audio provider/model revisions with
 `FRAMEKIT_SPEECH_ANALYZER_VERSION` and `FRAMEKIT_AUDIO_ANALYZER_VERSION`.
 To include model identity in speech provenance, set
 `FRAMEKIT_SPEECH_ANALYZER_MODEL_ID` to the exact model identity and revision. This is a declared identity; update it
-when the model changes. Source verification does not independently verify model files.
+when the model changes. To additionally check one local model asset, set both
+`FRAMEKIT_SPEECH_MODEL_ASSET_PATH` to its absolute file path and
+`FRAMEKIT_SPEECH_MODEL_ASSET_SHA256` to its lowercase SHA-256. Framekit checks
+that file before and after speech analysis, when reusing cached speech, and
+when pinning speech evidence. Missing or changed bytes are rejected. This is
+point-in-time verification of the configured file: an opaque command may load
+other files or ignore it, so it does not prove the complete model that ran.
 Command providers capture their execution environment and report a
 `configurationDigest` derived from that environment, executable path and
 declared provider version. Configuration changes invalidate incompatible cached
