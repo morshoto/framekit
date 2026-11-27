@@ -112,9 +112,11 @@ updated brief to return it to draft. If a source or revision changes, inspect
 and revise against the current project before accepting again.
 Guarded use of an accepted brief requires the accepted project revision and
 timeline to match the current project. Reaccept the reviewed brief after a
-project change. Cooperating headless project writers are excluded during the
-guarded operation; external source changes and native operations require their
-own verification and operation-specific authorization.
+project change. The existing headless edit tools do not enforce brief acceptance
+or bind it to an edit approval. The guard is a foundation for a downstream
+integration, not a gate on those tools. Cooperating headless project writers are
+excluded during a guarded operation; external source changes and native operations
+require their own verification and operation-specific authorization.
 If acceptance is interrupted, the brief may report
 `BRIEF_RECONCILIATION_REQUIRED` and remains unavailable until the interrupted
 state is inspected and reconciled; do not treat it as approval for an edit.
