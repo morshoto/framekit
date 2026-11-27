@@ -1283,6 +1283,9 @@ test("headless project media can be understood and planned without a Final Cut c
   const sourcePath = join(directory, "source.mp4");
   const stateDirectory = join(directory, "state");
   const speechAnalyzer = await makeHeadlessSpeechAnalyzer(directory);
+  const modelAssetPath = join(directory, "model.bin");
+  const modelAssetBytes = Buffer.from("pinned model bytes"); await writeFile(modelAssetPath, modelAssetBytes);
+  const modelAssetSha256 = createHash("sha256").update(modelAssetBytes).digest("hex");
   const audioAnalyzer = await makeFixedAnalyzer(directory, "audio", JSON.stringify({
     integratedLufs: -18,
     truePeakDb: -3,
@@ -1300,6 +1303,8 @@ test("headless project media can be understood and planned without a Final Cut c
     FRAMEKIT_SPEECH_ANALYZER: speechAnalyzer,
     FRAMEKIT_SPEECH_ANALYZER_VERSION: "test-vad@1",
     FRAMEKIT_SPEECH_ANALYZER_MODEL_ID: "fixture-model",
+    FRAMEKIT_SPEECH_MODEL_ASSET_PATH: modelAssetPath,
+    FRAMEKIT_SPEECH_MODEL_ASSET_SHA256: modelAssetSha256,
     FRAMEKIT_SPEECH_REQUIRE_VAD: "1",
     FRAMEKIT_AUDIO_ANALYZER: audioAnalyzer,
   };
@@ -1358,6 +1363,11 @@ test("headless project media can be understood and planned without a Final Cut c
     assert.equal(pinned.ref.kind, "vad");
     assert.equal(pinned.ref.provider.model, "fixture-model");
     assert.equal(pinned.ref.source.sourceDigest, registered.resource.sourceDigest);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.analysis.pin", arguments: pinArgs })).ref, pinned.ref);
+    await writeFile(modelAssetPath, "changed model bytes");
+    const changedModel = await client.callTool({ name: "headless.analysis.pin", arguments: pinArgs });
+    assert.equal(changedModel.isError, true); assert.match(toolErrorText(changedModel), /ANALYZER_MODEL_CHANGED/);
+    await writeFile(modelAssetPath, modelAssetBytes);
     assert.deepEqual(payload(await client.callTool({ name: "headless.analysis.pin", arguments: pinArgs })).ref, pinned.ref);
     const changedProvider = await connectProductionClient(here, { ...environment, FRAMEKIT_SPEECH_ANALYZER_MODEL_ID: "different-model" });
     try {
