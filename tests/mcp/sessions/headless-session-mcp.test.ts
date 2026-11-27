@@ -525,7 +525,7 @@ test("analysis pin rejects index changes while publishing evidence", async () =>
       requestedRange: { start: 0, end: 10 }, observedRange: { start: 0, end: 10 }, sourceTimebase: { value: "1", timescale: "1000" },
       capability: "transcription-plus-vad" as const, words: [{ text: "hello", start: 1, end: 2, confidence: 0.9 }], vadSegments: [{ kind: "speech" as const, start: 1, end: 2 }] } };
   await index.save(record);
-  let configured = provider; let loads = 0; let driftProvider = false; let driftIndex = true; let driftProject = false;
+  let configured = provider; let loads = 0; let driftProvider = false; let driftIndex = true; let driftProject = false; let driftAfterProvider = false; let providerCalls = 0;
   let currentTimeline = initial;
   const observedIndex = { list: index.list.bind(index), save: index.save.bind(index), load: async (identity: typeof source) => {
     const loaded = await index.load(identity);
@@ -540,7 +540,10 @@ test("analysis pin rejects index changes while publishing evidence", async () =>
   } };
   const server = createMcpServer(runtime(), { sessionDirectory: directory,
     headlessProjects: { open: async () => ({ timeline: currentTimeline }) } as never,
-    analysisEvidence: { index: observedIndex, artifacts, currentProvider: () => configured } });
+    analysisEvidence: { index: observedIndex, artifacts, currentProvider: async () => {
+      if (++providerCalls === 3 && driftAfterProvider) currentTimeline = { ...initial, project: { ...initial.project, name: "late change" } };
+      return configured;
+    } } });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "index-race-test", version: "1" });
   try {
@@ -559,5 +562,9 @@ test("analysis pin rejects index changes while publishing evidence", async () =>
       expectedRevision: revision, mediaId: source.mediaId, kind: "speech", range: { start: 1, end: 4 } } });
     assert.equal(projectResult.isError, true);
     assert.match(JSON.stringify(projectResult), /STALE_CONTEXT/);
+    loads = 0; providerCalls = 0; driftProject = false; driftAfterProvider = true; currentTimeline = initial;
+    const lateProject = await client.callTool({ name: "headless.analysis.pin", arguments: { projectId: initial.project.id, sequenceId: initial.sequence.id,
+      expectedRevision: revision, mediaId: source.mediaId, kind: "speech", range: { start: 1, end: 4 } } });
+    assert.equal(lateProject.isError, true); assert.match(JSON.stringify(lateProject), /STALE_CONTEXT/);
   } finally { await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
 });

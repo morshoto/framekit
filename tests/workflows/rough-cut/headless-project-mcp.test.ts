@@ -1507,6 +1507,9 @@ test("headless project media can be understood and planned without a Final Cut c
   const sourcePath = join(directory, "source.mp4");
   const stateDirectory = join(directory, "state");
   const speechAnalyzer = await makeHeadlessSpeechAnalyzer(directory);
+  const modelAssetPath = join(directory, "model.bin");
+  const modelAssetBytes = Buffer.from("pinned model bytes"); await writeFile(modelAssetPath, modelAssetBytes);
+  const modelAssetSha256 = createHash("sha256").update(modelAssetBytes).digest("hex");
   const audioAnalyzer = await makeFixedAnalyzer(directory, "audio", JSON.stringify({
     integratedLufs: -18,
     truePeakDb: -3,
@@ -1524,6 +1527,8 @@ test("headless project media can be understood and planned without a Final Cut c
     FRAMEKIT_SPEECH_ANALYZER: speechAnalyzer,
     FRAMEKIT_SPEECH_ANALYZER_VERSION: "test-vad@1",
     FRAMEKIT_SPEECH_ANALYZER_MODEL_ID: "fixture-model",
+    FRAMEKIT_SPEECH_MODEL_ASSET_PATH: modelAssetPath,
+    FRAMEKIT_SPEECH_MODEL_ASSET_SHA256: modelAssetSha256,
     FRAMEKIT_SPEECH_REQUIRE_VAD: "1",
     FRAMEKIT_AUDIO_ANALYZER: audioAnalyzer,
   };
@@ -1582,6 +1587,11 @@ test("headless project media can be understood and planned without a Final Cut c
     assert.equal(pinned.ref.kind, "vad");
     assert.equal(pinned.ref.provider.model, "fixture-model");
     assert.equal(pinned.ref.source.sourceDigest, registered.resource.sourceDigest);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.analysis.pin", arguments: pinArgs })).ref, pinned.ref);
+    await writeFile(modelAssetPath, "changed model bytes");
+    const changedModel = await client.callTool({ name: "headless.analysis.pin", arguments: pinArgs });
+    assert.equal(changedModel.isError, true); assert.match(toolErrorText(changedModel), /ANALYZER_MODEL_CHANGED/);
+    await writeFile(modelAssetPath, modelAssetBytes);
     assert.deepEqual(payload(await client.callTool({ name: "headless.analysis.pin", arguments: pinArgs })).ref, pinned.ref);
     const changedProvider = await connectProductionClient(here, { ...environment, FRAMEKIT_SPEECH_ANALYZER_MODEL_ID: "different-model" });
     try {
@@ -3850,10 +3860,14 @@ test("approved reviewed headless cut executes once and independently reads back"
   await writeFile(analyzer, script.replace('words: [{ text: "highlight", start: 0.5, end: 1.4, confidence: 0.99 }]', 'words: [{ text: "Hello.", start: 0.5, end: 1, confidence: 0.99 }, { text: "Again", start: 3, end: 3.5, confidence: 0.99 }]')
     .replace('vadSegments: [{ start: 0, end: 2, kind: "speech", confidence: 0.99 }]', 'vadSegments: [{ start: 0.5, end: 1, kind: "speech", confidence: 0.99 }, { start: 3, end: 3.5, kind: "speech", confidence: 0.99 }]'));
   const stateDirectory = join(directory, "state");
+  const modelAssetPath = join(directory, "fixture-model.bin");
+  const modelAssetBytes = Buffer.from("declared fixture model asset");
+  await writeFile(modelAssetPath, modelAssetBytes);
   const environment = { ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
     FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1", FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
     FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"), FRAMEKIT_STATE_DIR: stateDirectory,
-    FRAMEKIT_SPEECH_ANALYZER: analyzer, FRAMEKIT_SPEECH_ANALYZER_VERSION: "test-vad@1", FRAMEKIT_SPEECH_ANALYZER_MODEL_ID: "fixture-model", FRAMEKIT_SPEECH_REQUIRE_VAD: "1", FRAMEKIT_AUDIO_ANALYZER: "" };
+    FRAMEKIT_SPEECH_ANALYZER: analyzer, FRAMEKIT_SPEECH_ANALYZER_VERSION: "test-vad@1", FRAMEKIT_SPEECH_ANALYZER_MODEL_ID: "fixture-model", FRAMEKIT_SPEECH_REQUIRE_VAD: "1",
+    FRAMEKIT_SPEECH_MODEL_ASSET_PATH: modelAssetPath, FRAMEKIT_SPEECH_MODEL_ASSET_SHA256: createHash("sha256").update(modelAssetBytes).digest("hex"), FRAMEKIT_AUDIO_ANALYZER: "" };
   let connection: { client: Client; transport: StdioClientTransport } | undefined;
   try {
     await generateSegmentedSource(sourcePath, [{ color: "blue", duration: 1 }, { color: "red", duration: 2 }, { color: "green", duration: 2 }], 440);
@@ -3892,6 +3906,14 @@ test("approved reviewed headless cut executes once and independently reads back"
     const cut = plan.plan.decisions.find((item: any) => item.kind === "cut"); assert.ok(cut);
     const args = { ...input, planDigest: plan.plan.planDigest, candidateIndex: plan.plan.decisions.indexOf(cut) };
     const before = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
+    const assetApproval = payload(await client.callTool({ name: "headless.decision.approved-preview-cut", arguments: args }));
+    await writeFile(modelAssetPath, "changed declared model asset");
+    const rejectedAsset = await client.callTool({ name: "headless.decision.approved-execute-cut", arguments: { projectId, sequenceId, previewToken: assetApproval.previewToken, approved: true } });
+    assert.equal(rejectedAsset.isError, true);
+    assert.match(toolErrorText(rejectedAsset), /ANALYZER_MODEL_CHANGED|STALE_DECISION_PLAN/);
+    await writeFile(modelAssetPath, modelAssetBytes);
+    assert.equal((await client.callTool({ name: "headless.decision.approved-execute-cut", arguments: { projectId, sequenceId, previewToken: assetApproval.previewToken, approved: true } })).isError, true);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, before.timeline);
     const musicApproval = payload(await client.callTool({ name: "headless.decision.approved-preview-music", arguments: { ...input, planDigest: plan.plan.planDigest } }));
     const vadArtifact = join(stateDirectory, "analysis-artifacts", vadRef.artifactDigest.slice(7));
     const vadBytes = await readFile(vadArtifact);

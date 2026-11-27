@@ -208,6 +208,8 @@ const analyzers = liveMode
       speechCommand: process.env.FRAMEKIT_SPEECH_ANALYZER,
       speechProviderVersion: process.env.FRAMEKIT_SPEECH_ANALYZER_VERSION,
       speechModelIdentity: process.env.FRAMEKIT_SPEECH_ANALYZER_MODEL_ID,
+      speechModelAssetPath: process.env.FRAMEKIT_SPEECH_MODEL_ASSET_PATH,
+      speechModelAssetSha256: process.env.FRAMEKIT_SPEECH_MODEL_ASSET_SHA256,
       speechRequireVad: process.env.FRAMEKIT_SPEECH_REQUIRE_VAD === "1",
       audioCommand: process.env.FRAMEKIT_AUDIO_ANALYZER,
       audioProviderVersion: process.env.FRAMEKIT_AUDIO_ANALYZER_VERSION,
@@ -312,6 +314,14 @@ const briefStoreForProject = (projectId: string) => new JsonCreativeBriefStore(j
     return operation(lockedProject);
   }));
 const analysisArtifacts = new FileAnalysisArtifactStore(join(framekitStateDirectory, "analysis-artifacts"));
+const currentAnalysisProvider = async (kind: "speech" | "vad" | "audio") => {
+  const analyzer = kind === "audio" ? analyzers.audioAnalyzer : analyzers.speechAnalyzer;
+  if (analyzer && "verifyProviderIdentity" in analyzer && typeof analyzer.verifyProviderIdentity === "function") {
+    await analyzer.verifyProviderIdentity();
+  }
+  return analyzer?.descriptor;
+};
+
 const server = createMcpServer(runtime, {
   processMode: liveMode && !headlessFinalCut ? "headed" : "headless",
   connectionStatus: () => connection?.ensureConnected(),
@@ -336,11 +346,11 @@ const server = createMcpServer(runtime, {
     storeForProject: briefStoreForProject,
   }),
   analysisEvidence: { index: semanticMediaIndexStore, artifacts: analysisArtifacts,
-    currentProvider: (kind) => (kind === "audio" ? analyzers.audioAnalyzer : analyzers.speechAnalyzer)?.descriptor },
+    currentProvider: currentAnalysisProvider },
   headlessDecisionPlans: new HeadlessDecisionPlanService({
     readProject: async (projectId) => projectSnapshotFromTimelineIr((await headlessProjects.open(projectId)).timeline),
     storeForProject: briefStoreForProject, artifacts: analysisArtifacts, index: semanticMediaIndexStore, verifySource: verifyLocalMediaSource,
-    currentProvider: (kind) => (kind === "audio" ? analyzers.audioAnalyzer : analyzers.speechAnalyzer)?.descriptor,
+    currentProvider: currentAnalysisProvider,
   }),
 });
 const transport = new StdioServerTransport();

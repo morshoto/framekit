@@ -12,7 +12,7 @@ export class HeadlessDecisionPlanService {
     storeForProject(projectId: string): CreativeBriefStore;
     artifacts: AnalysisArtifactStore;
     index: SemanticMediaIndexStore;
-    currentProvider(kind: "speech" | "vad" | "audio"): AnalyzerDescriptor | undefined;
+    currentProvider(kind: "speech" | "vad" | "audio"): AnalyzerDescriptor | undefined | Promise<AnalyzerDescriptor | undefined>;
     verifySource: AnalysisSourceVerifier;
   }) {}
 
@@ -35,7 +35,10 @@ export class HeadlessDecisionPlanService {
       if (!isDeepStrictEqual(before, after)) return { status: "unavailable", reason: "STALE_CONTEXT: project changed during planning" };
       await this.assertCurrentEvidence(input);
       await assertCurrentAcceptedBrief(store, input.projectId, brief.accepted);
-      this.assertCurrentProviders(input);
+      await this.assertCurrentProviders(input);
+      const finalProject = await this.options.readProject(input.projectId);
+      if (!isDeepStrictEqual(before, finalProject)) return { status: "unavailable", reason: "STALE_CONTEXT: project changed during provider verification" };
+      await assertCurrentAcceptedBrief(store, input.projectId, brief.accepted);
       return result;
     } catch (error) {
       return { status: "unavailable", reason: error instanceof Error ? error.message : "Headless decision planning failed" };
@@ -68,7 +71,9 @@ export class HeadlessDecisionPlanService {
         await verify(structuredClone(committed));
         await this.recheckEvidence(input, plan);
         await verify(structuredClone(committed));
-        this.assertCurrentProviders(input);
+        await this.assertCurrentProviders(input);
+        await verify(structuredClone(committed));
+        await this.assertCurrentProviders(input);
         return { status: "applied" as const, edit: committed, planDigest: digest,
           notice: "Headless edit only; evidence checks are point-in-time and do not establish native execution or dialogue audibility." };
       });
@@ -95,13 +100,13 @@ export class HeadlessDecisionPlanService {
     for (const source of sources) await this.options.verifySource(source);
     await this.assertCurrentEvidence(input);
     await assertCurrentAcceptedBrief(store, input.projectId, plan.acceptedBrief);
-    this.assertCurrentProviders(input);
+    await this.assertCurrentProviders(input);
   }
 
-  private assertCurrentProviders(input: HeadlessDecisionRequest): void {
+  private async assertCurrentProviders(input: HeadlessDecisionRequest): Promise<void> {
     for (const ref of [input.speechRef, input.vadRef, input.audioRef]) {
       if (!ref) continue;
-      const configured = this.options.currentProvider(ref.kind);
+      const configured = await this.options.currentProvider(ref.kind);
       if (!configured || !sameAnalyzerDescriptor(configured, ref.provider)) {
         throw new Error("ANALYSIS_STALE_PROVIDER: configured analyzer differs from the pinned reference");
       }
@@ -111,7 +116,7 @@ export class HeadlessDecisionPlanService {
   private async assertCurrentEvidence(input: HeadlessDecisionRequest): Promise<void> {
     for (const ref of [input.speechRef, input.vadRef, input.audioRef]) {
       if (!ref) continue;
-      const configured = this.options.currentProvider(ref.kind);
+      const configured = await this.options.currentProvider(ref.kind);
       if (!configured || !sameAnalyzerDescriptor(configured, ref.provider)) {
         throw new Error("ANALYSIS_STALE_PROVIDER: configured analyzer differs from the pinned reference");
       }
@@ -131,6 +136,6 @@ export class HeadlessDecisionPlanService {
         throw new Error("ANALYSIS_STALE: relevant source analysis changed after pinning");
       }
     }
-    this.assertCurrentProviders(input);
+    await this.assertCurrentProviders(input);
   }
 }

@@ -479,6 +479,8 @@ export interface AnalysisInput {
 
 export interface SpeechAnalyzer {
   analyze(input: AnalysisInput, range?: TimeRange): Promise<SpeechAnalysis>;
+  /** Recheck any explicitly bound provider assets; absence does not prove model identity. */
+  verifyProviderIdentity?(): Promise<void>;
   /** Revalidate physical source content before reusing persisted evidence. */
   validateSource?(input: AnalysisInput): Promise<void>;
   readonly descriptor?: AnalyzerDescriptor;
