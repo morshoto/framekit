@@ -3834,7 +3834,7 @@ test("approved reviewed headless cut executes once and independently reads back"
     FRAMEKIT_SPEECH_ANALYZER: analyzer, FRAMEKIT_SPEECH_ANALYZER_VERSION: "test-vad@1", FRAMEKIT_SPEECH_ANALYZER_MODEL_ID: "fixture-model", FRAMEKIT_SPEECH_REQUIRE_VAD: "1", FRAMEKIT_AUDIO_ANALYZER: "" };
   let connection: { client: Client; transport: StdioClientTransport } | undefined;
   try {
-    await generateSegmentedSource(sourcePath, [{ color: "blue", duration: 5 }], 440);
+    await generateSegmentedSource(sourcePath, [{ color: "blue", duration: 1 }, { color: "red", duration: 2 }, { color: "green", duration: 2 }], 440);
     connection = await connectProductionClient(here, environment);
     const client = connection.client;
     const created = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: emptyTimeline() } }));
@@ -3857,8 +3857,9 @@ test("approved reviewed headless cut executes once and independently reads back"
     const plan = payload(await client.callTool({ name: "headless.decision.plan", arguments: input }));
     assert.equal(plan.status, "available", plan.reason);
     const cut = plan.plan.decisions.find((item: any) => item.kind === "cut"); assert.ok(cut);
-    const args = { ...input, planDigest: plan.plan.planDigest, candidateDigest: cut.candidate.inputDigest };
+    const args = { ...input, planDigest: plan.plan.planDigest, candidateIndex: plan.plan.decisions.indexOf(cut) };
     const before = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
+    assert.equal((await client.callTool({ name: "headless.decision.approved-preview-cut", arguments: { ...args, candidateIndex: 999 } })).isError, true);
     const preview = payload(await client.callTool({ name: "headless.decision.approved-preview-cut", arguments: args }));
     assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, before.timeline);
     const execute = { projectId, sequenceId, previewToken: preview.previewToken, approved: true };
@@ -3869,12 +3870,31 @@ test("approved reviewed headless cut executes once and independently reads back"
     assert.equal((await client.callTool({ name: "headless.decision.approved-execute-cut", arguments: execute })).isError, true);
     assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, before.timeline);
     const approved = payload(await client.callTool({ name: "headless.decision.approved-preview-cut", arguments: args }));
-    const applied = payload(await client.callTool({ name: "headless.decision.approved-execute-cut", arguments: { ...execute, previewToken: approved.previewToken } }));
+    const concurrent = await Promise.all([0, 1].map(() => client.callTool({ name: "headless.decision.approved-execute-cut", arguments: { ...execute, previewToken: approved.previewToken } })));
+    assert.equal(concurrent.filter((result) => result.isError).length, 1);
+    const applied = payload(concurrent.find((result) => !result.isError));
     assert.equal(applied.status, "applied");
     const observed = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
     assert.deepEqual(observed.timeline, applied.edit.after.timeline);
     assert.equal(observed.timeline.sequence.occurrences.length, 2);
-    assert.deepEqual(observed.timeline.sequence.occurrences[1].sourceStartTime, { value: String(BigInt(cut.candidate.sourceRange.startTime.value) * BigInt(cut.candidate.sourceRange.durationTime.timescale) + BigInt(cut.candidate.sourceRange.durationTime.value) * BigInt(cut.candidate.sourceRange.startTime.timescale)), timescale: String(BigInt(cut.candidate.sourceRange.startTime.timescale) * BigInt(cut.candidate.sourceRange.durationTime.timescale)) });
+    const rightStart = observed.timeline.sequence.occurrences[1].sourceStartTime;
+    const sourceStart = cut.candidate.sourceRange.startTime; const removedDuration = cut.candidate.sourceRange.durationTime;
+    assert.equal(BigInt(rightStart.value) * BigInt(sourceStart.timescale) * BigInt(removedDuration.timescale),
+      (BigInt(sourceStart.value) * BigInt(removedDuration.timescale) + BigInt(removedDuration.value) * BigInt(sourceStart.timescale)) * BigInt(rightStart.timescale));
+    const outputPath = join(directory, "approved-cut.mp4");
+    const rendered = payload(await client.callTool({ name: "headless.render", arguments: { projectId, sequenceId, expectedRevision: observed.timeline.revision,
+      parameters: { outputPath, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } } }));
+    assert.equal(rendered.status, "passed", JSON.stringify(rendered));
+    const probe = await execFileAsync(process.env.FFPROBE_BIN || "ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", outputPath]);
+    const expectedDuration = 5 - Number(removedDuration.value) / Number(removedDuration.timescale);
+    assert.ok(Math.abs(Number(probe.stdout.trim()) - expectedDuration) < 0.05);
+    const sample = async (at: number) => (await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-hide_banner", "-loglevel", "error", "-ss", String(at), "-i", outputPath, "-frames:v", "1", "-vf", "scale=1:1", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"], { encoding: "buffer" })).stdout;
+    const first = await sample(0.5); const last = await sample(expectedDuration - 0.5);
+    assert.ok(first[2]! > first[0]! + 50 && first[2]! > first[1]! + 50, "first segment remains blue");
+    assert.ok(last[1]! > last[0]! + 50 && last[1]! > last[2]! + 50, "last segment remains green");
     assert.equal((await client.callTool({ name: "headless.decision.approved-execute-cut", arguments: { ...execute, previewToken: approved.previewToken } })).isError, true);
+    const undone = payload(await client.callTool({ name: "headless.edit.undo", arguments: { projectId, sequenceId, undoId: applied.edit.undoId, expectedRevision: observed.timeline.revision } }));
+    assert.equal(undone.verification.verified, true);
+    assert.deepEqual(undone.project.timeline.sequence, before.timeline.sequence);
   } finally { if (connection) { await connection.client.close(); await connection.transport.close(); } await rm(directory, { recursive: true, force: true }); }
 });

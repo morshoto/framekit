@@ -1,3 +1,4 @@
+import { reviewedCutOperations } from "./headless-decision-cut.js";
 import { registerValidatedTool } from "./tools/validated-tool.js";
 import type { SessionSqliteObservationProvider } from "./headless-sessions.js";
 import { McpServer } from "@modelcontextprotocol/server";
@@ -2446,6 +2447,71 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async (input) => sessionResult(async () => {
     if (!options.headlessDecisionPlans) throw new Error("DECISION_PLAN_UNAVAILABLE: headless planning is not configured");
     return options.headlessDecisionPlans.plan(input);
+  }));
+
+  const decisionCutApprovals = new Map<string, { input: HeadlessDecisionRequest; planDigest: string; editToken: string; expiresAt: number }>();
+  const previewDecisionCut = async (input: HeadlessDecisionRequest, planDigest: string, candidateIndex: number) => {
+    const plans = options.headlessDecisionPlans;
+    if (!plans) throw new Error("DECISION_PLAN_UNAVAILABLE: headless planning is not configured");
+    const initial = await plans.plan(input);
+    if (initial.status !== "available" || initial.plan.planDigest !== planDigest) throw new Error("STALE_DECISION_PLAN: review the current plan before previewing");
+    const decision = initial.plan.decisions[candidateIndex];
+    if (!decision || decision.kind !== "cut") throw new Error("CUT_PREVIEW_UNAVAILABLE: select a reviewed cut decision");
+    const service = requireHeadlessProjects();
+    const before = await service.open(input.projectId);
+    if (before.timeline.project.id !== input.projectId || before.timeline.sequence.id !== input.timelineId) throw new Error("STALE_DECISION_PLAN: target changed");
+    const operations = reviewedCutOperations(before.timeline, decision.candidate, planDigest);
+    const preview = await service.previewEdit(input.projectId, { schemaVersion: 1, expectedRevision: input.revision, operations }, input.timelineId);
+    if (timelineIrDigest(before.timeline) !== timelineIrDigest(preview.before.timeline)) throw new Error("STALE_DECISION_PLAN: project changed during preview");
+    const current = await plans.plan(input);
+    if (current.status !== "available" || current.plan.planDigest !== planDigest) throw new Error("STALE_DECISION_PLAN: inputs changed during preview");
+    const after = await service.open(input.projectId);
+    if (timelineIrDigest(after.timeline) !== timelineIrDigest(preview.before.timeline)) throw new Error("STALE_DECISION_PLAN: project changed during preview");
+    return { scope: "headless-preview", planDigest, candidateIndex, preview, notice: "Review only; this is not approval or native editing." };
+  };
+  registerValidatedTool(server, "headless.decision.preview-cut", {
+    description: "Preview one reviewed cut in an isolated headless primary clip without executing it.",
+    inputSchema: { ...decisionPlanSchema, planDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/), candidateIndex: z.number().int().nonnegative() },
+  }, async ({ planDigest, candidateIndex, ...input }) => sessionResult(() => previewDecisionCut(input, planDigest, candidateIndex)));
+  registerValidatedTool(server, "headless.decision.approved-preview-cut", {
+    description: "Prepare a single-use headless cut preview bound to the reviewed decision plan.",
+    inputSchema: { ...decisionPlanSchema, planDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/), candidateIndex: z.number().int().nonnegative() },
+  }, async ({ planDigest, candidateIndex, ...input }) => sessionResult(async () => {
+    const reviewed = await previewDecisionCut(input, planDigest, candidateIndex);
+    const approved = await requireHeadlessProjects().previewApprovedEdit(input.projectId, {
+      schemaVersion: 1, expectedRevision: input.revision, operations: reviewed.preview.command.operations,
+    }, input.timelineId);
+    if (timelineIrDigest(approved.before.timeline) !== timelineIrDigest(reviewed.preview.before.timeline)
+      || timelineIrDigest(approved.after.timeline) !== timelineIrDigest(reviewed.preview.after.timeline)) throw new Error("STALE_DECISION_PLAN: approved preview differs from the reviewed proposal");
+    await previewDecisionCut(input, planDigest, candidateIndex);
+    const now = Date.now();
+    for (const [token, entry] of decisionCutApprovals) if (entry.expiresAt <= now) decisionCutApprovals.delete(token);
+    while (decisionCutApprovals.size >= 256) decisionCutApprovals.delete(decisionCutApprovals.keys().next().value!);
+    const previewToken = `decision-cut-${randomUUID()}`;
+    decisionCutApprovals.set(previewToken, { input: structuredClone(input), planDigest, editToken: approved.previewToken, expiresAt: now + 10 * 60 * 1000 });
+    return { ...reviewed, previewToken };
+  }));
+  registerValidatedTool(server, "headless.decision.approved-execute-cut", {
+    description: "Execute one separately approved, decision-bound headless cut; native Final Cut is not used.",
+    inputSchema: { projectId: z.string().min(1), sequenceId: z.string().min(1), previewToken: z.string().min(1), approved: z.literal(true) },
+  }, async ({ projectId, sequenceId, previewToken }) => sessionResult(async () => {
+    const entry = decisionCutApprovals.get(previewToken);
+    if (!entry || entry.expiresAt <= Date.now() || entry.input.projectId !== projectId || entry.input.timelineId !== sequenceId) {
+      throw new Error("DECISION_PREVIEW_INVALID: token is unknown, expired or belongs to another target");
+    }
+    decisionCutApprovals.delete(previewToken);
+    const plans = options.headlessDecisionPlans;
+    if (!plans) throw new Error("DECISION_PLAN_UNAVAILABLE: headless planning is not configured");
+    return plans.executeAcceptedPlan(entry.input, entry.planDigest, (lockedProject) =>
+      requireHeadlessProjects().executeApprovedEdit(projectId, sequenceId, entry.editToken, lockedProject), async (edit) => {
+      const observed = await requireHeadlessProjects().open(projectId);
+      const revision = observed.timeline.revision; const expected = edit.after.timeline.revision;
+      if (observed.timeline.project.id !== projectId || observed.timeline.sequence.id !== sequenceId
+        || revision.id !== expected.id || revision.sequence !== expected.sequence || revision.timestamp !== expected.timestamp
+        || timelineIrDigest(observed.timeline) !== timelineIrDigest(edit.after.timeline)) {
+        throw new Error("HEADLESS_DECISION_READBACK_MISMATCH: committed project differs from independent readback");
+      }
+    });
   }));
 
   const decisionMusicApprovals = new Map<string, { input: HeadlessDecisionRequest; planDigest: string; editToken: string; expiresAt: number }>();
