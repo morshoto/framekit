@@ -78,9 +78,10 @@ export function planMusic(request: MusicPlanRequest): MusicPlan {
   if (request.requestedDucking || request.requestedFades) return { ...base, decision: "unsupported", reason: "Requested dynamic mixing or transitions require a separately supported workflow." };
   if (!request.capabilities?.staticMusicPreview) return { ...base, decision: "unsupported", reason: "Static music placement preview is unavailable for this target." };
   const music = request.music;
+  const registered = music ? actual.media.filter((media) => media.mediaId === music.mediaId) : [];
   if (!music?.sourceDigest || !music.mediaId || !music.source || music.mediaKind !== "audio" || !Number.isFinite(music.duration) || !music.duration || music.duration <= 0
-    || !actual.media.some((media) => sameMediaSourceIdentity(media, music))) {
-    return { ...base, decision: "unavailable", reason: "An exactly matching registered music source is required." };
+    || registered.length !== 1 || !sameMediaSourceIdentity(registered[0]!, music)) {
+    return { ...base, decision: "unavailable", reason: "A unique, exactly matching registered music source is required." };
   }
   const range = request.placement;
   if (!request.occurrenceId?.trim() || actual.timeline.clips.some((clip) => clip.id === request.occurrenceId)) return { ...base, decision: "unsupported", reason: "A new music occurrence identity is required." };
