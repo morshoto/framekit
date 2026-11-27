@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { constants, existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { chmod, link, mkdir, open, readFile, readdir, mkdtemp, rename, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
+import { chmod, link, mkdir, open, readFile, readdir, realpath, mkdtemp, rename, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { dirname } from "node:path";
 import { tmpdir } from "node:os";
@@ -1764,7 +1764,7 @@ test("headless project media can be understood and planned without a Final Cut c
       const sampledFrame = join(directory, "reviewed-caption-frame.png");
       await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-hide_banner", "-loglevel", "error", "-ss", "0.8", "-i", captionOutput,
         "-frames:v", "1", "-vf", "scale=1280:720:flags=lanczos", "-y", sampledFrame]);
-      const recognized = await execFileAsync(process.env.TESSERACT_BIN || "tesseract", [sampledFrame, "stdout", "--psm", "7", "-l", "eng"]);
+      const recognized = await execFileAsync(process.env.TESSERACT_BIN || "tesseract", [await realpath(sampledFrame), "stdout", "--psm", "7", "-l", "eng"]);
       assert.equal(recognized.stdout.trim().toLowerCase(), "highlight", "independent OCR must read the reviewed title in the rendered frame");
     }
     assert.ok(countBrightPixels(await readVideoFrame(captionOutput, 0.8)) > 50, "reviewed title must appear during the mapped range");
@@ -3911,5 +3911,25 @@ test("approved reviewed headless cut executes once and independently reads back"
     const undone = payload(await client.callTool({ name: "headless.edit.undo", arguments: { projectId, sequenceId, undoId: applied.edit.undoId, expectedRevision: observed.timeline.revision } }));
     assert.equal(undone.verification.verified, true);
     assert.deepEqual(undone.project.timeline.sequence, before.timeline.sequence);
+    // Brief acceptance is revision-bound. Reapprove the same brief and repin
+    // source analysis at each new revision before a second reviewed cut.
+    let current = undone.project;
+    for (const occurrenceId of ["interview", "next"]) {
+      const currentTarget = { projectId, sequenceId, expectedRevision: current.timeline.revision };
+      payload(await client.callTool({ name: "headless.brief.accept", arguments: { ...currentTarget, expectedDigest: draft.record.digest, confirmed: true } }));
+      const currentPin = { ...currentTarget, mediaId: media.resource.id, range: { start: 0, end: 5 } };
+      const currentSpeech = payload(await client.callTool({ name: "headless.analysis.pin", arguments: { ...currentPin, kind: "speech" } })).ref;
+      const currentVad = payload(await client.callTool({ name: "headless.analysis.pin", arguments: { ...currentPin, kind: "vad" } })).ref;
+      const nextInput = { ...input, revision: current.timeline.revision, occurrenceId, speechRef: currentSpeech, vadRef: currentVad };
+      const nextPlan = payload(await client.callTool({ name: "headless.decision.plan", arguments: nextInput }));
+      assert.equal(nextPlan.status, "available", nextPlan.reason);
+      const index = nextPlan.plan.decisions.findIndex((item: any) => item.kind === "cut"); assert.ok(index >= 0);
+      const nextPreview = payload(await client.callTool({ name: "headless.decision.approved-preview-cut", arguments: { ...nextInput, planDigest: nextPlan.plan.planDigest, candidateIndex: index } }));
+      const nextApplied = payload(await client.callTool({ name: "headless.decision.approved-execute-cut", arguments: { projectId, sequenceId, previewToken: nextPreview.previewToken, approved: true } }));
+      assert.equal(nextApplied.status, "applied");
+      current = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
+      assert.deepEqual(current.timeline, nextApplied.edit.after.timeline);
+    }
+    assert.equal(current.timeline.sequence.occurrences.length, 4);
   } finally { if (connection) { await connection.client.close(); await connection.transport.close(); } await rm(directory, { recursive: true, force: true }); }
 });
