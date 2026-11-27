@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { constants, existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { chmod, link, mkdir, open, readFile, readdir, mkdtemp, rename, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
+import { chmod, link, mkdir, open, readFile, readdir, realpath, mkdtemp, rename, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { dirname } from "node:path";
 import { tmpdir } from "node:os";
@@ -1764,7 +1764,7 @@ test("headless project media can be understood and planned without a Final Cut c
       const sampledFrame = join(directory, "reviewed-caption-frame.png");
       await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-hide_banner", "-loglevel", "error", "-ss", "0.8", "-i", captionOutput,
         "-frames:v", "1", "-vf", "scale=1280:720:flags=lanczos", "-y", sampledFrame]);
-      const recognized = await execFileAsync(process.env.TESSERACT_BIN || "tesseract", [sampledFrame, "stdout", "--psm", "7", "-l", "eng"]);
+      const recognized = await execFileAsync(process.env.TESSERACT_BIN || "tesseract", [await realpath(sampledFrame), "stdout", "--psm", "7", "-l", "eng"]);
       assert.equal(recognized.stdout.trim().toLowerCase(), "highlight", "independent OCR must read the reviewed title in the rendered frame");
     }
     assert.ok(countBrightPixels(await readVideoFrame(captionOutput, 0.8)) > 50, "reviewed title must appear during the mapped range");
