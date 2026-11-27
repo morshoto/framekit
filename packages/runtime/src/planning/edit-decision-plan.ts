@@ -45,7 +45,7 @@ export type EditDecision =
   | { kind: "caption-omission"; support: "no-op"; rationale: string }
   | { kind: "caption-clarification"; support: "unavailable"; rationale: string }
   | { kind: "music-omission"; support: "no-op"; rationale: string; musicPlan: MusicPlan; audioRef?: AnalysisRef }
-  | { kind: "music-proposal"; support: "unavailable"; rationale: string; musicPlan: MusicPlan; range?: TimeRange; audioRef?: AnalysisRef };
+  | { kind: "music-proposal"; support: "unavailable"; rationale: string; musicPlan: MusicPlan; range?: TimeRange; audioRef?: AnalysisRef; vadRef?: AnalysisRef };
 export interface EditDecisionPlan {
   projectId: string;
   timelineId: string;
@@ -193,7 +193,7 @@ export async function createEditDecisionPlan(request: EditDecisionPlanRequest, a
       ...captionDecisions,
       music.decision === "omit-music"
         ? { kind: "music-omission", support: "no-op", rationale: music.reason, musicPlan: music, ...(request.audioRef ? { audioRef: structuredClone(request.audioRef) } : {}) }
-        : { kind: "music-proposal", support: "unavailable", rationale: music.reason, musicPlan: music, ...(request.audioRef ? { audioRef: structuredClone(request.audioRef) } : {}), ...(music.placement ? { range: structuredClone(music.placement.range) } : {}) },
+        : { kind: "music-proposal", support: "unavailable", rationale: music.reason, musicPlan: music, ...(request.audioRef ? { audioRef: structuredClone(request.audioRef) } : {}), ...(pinnedMusicSpeech && request.vadRef ? { vadRef: structuredClone(request.vadRef) } : {}), ...(music.placement ? { range: structuredClone(music.placement.range) } : {}) },
     ];
     decisions.sort((a, b) => ("range" in a ? a.range?.start ?? Number.POSITIVE_INFINITY : Number.POSITIVE_INFINITY)
       - ("range" in b ? b.range?.start ?? Number.POSITIVE_INFINITY : Number.POSITIVE_INFINITY));
