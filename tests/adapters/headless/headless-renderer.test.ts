@@ -84,6 +84,11 @@ test("FFmpeg renderer rejects caption text wider than the output", async () => {
     const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(output) });
     await assert.rejects(renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request))), /HEADLESS_RENDER_UNSUPPORTED.*title.*fit/i);
     await assert.rejects(readFile(output), /ENOENT/);
+    source.sequence.titles![0]!.text = "Short";
+    source.sequence.titles![0]!.position = { x: 0.99, y: 0 };
+    const shifted = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(output) });
+    await assert.rejects(renderer.render(createFramekitRenderPlan(shifted, renderer.capabilities(shifted))), /HEADLESS_RENDER_UNSUPPORTED.*title.*fit/i);
+    await assert.rejects(readFile(output), /ENOENT/);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
