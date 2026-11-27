@@ -64,6 +64,23 @@ test("does not infer an audible mix from gameplay, music-led, or missing analysi
   }
 });
 
+test("static gain exposes its reviewable protection range without asserting audibility", () => {
+  for (const speech of ["present", "absent", "unknown"] as const) {
+    const plan = planMusic({ ...request, placement: { start: 5, end: 20 }, context: { speech, audioEvidence: "unavailable" } });
+    assert.deepEqual(plan.dialogueProtection, {
+      range: { start: 5, end: 20 },
+      musicGainDb: -18,
+      sourceAudio: "unchanged",
+      speechContext: speech,
+      speechContextVerification: "unverified",
+      audibility: "unverified",
+    });
+  }
+  const noMusic = { ...brief, musicPolicy: { kind: "specified" as const, value: "none" } };
+  assert.equal(planMusic({ ...request, brief: noMusic, accepted: acceptCreativeBrief(noMusic) }).dialogueProtection, undefined);
+  assert.equal(planMusic({ ...request, requestedDucking: true }).dialogueProtection, undefined);
+});
+
 
 test("source must exist in the current exact project and range", () => {
   assert.equal(planMusic({ ...request, snapshot: { ...snapshot, media: [] } }).decision, "unavailable");
