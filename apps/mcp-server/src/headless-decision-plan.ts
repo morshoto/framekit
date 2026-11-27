@@ -60,7 +60,7 @@ export class HeadlessDecisionPlanService {
   }
 
   /** Preserve the edit and Undo record if a post-commit check or lock release fails. */
-  async executeAcceptedPlan<T>(input: HeadlessDecisionRequest, digest: string, execute: (lockedProject: ProjectStore) => Promise<T>, verify: (edit: T) => Promise<void>) {
+  async executeAcceptedPlan<T>(input: HeadlessDecisionRequest, digest: string, execute: (lockedProject: ProjectStore) => Promise<T>, verify: (edit: T, plan: EditDecisionPlan) => Promise<void>) {
     input = structuredClone(input);
     let committed: T | undefined;
     let completed = false;
@@ -69,11 +69,11 @@ export class HeadlessDecisionPlanService {
         committed = await execute(lockedProject);
         completed = true;
         committed = structuredClone(committed);
-        await verify(structuredClone(committed));
+        await verify(structuredClone(committed), structuredClone(plan));
         await this.recheckEvidence(input, plan);
-        await verify(structuredClone(committed));
+        await verify(structuredClone(committed), structuredClone(plan));
         await this.assertCurrentProviders(input);
-        await verify(structuredClone(committed));
+        await verify(structuredClone(committed), structuredClone(plan));
         await this.assertCurrentProviders(input);
         return { status: "applied" as const, edit: committed, planDigest: digest,
           notice: "Headless edit only; evidence checks are point-in-time and do not establish native execution or dialogue audibility." };
