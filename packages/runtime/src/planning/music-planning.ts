@@ -40,6 +40,15 @@ export interface MusicPlan {
   reason: string;
   warnings: string[];
   dialogueVerificationRequired: boolean;
+  /** A proposed static music level, not proof that dialogue will be audible. */
+  dialogueProtection?: {
+    range: TimeRange;
+    musicGainDb: number;
+    sourceAudio: "unchanged";
+    speechContext: "present" | "absent" | "unknown";
+    speechContextVerification: "unverified";
+    audibility: "unverified";
+  };
   placement?: { occurrenceId: string; mediaId: string; sourceDigest: string; range: TimeRange; sourceRange: TimeRange; targetLane: number; gainDb: number };
 }
 
@@ -87,6 +96,8 @@ export function planMusic(request: MusicPlanRequest): MusicPlan {
   return {
     ...base, decision: "propose-music", reason: "The accepted brief requests a background music proposal.", warnings,
     dialogueVerificationRequired: true,
+    dialogueProtection: { range: structuredClone(range), musicGainDb: request.gainDb, sourceAudio: "unchanged",
+      speechContext: request.context.speech, speechContextVerification: "unverified", audibility: "unverified" },
     placement: { occurrenceId: request.occurrenceId, mediaId: music.mediaId, sourceDigest: music.sourceDigest, range: structuredClone(range), sourceRange: { start: 0, end: range.end - range.start }, targetLane: request.targetLane, gainDb: request.gainDb },
   };
 }
