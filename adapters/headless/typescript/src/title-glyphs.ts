@@ -46,21 +46,27 @@ export function titleGlyphProblem(fontFile: string | undefined, texts: readonly 
   }
 }
 
-/** Conservatively check shaped horizontal advances against the requested canvas. */
-export function titleHorizontalFitProblem(bytes: Buffer, titles: readonly TimelineIrTitle[], width: number, height: number): string | undefined {
+/** Conservatively check shaped text bounds against the requested canvas. */
+export function titleFitProblem(bytes: Buffer, titles: readonly TimelineIrTitle[], width: number, height: number): string | undefined {
   try {
     const opened = create(bytes);
     const font = "fonts" in opened ? opened.fonts[0] : opened;
     if (!font || !Number.isFinite(font.unitsPerEm) || font.unitsPerEm <= 0) return "title font metrics are unavailable";
     const bounds = font.bbox;
-    if (!Number.isFinite(bounds.minX) || !Number.isFinite(bounds.maxX)) return "title font bounds are unavailable";
+    if (![bounds.minX, bounds.maxX, bounds.minY, bounds.maxY, font.ascent, font.descent, font.lineGap].every(Number.isFinite)) return "title font bounds are unavailable";
     for (const title of titles) {
       const basicDefault = title.style === undefined && title.position === undefined;
       const size = title.style?.fontSize ?? (basicDefault ? height * 44 / 720 : 32);
       const center = title.position ? width / 2 + title.position.x * width / 2 : width / 2;
       const available = title.position ? 2 * Math.min(center, width - center)
         : title.style?.alignment === "left" || title.style?.alignment === "right" ? width - 20 : width;
-      for (const line of title.text.split(/\r?\n/u)) {
+      const lines = title.text.split(/\r?\n/u);
+      const verticalCenter = title.position ? height / 2 - title.position.y * height / 2 : height / 2;
+      const availableHeight = title.position ? 2 * Math.min(verticalCenter, height - verticalCenter) : basicDefault ? height / 2 : height;
+      const lineHeight = Math.max(bounds.maxY - bounds.minY, font.ascent - font.descent + Math.max(0, font.lineGap));
+      const verticalPixels = lineHeight * size / font.unitsPerEm * lines.length;
+      if (!Number.isFinite(verticalPixels) || !Number.isFinite(availableHeight) || verticalPixels * 1.05 + 4 > availableHeight) return "title text cannot fit vertically in the requested output";
+      for (const line of lines) {
         const run = font.layout(line);
         let pen = 0; let minimum = 0; let maximum = 0;
         for (let index = 0; index < run.positions.length; index++) {
