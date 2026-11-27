@@ -1767,6 +1767,15 @@ test("headless project media can be understood and planned without a Final Cut c
       const recognized = await execFileAsync(process.env.TESSERACT_BIN || "tesseract", [await realpath(sampledFrame), "stdout", "--psm", "7", "-l", "eng"]);
       assert.equal(recognized.stdout.trim().toLowerCase(), "highlight", "independent OCR must read the reviewed title in the rendered frame");
     }
+    // The fixture word runs from 0.5 to 1.4 seconds: frames [15, 42) at 30 fps.
+    for (const [frame, visible] of [[14, false], [15, true], [41, true], [42, false]] as const) {
+      const { stdout } = await execFileAsync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-i", captionOutput,
+        "-vf", `select=eq(n\\,${frame})`, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"],
+      { encoding: "buffer", maxBuffer: 320 * 180 * 3 + 1024 });
+      const pixels = stdout as unknown as Buffer;
+      assert.equal(pixels.length, 320 * 180 * 3, `frame ${frame} must decode`);
+      assert.equal(countBrightPixels(pixels) > 50, visible, `caption visibility at frame ${frame}`);
+    }
     assert.ok(countBrightPixels(await readVideoFrame(captionOutput, 0.8)) > 50, "reviewed title must appear during the mapped range");
     assert.equal(countBrightPixels(await readVideoFrame(captionOutput, 0.2)), 0, "title must not appear before its mapped range");
     assert.equal(countBrightPixels(await readVideoFrame(captionOutput, 1.7)), 0, "title must not appear after its mapped range");
@@ -3860,7 +3869,7 @@ test("approved reviewed headless cut executes once and independently reads back"
           startTime: { value: "5", timescale: "1" }, durationTime: { value: "5", timescale: "1" }, sourceStartTime: { value: "0", timescale: "1" } } }] } }));
     const revision = placed.after.timeline.revision; const target = { projectId, sequenceId, expectedRevision: revision };
     payload(await client.callTool({ name: "media.understand", arguments: { projectId, mediaId: media.resource.id } }));
-    const brief = { schemaVersion: 1, id: "cut-brief", version: 1, purpose: { kind: "specified", value: "interview" }, audience: { kind: "no-preference" }, durationSeconds: { min: 1, max: 5 }, aspectRatio: "9:16", theme: "natural", visualDirection: "natural", requiredContent: [], excludedContent: [], sourceCoverage: [], speechPolicy: { kind: "specified", value: "preserve" }, musicPolicy: { kind: "specified", value: "none" }, captionPolicy: { kind: "specified", value: "none" }, inferences: [], reviewPrompts: [] };
+    const brief = { schemaVersion: 1, id: "cut-brief", version: 1, purpose: { kind: "specified", value: "interview" }, audience: { kind: "no-preference" }, durationSeconds: { min: 1, max: 5 }, aspectRatio: "9:16", theme: "natural", visualDirection: "natural", requiredContent: [], excludedContent: [], sourceCoverage: [], speechPolicy: { kind: "specified", value: "preserve" }, musicPolicy: { kind: "specified", value: "none" }, captionPolicy: { kind: "specified", value: "basic" }, inferences: [], reviewPrompts: [] };
     const draft = payload(await client.callTool({ name: "headless.brief.create", arguments: { ...target, brief } }));
     payload(await client.callTool({ name: "headless.brief.accept", arguments: { ...target, expectedDigest: draft.record.digest, confirmed: true } }));
     const pin = { ...target, mediaId: media.resource.id, range: { start: 0, end: 5 } };
@@ -3933,5 +3942,41 @@ test("approved reviewed headless cut executes once and independently reads back"
       assert.deepEqual(current.timeline, nextApplied.edit.after.timeline);
     }
     assert.equal(current.timeline.sequence.occurrences.length, 4);
+    const beforeCaptionPath = join(directory, "approved-cuts-before-caption.mp4");
+    const beforeCaptionRender = payload(await client.callTool({ name: "headless.render", arguments: { projectId, sequenceId, expectedRevision: current.timeline.revision,
+      parameters: { outputPath: beforeCaptionPath, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } } }));
+    assert.equal(beforeCaptionRender.status, "passed", JSON.stringify(beforeCaptionRender));
+    const captionTarget = { projectId, sequenceId, expectedRevision: current.timeline.revision };
+    payload(await client.callTool({ name: "headless.brief.accept", arguments: { ...captionTarget, expectedDigest: draft.record.digest, confirmed: true } }));
+    const captionPin = { ...captionTarget, mediaId: media.resource.id, range: { start: 0, end: 5 } };
+    const captionSpeech = payload(await client.callTool({ name: "headless.analysis.pin", arguments: { ...captionPin, kind: "speech" } })).ref;
+    const captionVad = payload(await client.callTool({ name: "headless.analysis.pin", arguments: { ...captionPin, kind: "vad" } })).ref;
+    const lastClip = current.timeline.sequence.occurrences.at(-1);
+    const captionInput = { ...input, revision: current.timeline.revision, occurrenceId: lastClip.id, speechRef: captionSpeech, vadRef: captionVad };
+    const captionPlan = payload(await client.callTool({ name: "headless.decision.plan", arguments: captionInput }));
+    assert.equal(captionPlan.status, "available", captionPlan.reason);
+    assert.ok(captionPlan.plan.decisions.some((item: any) => item.kind === "caption"));
+    const captionPreview = payload(await client.callTool({ name: "headless.decision.approved-preview-captions", arguments: { ...captionInput, planDigest: captionPlan.plan.planDigest } }));
+    const captionApplied = payload(await client.callTool({ name: "headless.decision.approved-execute-captions", arguments: { projectId, sequenceId, previewToken: captionPreview.previewToken, approved: true } }));
+    assert.equal(captionApplied.status, "applied");
+    const final = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
+    assert.deepEqual(final.timeline, captionApplied.edit.after.timeline);
+    const finalTitle = final.timeline.sequence.titles.find((title: any) => title.text.includes("Again")); assert.ok(finalTitle);
+    const finalPath = join(directory, "approved-cuts-and-caption.mp4");
+    const finalRender = payload(await client.callTool({ name: "headless.render", arguments: { projectId, sequenceId, expectedRevision: final.timeline.revision,
+      parameters: { outputPath: finalPath, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } } }));
+    assert.equal(finalRender.status, "passed", JSON.stringify(finalRender));
+    const titleTime = Number(finalTitle.startTime.value) / Number(finalTitle.startTime.timescale)
+      + Number(finalTitle.durationTime.value) / Number(finalTitle.durationTime.timescale) / 2;
+    const bright = countBrightPixels(await readVideoFrame(finalPath, titleTime));
+    const baselineBright = countBrightPixels(await readVideoFrame(beforeCaptionPath, titleTime));
+    assert.ok(bright > baselineBright + 20, `the final caption frame has more bright pixels (${bright} vs ${baselineBright})`);
+    if (process.env.FRAMEKIT_TEST_CAPTION_OCR === "1") {
+      const framePath = join(directory, "final-caption.png");
+      await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-hide_banner", "-loglevel", "error", "-ss", String(titleTime), "-i", finalPath,
+        "-frames:v", "1", "-vf", "scale=1280:720:flags=lanczos", "-y", framePath]);
+      const recognized = await execFileAsync(process.env.TESSERACT_BIN || "tesseract", [await realpath(framePath), "stdout", "--psm", "7", "-l", "eng"]);
+      assert.equal(recognized.stdout.trim().toLowerCase(), "again");
+    }
   } finally { if (connection) { await connection.client.close(); await connection.transport.close(); } await rm(directory, { recursive: true, force: true }); }
 });
