@@ -2403,6 +2403,14 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     if (!currentProvider || !sameAnalyzerDescriptor(ref.provider, currentProvider)) {
       throw new Error("ANALYSIS_STALE_PROVIDER: configured analyzer changed during evidence pinning");
     }
+    const currentRecord = await options.analysisEvidence.index.load(source);
+    if (!currentRecord || `sha256:${createHash("sha256").update(JSON.stringify(currentRecord)).digest("hex")}` !== ref.artifactDigest) {
+      throw new Error("ANALYSIS_STALE: analysis changed during evidence pinning");
+    }
+    const finalProvider = options.analysisEvidence.currentProvider(kind);
+    if (!finalProvider || !sameAnalyzerDescriptor(ref.provider, finalProvider)) {
+      throw new Error("ANALYSIS_STALE_PROVIDER: configured analyzer changed during evidence pinning");
+    }
     return { ref, notice: "Pinned source evidence is not edit approval or native occurrence proof." };
   }));
 
