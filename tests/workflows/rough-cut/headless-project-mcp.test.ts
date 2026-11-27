@@ -3911,5 +3911,25 @@ test("approved reviewed headless cut executes once and independently reads back"
     const undone = payload(await client.callTool({ name: "headless.edit.undo", arguments: { projectId, sequenceId, undoId: applied.edit.undoId, expectedRevision: observed.timeline.revision } }));
     assert.equal(undone.verification.verified, true);
     assert.deepEqual(undone.project.timeline.sequence, before.timeline.sequence);
+    // Brief acceptance is revision-bound. Reapprove the same brief and repin
+    // source analysis at each new revision before a second reviewed cut.
+    let current = undone.project;
+    for (const occurrenceId of ["interview", "next"]) {
+      const currentTarget = { projectId, sequenceId, expectedRevision: current.timeline.revision };
+      payload(await client.callTool({ name: "headless.brief.accept", arguments: { ...currentTarget, expectedDigest: draft.record.digest, confirmed: true } }));
+      const currentPin = { ...currentTarget, mediaId: media.resource.id, range: { start: 0, end: 5 } };
+      const currentSpeech = payload(await client.callTool({ name: "headless.analysis.pin", arguments: { ...currentPin, kind: "speech" } })).ref;
+      const currentVad = payload(await client.callTool({ name: "headless.analysis.pin", arguments: { ...currentPin, kind: "vad" } })).ref;
+      const nextInput = { ...input, revision: current.timeline.revision, occurrenceId, speechRef: currentSpeech, vadRef: currentVad };
+      const nextPlan = payload(await client.callTool({ name: "headless.decision.plan", arguments: nextInput }));
+      assert.equal(nextPlan.status, "available", nextPlan.reason);
+      const index = nextPlan.plan.decisions.findIndex((item: any) => item.kind === "cut"); assert.ok(index >= 0);
+      const nextPreview = payload(await client.callTool({ name: "headless.decision.approved-preview-cut", arguments: { ...nextInput, planDigest: nextPlan.plan.planDigest, candidateIndex: index } }));
+      const nextApplied = payload(await client.callTool({ name: "headless.decision.approved-execute-cut", arguments: { projectId, sequenceId, previewToken: nextPreview.previewToken, approved: true } }));
+      assert.equal(nextApplied.status, "applied");
+      current = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
+      assert.deepEqual(current.timeline, nextApplied.edit.after.timeline);
+    }
+    assert.equal(current.timeline.sequence.occurrences.length, 4);
   } finally { if (connection) { await connection.client.close(); await connection.transport.close(); } await rm(directory, { recursive: true, force: true }); }
 });

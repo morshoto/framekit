@@ -151,6 +151,9 @@ to `headless.decision.approved-execute-cut`. The server rechecks the accepted
 brief and pinned evidence, then reloads the saved headless project. An
 `applied-unverified` result requires inspection of the edit and Undo record.
 These point-in-time checks do not establish native editing or lock media files.
+Before a later approved edit, review and accept the brief against the new project
+revision, repin any analysis references at that revision, and create a new plan
+and approval. A prior acceptance or preview token cannot authorize the next edit.
 
 For reviewed basic captions, call `headless.decision.preview-captions` with the
 same planning inputs and `planDigest`. To prepare execution, call
