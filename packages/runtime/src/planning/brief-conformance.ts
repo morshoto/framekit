@@ -83,6 +83,17 @@ function validRevision(value: ContextRevision | undefined): value is ContextRevi
     && typeof value.timestamp === "string" && value.timestamp.trim().length > 0;
 }
 
+function hasPlanSourceBinding(plan: EditDecisionPlan): boolean {
+  return typeof plan.projectId === "string" && plan.projectId.trim().length > 0
+    && typeof plan.timelineId === "string" && plan.timelineId.trim().length > 0
+    && typeof plan.occurrenceId === "string" && plan.occurrenceId.trim().length > 0
+    && typeof plan.inputDigest === "string" && /^sha256:[a-f0-9]{64}$/.test(plan.inputDigest)
+    && plan.reviewRequired === true && Array.isArray(plan.decisions)
+    && !!plan.source && typeof plan.source.mediaId === "string" && plan.source.mediaId.trim().length > 0
+    && typeof plan.source.source === "string" && plan.source.source.trim().length > 0
+    && typeof plan.source.sourceDigest === "string" && /^(?:sha256:)?[a-f0-9]{64}$/.test(plan.source.sourceDigest);
+}
+
 /** Compare supplied observations only. No authenticated native receipt or file read is implied. */
 export function assessBriefArtifact(
   brief: CreativeBrief, accepted: AcceptedCreativeBrief, plan: EditDecisionPlan,
@@ -92,7 +103,7 @@ export function assessBriefArtifact(
   let bound = false;
   try {
     assertBriefBinding(accepted, brief);
-    bound = hasValidEditDecisionPlanDigest(plan) && isDeepStrictEqual(plan.acceptedBrief, accepted)
+    bound = hasValidEditDecisionPlanDigest(plan) && hasPlanSourceBinding(plan) && isDeepStrictEqual(plan.acceptedBrief, accepted)
       && validRevision(plan.revision) && validRevision(execution.baseRevision)
       && validRevision(execution.finalRevision) && validRevision(artifact.revision)
       && execution.status === "verified" && execution.planDigest === plan.planDigest
