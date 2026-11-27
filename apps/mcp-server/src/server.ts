@@ -978,7 +978,7 @@ export interface McpServerOptions {
   sessionMaterializationPublisher?: SessionMaterializationPublisher;
   headlessProjects?: HeadlessProjectWorkflow;
   analysisEvidence?: { index: SemanticMediaIndexStore; artifacts: AnalysisArtifactStore;
-    currentProvider(kind: "speech" | "vad" | "audio"): AnalyzerDescriptor | undefined };
+    currentProvider(kind: "speech" | "vad" | "audio"): AnalyzerDescriptor | undefined | Promise<AnalyzerDescriptor | undefined> };
   headlessBriefs?: HeadlessCreativeBriefService;
 }
 
@@ -2434,7 +2434,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     const matches = record?.analysis.filter((item) => item.capability === (kind === "vad" ? "speech" : kind) && item.status === "analyzed") ?? [];
     const provider = matches.length === 1 ? matches[0]?.provenance?.analyzer : undefined;
     if (!provider) throw new Error("ANALYSIS_UNAVAILABLE: unique analysis provenance is required");
-    const configured = options.analysisEvidence.currentProvider(kind);
+    const configured = await options.analysisEvidence.currentProvider(kind);
     if (!configured || !sameAnalyzerDescriptor(provider, configured)) {
       throw new Error("ANALYSIS_STALE_PROVIDER: configured analyzer differs from stored provenance");
     }
@@ -2442,7 +2442,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     const ref = await pinAnalysisEvidence(options.analysisEvidence.index, options.analysisEvidence.artifacts, context, verifyLocalMediaSource);
     const after = await projects.open(projectId);
     if (timelineIrDigest(before.timeline) !== timelineIrDigest(after.timeline)) throw new Error("STALE_CONTEXT: project changed during evidence pinning");
-    const currentProvider = options.analysisEvidence.currentProvider(kind);
+    const currentProvider = await options.analysisEvidence.currentProvider(kind);
     if (!currentProvider || !sameAnalyzerDescriptor(ref.provider, currentProvider)) {
       throw new Error("ANALYSIS_STALE_PROVIDER: configured analyzer changed during evidence pinning");
     }
@@ -2452,10 +2452,12 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     }
     const finalProject = await projects.open(projectId);
     if (timelineIrDigest(before.timeline) !== timelineIrDigest(finalProject.timeline)) throw new Error("STALE_CONTEXT: project changed during evidence pinning");
-    const finalProvider = options.analysisEvidence.currentProvider(kind);
+    const finalProvider = await options.analysisEvidence.currentProvider(kind);
     if (!finalProvider || !sameAnalyzerDescriptor(ref.provider, finalProvider)) {
       throw new Error("ANALYSIS_STALE_PROVIDER: configured analyzer changed during evidence pinning");
     }
+    const finalCheckedProject = await projects.open(projectId);
+    if (timelineIrDigest(before.timeline) !== timelineIrDigest(finalCheckedProject.timeline)) throw new Error("STALE_CONTEXT: project changed during evidence pinning");
     return { ref, notice: "Pinned source evidence is not edit approval or native occurrence proof." };
   }));
 

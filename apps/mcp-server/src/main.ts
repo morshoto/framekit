@@ -206,6 +206,8 @@ const analyzers = liveMode
       speechCommand: process.env.FRAMEKIT_SPEECH_ANALYZER,
       speechProviderVersion: process.env.FRAMEKIT_SPEECH_ANALYZER_VERSION,
       speechModelIdentity: process.env.FRAMEKIT_SPEECH_ANALYZER_MODEL_ID,
+      speechModelAssetPath: process.env.FRAMEKIT_SPEECH_MODEL_ASSET_PATH,
+      speechModelAssetSha256: process.env.FRAMEKIT_SPEECH_MODEL_ASSET_SHA256,
       speechRequireVad: process.env.FRAMEKIT_SPEECH_REQUIRE_VAD === "1",
       audioCommand: process.env.FRAMEKIT_AUDIO_ANALYZER,
       audioProviderVersion: process.env.FRAMEKIT_AUDIO_ANALYZER_VERSION,
@@ -304,6 +306,14 @@ const videoExporter = liveMode && !headlessFinalCut && process.env.FRAMEKIT_FINA
       nativeOperationLease,
     })
   : undefined;
+const currentAnalysisProvider = async (kind: "speech" | "vad" | "audio") => {
+  const analyzer = kind === "audio" ? analyzers.audioAnalyzer : analyzers.speechAnalyzer;
+  if (analyzer && "verifyProviderIdentity" in analyzer && typeof analyzer.verifyProviderIdentity === "function") {
+    await analyzer.verifyProviderIdentity();
+  }
+  return analyzer?.descriptor;
+};
+
 const server = createMcpServer(runtime, {
   processMode: liveMode && !headlessFinalCut ? "headed" : "headless",
   connectionStatus: () => connection?.ensureConnected(),
@@ -323,7 +333,7 @@ const server = createMcpServer(runtime, {
   materializationDirectory: join(framekitStateDirectory, "materializations"),
   headlessProjects,
   analysisEvidence: { index: semanticMediaIndexStore, artifacts: new FileAnalysisArtifactStore(join(framekitStateDirectory, "analysis-artifacts")),
-    currentProvider: (kind) => (kind === "audio" ? analyzers.audioAnalyzer : analyzers.speechAnalyzer)?.descriptor },
+    currentProvider: currentAnalysisProvider },
   headlessBriefs: new HeadlessCreativeBriefService({
     openProject: (projectId) => headlessProjects.open(projectId),
     withProjectLock: (projectId, operation) => headlessProjects.withProjectLock(projectId, operation),
