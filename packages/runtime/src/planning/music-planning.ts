@@ -5,7 +5,7 @@ import type { CreativeBriefStore } from "../application/creative-brief-store.js"
 import { validateAudioAnalysisRange } from "../audio/analysis.js";
 import type { CompositeEditPreview, MusicAddRequest } from "../domain/editing.js";
 import { sameMediaSourceIdentity } from "../domain/media.js";
-import type { MediaSourceIdentity } from "../domain/media.js";
+import type { MediaSourceIdentity, SpeechOccurrenceMapping } from "../domain/media.js";
 import type { ContextRevision, TimeRange } from "../domain/primitives.js";
 import type { ProjectSnapshot } from "../domain/project.js";
 import { assertBriefBinding, assertBriefSourceCoverage } from "./creative-brief.js";
@@ -24,6 +24,8 @@ export interface MusicPlanRequest {
   gainDb?: number;
   targetLane: number;
   context: { speech: "present" | "absent" | "unknown"; audioEvidence: "available" | "unavailable" };
+  /** Caller-supplied mapping; provenance and source bytes are not verified here. */
+  speechMapping?: SpeechOccurrenceMapping;
   capabilities: { staticMusicPreview: boolean; ducking: boolean; fades: boolean };
   requestedDucking?: boolean;
   requestedFades?: boolean;
@@ -48,6 +50,7 @@ export interface MusicPlan {
     speechContext: "present" | "absent" | "unknown";
     speechContextVerification: "unverified";
     audibility: "unverified";
+    speechOverlap?: { occurrenceId: string; coverage: "complete" | "unknown"; ranges: TimeRange[]; verification: "unverified" };
   };
   placement?: { occurrenceId: string; mediaId: string; sourceDigest: string; range: TimeRange; sourceRange: TimeRange; targetLane: number; gainDb: number };
 }
@@ -89,17 +92,57 @@ export function planMusic(request: MusicPlanRequest): MusicPlan {
   }
   if (request.gainDb === undefined) return { ...base, decision: "needs-review", reason: "An explicit music gain is required for review." };
   if (!Number.isFinite(request.gainDb) || request.gainDb > 0) return { ...base, decision: "unsupported", reason: "The requested music gain is invalid or amplifies the source." };
+  const speechOverlap = request.speechMapping ? reviewSpeechOverlap(request.speechMapping, actual, range) : undefined;
   const warnings = ["Verify rendered dialogue audibility and the resulting mix after any separately approved edit."];
   if (request.context.audioEvidence === "unavailable") warnings.push("Audio analysis is unavailable; no mix quality is inferred.");
   else warnings.push("Supplied audio context is unverified by this music planner; no mix quality is inferred.");
   if (request.context.speech === "unknown") warnings.push("Speech presence is unknown; preserve the source mix until reviewed.");
+  if (speechOverlap) warnings.push("Speech overlap is derived from a caller-supplied mapping and is not independently verified.");
   return {
     ...base, decision: "propose-music", reason: "The accepted brief requests a background music proposal.", warnings,
     dialogueVerificationRequired: true,
     dialogueProtection: { range: structuredClone(range), musicGainDb: request.gainDb, sourceAudio: "unchanged",
-      speechContext: request.context.speech, speechContextVerification: "unverified", audibility: "unverified" },
+      speechContext: request.context.speech, speechContextVerification: "unverified", audibility: "unverified", ...(speechOverlap ? { speechOverlap } : {}) },
     placement: { occurrenceId: request.occurrenceId, mediaId: music.mediaId, sourceDigest: music.sourceDigest, range: structuredClone(range), sourceRange: { start: 0, end: range.end - range.start }, targetLane: request.targetLane, gainDb: request.gainDb },
   };
+}
+
+function reviewSpeechOverlap(mapping: SpeechOccurrenceMapping, snapshot: ProjectSnapshot, placement: TimeRange): NonNullable<NonNullable<MusicPlan["dialogueProtection"]>["speechOverlap"]> {
+  const clips = snapshot.timeline.clips.filter((clip) => clip.id === mapping.occurrenceId);
+  const clip = clips.length === 1 ? clips[0] : undefined;
+  const sourceStart = clip?.sourceStart ?? 0;
+  if (!clip || !clip.mediaId || clip.mediaId !== mapping.mediaId || snapshot.media.filter((source) => source.mediaId === mapping.mediaId).length !== 1
+    || mapping.revision?.id !== snapshot.revision.id || mapping.revision?.sequence !== snapshot.revision.sequence || mapping.revision?.timestamp !== snapshot.revision.timestamp
+    || mapping.sourceRange?.start !== sourceStart || mapping.sourceRange?.end !== sourceStart + clip.duration
+    || mapping.sequenceRange?.start !== clip.start || mapping.sequenceRange?.end !== clip.start + clip.duration) {
+    throw new Error("STALE_MUSIC_PLAN: speech mapping does not match the current occurrence");
+  }
+  const ranges: TimeRange[] = [];
+  let cursor = placement.start;
+  let previousEnd = clip.start;
+  const sameTime = (left: number, right: number) => Math.abs(left - right) <= 0.000000001;
+  for (const span of mapping.vadCoverage ?? []) {
+    validateAudioAnalysisRange(span.sequenceRange, "speech coverage");
+    validateAudioAnalysisRange(span.sourceRange, "speech source coverage");
+    const offset = clip.start - sourceStart;
+    if (!sameTime(span.sequenceRange.start, span.sourceRange.start + offset) || !sameTime(span.sequenceRange.end, span.sourceRange.end + offset)
+      || span.sequenceRange.start < previousEnd || span.sequenceRange.end > clip.start + clip.duration) throw new Error("INVALID_MUSIC_PLAN: speech coverage does not match the occurrence");
+    previousEnd = span.sequenceRange.end;
+    if (span.status === "available") {
+      for (const segment of span.segments) {
+        validateAudioAnalysisRange(segment.sequenceRange, "speech segment");
+        validateAudioAnalysisRange(segment.sourceRange, "speech source segment");
+        if (segment.segment.kind !== "speech" || segment.segment.start !== segment.sourceRange.start || segment.segment.end !== segment.sourceRange.end
+          || !sameTime(segment.sequenceRange.start, segment.sourceRange.start + offset) || !sameTime(segment.sequenceRange.end, segment.sourceRange.end + offset)
+          || segment.sequenceRange.start < span.sequenceRange.start || segment.sequenceRange.end > span.sequenceRange.end) throw new Error("INVALID_MUSIC_PLAN: speech segment exceeds or conflicts with coverage");
+        const start = Math.max(placement.start, segment.sequenceRange.start);
+        const end = Math.min(placement.end, segment.sequenceRange.end);
+        if (start < end) ranges.push({ start, end });
+      }
+      if (span.sequenceRange.start <= cursor && span.sequenceRange.end > cursor) cursor = span.sequenceRange.end;
+    }
+  }
+  return { occurrenceId: mapping.occurrenceId, coverage: cursor >= placement.end ? "complete" : "unknown", ranges, verification: "unverified" };
 }
 
 export interface MusicPreviewPort {
