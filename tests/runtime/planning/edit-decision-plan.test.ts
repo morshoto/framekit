@@ -514,6 +514,12 @@ test("brief conformance requires a verified artifact bound to the approved targe
     ]) {
       assert.equal(assessBriefArtifact(f.request.brief, f.request.accepted, planned.plan, alteredExecution, artifact).checks[0]?.status, "unavailable");
     }
+    for (const invalidRevision of [null, { ...finalRevision, id: "" }, { ...finalRevision, sequence: -1 }, { ...finalRevision, timestamp: "not-a-date" }]) {
+      const rejected = assessBriefArtifact(f.request.brief, f.request.accepted, planned.plan,
+        { ...execution, finalRevision: invalidRevision as any }, { ...artifact, revision: invalidRevision as any });
+      assert.equal(rejected.checks.find((check) => check.name === "duration")?.status, "unavailable");
+      assert.equal(rejected.binding, undefined);
+    }
     const revisedBrief = { ...f.request.brief, theme: "changed" };
     assert.equal(assessBriefArtifact(revisedBrief, f.request.accepted, planned.plan, execution, artifact).checks[0]?.status, "unavailable");
     for (const changed of [
