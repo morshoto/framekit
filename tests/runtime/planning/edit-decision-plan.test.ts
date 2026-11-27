@@ -309,6 +309,24 @@ test("music decisions retain verified source audio evidence and reject changed a
     assert.equal((await createEditDecisionPlan(wrongRevision, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "unavailable");
     const missingPair = { ...input, audioContext: undefined };
     assert.equal((await createEditDecisionPlan(missingPair, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "unavailable");
+    const { HeadlessDecisionPlanService } = await import("../../../apps/mcp-server/src/headless-decision-plan.js");
+    const { snapshot: _snapshot, brief: _brief, accepted: _accepted, speechContext: _speechContext,
+      vadContext: _vadContext, audioContext: _audioContext, speechRef: _speechRef, vadRef: _vadRef, ...audioInput } = input;
+    const common = { readProject: async () => structuredClone(f.request.snapshot), storeForProject: () => f.briefStore,
+      index, verifySource: verifyLocalMediaSource, currentProvider: () => provider };
+    const planned = await new HeadlessDecisionPlanService({ ...common, artifacts: f.artifacts }).plan(audioInput);
+    assert.equal(planned.status, "available"); if (planned.status !== "available") return;
+    let audioReads = 0;
+    const racing = { put: f.artifacts.put.bind(f.artifacts), get: async (digest: string) => {
+      const bytes = await f.artifacts.get(digest);
+      if (digest === audioRef.artifactDigest && ++audioReads === 2) {
+        const record = await index.load(source);
+        await index.save({ ...record!, audio: { ...record!.audio!, integratedLufs: -10 } });
+      }
+      return bytes;
+    } };
+    const service = new HeadlessDecisionPlanService({ ...common, artifacts: racing });
+    await assert.rejects(service.recheckEvidence(audioInput, planned.plan), /ANALYSIS_STALE/);
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
@@ -580,6 +598,29 @@ test("headless evidence recheck rejects provider drift during final index read",
     });
     assert.equal(outcome.status, "applied-unverified");
     assert.equal(outcome.edit.undoId, "undo-provider");
+    let artifactReads = 0;
+    const racingArtifacts = { put: f.artifacts.put.bind(f.artifacts), get: async (digest: string) => {
+      const bytes = await f.artifacts.get(digest);
+      if (++artifactReads === 4) await f.index.save({ ...f.record, speech: { ...f.record.speech, words: [] } });
+      return bytes;
+    } };
+    const racingIndex = new HeadlessDecisionPlanService({ ...common, artifacts: racingArtifacts, index: f.index, currentProvider: () => provider });
+    await assert.rejects(racingIndex.recheckEvidence(input, planned.plan), /ANALYSIS_STALE/);
+    await f.index.save(f.record);
+    let armed = false;
+    artifactReads = 0;
+    const postCommitArtifacts = { put: f.artifacts.put.bind(f.artifacts), get: async (digest: string) => {
+      const bytes = await f.artifacts.get(digest);
+      if (armed && ++artifactReads === 4) await f.index.save({ ...f.record, speech: { ...f.record.speech, words: [] } });
+      return bytes;
+    } };
+    const postCommit = new HeadlessDecisionPlanService({ ...common, artifacts: postCommitArtifacts, index: f.index, currentProvider: () => provider });
+    const changedIndex = await postCommit.executeAcceptedPlan(input, planned.plan.planDigest, async () => {
+      armed = true;
+      return { undoId: "undo-index" };
+    }, async () => {});
+    assert.equal(changedIndex.status, "applied-unverified");
+    assert.equal(changedIndex.edit.undoId, "undo-index");
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
