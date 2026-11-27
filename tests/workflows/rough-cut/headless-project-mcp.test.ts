@@ -1728,7 +1728,7 @@ test("headless project media can be understood and planned without a Final Cut c
     const modelApproval = payload(await client.callTool({ name: "headless.decision.approved-preview-captions", arguments: { ...decisionInput, planDigest: decision.plan.planDigest } }));
     await writeFile(modelAssetPath, "changed after approval");
     const rejectedModel = await client.callTool({ name: "headless.decision.approved-execute-captions", arguments: { projectId: freshTimeline.project.id, sequenceId: freshTimeline.sequence.id, previewToken: modelApproval.previewToken, approved: true } });
-    assert.equal(rejectedModel.isError, true); assert.match(toolErrorText(rejectedModel), /ANALYZER_MODEL_CHANGED/);
+    assert.equal(rejectedModel.isError, true); assert.match(toolErrorText(rejectedModel), /STALE_DECISION_PLAN/);
     await writeFile(modelAssetPath, modelAssetBytes);
     assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId: freshTimeline.project.id } })).timeline, beforePlan.timeline);
     assert.equal((await client.callTool({ name: "headless.decision.approved-execute-captions", arguments: { projectId: freshTimeline.project.id, sequenceId: freshTimeline.sequence.id, previewToken: modelApproval.previewToken, approved: true } })).isError, true);
