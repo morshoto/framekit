@@ -2510,19 +2510,53 @@
       "network": "none"
     },
     {
-      "path": "tests/runtime/planning/analysis-evidence.test.ts",
+        "path": "tests/runtime/planning/analysis-evidence.test.ts",
+        "owner": "packages/runtime",
+        "tags": [
+          "unit",
+          "fast-integration"
+        ],
+        "requires": [],
+        "reviewed": true,
+        "evidence": "process",
+        "dependsOn": [
+          "packages/runtime",
+          "adapters/final-cut/typescript",
+          "packages/testkit"
+        ],
+        "platforms": [
+          "any"
+        ],
+        "network": "none"
+      },
+    {
+      "path": "tests/runtime/planning/creative-brief-store.test.ts",
       "owner": "packages/runtime",
       "tags": [
-        "unit",
-        "fast-integration"
+        "unit"
       ],
       "requires": [],
       "reviewed": true,
-      "evidence": "process",
+      "evidence": "fixture",
       "dependsOn": [
-        "packages/runtime",
-        "adapters/final-cut/typescript",
-        "packages/testkit"
+        "packages/runtime"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/runtime/planning/creative-brief.test.ts",
+      "owner": "packages/runtime",
+      "tags": [
+        "unit"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "unit",
+      "dependsOn": [
+        "packages/runtime"
       ],
       "platforms": [
         "any"
@@ -3889,6 +3923,27 @@
       "evidence": "fixture",
       "dependsOn": [
         "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/workflows/creative-brief/brief-service.test.ts",
+      "owner": "packages/headless-application",
+      "tags": [
+        "contract",
+        "fast-integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "apps/mcp-server",
+        "packages/headless-application",
+        "packages/runtime",
+        "packages/testkit"
       ],
       "platforms": [
         "any"
