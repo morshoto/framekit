@@ -1767,6 +1767,15 @@ test("headless project media can be understood and planned without a Final Cut c
       const recognized = await execFileAsync(process.env.TESSERACT_BIN || "tesseract", [await realpath(sampledFrame), "stdout", "--psm", "7", "-l", "eng"]);
       assert.equal(recognized.stdout.trim().toLowerCase(), "highlight", "independent OCR must read the reviewed title in the rendered frame");
     }
+    // The fixture word runs from 0.5 to 1.4 seconds: frames [15, 42) at 30 fps.
+    for (const [frame, visible] of [[14, false], [15, true], [41, true], [42, false]] as const) {
+      const { stdout } = await execFileAsync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-i", captionOutput,
+        "-vf", `select=eq(n\\,${frame})`, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"],
+      { encoding: "buffer", maxBuffer: 320 * 180 * 3 + 1024 });
+      const pixels = stdout as unknown as Buffer;
+      assert.equal(pixels.length, 320 * 180 * 3, `frame ${frame} must decode`);
+      assert.equal(countBrightPixels(pixels) > 50, visible, `caption visibility at frame ${frame}`);
+    }
     assert.ok(countBrightPixels(await readVideoFrame(captionOutput, 0.8)) > 50, "reviewed title must appear during the mapped range");
     assert.equal(countBrightPixels(await readVideoFrame(captionOutput, 0.2)), 0, "title must not appear before its mapped range");
     assert.equal(countBrightPixels(await readVideoFrame(captionOutput, 1.7)), 0, "title must not appear after its mapped range");
