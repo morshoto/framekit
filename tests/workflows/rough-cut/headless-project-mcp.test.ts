@@ -3885,6 +3885,10 @@ test("approved reviewed headless cut executes once and independently reads back"
         targetLane: 1, context: { speech: "present", audioEvidence: "unavailable" }, capabilities: { staticMusicPreview: true, ducking: false, fades: false } } };
     const plan = payload(await client.callTool({ name: "headless.decision.plan", arguments: input }));
     assert.equal(plan.status, "available", plan.reason);
+    const musicDecision = plan.plan.decisions.find((item: any) => item.kind === "music-proposal");
+    assert.deepEqual(musicDecision.vadRef, vadRef);
+    assert.deepEqual(musicDecision.musicPlan.dialogueProtection.speechOverlap, { occurrenceId: "interview", coverage: "complete",
+      ranges: [{ start: 0.5, end: 1 }], verification: "unverified" });
     const cut = plan.plan.decisions.find((item: any) => item.kind === "cut"); assert.ok(cut);
     const args = { ...input, planDigest: plan.plan.planDigest, candidateIndex: plan.plan.decisions.indexOf(cut) };
     const before = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
