@@ -3242,6 +3242,7 @@
       "\"command audio identity distinguishes executable and provider version\"",
       "\"command provider executes the environment bound to its analysis identity\"",
       "\"configured speech model asset is checked before and after provider execution\"",
+      "\"command speech analyzer preserves explicit coverage provenance\"",
       "`persisted ${kind} cache rechecks source bytes after restart`",
       "\"command audio rejects invalid or mismatched occurrence signal provenance\"",
       "\"command audio bounds source verification before and after the provider\""

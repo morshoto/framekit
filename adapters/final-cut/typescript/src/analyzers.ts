@@ -125,7 +125,8 @@ export class CommandSpeechAnalyzer implements SpeechAnalyzer {
       }
       const response = withCommandProvenance(result, this.descriptor);
       const raw = response as Record<string, unknown>;
-      const analysis = bindSpeechAnalysis({ ...raw, coverageProvenance: raw?.observedRange === undefined ? "inferred" : "provider" }, { input, range, provider: this.descriptor });
+      const analysis = bindSpeechAnalysis({ ...raw, coverageProvenance: raw?.coverageProvenance === undefined
+        ? raw?.observedRange === undefined ? "inferred" : "provider" : raw.coverageProvenance }, { input, range, provider: this.descriptor });
       if (this.options.requireVad && analysis.capability !== "transcription-plus-vad") {
         throw new Error("ANALYZER_INVALID_OUTPUT: configured speech provider must return VAD evidence");
       }
