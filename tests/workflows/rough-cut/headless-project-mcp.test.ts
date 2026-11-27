@@ -1510,6 +1510,8 @@ test("headless project media can be understood and planned without a Final Cut c
   const modelAssetPath = join(directory, "model.bin");
   const modelAssetBytes = Buffer.from("pinned model bytes"); await writeFile(modelAssetPath, modelAssetBytes);
   const modelAssetSha256 = createHash("sha256").update(modelAssetBytes).digest("hex");
+  const vadAssetPath = join(directory, "vad.bin"); const vadAssetBytes = Buffer.from("pinned vad bytes"); await writeFile(vadAssetPath, vadAssetBytes);
+  const vadAssetSha256 = createHash("sha256").update(vadAssetBytes).digest("hex");
   const audioAnalyzer = await makeFixedAnalyzer(directory, "audio", JSON.stringify({
     integratedLufs: -18,
     truePeakDb: -3,
@@ -1529,6 +1531,8 @@ test("headless project media can be understood and planned without a Final Cut c
     FRAMEKIT_SPEECH_ANALYZER_MODEL_ID: "fixture-model",
     FRAMEKIT_SPEECH_MODEL_ASSET_PATH: modelAssetPath,
     FRAMEKIT_SPEECH_MODEL_ASSET_SHA256: modelAssetSha256,
+    FRAMEKIT_SILERO_VAD_MODEL: vadAssetPath,
+    FRAMEKIT_SILERO_VAD_SHA256: vadAssetSha256,
     FRAMEKIT_SPEECH_REQUIRE_VAD: "1",
     FRAMEKIT_AUDIO_ANALYZER: audioAnalyzer,
   };
@@ -1592,6 +1596,10 @@ test("headless project media can be understood and planned without a Final Cut c
     const changedModel = await client.callTool({ name: "headless.analysis.pin", arguments: pinArgs });
     assert.equal(changedModel.isError, true); assert.match(toolErrorText(changedModel), /ANALYZER_MODEL_CHANGED/);
     await writeFile(modelAssetPath, modelAssetBytes);
+    await writeFile(vadAssetPath, "changed vad bytes");
+    const changedVad = await client.callTool({ name: "headless.analysis.pin", arguments: pinArgs });
+    assert.equal(changedVad.isError, true); assert.match(toolErrorText(changedVad), /ANALYZER_MODEL_CHANGED/);
+    await writeFile(vadAssetPath, vadAssetBytes);
     assert.deepEqual(payload(await client.callTool({ name: "headless.analysis.pin", arguments: pinArgs })).ref, pinned.ref);
     const changedProvider = await connectProductionClient(here, { ...environment, FRAMEKIT_SPEECH_ANALYZER_MODEL_ID: "different-model" });
     try {
@@ -1718,6 +1726,11 @@ test("headless project media can be understood and planned without a Final Cut c
     };
     const decision = payload(await client.callTool({ name: "headless.decision.plan", arguments: decisionInput }));
     assert.equal(decision.status, "available", decision.reason);
+    await writeFile(modelAssetPath, "changed model after pinning");
+    const changedAssetDecision = payload(await client.callTool({ name: "headless.decision.plan", arguments: decisionInput }));
+    assert.equal(changedAssetDecision.status, "unavailable");
+    assert.match(changedAssetDecision.reason, /ANALYZER_MODEL_CHANGED/);
+    await writeFile(modelAssetPath, modelAssetBytes);
     assert.equal(decision.plan.reviewRequired, true);
     assert.ok(decision.plan.decisions.some((item: any) => item.kind === "caption"));
     const captions = decision.plan.decisions.filter((item: any) => item.kind === "caption");
@@ -1725,6 +1738,20 @@ test("headless project media can be understood and planned without a Final Cut c
     assert.equal(captionPreview.scope, "headless-preview");
     assert.deepEqual(captionPreview.preview.after.timeline.sequence.titles.map((title: any) => title.text), captions.map((item: any) => item.group.lines.join("\n")));
     assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId: freshTimeline.project.id } })).timeline, beforePlan.timeline);
+    const modelApproval = payload(await client.callTool({ name: "headless.decision.approved-preview-captions", arguments: { ...decisionInput, planDigest: decision.plan.planDigest } }));
+    await writeFile(modelAssetPath, "changed after approval");
+    const rejectedModel = await client.callTool({ name: "headless.decision.approved-execute-captions", arguments: { projectId: freshTimeline.project.id, sequenceId: freshTimeline.sequence.id, previewToken: modelApproval.previewToken, approved: true } });
+    assert.equal(rejectedModel.isError, true); assert.match(toolErrorText(rejectedModel), /STALE_DECISION_PLAN/);
+    await writeFile(modelAssetPath, modelAssetBytes);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId: freshTimeline.project.id } })).timeline, beforePlan.timeline);
+    assert.equal((await client.callTool({ name: "headless.decision.approved-execute-captions", arguments: { projectId: freshTimeline.project.id, sequenceId: freshTimeline.sequence.id, previewToken: modelApproval.previewToken, approved: true } })).isError, true);
+    const vadApproval = payload(await client.callTool({ name: "headless.decision.approved-preview-captions", arguments: { ...decisionInput, planDigest: decision.plan.planDigest } }));
+    await writeFile(vadAssetPath, "changed vad after approval");
+    const rejectedVad = await client.callTool({ name: "headless.decision.approved-execute-captions", arguments: { projectId: freshTimeline.project.id, sequenceId: freshTimeline.sequence.id, previewToken: vadApproval.previewToken, approved: true } });
+    assert.equal(rejectedVad.isError, true); assert.match(toolErrorText(rejectedVad), /STALE_DECISION_PLAN/);
+    await writeFile(vadAssetPath, vadAssetBytes);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId: freshTimeline.project.id } })).timeline, beforePlan.timeline);
+    assert.equal((await client.callTool({ name: "headless.decision.approved-execute-captions", arguments: { projectId: freshTimeline.project.id, sequenceId: freshTimeline.sequence.id, previewToken: vadApproval.previewToken, approved: true } })).isError, true);
     const captionApproval = payload(await client.callTool({ name: "headless.decision.approved-preview-captions", arguments: { ...decisionInput, planDigest: decision.plan.planDigest } }));
     assert.deepEqual(captionApproval.preview.command.operations, captionPreview.preview.command.operations);
     const speechArtifactPath = join(stateDirectory, "analysis-artifacts", speechRef.artifactDigest.slice(7));
