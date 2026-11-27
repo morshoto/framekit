@@ -22,15 +22,24 @@ function time(a: Fraction): RationalTime {
   return { value: String(a.value / divisor), timescale: String(a.scale / divisor) };
 }
 
-/** Build an exact single-clip headless cut; reject content whose ripple is not modeled. */
+/** Build an exact headless cut with a fully modeled contiguous primary storyline. */
 export function reviewedCutOperations(timeline: TimelineIr, candidate: Range, planDigest: string): TimelineIrEditOperation[] {
   const sequence = timeline.sequence;
-  const clip = sequence.occurrences[0];
-  if (sequence.occurrences.length !== 1 || !clip || clip.id !== candidate.occurrenceId || clip.track !== 0
-    || clip.role !== "video" || !clip.mediaId || clip.attachedTo || clip.fadeIn !== undefined || clip.fadeOut !== undefined
+  const clips = [...sequence.occurrences].sort((left, right) => compare(fraction(left.startTime), fraction(right.startTime)));
+  const matching = clips.filter((item) => item.id === candidate.occurrenceId);
+  const clip = matching[0];
+  if (matching.length !== 1 || !clip || clips.some((item) => item.track !== 0 || item.role !== "video" || !item.mediaId
+    || item.attachedTo || item.fadeIn !== undefined || item.fadeOut !== undefined)
     || sequence.storyElements.length || sequence.markers.length || sequence.captions.length || sequence.titles?.length || sequence.transitions?.length) {
-    throw new Error("CUT_PREVIEW_UNAVAILABLE: only an isolated primary video occurrence is supported");
+    throw new Error("CUT_PREVIEW_UNAVAILABLE: only a contiguous primary video storyline is supported");
   }
+  let cursor = fraction({ value: "0", timescale: "1" });
+  for (const item of clips) {
+    const itemStart = fraction(item.startTime); const itemDuration = fraction(item.durationTime);
+    if (compare(itemStart, cursor) !== 0 || itemDuration.value <= 0n) throw new Error("CUT_PREVIEW_UNAVAILABLE: primary clips must be contiguous");
+    cursor = add(cursor, itemDuration);
+  }
+  if (compare(cursor, fraction(sequence.durationTime)) !== 0) throw new Error("CUT_PREVIEW_UNAVAILABLE: sequence duration must match primary clips");
   if (!/^sha256:[a-f0-9]{64}$/.test(planDigest)) throw new Error("CUT_PREVIEW_UNAVAILABLE: invalid plan identity");
   const start = fraction(candidate.sequenceRange.startTime); const duration = fraction(candidate.sequenceRange.durationTime);
   const clipStart = fraction(clip.startTime); const clipDuration = fraction(clip.durationTime);
@@ -48,11 +57,13 @@ export function reviewedCutOperations(timeline: TimelineIr, candidate: Range, pl
   }
   const removed = `decision-cut-${planDigest.slice(7, 23)}-removed`;
   const right = `decision-cut-${planDigest.slice(7, 23)}-right`;
-  if (clip.id === removed || clip.id === right) throw new Error("CUT_PREVIEW_UNAVAILABLE: generated occurrence identity conflicts");
+  if (clips.some((item) => item.id === removed || item.id === right)) throw new Error("CUT_PREVIEW_UNAVAILABLE: generated occurrence identity conflicts");
+  const later = clips.slice(clips.indexOf(clip) + 1);
   return [
     { type: "split-occurrence", occurrenceId: clip.id, splitOffsetTime: time(offset), newOccurrenceId: removed },
     { type: "split-occurrence", occurrenceId: removed, splitOffsetTime: time(duration), newOccurrenceId: right },
     { type: "remove-occurrence", occurrenceId: removed },
     { type: "move-occurrence", occurrenceId: right, startTime: time(start) },
+    ...later.map((item): TimelineIrEditOperation => ({ type: "move-occurrence", occurrenceId: item.id, startTime: time(subtract(fraction(item.startTime), duration)) })),
   ];
 }

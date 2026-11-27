@@ -142,8 +142,9 @@ independent capability discovery or verified speech detection.
 
 For a reviewed cut, call `headless.decision.preview-cut` with the same planning
 inputs, the `planDigest`, and the zero-based `candidateIndex` of the cut in
-`decisions`. The current implementation supports one isolated primary video
-occurrence with no other timeline content; other timelines return unavailable.
+`decisions`. The current implementation supports contiguous primary video clips with no
+overlays, transitions, markers or other timeline content; other timelines return
+unavailable. Later clips move earlier by the selected cut duration.
 To execute it, review `headless.decision.approved-preview-cut` and pass its
 single-use `previewToken`, the project and sequence IDs, and `approved: true`
 to `headless.decision.approved-execute-cut`. The server rechecks the accepted

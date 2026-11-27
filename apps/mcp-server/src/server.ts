@@ -2470,7 +2470,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     return { scope: "headless-preview", planDigest, candidateIndex, preview, notice: "Review only; this is not approval or native editing." };
   };
   registerValidatedTool(server, "headless.decision.preview-cut", {
-    description: "Preview one reviewed cut in an isolated headless primary clip without executing it.",
+    description: "Preview one reviewed cut in a contiguous headless primary storyline without executing it.",
     inputSchema: { ...decisionPlanSchema, planDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/), candidateIndex: z.number().int().nonnegative() },
   }, async ({ planDigest, candidateIndex, ...input }) => sessionResult(() => previewDecisionCut(input, planDigest, candidateIndex)));
   registerValidatedTool(server, "headless.decision.approved-preview-cut", {
