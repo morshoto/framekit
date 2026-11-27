@@ -2631,6 +2631,7 @@
       "\"ffprobe verifier accepts renderer audio resampling\"",
       "\"render verification measures decoded mix true peak\"",
       "\"ffprobe verifier rejects a sparse video despite its nominal frame rate\"",
+      "\"ffprobe verifier requires decoded frame count despite matching rate metadata\"",
       "\"ffprobe verifier requires AAC for FFmpeg headless renders\"",
       "\"ffprobe verifier rejects output identity or bytes changing during verification\"",
       "\"render-and-verify preserves explicit unavailable state\""
@@ -3087,7 +3088,8 @@
   "recordedAtCommit": "37a92fa1",
   "addedTestNames": {
     "tests/integration/headless-session-mcp.test.ts": [
-      "\"analysis pin rejects a configured provider changed while publishing evidence\""
+      "\"analysis pin rejects a configured provider changed while publishing evidence\"",
+      "\"analysis pin rejects index changes while publishing evidence\""
     ],
     "tests/integration/mcp.test.ts": [
       "\"MCP preserves omitted opaque input behavior across SDK migration\"",
