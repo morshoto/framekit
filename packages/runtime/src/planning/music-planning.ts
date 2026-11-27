@@ -132,12 +132,12 @@ function reviewSpeechOverlap(mapping: SpeechOccurrenceMapping, snapshot: Project
       for (const segment of span.segments) {
         validateAudioAnalysisRange(segment.sequenceRange, "speech segment");
         validateAudioAnalysisRange(segment.sourceRange, "speech source segment");
-        if (segment.segment.kind !== "speech" || segment.segment.start !== segment.sourceRange.start || segment.segment.end !== segment.sourceRange.end
+        if (!["speech", "silence", "breath", "laughter", "noise"].includes(segment.segment.kind) || segment.segment.start !== segment.sourceRange.start || segment.segment.end !== segment.sourceRange.end
           || !sameTime(segment.sequenceRange.start, segment.sourceRange.start + offset) || !sameTime(segment.sequenceRange.end, segment.sourceRange.end + offset)
           || segment.sequenceRange.start < span.sequenceRange.start || segment.sequenceRange.end > span.sequenceRange.end) throw new Error("INVALID_MUSIC_PLAN: speech segment exceeds or conflicts with coverage");
         const start = Math.max(placement.start, segment.sequenceRange.start);
         const end = Math.min(placement.end, segment.sequenceRange.end);
-        if (start < end) ranges.push({ start, end });
+        if (segment.segment.kind === "speech" && start < end) ranges.push({ start, end });
       }
       if (span.sequenceRange.start <= cursor && span.sequenceRange.end > cursor) cursor = span.sequenceRange.end;
     }
