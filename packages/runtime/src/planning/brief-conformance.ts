@@ -41,6 +41,7 @@ function briefArtifactObservationFromRender(result: FramekitRenderAndVerifyResul
   try {
     const { plan, render, verification } = result;
     if (result.status !== "passed" || !plan || !render || verification?.status !== "passed" || !verification.artifact
+      || !validRevision(plan.projectRevision) || !validRevision(render.projectRevision)
       || render.status !== "rendered" || render.contractVersion !== plan.contractVersion
       || render.planDigest !== plan.planDigest || !isDeepStrictEqual(render.target, plan.target)
       || !isDeepStrictEqual(render.projectRevision, plan.projectRevision) || !isDeepStrictEqual(render.renderer, plan.renderer)
