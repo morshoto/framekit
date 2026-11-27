@@ -106,6 +106,15 @@ test("render-and-verify returns verified provenance and independent artifact met
     const changedTarget = structuredClone(outcome);
     changedTarget.render!.target.sequenceId = "other";
     assert.equal(await reverifyBriefArtifactObservation(changedTarget, verifier), undefined);
+    const rewrittenTarget = structuredClone(outcome);
+    rewrittenTarget.plan!.target.sequenceId = "other";
+    rewrittenTarget.render!.target.sequenceId = "other";
+    assert.equal(await reverifyBriefArtifactObservation(rewrittenTarget, verifier), undefined,
+      "matching target changes must not reuse the original render-plan digest");
+    const rewrittenTimeline = structuredClone(outcome);
+    rewrittenTimeline.plan!.timeline.sequence.occurrences[0]!.name = "changed after render";
+    assert.equal(await reverifyBriefArtifactObservation(rewrittenTimeline, verifier), undefined,
+      "changed timeline contents must not reuse the original render-plan digest");
     const contradictoryCheck = structuredClone(outcome);
     contradictoryCheck.verification!.checks.push({ name: "dimensions", passed: false, detail: "contradiction" });
     assert.equal(await reverifyBriefArtifactObservation(contradictoryCheck, verifier), undefined);
