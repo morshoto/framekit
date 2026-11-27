@@ -425,8 +425,9 @@ To include model identity in speech provenance, set
 when the model changes. To additionally check one local model asset, set both
 `FRAMEKIT_SPEECH_MODEL_ASSET_PATH` to its absolute file path and
 `FRAMEKIT_SPEECH_MODEL_ASSET_SHA256` to its lowercase SHA-256. Framekit checks
-that file before and after speech analysis, when reusing cached speech, and
-when pinning speech evidence. Missing or changed bytes are rejected. This is
+that file before and after speech analysis, when reusing cached speech, when
+pinning speech evidence, and around evidence-bound headless decision execution.
+Missing or changed bytes are rejected. This is
 point-in-time verification of the configured file: an opaque command may load
 other files or ignore it, so it does not prove the complete model that ran.
 Command providers capture their execution environment and report a
@@ -469,7 +470,10 @@ this source measurement cannot verify a timeline gain change.
 The existing Whisper backend can optionally run local Silero VAD. Install
 `silero-vad`/PyTorch and provide a local JIT model through
 `FRAMEKIT_SILERO_VAD_MODEL` plus its required SHA-256 in
-`FRAMEKIT_SILERO_VAD_SHA256`; the backend never downloads a model. Include the
+`FRAMEKIT_SILERO_VAD_SHA256`; the backend never downloads a model. When both
+are set, Framekit also rechecks the VAD file at the provider evidence
+checkpoints. The VAD path must be absolute. As with speech assets, this does
+not prove that an arbitrary command used the file. Include the
 package/model/backend revisions in `FRAMEKIT_SPEECH_ANALYZER_VERSION`.
 For an npm installation, the executables are under
 `node_modules/@morshoto/framekit/dist-package/apps/mcp-server/runtime/`:
