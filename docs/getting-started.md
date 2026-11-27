@@ -165,6 +165,10 @@ The server rechecks the accepted brief, pinned evidence and project, and reloads
 the project after execution. An `applied-unverified` result means the edit
 committed but a subsequent verification failed; inspect the returned edit and
 Undo information. Emphasis remains a review suggestion rather than styling.
+When outward-rounded word ranges cannot form non-overlapping groups, the plan
+may use frame-sample timing instead and warns that a caption can start up to one
+frame after a word begins. Original word timing remains available for review;
+words with no representable frame remain unavailable.
 These operations affect only the Framekit-owned headless timeline and do not
 prove editable native Final Cut titles or continuous media-file fencing.
 
