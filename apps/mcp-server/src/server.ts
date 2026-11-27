@@ -2450,6 +2450,9 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }));
 
   const decisionCutApprovals = new Map<string, { input: HeadlessDecisionRequest; planDigest: string; editToken: string; expiresAt: number }>();
+  const samePreviewBase = (left: TimelineIr, right: TimelineIr) => left.revision.id === right.revision.id
+    && left.revision.sequence === right.revision.sequence && left.revision.timestamp === right.revision.timestamp
+    && timelineIrDigest(left) === timelineIrDigest(right);
   const previewDecisionCut = async (input: HeadlessDecisionRequest, planDigest: string, candidateIndex: number) => {
     const plans = options.headlessDecisionPlans;
     if (!plans) throw new Error("DECISION_PLAN_UNAVAILABLE: headless planning is not configured");
@@ -2462,11 +2465,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     if (before.timeline.project.id !== input.projectId || before.timeline.sequence.id !== input.timelineId) throw new Error("STALE_DECISION_PLAN: target changed");
     const operations = reviewedCutOperations(before.timeline, decision.candidate, planDigest);
     const preview = await service.previewEdit(input.projectId, { schemaVersion: 1, expectedRevision: input.revision, operations }, input.timelineId);
-    if (timelineIrDigest(before.timeline) !== timelineIrDigest(preview.before.timeline)) throw new Error("STALE_DECISION_PLAN: project changed during preview");
+    if (!samePreviewBase(before.timeline, preview.before.timeline)) throw new Error("STALE_DECISION_PLAN: project changed during preview");
     const current = await plans.plan(input);
     if (current.status !== "available" || current.plan.planDigest !== planDigest) throw new Error("STALE_DECISION_PLAN: inputs changed during preview");
     const after = await service.open(input.projectId);
-    if (timelineIrDigest(after.timeline) !== timelineIrDigest(preview.before.timeline)) throw new Error("STALE_DECISION_PLAN: project changed during preview");
+    if (!samePreviewBase(after.timeline, preview.before.timeline)) throw new Error("STALE_DECISION_PLAN: project changed during preview");
     return { scope: "headless-preview", planDigest, candidateIndex, preview, notice: "Review only; this is not approval or native editing." };
   };
   registerValidatedTool(server, "headless.decision.preview-cut", {
@@ -2481,7 +2484,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     const approved = await requireHeadlessProjects().previewApprovedEdit(input.projectId, {
       schemaVersion: 1, expectedRevision: input.revision, operations: reviewed.preview.command.operations,
     }, input.timelineId);
-    if (timelineIrDigest(approved.before.timeline) !== timelineIrDigest(reviewed.preview.before.timeline)
+    if (!samePreviewBase(approved.before.timeline, reviewed.preview.before.timeline)
       || timelineIrDigest(approved.after.timeline) !== timelineIrDigest(reviewed.preview.after.timeline)) throw new Error("STALE_DECISION_PLAN: approved preview differs from the reviewed proposal");
     await previewDecisionCut(input, planDigest, candidateIndex);
     const now = Date.now();
@@ -2542,7 +2545,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     const current = await plans.plan(input);
     if (current.status !== "available" || current.plan.planDigest !== planDigest) throw new Error("STALE_DECISION_PLAN: inputs changed during preview");
     const after = await requireHeadlessProjects().open(input.projectId);
-    if (timelineIrDigest(after.timeline) !== timelineIrDigest(preview.before.timeline)) throw new Error("STALE_DECISION_PLAN: project changed during preview");
+    if (!samePreviewBase(after.timeline, preview.before.timeline)) throw new Error("STALE_DECISION_PLAN: project changed during preview");
     return { scope: "headless-preview", planDigest, preview, notice: "Review only; this is not approval, native placement, or proof of dialogue audibility." };
   };
   registerValidatedTool(server, "headless.decision.preview-music", {
@@ -2558,7 +2561,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     const approved = await requireHeadlessProjects().previewApprovedEdit(input.projectId, {
       schemaVersion: 1, expectedRevision: input.revision, operations: reviewed.preview.command.operations,
     }, input.timelineId);
-    if (timelineIrDigest(approved.before.timeline) !== timelineIrDigest(reviewed.preview.before.timeline)
+    if (!samePreviewBase(approved.before.timeline, reviewed.preview.before.timeline)
       || timelineIrDigest(approved.after.timeline) !== timelineIrDigest(reviewed.preview.after.timeline)) throw new Error("STALE_DECISION_PLAN: approved preview differs from the reviewed proposal");
     await previewDecisionMusic(input, planDigest);
     const now = Date.now();
@@ -2621,7 +2624,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     const current = await plans.plan(input);
     if (current.status !== "available" || current.plan.planDigest !== planDigest) throw new Error("STALE_DECISION_PLAN: inputs changed during preview");
     const after = await service.open(input.projectId);
-    if (timelineIrDigest(after.timeline) !== timelineIrDigest(preview.before.timeline)) throw new Error("STALE_DECISION_PLAN: project changed during preview");
+    if (!samePreviewBase(after.timeline, preview.before.timeline)) throw new Error("STALE_DECISION_PLAN: project changed during preview");
     return { scope: "headless-preview", planDigest, preview, notice: "Basic text only; emphasis is a review suggestion. This is not approval or native title proof." };
   };
   registerValidatedTool(server, "headless.decision.preview-captions", {
@@ -2636,7 +2639,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     const approved = await requireHeadlessProjects().previewApprovedEdit(input.projectId, {
       schemaVersion: 1, expectedRevision: input.revision, operations: reviewed.preview.command.operations,
     }, input.timelineId);
-    if (timelineIrDigest(approved.before.timeline) !== timelineIrDigest(reviewed.preview.before.timeline)
+    if (!samePreviewBase(approved.before.timeline, reviewed.preview.before.timeline)
       || timelineIrDigest(approved.after.timeline) !== timelineIrDigest(reviewed.preview.after.timeline)) throw new Error("STALE_DECISION_PLAN: approved preview differs from the reviewed proposal");
     await previewDecisionCaptions(input, planDigest);
     const now = Date.now();

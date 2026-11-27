@@ -51,6 +51,32 @@ function runtime(): AgentVideoRuntime {
   }));
 }
 
+test("decision caption preview rejects revision-only drift after replanning", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-decision-revision-"));
+  const initial = timeline();
+  const digest = `sha256:${"a".repeat(64)}`;
+  let drift = false;
+  const server = createMcpServer(runtime(), { sessionDirectory: directory,
+    headlessDecisionPlans: { plan: async () => ({ status: "available", plan: { planDigest: digest,
+      decisions: [{ kind: "caption", group: { lines: ["hello"] }, range: { startTime: { value: "0", timescale: "1" }, durationTime: initial.sequence.frameDuration } }] } }) } as never,
+    headlessProjects: { selectTitleFont: () => ({}), previewEdit: async () => ({ before: { timeline: initial } }),
+      open: async () => ({ timeline: drift ? { ...initial, revision: { ...initial.revision, sequence: initial.revision.sequence + 1 } } : initial }) } as never });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "decision-revision-test", version: "1" });
+  await server.connect(serverTransport); await client.connect(clientTransport);
+  const args = { projectId: initial.project.id, timelineId: initial.sequence.id, revision: initial.revision, occurrenceId: "occurrence-1", planDigest: digest,
+    caption: { style: "basic", maxWordsPerGroup: 3, maxCharsPerLine: 20, maxLines: 2 },
+    music: { occurrenceId: "music", placement: { start: 0, end: 1 }, targetLane: 1,
+      context: { speech: "unknown", audioEvidence: "unavailable" }, capabilities: { staticMusicPreview: false, ducking: false, fades: false } } };
+  try {
+    assert.notEqual((await client.callTool({ name: "headless.decision.preview-captions", arguments: args })).isError, true);
+    drift = true;
+    const rejected = await client.callTool({ name: "headless.decision.preview-captions", arguments: args });
+    assert.equal(rejected.isError, true);
+    assert.match(JSON.stringify(rejected), /STALE_DECISION_PLAN/);
+  } finally { await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 function runtimeWithoutIncrementalChanges(): AgentVideoRuntime {
   const adapter = new InMemoryEditorAdapter({
     projectId: "fixture-project",
