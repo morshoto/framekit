@@ -537,6 +537,10 @@ test("brief conformance requires a verified artifact bound to the approved targe
     assert.equal(result.status, "incomplete");
     assert.equal(result.checks.find((check) => check.name === "duration")?.status, "passed");
     assert.equal(result.checks.find((check) => check.name === "aspect-ratio")?.status, "passed");
+    assert.equal(result.checks.find((check) => check.name === "duration")?.nextStep, undefined);
+    for (const name of ["source-coverage", "music", "captions"] as const) {
+      assert.ok(result.checks.find((check) => check.name === name)?.nextStep);
+    }
     assert.equal(result.nativeAcceptance, "unavailable");
     assert.equal(result.binding?.artifactDigest, artifact.fileDigest);
     assert.equal(assessBriefArtifact(f.request.brief, f.request.accepted, planned.plan, execution, { ...artifact, fileDigest: "a".repeat(64) }).checks[0]?.status, "passed");
@@ -546,6 +550,7 @@ test("brief conformance requires a verified artifact bound to the approved targe
       { ...execution, baseRevision: { ...execution.baseRevision, id: "other" } },
     ]) {
       assert.equal(assessBriefArtifact(f.request.brief, f.request.accepted, planned.plan, alteredExecution, artifact).checks[0]?.status, "unavailable");
+      assert.ok(assessBriefArtifact(f.request.brief, f.request.accepted, planned.plan, alteredExecution, artifact).checks[0]?.nextStep);
     }
     for (const invalidRevision of [null, { ...finalRevision, id: "" }, { ...finalRevision, sequence: -1 }, { ...finalRevision, timestamp: "" }]) {
       const rejected = assessBriefArtifact(f.request.brief, f.request.accepted, planned.plan,
@@ -591,6 +596,8 @@ test("brief conformance requires a verified artifact bound to the approved targe
     const failed = assessBriefArtifact(f.request.brief, f.request.accepted, planned.plan, execution, { ...artifact, durationSeconds: 20, width: 1920, height: 1080 });
     assert.equal(failed.checks.find((check) => check.name === "duration")?.status, "failed");
     assert.equal(failed.checks.find((check) => check.name === "aspect-ratio")?.status, "failed");
+    assert.match(failed.checks.find((check) => check.name === "duration")?.nextStep ?? "", /review/i);
+    assert.match(failed.checks.find((check) => check.name === "aspect-ratio")?.nextStep ?? "", /review/i);
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
