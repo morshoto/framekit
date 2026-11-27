@@ -2703,6 +2703,8 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     if (!currentRecord || `sha256:${createHash("sha256").update(JSON.stringify(currentRecord)).digest("hex")}` !== ref.artifactDigest) {
       throw new Error("ANALYSIS_STALE: analysis changed during evidence pinning");
     }
+    const finalProject = await projects.open(projectId);
+    if (timelineIrDigest(before.timeline) !== timelineIrDigest(finalProject.timeline)) throw new Error("STALE_CONTEXT: project changed during evidence pinning");
     const finalProvider = options.analysisEvidence.currentProvider(kind);
     if (!finalProvider || !sameAnalyzerDescriptor(ref.provider, finalProvider)) {
       throw new Error("ANALYSIS_STALE_PROVIDER: configured analyzer changed during evidence pinning");
