@@ -36,6 +36,9 @@ export class HeadlessDecisionPlanService {
       await this.assertCurrentEvidence(input);
       await assertCurrentAcceptedBrief(store, input.projectId, brief.accepted);
       await this.assertCurrentProviders(input);
+      const finalProject = await this.options.readProject(input.projectId);
+      if (!isDeepStrictEqual(before, finalProject)) return { status: "unavailable", reason: "STALE_CONTEXT: project changed during provider verification" };
+      await assertCurrentAcceptedBrief(store, input.projectId, brief.accepted);
       return result;
     } catch (error) {
       return { status: "unavailable", reason: error instanceof Error ? error.message : "Headless decision planning failed" };
@@ -70,6 +73,7 @@ export class HeadlessDecisionPlanService {
         await verify(structuredClone(committed));
         await this.assertCurrentProviders(input);
         await verify(structuredClone(committed));
+        await this.assertCurrentProviders(input);
         return { status: "applied" as const, edit: committed, planDigest: digest,
           notice: "Headless edit only; evidence checks are point-in-time and do not establish native execution or dialogue audibility." };
       });

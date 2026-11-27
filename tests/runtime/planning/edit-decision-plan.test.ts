@@ -612,6 +612,43 @@ test("headless evidence recheck rejects provider drift during final index read",
     }, async () => {});
     assert.equal(changedIndex.status, "applied-unverified");
     assert.equal(changedIndex.edit.undoId, "undo-index");
+    await f.index.save(f.record);
+    let assetChanged = false;
+    const asyncProvider = new HeadlessDecisionPlanService({ ...common, index: f.index, currentProvider: (async () => {
+      await Promise.resolve();
+      if (assetChanged) throw new Error("ANALYSIS_STALE_PROVIDER: model asset changed");
+      return provider;
+    }) });
+    const asyncPlan = await asyncProvider.plan(input);
+    assert.equal(asyncPlan.status, "available", asyncPlan.status === "unavailable" ? asyncPlan.reason : undefined);
+    if (asyncPlan.status !== "available") return;
+    const changedAsset = await asyncProvider.executeAcceptedPlan(input, asyncPlan.plan.planDigest, async () => {
+      assetChanged = true;
+      return { undoId: "undo-asset" };
+    }, async () => {});
+    assert.equal(changedAsset.status, "applied-unverified");
+    assert.equal(changedAsset.edit.undoId, "undo-asset");
+    assert.equal((await asyncProvider.plan(input)).status, "unavailable");
+    let snapshot = structuredClone(f.request.snapshot);
+    let projectReads = 0; let lateProviderCalls = 0;
+    const projectRace = new HeadlessDecisionPlanService({ ...common, index: f.index,
+      readProject: async () => { projectReads++; return structuredClone(snapshot); },
+      currentProvider: async () => {
+        if (projectReads >= 2 && ++lateProviderCalls === 5) snapshot.revision.sequence++;
+        return provider;
+      } });
+    const changedProject = await projectRace.plan(input);
+    assert.equal(changedProject.status, "unavailable");
+    if (changedProject.status === "unavailable") assert.match(changedProject.reason, /STALE_CONTEXT/);
+    projectReads = 0; lateProviderCalls = 0;
+    const briefRace = new HeadlessDecisionPlanService({ ...common, index: f.index,
+      readProject: async () => { projectReads++; return structuredClone(f.request.snapshot); },
+      currentProvider: async () => {
+        if (projectReads >= 2 && ++lateProviderCalls === 5) await f.briefStore.revise("p", f.draft.digest, { ...f.request.brief, theme: "changed during provider verification" });
+        return provider;
+      } });
+    const changedBrief = await briefRace.plan(input);
+    assert.equal(changedBrief.status, "unavailable");
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
