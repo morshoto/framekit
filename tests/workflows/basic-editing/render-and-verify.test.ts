@@ -89,6 +89,11 @@ test("render-and-verify returns verified provenance and independent artifact met
     assert.equal(observed.fileDigest, outcome.verification?.artifact?.fileDigest);
     assert.deepEqual(observed.revision, timeline.revision);
     assert.equal(await reverifyBriefArtifactObservation({ ...outcome, status: "failed" }, verifier), undefined);
+    const malformedRevision = structuredClone(outcome);
+    malformedRevision.plan!.projectRevision = { id: "", sequence: -1, timestamp: "" };
+    malformedRevision.render!.projectRevision = structuredClone(malformedRevision.plan!.projectRevision);
+    const matchingVerifier = { verify: async () => structuredClone(outcome.verification!) };
+    assert.equal(await reverifyBriefArtifactObservation(malformedRevision, matchingVerifier), undefined);
     const changed = structuredClone(outcome);
     changed.render!.planDigest = "wrong";
     assert.equal(await reverifyBriefArtifactObservation(changed, verifier), undefined);
