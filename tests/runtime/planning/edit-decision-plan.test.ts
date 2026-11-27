@@ -56,6 +56,39 @@ test("integrates verified speech cuts, captions and explicit music omission with
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
+test("music overlap is derived from pinned VAD instead of caller speech context", async () => {
+  const f = await fixture();
+  try {
+    const music = { mediaId: "music", source: "music.wav", sourceDigest: "sha256:music", mediaKind: "audio" as const, duration: 10 };
+    const brief = { ...f.request.brief, musicPolicy: { kind: "specified" as const, value: "background" } };
+    const store = new JsonCreativeBriefStore(join(f.dir, "music-brief.json"));
+    const draft = await store.create("p", brief); await store.accept("p", draft.digest);
+    const request = { ...f.request, brief, accepted: acceptCreativeBrief(brief), snapshot: { ...f.request.snapshot, media: [...f.request.snapshot.media, music] },
+      music: { ...f.request.music, music, gainDb: -18, context: { speech: "absent" as const, audioEvidence: "unavailable" as const },
+        speechMapping: { occurrenceId: "other", mediaId: "m", revision: f.request.revision, sourceRange: { start: 0, end: 10 }, sequenceRange: { start: 0, end: 10 },
+          sourceTimebase: { value: "1", timescale: "1000" }, sequenceFrameDuration: { value: "1", timescale: "10" }, capability: "transcription-only" as const, words: [] },
+        capabilities: { ...f.request.music.capabilities, staticMusicPreview: true } } };
+    const result = await createEditDecisionPlan(request, f.artifacts, verifyLocalMediaSource, store);
+    assert.equal(result.status, "available");
+    if (result.status !== "available") return;
+    const musicDecision = result.plan.decisions.find((decision) => decision.kind === "music-proposal");
+    assert.equal(musicDecision?.kind, "music-proposal");
+    if (musicDecision?.kind !== "music-proposal") return;
+    assert.deepEqual(musicDecision.vadRef, request.vadRef);
+    assert.deepEqual(musicDecision.musicPlan.dialogueProtection?.speechOverlap, {
+      occurrenceId: "clip", coverage: "complete", ranges: [{ start: 1, end: 2 }, { start: 4, end: 5 }], verification: "unverified",
+    });
+    assert.ok(result.plan.warnings.some((warning) => /pinned.*vad/i.test(warning)));
+    const altered = structuredClone(result.plan);
+    const alteredMusic = altered.decisions.find((decision) => decision.kind === "music-proposal");
+    if (alteredMusic?.kind !== "music-proposal") throw new Error("missing music proposal");
+    alteredMusic.musicPlan.dialogueProtection!.speechOverlap!.ranges[0]!.start = 1.5;
+    assert.equal((await assertEditDecisionPlanCurrent(request, altered, f.artifacts, verifyLocalMediaSource, store)).status, "stale");
+    await writeFile(f.path, "changed speech source");
+    assert.equal((await assertEditDecisionPlanCurrent(request, result.plan, f.artifacts, verifyLocalMediaSource, store)).status, "stale");
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
 test("planning binds the request before asynchronous brief reads", async () => {
   const f = await fixture();
   try {

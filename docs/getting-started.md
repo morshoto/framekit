@@ -176,6 +176,9 @@ accepted brief, evidence, project and music source and returns the headless
 timeline preview. This preview neither approves nor executes an edit. Native
 edit support remains unavailable, and the digest is not edit authorization.
 Source audio analysis does not verify the resulting mix or dialogue audibility.
+When a pinned VAD reference is supplied, the music decision also includes its
+reference and speech-overlap ranges mapped to the selected occurrence. Review
+the ranges and coverage; they do not verify the edited mix or intelligibility.
 
 To execute this supported **headless** placement, call
 `headless.decision.approved-preview-music` with the same inputs and plan digest,

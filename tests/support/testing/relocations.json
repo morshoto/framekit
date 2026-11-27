@@ -3380,7 +3380,8 @@
       "\"speech mapping rejects evidence outside its declared source clock\"",
       "\"speech mapping uses the analysis clock independently of the editor source clock\"",
       "\"cached speech remaps rational trim reorder and split snapshots after restart\"",
-      "\"speech mapping retains partial VAD coverage and only advertises fully covered occurrences\""
+      "\"speech mapping retains partial VAD coverage and only advertises fully covered occurrences\"",
+      "\"clipped VAD coverage retains exact fractional occurrence duration\""
     ]
   },
   "identityDiscoveryCorrections": {
@@ -3886,6 +3887,15 @@
       "addedTestNames": {
         "tests/speech/command-analyzer.test.ts": [
           "\"command audio bounds source verification before and after the provider\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [877],
+      "reason": "Preserve fractional VAD coverage timing in pinned music planning.",
+      "addedTestNames": {
+        "tests/speech/mapping.test.ts": [
+          "\"clipped VAD coverage retains exact fractional occurrence duration\""
         ]
       }
     }

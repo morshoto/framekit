@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { sameAnalyzerDescriptor, sameMediaSourceIdentity } from "../domain/media.js";
-import type { MediaSourceIdentity } from "../domain/media.js";
+import type { MediaSourceIdentity, MediaUnderstanding, SpeechOccurrenceMapping } from "../domain/media.js";
 import type { ContextRevision, TimeRange } from "../domain/primitives.js";
 import type { ProjectSnapshot } from "../domain/project.js";
+import { bindSpeechAnalysis } from "../speech/analysis.js";
+import { mapSpeechAnalysisToOccurrence } from "../speech/mapping.js";
 import { assertCurrentAcceptedBrief } from "../application/creative-brief-store.js";
 import type { CreativeBriefStore } from "../application/creative-brief-store.js";
 import { parseRational } from "../timeline/rational-time.js";
@@ -43,7 +45,7 @@ export type EditDecision =
   | { kind: "caption-omission"; support: "no-op"; rationale: string }
   | { kind: "caption-clarification"; support: "unavailable"; rationale: string }
   | { kind: "music-omission"; support: "no-op"; rationale: string; musicPlan: MusicPlan; audioRef?: AnalysisRef }
-  | { kind: "music-proposal"; support: "unavailable"; rationale: string; musicPlan: MusicPlan; range?: TimeRange; audioRef?: AnalysisRef };
+  | { kind: "music-proposal"; support: "unavailable"; rationale: string; musicPlan: MusicPlan; range?: TimeRange; audioRef?: AnalysisRef; vadRef?: AnalysisRef };
 export interface EditDecisionPlan {
   projectId: string;
   timelineId: string;
@@ -165,14 +167,33 @@ export async function createEditDecisionPlan(request: EditDecisionPlanRequest, a
       captionDecisions.push(...captions.plan.groups.map((group): EditDecision => ({ kind: "caption", support: "unavailable", rationale: "Review mapped transcript text, timing and any emphasis before title placement.", range: structuredClone(group.sequenceRange), group, analysisRef: structuredClone(captions.plan.analysisRef) })));
       captionWarnings.push(...captions.plan.warnings);
     }
-    const music = planMusic({ ...request.music, snapshot, projectId: request.projectId, timelineId: request.timelineId,
+    let pinnedMusicSpeech: SpeechOccurrenceMapping | undefined;
+    if (request.vadRef && vadContext && request.brief.musicPolicy.kind === "specified"
+      && request.brief.musicPolicy.value.trim().toLowerCase() === "background" && request.music.music) {
+      const verified = await verifyAnalysisEvidence(artifacts, request.vadRef, vadContext, verifySource);
+      if (verified.status !== "verified") return { status: "unavailable", reason: `Music VAD evidence: ${verified.reason}` };
+      const bytes = await artifacts.get(request.vadRef.artifactDigest);
+      if (!bytes || `sha256:${createHash("sha256").update(bytes).digest("hex")}` !== request.vadRef.artifactDigest) return { status: "unavailable", reason: "Music VAD artifact changed or disappeared." };
+      const record = JSON.parse(Buffer.from(bytes).toString("utf8")) as MediaUnderstanding;
+      if (!record.speech) return { status: "unavailable", reason: "Music VAD artifact is missing speech analysis." };
+      const bound = bindSpeechAnalysis(record.speech, { input: { project: { ...snapshot, revision: request.vadRef.analysisRevision }, media: source }, provider: vadContext.provider });
+      const vadCoverage = bound.vadCoverage ?? (bound.vadSegments ? [{ ...bound.observedRange, status: "available" as const, segments: bound.vadSegments }] : undefined);
+      const sourceStart = clip.sourceStart ?? 0;
+      pinnedMusicSpeech = mapSpeechAnalysisToOccurrence({ ...bound, revision: structuredClone(request.revision), ...(vadCoverage ? { vadCoverage } : {}) }, {
+        occurrenceId: clip.id, mediaId: source.mediaId, revision: request.revision,
+        sourceRange: { start: sourceStart, end: sourceStart + clip.duration, startTime: clip.sourceStartTime ?? { value: "0", timescale: "1" }, durationTime: clip.durationTime },
+        sequenceRange: { start: clip.start, end: clip.start + clip.duration, startTime: clip.startTime, durationTime: clip.durationTime },
+      }, { sequenceFrameDuration: snapshot.timeline.frameDuration });
+      await verifySource(source);
+    }
+    const music = planMusic({ ...request.music, ...(pinnedMusicSpeech ? { speechMapping: pinnedMusicSpeech } : {}), snapshot, projectId: request.projectId, timelineId: request.timelineId,
       revision: request.revision, brief: request.brief, accepted: request.accepted });
     const decisions: EditDecision[] = [
       ...cutDecisions,
       ...captionDecisions,
       music.decision === "omit-music"
         ? { kind: "music-omission", support: "no-op", rationale: music.reason, musicPlan: music, ...(request.audioRef ? { audioRef: structuredClone(request.audioRef) } : {}) }
-        : { kind: "music-proposal", support: "unavailable", rationale: music.reason, musicPlan: music, ...(request.audioRef ? { audioRef: structuredClone(request.audioRef) } : {}), ...(music.placement ? { range: structuredClone(music.placement.range) } : {}) },
+        : { kind: "music-proposal", support: "unavailable", rationale: music.reason, musicPlan: music, ...(request.audioRef ? { audioRef: structuredClone(request.audioRef) } : {}), ...(pinnedMusicSpeech && request.vadRef ? { vadRef: structuredClone(request.vadRef) } : {}), ...(music.placement ? { range: structuredClone(music.placement.range) } : {}) },
     ];
     decisions.sort((a, b) => ("range" in a ? a.range?.start ?? Number.POSITIVE_INFINITY : Number.POSITIVE_INFINITY)
       - ("range" in b ? b.range?.start ?? Number.POSITIVE_INFINITY : Number.POSITIVE_INFINITY));
@@ -181,6 +202,7 @@ export async function createEditDecisionPlan(request: EditDecisionPlanRequest, a
     const content = { projectId: request.projectId, timelineId: request.timelineId, occurrenceId: request.occurrenceId, source: sourceIdentity,
       revision: structuredClone(request.revision), acceptedBrief: structuredClone(request.accepted), inputDigest: digest(request),
       reviewRequired: true as const, decisions, warnings: [...cutWarnings, ...captionWarnings, ...music.warnings,
+        ...(pinnedMusicSpeech ? ["Music speech overlap is derived from pinned VAD; audibility remains unverified."] : []),
         ...(request.music.context.audioEvidence === "available" && !request.audioRef ? ["Supplied audio context is unverified because no pinned audio reference was provided."] : []),
         ...(request.audioRef ? ["Source audio evidence does not verify the edited mix or dialogue audibility; supplied speech context is not derived from this evidence."] : []),
         "Native operation mapping, separate approval and independent verification are not yet available for these proposals."] };
