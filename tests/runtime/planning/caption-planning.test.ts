@@ -180,6 +180,35 @@ test("sampled caption boundaries retain exact fractional frame timing", async ()
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
+test("sampled groups cover each word at every representable frame", async () => {
+  const words = Array.from({ length: 12 }, (_, index) => ({
+    text: `w${index}`, start: (1010 + index * 127) / 1000, end: (1010 + (index + 1) * 127) / 1000, confidence: 0.9,
+  }));
+  for (const frame of [{ value: "1", timescale: "24" }, { value: "1", timescale: "30" }, { value: "1001", timescale: "30000" }]) {
+    const f = await fixture(words);
+    try {
+      f.snapshot.timeline.frameDuration = frame;
+      const result = await planCaptionGroups({ ...f.request, maxWordsPerGroup: 2 }, f.ref, f.current, f.artifacts, verifyLocalMediaSource);
+      assert.equal(result.status, "available", JSON.stringify(result));
+      if (result.status !== "available") continue;
+      assert.ok(result.plan.warnings.some((warning) => /sampled.*frame/i.test(warning)));
+      const groups = result.plan.groups;
+      assert.deepEqual(groups.flatMap((group) => group.words.map((word) => word.wordIndex)), words.map((_, index) => index));
+      const step = Number(frame.value) / Number(frame.timescale);
+      for (let n = Math.floor(20 / step); n <= Math.ceil(24 / step); n++) {
+        const time = n * step;
+        const active = groups.filter((group) => time + 1e-9 >= group.sequenceRange.start && time < group.sequenceRange.end - 1e-9);
+        assert.ok(active.length <= 1, `overlapping captions at frame ${n}`);
+        for (const [index, word] of words.entries()) {
+          if (time + 1e-9 >= 20 + word.start && time < 20 + word.end - 1e-9) {
+            assert.ok(active[0]?.words.some((item) => item.wordIndex === index), `word ${index} missing at frame ${n}`);
+          }
+        }
+      }
+    } finally { await rm(f.dir, { recursive: true, force: true }); }
+  }
+});
+
 test("regroups words when a different frame-safe boundary satisfies the format", async () => {
   const f = await fixture([{ text: "A", start: 1, end: 1.1, confidence: 0.9 }, { text: "B", start: 1.1, end: 1.19, confidence: 0.9 },
     { text: "C", start: 1.19, end: 1.25, confidence: 0.9 }, { text: "D", start: 1.3, end: 1.4, confidence: 0.9 }]);
