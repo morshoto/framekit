@@ -529,6 +529,17 @@ test("brief conformance requires a verified artifact bound to the approved targe
       assert.equal(rejected.checks.find((check) => check.name === "duration")?.status, "unavailable");
       assert.equal(rejected.binding, undefined);
     }
+    const withoutSourceDigest = structuredClone(planned.plan);
+    delete withoutSourceDigest.source.sourceDigest;
+    const withoutOccurrence = { ...structuredClone(planned.plan), occurrenceId: "" };
+    for (const malformed of [withoutSourceDigest, withoutOccurrence]) {
+      const { planDigest: _old, ...content } = malformed;
+      const encoded = JSON.stringify(content, (_key, item: unknown) => item && typeof item === "object" && !Array.isArray(item)
+        ? Object.fromEntries(Object.entries(item).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)) : item);
+      const resigned = { ...content, planDigest: `sha256:${createHash("sha256").update(encoded).digest("hex")}` };
+      const rejected = assessBriefArtifact(f.request.brief, f.request.accepted, resigned, { ...execution, planDigest: resigned.planDigest }, artifact);
+      assert.equal(rejected.checks.find((check) => check.name === "duration")?.status, "unavailable");
+    }
     const malformedPlan = { ...planned.plan, planDigest: "not-a-digest" };
     assert.equal(assessBriefArtifact(f.request.brief, f.request.accepted, malformedPlan,
       { ...execution, planDigest: malformedPlan.planDigest }, artifact).checks[0]?.status, "unavailable");
