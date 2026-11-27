@@ -540,7 +540,7 @@ test("analysis pin rejects index changes while publishing evidence", async () =>
   } };
   const server = createMcpServer(runtime(), { sessionDirectory: directory,
     headlessProjects: { open: async () => ({ timeline: currentTimeline }) } as never,
-    analysisEvidence: { index: observedIndex, artifacts, currentProvider: () => configured } });
+    analysisEvidence: { index: observedIndex, artifacts, currentProvider: async () => configured } });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "index-race-test", version: "1" });
   try {
