@@ -3,6 +3,7 @@ import type { ContextRevision } from "../domain/primitives.js";
 import type { FramekitRenderAndVerifyResult, FramekitRenderArtifactVerifier } from "../render/render-and-verify.js";
 import { assertBriefBinding } from "./creative-brief.js";
 import type { AcceptedCreativeBrief, CreativeBrief } from "./creative-brief.js";
+import { hasValidEditDecisionPlanDigest } from "./edit-decision-plan.js";
 import type { EditDecisionPlan } from "./edit-decision-plan.js";
 
 /** Supplied execution evidence must be authenticated independently by the caller. */
@@ -91,7 +92,7 @@ export function assessBriefArtifact(
   let bound = false;
   try {
     assertBriefBinding(accepted, brief);
-    bound = isDeepStrictEqual(plan.acceptedBrief, accepted)
+    bound = hasValidEditDecisionPlanDigest(plan) && isDeepStrictEqual(plan.acceptedBrief, accepted)
       && validRevision(plan.revision) && validRevision(execution.baseRevision)
       && validRevision(execution.finalRevision) && validRevision(artifact.revision)
       && execution.status === "verified" && execution.planDigest === plan.planDigest
