@@ -2677,6 +2677,10 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     if (!options.analysisEvidence) throw new Error("ANALYSIS_UNAVAILABLE: evidence storage is not configured");
     const projects = requireHeadlessProjects();
     const before = await projects.open(projectId);
+    const unchanged = (after: typeof before) => before.timeline.revision.id === after.timeline.revision.id
+      && before.timeline.revision.sequence === after.timeline.revision.sequence
+      && before.timeline.revision.timestamp === after.timeline.revision.timestamp
+      && timelineIrDigest(before.timeline) === timelineIrDigest(after.timeline);
     if (before.timeline.project.id !== projectId || before.timeline.sequence.id !== sequenceId
       || JSON.stringify(before.timeline.revision) !== JSON.stringify(expectedRevision)) throw new Error("STALE_CONTEXT: project target or revision changed");
     const resources = before.timeline.resources.filter((resource) => resource.id === mediaId && resource.sourceKind === "local-file" && resource.sourceDigest);
@@ -2694,7 +2698,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     const context = { kind, source, provider, revision: expectedRevision, range };
     const ref = await pinAnalysisEvidence(options.analysisEvidence.index, options.analysisEvidence.artifacts, context, verifyLocalMediaSource);
     const after = await projects.open(projectId);
-    if (timelineIrDigest(before.timeline) !== timelineIrDigest(after.timeline)) throw new Error("STALE_CONTEXT: project changed during evidence pinning");
+    if (!unchanged(after)) throw new Error("STALE_CONTEXT: project changed during evidence pinning");
     const currentProvider = await options.analysisEvidence.currentProvider(kind);
     if (!currentProvider || !sameAnalyzerDescriptor(ref.provider, currentProvider)) {
       throw new Error("ANALYSIS_STALE_PROVIDER: configured analyzer changed during evidence pinning");
@@ -2704,13 +2708,13 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       throw new Error("ANALYSIS_STALE: analysis changed during evidence pinning");
     }
     const finalProject = await projects.open(projectId);
-    if (timelineIrDigest(before.timeline) !== timelineIrDigest(finalProject.timeline)) throw new Error("STALE_CONTEXT: project changed during evidence pinning");
+    if (!unchanged(finalProject)) throw new Error("STALE_CONTEXT: project changed during evidence pinning");
     const finalProvider = await options.analysisEvidence.currentProvider(kind);
     if (!finalProvider || !sameAnalyzerDescriptor(ref.provider, finalProvider)) {
       throw new Error("ANALYSIS_STALE_PROVIDER: configured analyzer changed during evidence pinning");
     }
     const finalCheckedProject = await projects.open(projectId);
-    if (timelineIrDigest(before.timeline) !== timelineIrDigest(finalCheckedProject.timeline)) throw new Error("STALE_CONTEXT: project changed during evidence pinning");
+    if (!unchanged(finalCheckedProject)) throw new Error("STALE_CONTEXT: project changed during evidence pinning");
     return { ref, notice: "Pinned source evidence is not edit approval or native occurrence proof." };
   }));
 
