@@ -425,8 +425,9 @@ To include model identity in speech provenance, set
 when the model changes. To additionally check one local model asset, set both
 `FRAMEKIT_SPEECH_MODEL_ASSET_PATH` to its absolute file path and
 `FRAMEKIT_SPEECH_MODEL_ASSET_SHA256` to its lowercase SHA-256. Framekit checks
-that file before and after speech analysis, when reusing cached speech, and
-when pinning speech evidence. Missing or changed bytes are rejected. This is
+that file before and after speech analysis, when reusing cached speech, when
+pinning speech evidence, and around evidence-bound headless decision execution.
+Missing or changed bytes are rejected. This is
 point-in-time verification of the configured file: an opaque command may load
 other files or ignore it, so it does not prove the complete model that ran.
 Command providers capture their execution environment and report a

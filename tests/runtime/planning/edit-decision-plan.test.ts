@@ -640,6 +640,20 @@ test("headless evidence recheck rejects provider drift during final index read",
     const changedProject = await projectRace.plan(input);
     assert.equal(changedProject.status, "unavailable");
     if (changedProject.status === "unavailable") assert.match(changedProject.reason, /STALE_CONTEXT/);
+    let providerDrift = false; projectReads = 0;
+    const lateBriefStore = Object.create(f.briefStore) as typeof f.briefStore;
+    lateBriefStore.read = async (projectId) => {
+      const record = await f.briefStore.read(projectId);
+      if (projectReads >= 3) providerDrift = true;
+      return record;
+    };
+    const providerRace = new HeadlessDecisionPlanService({ ...common, index: f.index,
+      storeForProject: () => lateBriefStore,
+      readProject: async () => { projectReads++; return structuredClone(f.request.snapshot); },
+      currentProvider: async () => providerDrift ? { ...provider, version: "changed at final brief read" } : provider });
+    const changedProviderAtFinalBrief = await providerRace.plan(input);
+    assert.equal(changedProviderAtFinalBrief.status, "unavailable");
+    if (changedProviderAtFinalBrief.status === "unavailable") assert.match(changedProviderAtFinalBrief.reason, /ANALYSIS_STALE_PROVIDER/);
     projectReads = 0; lateProviderCalls = 0;
     const briefRace = new HeadlessDecisionPlanService({ ...common, index: f.index,
       readProject: async () => { projectReads++; return structuredClone(f.request.snapshot); },
