@@ -137,6 +137,8 @@ test("music review consumes partial coverage from the speech mapper", () => {
 test("source must exist in the current exact project and range", () => {
   assert.equal(planMusic({ ...request, snapshot: { ...snapshot, media: [] } }).decision, "unavailable");
   assert.equal(planMusic({ ...request, music: { ...registeredMusic, sourceDigest: "sha256:changed" } }).decision, "unavailable");
+  assert.equal(planMusic({ ...request, snapshot: { ...snapshot, media: [registeredMusic, { ...registeredMusic, source: "other.wav", sourceDigest: "sha256:other" }] } }).decision, "unavailable");
+  assert.equal(planMusic({ ...request, snapshot: { ...snapshot, media: [registeredMusic, registeredMusic] } }).decision, "unavailable");
   assert.throws(() => planMusic({ ...request, revision: { ...revision, sequence: 2 } }), /STALE/);
   assert.equal(planMusic({ ...request, placement: { start: 25, end: 35 } }).decision, "unsupported");
 });
