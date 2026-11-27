@@ -296,7 +296,11 @@ test("music preview verifies the mapped speech source before and after preview",
   const input = { ...request, snapshot: current, revision: current.revision, speechMapping };
   const plan = planMusic(input); let speechChecks = 0;
   await assert.rejects(() => previewMusicPlan(runtime, input, plan, "music-clip", async (source) => {
+    if (source.mediaId === "video") throw new Error("speech source unavailable");
+  }, store), /speech source unavailable/);
+  await assert.rejects(() => previewMusicPlan(runtime, input, plan, "music-clip", async (source) => {
     if (source.mediaId === "video" && ++speechChecks === 2) throw new Error("speech source changed");
   }, store), /speech source changed/);
   assert.equal(speechChecks, 2);
+  assert.throws(() => planMusic({ ...input, snapshot: { ...current, media: current.media.map((source) => source.mediaId === "video" ? { ...source, sourceDigest: undefined } : source) } }), /INVALID_MUSIC_PLAN/);
 });

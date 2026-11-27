@@ -112,12 +112,13 @@ function reviewSpeechOverlap(mapping: SpeechOccurrenceMapping, snapshot: Project
   const clips = snapshot.timeline.clips.filter((clip) => clip.id === mapping.occurrenceId);
   const clip = clips.length === 1 ? clips[0] : undefined;
   const sourceStart = clip?.sourceStart ?? 0;
-  if (!clip || !clip.mediaId || clip.mediaId !== mapping.mediaId || snapshot.media.filter((source) => source.mediaId === mapping.mediaId).length !== 1
+  if (!clip || !clip.mediaId || clip.mediaId !== mapping.mediaId
     || mapping.revision?.id !== snapshot.revision.id || mapping.revision?.sequence !== snapshot.revision.sequence || mapping.revision?.timestamp !== snapshot.revision.timestamp
     || mapping.sourceRange?.start !== sourceStart || mapping.sourceRange?.end !== sourceStart + clip.duration
     || mapping.sequenceRange?.start !== clip.start || mapping.sequenceRange?.end !== clip.start + clip.duration) {
     throw new Error("STALE_MUSIC_PLAN: speech mapping does not match the current occurrence");
   }
+  mappedSpeechSource(snapshot, mapping);
   const ranges: TimeRange[] = [];
   let cursor = placement.start;
   let previousEnd = clip.start;
@@ -144,6 +145,14 @@ function reviewSpeechOverlap(mapping: SpeechOccurrenceMapping, snapshot: Project
     }
   }
   return { occurrenceId: mapping.occurrenceId, coverage: cursor >= placement.end ? "complete" : "unknown", ranges, verification: "unverified" };
+}
+
+function mappedSpeechSource(snapshot: ProjectSnapshot, mapping: SpeechOccurrenceMapping): MediaSourceIdentity {
+  const matches = snapshot.media.filter((source) => source.mediaId === mapping.mediaId);
+  if (matches.length !== 1 || !matches[0]?.source || !matches[0].sourceDigest) {
+    throw new Error("INVALID_MUSIC_PLAN: mapped speech requires a unique registered source and digest");
+  }
+  return matches[0];
 }
 
 export interface MusicPreviewPort {
@@ -184,6 +193,7 @@ export async function previewMusicPlan(
   }
   if (typeof verifySource !== "function" || !request.music) throw new Error("CAPABILITY_UNAVAILABLE: music source verification is required");
   await verifySource(request.music);
+  if (request.speechMapping) await verifySource(mappedSpeechSource(current, request.speechMapping));
   const preview = structuredClone(await runtime.previewMusic({
     baseRevision: structuredClone(recomputed.revision), occurrenceId, mediaId: recomputed.placement.mediaId,
     placement: "insert", start: recomputed.placement.range.start,
@@ -210,6 +220,7 @@ export async function previewMusicPlan(
   }
   const finalPlan = planMusic({ ...request, snapshot: after });
   if (!isDeepStrictEqual(finalPlan, reviewed)) throw new Error("STALE_MUSIC_PLAN: project changed during preview");
+  if (request.speechMapping) await verifySource(mappedSpeechSource(after, request.speechMapping));
   await assertCurrentAcceptedBrief(briefStore, request.projectId, request.accepted);
   const { previewToken: _editorToken, ...review } = preview;
   return review;
