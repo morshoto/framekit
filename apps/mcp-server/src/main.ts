@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -27,8 +28,8 @@ import {
   isFinalCutVideoProbeAvailable,
 } from "@framekit/final-cut";
 import { FixtureAudioAnalyzer, FixtureMetadataAnalyzer, FixtureSpeechAnalyzer, FixtureVisualAnalyzer } from "@framekit/testkit";
-import { AgentVideoRuntime, FileAnalysisArtifactStore, JsonSemanticMediaIndexStore } from "@framekit/runtime";
-import { HeadlessProjectService } from "@framekit/headless-application";
+import { AgentVideoRuntime, FileAnalysisArtifactStore, JsonCreativeBriefStore, JsonSemanticMediaIndexStore } from "@framekit/runtime";
+import { assertCreativeBriefProjectBinding, HeadlessCreativeBriefService, HeadlessProjectService } from "@framekit/headless-application";
 import { createMcpServer } from "./server.js";
 import { createCanonicalSessionChangeSource } from "./headless-sessions.js";
 import { createCanonicalNativeSnapshotReader } from "./canonical-native-snapshot.js";
@@ -323,6 +324,15 @@ const server = createMcpServer(runtime, {
   headlessProjects,
   analysisEvidence: { index: semanticMediaIndexStore, artifacts: new FileAnalysisArtifactStore(join(framekitStateDirectory, "analysis-artifacts")),
     currentProvider: (kind) => (kind === "audio" ? analyzers.audioAnalyzer : analyzers.speechAnalyzer)?.descriptor },
+  headlessBriefs: new HeadlessCreativeBriefService({
+    openProject: (projectId) => headlessProjects.open(projectId),
+    withProjectLock: (projectId, operation) => headlessProjects.withProjectLock(projectId, operation),
+    storeForProject: (projectId) => new JsonCreativeBriefStore(join(framekitStateDirectory, "creative-briefs", `${createHash("sha256").update(projectId).digest("hex")}.json`),
+      (binding, operation) => headlessProjects.withProjectLock(projectId, async (lockedProject) => {
+        assertCreativeBriefProjectBinding(binding, await headlessProjects.open(projectId));
+        return operation(lockedProject);
+      })),
+  }),
 });
 const transport = new StdioServerTransport();
 let shuttingDown = false;

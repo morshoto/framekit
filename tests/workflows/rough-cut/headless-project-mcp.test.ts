@@ -56,6 +56,31 @@ test("headless edit reports primary gaps in preview and execution", async () => 
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
+test("an approved headless edit commits under its scoped project lock", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-locked-approved-edit-"));
+  try {
+    const service = new HeadlessProjectService({ directory });
+    const timeline = emptyTimeline();
+    timeline.resources.push({ id: "media", name: "media", mediaKind: "video" });
+    timeline.sequence.occurrences = [occurrence("a", "media")];
+    timeline.sequence.durationTime = { value: "1", timescale: "1" };
+    const initial = await service.create(timeline);
+    const command = { schemaVersion: 1 as const, expectedRevision: initial.timeline.revision,
+      operations: [{ type: "trim-occurrence" as const, occurrenceId: "a", durationTime: { value: "1", timescale: "2" }, sourceStartTime: { value: "0", timescale: "1" } }] };
+    const preview = await service.previewApprovedEdit(timeline.project.id, command, timeline.sequence.id);
+    let expired!: import("@framekit/runtime").ProjectStore;
+    await service.withProjectLock(timeline.project.id, async (locked) => { expired = locked; });
+    await assert.rejects(() => service.executeApprovedEdit(timeline.project.id, timeline.sequence.id, preview.previewToken, expired), /PROJECT_LOCK_INVALID/);
+    let competing!: Promise<unknown>;
+    const result = await service.withProjectLock(timeline.project.id, async (locked) => {
+      competing = service.executeEdit(timeline.project.id, command, timeline.sequence.id);
+      return service.executeApprovedEdit(timeline.project.id, timeline.sequence.id, preview.previewToken, locked);
+    });
+    await assert.rejects(competing, /STALE/);
+    assert.deepEqual((await service.open(timeline.project.id)).timeline, result.after.timeline);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("approved headless edits report overlap and unsupported dissolve consequences", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-edit-overlap-"));
   try {
@@ -79,6 +104,42 @@ test("approved headless edits report overlap and unsupported dissolve consequenc
     const result = await service.executeEdit(target[0], dissolve, target[1]);
     assert.deepEqual(result.warnings, transition.warnings);
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("production MCP persists creative brief review across restarts", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-brief-stdio-"));
+  const here = dirname(fileURLToPath(import.meta.url));
+  const environment = { ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1", FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
+    FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"), FRAMEKIT_STATE_DIR: join(directory, "state") };
+  let connection: { client: Client; transport: StdioClientTransport } | undefined;
+  try {
+    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory]);
+    connection = await connectProductionClient(here, environment);
+    const client = connection.client;
+    const created = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: emptyTimeline() } }));
+    const projectId = created.timeline.project.id;
+    const registered = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath: join(directory, "fixture-red-440hz.mp4"), expectedRevision: created.timeline.revision } }));
+    const target = { projectId, sequenceId: created.timeline.sequence.id, expectedRevision: registered.project.timeline.revision };
+    const brief = { schemaVersion: 1, id: "brief", version: 1, purpose: { kind: "specified", value: "interview" }, audience: { kind: "no-preference" },
+      durationSeconds: { min: 1, max: 2 }, aspectRatio: "9:16", theme: "natural", visualDirection: "natural", requiredContent: ["intro"], excludedContent: [],
+      sourceCoverage: [{ requirement: "intro", sourceId: registered.resource.id, sourceDigest: registered.resource.sourceDigest, start: 0, end: 1 }],
+      speechPolicy: { kind: "specified", value: "preserve" }, musicPolicy: { kind: "specified", value: "none" }, captionPolicy: { kind: "specified", value: "basic" }, inferences: [], reviewPrompts: [] };
+    const draft = payload(await client.callTool({ name: "headless.brief.create", arguments: { ...target, brief } }));
+    const denied = await client.callTool({ name: "headless.brief.accept", arguments: { ...target, expectedDigest: draft.record.digest, confirmed: false } });
+    assert.equal(denied.isError, true);
+    const accepted = payload(await client.callTool({ name: "headless.brief.accept", arguments: { ...target, expectedDigest: draft.record.digest, confirmed: true } }));
+    assert.equal(accepted.record.state, "accepted");
+    const revised = payload(await client.callTool({ name: "headless.brief.revise", arguments: { ...target, expectedDigest: draft.record.digest, brief: { ...brief, theme: "changed" } } }));
+    assert.equal(revised.record.state, "draft");
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, registered.project.timeline);
+    await client.close(); await connection.transport.close();
+    connection = await connectProductionClient(here, environment);
+    assert.equal(payload(await connection.client.callTool({ name: "headless.brief.inspect", arguments: target })).record.state, "draft");
+    await writeFile(join(directory, "fixture-red-440hz.mp4"), "changed");
+    const stale = await connection.client.callTool({ name: "headless.brief.accept", arguments: { ...target, expectedDigest: revised.record.digest, confirmed: true } });
+    assert.equal(stale.isError, true);
+  } finally { await connection?.client.close(); await connection?.transport.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
 test("production rough-cut renders without FCPXML and rejects changed export intent", async () => {
