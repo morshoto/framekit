@@ -126,7 +126,8 @@ export class HeadlessDecisionPlanService {
       const relevant = (record: MediaUnderstanding) => ({ mediaId: record.mediaId, source: record.source, sourceIdentity: record.sourceIdentity, analysisRevision: record.analysisRevision,
         analysis: record.analysis.filter((item) => item.capability === capability),
         payload: capability === "audio" ? record.audio : record.speech });
-      if (!isDeepStrictEqual(relevant(current), relevant(pinned))) {
+      const latest = await this.options.index.load(ref.source);
+      if (!latest || !isDeepStrictEqual(relevant(current), relevant(pinned)) || !isDeepStrictEqual(relevant(latest), relevant(pinned))) {
         throw new Error("ANALYSIS_STALE: relevant source analysis changed after pinning");
       }
     }
