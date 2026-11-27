@@ -3903,9 +3903,11 @@ test("approved reviewed headless cut executes once and independently reads back"
     const probe = await execFileAsync(process.env.FFPROBE_BIN || "ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", outputPath]);
     const expectedDuration = 10 - Number(removedDuration.value) / Number(removedDuration.timescale);
     assert.ok(Math.abs(Number(probe.stdout.trim()) - expectedDuration) < 0.05);
-    const sample = async (at: number) => (await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-hide_banner", "-loglevel", "error", "-ss", String(at), "-i", outputPath, "-frames:v", "1", "-vf", "scale=1:1", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"], { encoding: "buffer" })).stdout;
-    const first = await sample(0.5); const last = await sample(expectedDuration - 0.5);
+    const sample = async (at: number, path = outputPath) => (await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-hide_banner", "-loglevel", "error", "-ss", String(at), "-i", path, "-frames:v", "1", "-vf", "scale=1:1", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"], { encoding: "buffer" })).stdout;
+    const first = await sample(0.5); const sourceAtCut = await sample(1.7, sourcePath); const afterCut = await sample(1.7); const last = await sample(expectedDuration - 0.5);
+    assert.ok(sourceAtCut[0]! > sourceAtCut[1]! + 50 && sourceAtCut[0]! > sourceAtCut[2]! + 50, "uncut source is red at the checked position");
     assert.ok(first[2]! > first[0]! + 50 && first[2]! > first[1]! + 50, "first segment remains blue");
+    assert.ok(afterCut[1]! > afterCut[0]! + 50 && afterCut[1]! > afterCut[2]! + 50, "the cut advances the green source segment to the reviewed output position");
     assert.ok(last[1]! > last[0]! + 50 && last[1]! > last[2]! + 50, "last segment remains green");
     assert.equal((await client.callTool({ name: "headless.decision.approved-execute-cut", arguments: { ...execute, previewToken: approved.previewToken } })).isError, true);
     const undone = payload(await client.callTool({ name: "headless.edit.undo", arguments: { projectId, sequenceId, undoId: applied.edit.undoId, expectedRevision: observed.timeline.revision } }));
