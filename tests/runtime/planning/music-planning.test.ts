@@ -274,3 +274,33 @@ test("music preview verifies every brief-covered source before and after preview
   }, store), /covered source changed/);
   assert.equal(coverageChecks, 2);
 });
+
+test("music preview verifies the mapped speech source before and after preview", async (t) => {
+  const { AgentVideoRuntime } = await import("../../../packages/runtime/src/runtime.js");
+  const { InMemoryEditorAdapter } = await import("../../../packages/testkit/src/index.js");
+  const { previewMusicPlan } = await import("../../../packages/runtime/src/planning/music-planning.js");
+  const { JsonCreativeBriefStore } = await import("../../../packages/runtime/src/application/creative-brief-store.js");
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const dir = await mkdtemp(join(tmpdir(), "framekit-music-speech-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const video = { mediaId: "video", source: "video.mov", sourceDigest: "sha256:video", mediaKind: "video" as const, duration: 30 };
+  const store = new JsonCreativeBriefStore(join(dir, "brief.json"));
+  const draft = await store.create("p", brief); await store.accept("p", draft.digest);
+  const runtime = new AgentVideoRuntime(new InMemoryEditorAdapter({ projectId: "p", projectName: "Project", timelineId: "t", timelineName: "Main",
+    clips: [{ id: "dialogue", mediaId: "video", name: "Dialogue", start: 0, duration: 30, track: 1 }], media: [registeredMusic, video] }));
+  const current = await runtime.inspectProject();
+  const speechMapping = { occurrenceId: "dialogue", mediaId: "video", revision: current.revision, sourceRange: { start: 0, end: 30 }, sequenceRange: { start: 0, end: 30 },
+    sourceTimebase: { value: "1", timescale: "100" }, sequenceFrameDuration: { value: "1", timescale: "30" }, capability: "transcription-only" as const, words: [] };
+  const input = { ...request, snapshot: current, revision: current.revision, speechMapping };
+  const plan = planMusic(input); let speechChecks = 0;
+  await assert.rejects(() => previewMusicPlan(runtime, input, plan, "music-clip", async (source) => {
+    if (source.mediaId === "video") throw new Error("speech source unavailable");
+  }, store), /speech source unavailable/);
+  await assert.rejects(() => previewMusicPlan(runtime, input, plan, "music-clip", async (source) => {
+    if (source.mediaId === "video" && ++speechChecks === 2) throw new Error("speech source changed");
+  }, store), /speech source changed/);
+  assert.equal(speechChecks, 2);
+  assert.throws(() => planMusic({ ...input, snapshot: { ...current, media: current.media.map((source) => source.mediaId === "video" ? { ...source, sourceDigest: undefined } : source) } }), /INVALID_MUSIC_PLAN/);
+});
