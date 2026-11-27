@@ -546,6 +546,21 @@ test("headless evidence recheck rejects provider drift during final index read",
     } };
     const racingIndex = new HeadlessDecisionPlanService({ ...common, artifacts: racingArtifacts, index: f.index, currentProvider: () => provider });
     await assert.rejects(racingIndex.recheckEvidence(input, planned.plan), /ANALYSIS_STALE/);
+    await f.index.save(f.record);
+    let armed = false;
+    artifactReads = 0;
+    const postCommitArtifacts = { put: f.artifacts.put.bind(f.artifacts), get: async (digest: string) => {
+      const bytes = await f.artifacts.get(digest);
+      if (armed && ++artifactReads === 4) await f.index.save({ ...f.record, speech: { ...f.record.speech, words: [] } });
+      return bytes;
+    } };
+    const postCommit = new HeadlessDecisionPlanService({ ...common, artifacts: postCommitArtifacts, index: f.index, currentProvider: () => provider });
+    const changedIndex = await postCommit.executeAcceptedPlan(input, planned.plan.planDigest, async () => {
+      armed = true;
+      return { undoId: "undo-index" };
+    }, async () => {});
+    assert.equal(changedIndex.status, "applied-unverified");
+    assert.equal(changedIndex.edit.undoId, "undo-index");
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
