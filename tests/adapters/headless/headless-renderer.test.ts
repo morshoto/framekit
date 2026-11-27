@@ -109,11 +109,24 @@ test("FFmpeg renderer rejects vertically clipped titles", async () => {
       await assert.rejects(readFile(output), /ENOENT/);
     }
     title.position = { x: 0, y: 0 };
+    const centered = join(directory, "centered.mp4");
+    const centeredRequest = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(centered) });
+    await renderer.render(createFramekitRenderPlan(centeredRequest, renderer.capabilities(centeredRequest)));
+    const frame = await frameAt(centered, 0.25, directory, "centered");
+    assert.ok(countBrightPixels(frame, 0, 320, 30, 150) > 0, "centered title must appear in the decoded frame");
+    assert.equal(countBrightPixels(frame, 0, 320, 0, 2), 0);
+    assert.equal(countBrightPixels(frame, 0, 320, 178, 180), 0);
     title.text = "I\nI\nI\nI\nI\nI\nI\nI\nI\nI";
     const output = join(directory, "multiline.mp4");
     const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(output) });
     await assert.rejects(renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request))), /HEADLESS_RENDER_UNSUPPORTED.*title.*fit/i);
     await assert.rejects(readFile(output), /ENOENT/);
+    title.text = "I";
+    title.style = { fontSize: 200, color: "white", alignment: "center" };
+    const oversized = join(directory, "oversized.mp4");
+    const oversizedRequest = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(oversized) });
+    await assert.rejects(renderer.render(createFramekitRenderPlan(oversizedRequest, renderer.capabilities(oversizedRequest))), /HEADLESS_RENDER_UNSUPPORTED.*title.*fit/i);
+    await assert.rejects(readFile(oversized), /ENOENT/);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 

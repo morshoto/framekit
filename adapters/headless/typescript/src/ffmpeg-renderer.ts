@@ -5,7 +5,7 @@ import { access, link, lstat, mkdtemp, readFile, rename, rm, stat, unlink, write
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { inspectTitleFont as inspectTitleFontBytes, titleGlyphProblem, titleHorizontalFitProblem } from "./title-glyphs.js";
+import { inspectTitleFont as inspectTitleFontBytes, titleGlyphProblem, titleFitProblem } from "./title-glyphs.js";
 import { HEADLESS_AUDIO_CHANNELS, HEADLESS_AUDIO_CODEC, HEADLESS_AUDIO_SAMPLE_RATE } from "./audio-output.js";
 import {
   createFramekitRenderResult,
@@ -145,7 +145,7 @@ export class FfmpegTimelineRenderer implements FramekitRenderProvider {
         if (createHash("sha256").update(bytes).digest("hex") !== plan.capabilities.titleFontDigest) throw new FfmpegRenderError("HEADLESS_RENDER_PLAN_MISMATCH", "title font changed after planning");
         const inspectedFace = inspectTitleFontBytes(bytes, (model.timeline.sequence.titles ?? []).map((title) => title.text)).face;
         if (!sameTitleFace(inspectedFace, plan.capabilities.titleFontFace)) throw new FfmpegRenderError("HEADLESS_RENDER_PLAN_MISMATCH", "title font face differs from the render plan");
-        const fitProblem = titleHorizontalFitProblem(bytes, model.timeline.sequence.titles ?? [], model.width, model.height);
+        const fitProblem = titleFitProblem(bytes, model.timeline.sequence.titles ?? [], model.width, model.height);
         if (fitProblem) throw new FfmpegRenderError("HEADLESS_RENDER_UNSUPPORTED", fitProblem);
         stagedFont = join(stagingDirectory, `font${extname(this.fontFile)}`);
         await writeFile(stagedFont, bytes);
