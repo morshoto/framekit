@@ -216,6 +216,11 @@ to 0.0 dBFS fails conservatively. If verification reports an excessive peak,
 reduce the mix gain and render again. A measurement failure also fails
 verification. Silent audio is accepted.
 
+It also counts decoded video frames and compares the count with the requested
+frame rate and timeline duration. A missing or mismatched count fails
+verification. Counting frames decodes the video and can increase verification
+time for long outputs.
+
 Empty `timeline` for step 1:
 
 ```json
