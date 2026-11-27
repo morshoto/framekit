@@ -142,6 +142,44 @@ test("overlapping frame-rounded groups are unavailable rather than silently shif
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
+test("sampled frame boundaries preserve readable adjacent caption groups", async () => {
+  const f = await fixture([{ text: "First.", start: 1.01, end: 1.24, confidence: 0.9 }, { text: "Next", start: 1.24, end: 1.48, confidence: 0.9 }]);
+  try {
+    const result = await planCaptionGroups({ ...f.request, maxWordsPerGroup: 1 }, f.ref, f.current, f.artifacts, verifyLocalMediaSource);
+    assert.equal(result.status, "available");
+    if (result.status !== "available") return;
+    const [first, second] = result.plan.groups;
+    assert.deepEqual(first!.lines, ["First."]); assert.deepEqual(second!.lines, ["Next"]);
+    assert.equal(first!.sequenceRange.start, 21.1); assert.equal(first!.sequenceRange.end, 21.3);
+    assert.equal(second!.sequenceRange.start, 21.3); assert.equal(second!.sequenceRange.end, 21.5);
+    assert.equal(first!.words[0]!.sequenceRange.start, 21.01);
+    assert.equal(first!.words[0]!.frameAlignedRange.start, 21);
+    assert.ok(result.plan.warnings.some((warning) => /sampled.*frame/i.test(warning)));
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test("sampled caption boundaries retain exact fractional frame timing", async () => {
+  const f = await fixture([{ text: "First.", start: 1.01, end: 1.24, confidence: 0.9 }, { text: "Next", start: 1.24, end: 1.48, confidence: 0.9 }]);
+  try {
+    f.snapshot.timeline.frameDuration = { value: "1001", timescale: "30000" };
+    const result = await planCaptionGroups({ ...f.request, maxWordsPerGroup: 1 }, f.ref, f.current, f.artifacts, verifyLocalMediaSource);
+    assert.equal(result.status, "available");
+    if (result.status !== "available") return;
+    assert.equal(result.plan.groups.length, 2);
+    for (const group of result.plan.groups) {
+      const start = group.sequenceRange.startTime!; const duration = group.sequenceRange.durationTime!;
+      assert.equal((BigInt(start.value) * 30000n) % (BigInt(start.timescale) * 1001n), 0n);
+      assert.equal((BigInt(duration.value) * 30000n) % (BigInt(duration.timescale) * 1001n), 0n);
+      const word = group.words[0]!;
+      assert.ok(group.sequenceRange.start >= word.sequenceRange.start - 1e-9);
+      assert.ok(group.sequenceRange.start - word.sequenceRange.start < 1001 / 30000);
+      assert.ok(group.sequenceRange.end >= word.sequenceRange.end - 1e-9);
+      assert.ok(group.sequenceRange.end - word.sequenceRange.end < 1001 / 30000);
+    }
+    assert.ok(result.plan.warnings.some((warning) => /sampled.*frame/i.test(warning)));
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
 test("regroups words when a different frame-safe boundary satisfies the format", async () => {
   const f = await fixture([{ text: "A", start: 1, end: 1.1, confidence: 0.9 }, { text: "B", start: 1.1, end: 1.19, confidence: 0.9 },
     { text: "C", start: 1.19, end: 1.25, confidence: 0.9 }, { text: "D", start: 1.3, end: 1.4, confidence: 0.9 }]);

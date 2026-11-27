@@ -164,11 +164,24 @@ export async function planCaptionGroups(
     }
     if (currentWords.length) grouped.push(currentWords);
     const warnings = ["Transcript and emphasis require human review; native editable title support is not established."];
+    let sampledTiming = false;
     if (grouped.some((words, i) => i > 0 && grouped[i - 1]![grouped[i - 1]!.length - 1]!.frameAlignedRange.end > words[0]!.frameAlignedRange.start + 1e-9)) {
       const alternative = frameSafeGroups(mapped, separator, request.maxWordsPerGroup, request.maxCharsPerLine, request.maxLines);
-      if (!alternative) return { status: "unavailable", reason: "Frame rounding causes caption groups to overlap." };
-      grouped = alternative;
-      warnings.push("Caption boundaries were regrouped to avoid frame overlap; review sentence breaks.");
+      if (alternative) {
+        grouped = alternative;
+        warnings.push("Caption boundaries were regrouped to avoid frame overlap; review sentence breaks.");
+      } else {
+        const sampled = mapped.map((word) => {
+          const range = sampledFrameRange(word.sequenceRange, snapshot.timeline.frameDuration!);
+          return range && { ...word, frameAlignedRange: range };
+        });
+        if (sampled.some((word) => !word)) return { status: "unavailable", reason: "Frame rounding causes caption groups to overlap and some words have no sampled frame." };
+        const sampledGroups = frameSafeGroups(sampled as CaptionWord[], separator, request.maxWordsPerGroup, request.maxCharsPerLine, request.maxLines);
+        if (!sampledGroups) return { status: "unavailable", reason: "Frame rounding causes caption groups to overlap." };
+        grouped = sampledGroups;
+        sampledTiming = true;
+        warnings.push("Caption group timing uses sampled frames rather than outward rounding and may start up to one frame after a word begins; review timing.");
+      }
     }
     if (corrections.length) warnings.push("User-supplied caption corrections require review and do not alter the pinned transcript; confidence refers to the original recognition.");
     if (mapped.some((word) => Math.abs(word.sequenceRange.start - word.frameAlignedRange.start) > 1e-9 || Math.abs(word.sequenceRange.end - word.frameAlignedRange.end) > 1e-9)) warnings.push("Word timing was rounded outward to the sequence frame grid.");
@@ -184,13 +197,32 @@ export async function planCaptionGroups(
       if (words.some((word, i) => i > 0 && words[i - 1]!.frameAlignedRange.end > word.frameAlignedRange.start + 1e-9)) warnings.push("Word frame ranges overlap after rounding.");
       const lines = wrap(words, separator, request.maxCharsPerLine, request.maxLines);
       if (!lines) return { status: "unsupported", reason: "Caption lines exceed the requested format." };
-      groups.push({ lines, words, sequenceRange: range, emphasis: words.filter((word) => selected.includes(word.wordIndex)).map((word) => ({ wordIndex: word.wordIndex, reason: "Requested for human review; not automatic styling." })) });
+      const evidenceWords = sampledTiming ? words.map((word) => mapped.find((original) => original.wordIndex === word.wordIndex)!) : words;
+      groups.push({ lines, words: evidenceWords, sequenceRange: range, emphasis: words.filter((word) => selected.includes(word.wordIndex)).map((word) => ({ wordIndex: word.wordIndex, reason: "Requested for human review; not automatic styling." })) });
     }
     return { status: "available", plan: { projectId: request.projectId, timelineId: request.timelineId, occurrenceId: request.occurrenceId,
       revision: structuredClone(request.revision), analysisRef: structuredClone(ref), inputDigest: digest({ request, ref }), groups, warnings, reviewRequired: true, nativeTitleStatus: "unavailable" } };
   } catch (error) {
     return { status: "unavailable", reason: error instanceof Error ? error.message : "Caption evidence or mapping is unavailable." };
   }
+}
+
+/** Frame starts in the exact half-open word interval, without inventing a sample. */
+function sampledFrameRange(range: TimeRange, frame: { value: string; timescale: string }): TimeRange | undefined {
+  if (!range.startTime || !range.durationTime) return undefined;
+  const step = parseRational(frame, "ANALYSIS_INVALID");
+  if (step.value <= 0n) return undefined;
+  const indexAtOrAfter = (time: { value: string; timescale: string }) => {
+    const value = parseRational(time, "ANALYSIS_INVALID");
+    const numerator = value.value * step.timescale; const denominator = value.timescale * step.value;
+    return numerator >= 0n ? (numerator + denominator - 1n) / denominator : numerator / denominator;
+  };
+  const start = indexAtOrAfter(range.startTime);
+  const end = indexAtOrAfter(addRationalTimes(range.startTime, range.durationTime));
+  if (end <= start) return undefined;
+  const startTime = { value: String(start * step.value), timescale: String(step.timescale) };
+  const durationTime = { value: String((end - start) * step.value), timescale: String(step.timescale) };
+  return { start: seconds(startTime), end: seconds(addRationalTimes(startTime, durationTime)), startTime, durationTime };
 }
 
 function sameWord(a: SpeechWord, b: SpeechWord): boolean {
