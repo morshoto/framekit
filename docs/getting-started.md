@@ -112,9 +112,11 @@ updated brief to return it to draft. If a source or revision changes, inspect
 and revise against the current project before accepting again.
 Guarded use of an accepted brief requires the accepted project revision and
 timeline to match the current project. Reaccept the reviewed brief after a
-project change. Cooperating headless project writers are excluded during the
-guarded operation; external source changes and native operations require their
-own verification and operation-specific authorization.
+project change. The existing headless edit tools do not enforce brief acceptance
+or bind it to an edit approval. The guard is a foundation for a downstream
+integration, not a gate on those tools. Cooperating headless project writers are
+excluded during a guarded operation; external source changes and native operations
+require their own verification and operation-specific authorization.
 If acceptance is interrupted, the brief may report
 `BRIEF_RECONCILIATION_REQUIRED` and remains unavailable until the interrupted
 state is inspected and reconciled; do not treat it as approval for an edit.
@@ -137,6 +139,17 @@ To correct a recognized word in the caption proposal, supply
 the correction itself still requires review and changes the plan digest.
 Music capability and speech-presence inputs are caller-supplied context, not
 independent capability discovery or verified speech detection.
+
+For a reviewed cut, call `headless.decision.preview-cut` with the same planning
+inputs, the `planDigest`, and the zero-based `candidateIndex` of the cut in
+`decisions`. The current implementation supports one isolated primary video
+occurrence with no other timeline content; other timelines return unavailable.
+To execute it, review `headless.decision.approved-preview-cut` and pass its
+single-use `previewToken`, the project and sequence IDs, and `approved: true`
+to `headless.decision.approved-execute-cut`. The server rechecks the accepted
+brief and pinned evidence, then reloads the saved headless project. An
+`applied-unverified` result requires inspection of the edit and Undo record.
+These point-in-time checks do not establish native editing or lock media files.
 
 For reviewed basic captions, call `headless.decision.preview-captions` with the
 same planning inputs and `planDigest`. To prepare execution, call
