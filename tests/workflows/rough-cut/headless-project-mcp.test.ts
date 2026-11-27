@@ -1718,6 +1718,11 @@ test("headless project media can be understood and planned without a Final Cut c
     };
     const decision = payload(await client.callTool({ name: "headless.decision.plan", arguments: decisionInput }));
     assert.equal(decision.status, "available", decision.reason);
+    await writeFile(modelAssetPath, "changed model after pinning");
+    const changedAssetDecision = payload(await client.callTool({ name: "headless.decision.plan", arguments: decisionInput }));
+    assert.equal(changedAssetDecision.status, "unavailable");
+    assert.match(changedAssetDecision.reason, /ANALYZER_MODEL_CHANGED/);
+    await writeFile(modelAssetPath, modelAssetBytes);
     assert.equal(decision.plan.reviewRequired, true);
     assert.ok(decision.plan.decisions.some((item: any) => item.kind === "caption"));
     const captions = decision.plan.decisions.filter((item: any) => item.kind === "caption");
