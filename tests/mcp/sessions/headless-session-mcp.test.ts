@@ -525,14 +525,20 @@ test("analysis pin rejects index changes while publishing evidence", async () =>
       requestedRange: { start: 0, end: 10 }, observedRange: { start: 0, end: 10 }, sourceTimebase: { value: "1", timescale: "1000" },
       capability: "transcription-plus-vad" as const, words: [{ text: "hello", start: 1, end: 2, confidence: 0.9 }], vadSegments: [{ kind: "speech" as const, start: 1, end: 2 }] } };
   await index.save(record);
+  let configured = provider; let loads = 0; let driftProvider = false; let driftIndex = true;
+  const observedIndex = { list: index.list.bind(index), save: index.save.bind(index), load: async (identity: typeof source) => {
+    const loaded = await index.load(identity);
+    if (++loads === 3 && driftProvider) configured = { ...provider, model: "changed" };
+    return loaded;
+  } };
   const backing = new InMemoryAnalysisArtifactStore();
   const artifacts = { get: backing.get.bind(backing), put: async (digest: string, data: Uint8Array) => {
     await backing.put(digest, data);
-    await index.save({ ...record, speech: { ...record.speech, words: [{ ...record.speech.words[0]!, text: "changed" }] } });
+    if (driftIndex) await index.save({ ...record, speech: { ...record.speech, words: [{ ...record.speech.words[0]!, text: "changed" }] } });
   } };
   const server = createMcpServer(runtime(), { sessionDirectory: directory,
     headlessProjects: { open: async () => ({ timeline: initial }) } as never,
-    analysisEvidence: { index, artifacts, currentProvider: () => provider } });
+    analysisEvidence: { index: observedIndex, artifacts, currentProvider: () => configured } });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "index-race-test", version: "1" });
   try {
@@ -541,5 +547,10 @@ test("analysis pin rejects index changes while publishing evidence", async () =>
       expectedRevision: revision, mediaId: source.mediaId, kind: "speech", range: { start: 1, end: 4 } } });
     assert.equal(result.isError, true);
     assert.match(JSON.stringify(result), /ANALYSIS_STALE/);
+    await index.save(record); loads = 0; driftIndex = false; driftProvider = true;
+    const providerResult = await client.callTool({ name: "headless.analysis.pin", arguments: { projectId: initial.project.id, sequenceId: initial.sequence.id,
+      expectedRevision: revision, mediaId: source.mediaId, kind: "speech", range: { start: 1, end: 4 } } });
+    assert.equal(providerResult.isError, true);
+    assert.match(JSON.stringify(providerResult), /ANALYSIS_STALE_PROVIDER/);
   } finally { await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
 });
