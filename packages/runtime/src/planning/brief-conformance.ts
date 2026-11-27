@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 import type { ContextRevision } from "../domain/primitives.js";
 import type { FramekitRenderAndVerifyResult, FramekitRenderArtifactVerifier } from "../render/render-and-verify.js";
+import { createFramekitRenderResult } from "../render/render-contract.js";
 import { assertBriefBinding } from "./creative-brief.js";
 import type { AcceptedCreativeBrief, CreativeBrief } from "./creative-brief.js";
 import { hasValidEditDecisionPlanDigest } from "./edit-decision-plan.js";
@@ -49,6 +50,8 @@ function briefArtifactObservationFromRender(result: FramekitRenderAndVerifyResul
       || render.output.path !== plan.parameters.outputPath || render.output.format !== plan.parameters.format
       || render.verificationRequired !== true || verification.artifact.path !== render.output.path
       || !Array.isArray(verification.checks) || verification.checks.some((check) => check.passed !== true)) return undefined;
+    // Reuse the render contract's digest check before trusting its target or timeline.
+    createFramekitRenderResult(plan, render.output);
     const required = ["output-exists", "output-digest", "output-stability", "playable", "format", "dimensions", "frame-rate", "duration"];
     if (required.some((name) => verification.checks.filter((check) => check.name === name && check.passed).length !== 1)) return undefined;
     const artifact = verification.artifact;
