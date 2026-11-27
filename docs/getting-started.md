@@ -388,7 +388,10 @@ this source measurement cannot verify a timeline gain change.
 The existing Whisper backend can optionally run local Silero VAD. Install
 `silero-vad`/PyTorch and provide a local JIT model through
 `FRAMEKIT_SILERO_VAD_MODEL` plus its required SHA-256 in
-`FRAMEKIT_SILERO_VAD_SHA256`; the backend never downloads a model. Include the
+`FRAMEKIT_SILERO_VAD_SHA256`; the backend never downloads a model. When both
+are set, Framekit also rechecks the VAD file at the provider evidence
+checkpoints. The VAD path must be absolute. As with speech assets, this does
+not prove that an arbitrary command used the file. Include the
 package/model/backend revisions in `FRAMEKIT_SPEECH_ANALYZER_VERSION`.
 For an npm installation, the executables are under
 `node_modules/@morshoto/framekit/dist-package/apps/mcp-server/runtime/`:
