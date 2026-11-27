@@ -3805,6 +3805,10 @@ test("reviewed headless cuts preserve exact source ranges and reject other timel
     sourceRange: { start: 7, end: 8, startTime: { value: "7", timescale: "1" }, durationTime: { value: "1", timescale: "1" } } };
   const operations = reviewedCutOperations(timeline, candidate, "sha256:" + "a".repeat(64));
   assert.deepEqual(operations.map((item: any) => item.type), ["split-occurrence", "split-occurrence", "remove-occurrence", "move-occurrence"]);
+  assert.equal(operations[0]?.type, "split-occurrence");
+  assert.equal(operations[1]?.type, "split-occurrence");
+  assert.equal(operations[3]?.type, "move-occurrence");
+  if (operations[0]?.type !== "split-occurrence" || operations[1]?.type !== "split-occurrence" || operations[3]?.type !== "move-occurrence") return;
   assert.deepEqual(operations[0].splitOffsetTime, { value: "2", timescale: "1" });
   assert.deepEqual(operations[1].splitOffsetTime, { value: "1", timescale: "1" });
   assert.deepEqual(operations[3].startTime, { value: "2", timescale: "1" });
