@@ -87,6 +87,18 @@ test("command speech analyzer keeps transcription-only output distinct", async (
   assert.equal(result.vadSegments, undefined);
 });
 
+test("command speech analyzer preserves explicit coverage provenance", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-coverage-provenance-"));
+  try {
+    const mediaPath = join(directory, "media.wav"); await writeFile(mediaPath, "media");
+    const wrapper = await createWrapper(directory, { words: [], observedRange: { start: 0, end: 12 }, coverageProvenance: "inferred" });
+    const result = await new CommandSpeechAnalyzer({ command: wrapper }).analyze(createInput(mediaPath));
+    assert.equal(result.coverageProvenance, "inferred");
+    const invalid = await createWrapper(directory, { words: [], observedRange: { start: 0, end: 12 }, coverageProvenance: "invalid" });
+    await assert.rejects(new CommandSpeechAnalyzer({ command: invalid }).analyze(createInput(mediaPath)), /ANALYZER_INVALID_OUTPUT/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("configured local speech analyzer requires VAD and reports provider version", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-speech-vad-provider-"));
   const mediaPath = join(directory, "interview.wav");
