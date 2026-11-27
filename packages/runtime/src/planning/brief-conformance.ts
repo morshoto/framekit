@@ -75,6 +75,12 @@ export async function reverifyBriefArtifactObservation(
   } catch { return undefined; }
 }
 
+function validRevision(value: ContextRevision | undefined): value is ContextRevision {
+  return !!value && typeof value.id === "string" && value.id.trim().length > 0
+    && Number.isSafeInteger(value.sequence) && value.sequence >= 0
+    && typeof value.timestamp === "string" && value.timestamp.trim().length > 0;
+}
+
 /** Compare supplied observations only. No authenticated native receipt or file read is implied. */
 export function assessBriefArtifact(
   brief: CreativeBrief, accepted: AcceptedCreativeBrief, plan: EditDecisionPlan,
@@ -85,6 +91,8 @@ export function assessBriefArtifact(
   try {
     assertBriefBinding(accepted, brief);
     bound = isDeepStrictEqual(plan.acceptedBrief, accepted)
+      && validRevision(plan.revision) && validRevision(execution.baseRevision)
+      && validRevision(execution.finalRevision) && validRevision(artifact.revision)
       && execution.status === "verified" && execution.planDigest === plan.planDigest
       && isDeepStrictEqual(execution.baseRevision, plan.revision)
       && artifact.status === "passed" && isDeepStrictEqual(artifact.revision, execution.finalRevision)
