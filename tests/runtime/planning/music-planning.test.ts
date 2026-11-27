@@ -102,6 +102,8 @@ test("music review maps supplied speech overlaps and exposes incomplete coverage
   assert.equal(planMusic({ ...input, placement: { start: 0, end: 20 } }).dialogueProtection?.speechOverlap?.coverage, "unknown");
   const noSpeech = { ...mapping, vadCoverage: [{ ...mapping.vadCoverage[0], segments: [] }] };
   assert.equal(planMusic({ ...input, speechMapping: noSpeech }).dialogueProtection?.speechOverlap?.coverage, "complete");
+  const silence = { ...segment(10, 12), segment: { start: 15, end: 17, kind: "silence" as const } };
+  assert.deepEqual(planMusic({ ...input, speechMapping: { ...mapping, vadCoverage: [{ ...mapping.vadCoverage[0], segments: [silence] }] } }).dialogueProtection?.speechOverlap?.ranges, []);
   assert.throws(() => planMusic({ ...input, speechMapping: { ...mapping, revision: { ...revision, sequence: 2 } } }), /STALE|INVALID/);
   assert.throws(() => planMusic({ ...input, speechMapping: { ...mapping, occurrenceId: "other" } }), /STALE|INVALID/);
   assert.throws(() => planMusic({ ...input, speechMapping: { ...mapping, sequenceRange: { start: 6, end: 26 } } }), /STALE|INVALID/);
