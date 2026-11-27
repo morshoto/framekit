@@ -39,6 +39,7 @@ export class HeadlessDecisionPlanService {
       const finalProject = await this.options.readProject(input.projectId);
       if (!isDeepStrictEqual(before, finalProject)) return { status: "unavailable", reason: "STALE_CONTEXT: project changed during provider verification" };
       await assertCurrentAcceptedBrief(store, input.projectId, brief.accepted);
+      await this.assertCurrentProviders(input);
       return result;
     } catch (error) {
       return { status: "unavailable", reason: error instanceof Error ? error.message : "Headless decision planning failed" };
