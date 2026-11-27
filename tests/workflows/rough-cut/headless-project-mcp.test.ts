@@ -3842,13 +3842,30 @@ test("rough cut binds appended titles to an existing selected font", async () =>
 });
 
 test("reviewed headless cuts preserve exact source ranges and reject other timeline content", async () => {
-  const { reviewedCutOperations } = await import("../../../apps/mcp-server/src/headless-decision-cut.js");
+  const { reviewedCutOperations, verifyReviewedCutReadback } = await import("../../../apps/mcp-server/src/headless-decision-cut.js");
   const timeline = emptyTimeline();
   timeline.sequence.occurrences = [{ id: "interview", name: "Interview", mediaId: "media", role: "video", track: 0,
     startTime: { value: "0", timescale: "1" }, durationTime: { value: "10", timescale: "1" }, sourceStartTime: { value: "5", timescale: "1" } }];
   timeline.sequence.durationTime = { value: "10", timescale: "1" };
   const candidate = { occurrenceId: "interview", sequenceRange: { start: 2, end: 3, startTime: { value: "2", timescale: "1" }, durationTime: { value: "1", timescale: "1" } },
     sourceRange: { start: 7, end: 8, startTime: { value: "7", timescale: "1" }, durationTime: { value: "1", timescale: "1" } } };
+  const observed = structuredClone(timeline);
+  observed.sequence.durationTime = { value: "9", timescale: "1" };
+  observed.sequence.occurrences = [
+    { ...structuredClone(timeline.sequence.occurrences[0]!), durationTime: { value: "2", timescale: "1" } },
+    { ...structuredClone(timeline.sequence.occurrences[0]!), id: `decision-cut-${"a".repeat(16)}-right`, startTime: { value: "2", timescale: "1" },
+      durationTime: { value: "7", timescale: "1" }, sourceStartTime: { value: "8", timescale: "1" } },
+  ];
+  assert.doesNotThrow(() => verifyReviewedCutReadback(timeline, observed, candidate, `sha256:${"a".repeat(64)}`));
+  for (const corrupt of [
+    (value: TimelineIr) => { value.sequence.occurrences[1]!.sourceStartTime = { value: "9", timescale: "1" }; },
+    (value: TimelineIr) => { value.sequence.occurrences[1]!.mediaId = "other"; },
+    (value: TimelineIr) => { value.sequence.occurrences[1]!.startTime = { value: "3", timescale: "1" }; },
+    (value: TimelineIr) => { value.sequence.durationTime = { value: "10", timescale: "1" }; },
+  ]) {
+    const changed = structuredClone(observed); corrupt(changed);
+    assert.throws(() => verifyReviewedCutReadback(timeline, changed, candidate, `sha256:${"a".repeat(64)}`), /READBACK_MISMATCH/);
+  }
   const operations = reviewedCutOperations(timeline, candidate, "sha256:" + "a".repeat(64));
   assert.deepEqual(operations.map((item: any) => item.type), ["split-occurrence", "split-occurrence", "remove-occurrence", "move-occurrence"]);
   assert.equal(operations[0]?.type, "split-occurrence");
