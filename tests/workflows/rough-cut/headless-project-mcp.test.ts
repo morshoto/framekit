@@ -3818,3 +3818,63 @@ test("reviewed headless cuts preserve exact source ranges and reject other timel
   overlay.sequence.titles = [{ id: "title", text: "existing", lane: 1, startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" } }];
   assert.throws(() => reviewedCutOperations(overlay, candidate, "sha256:" + "a".repeat(64)), /unavailable/i);
 });
+
+test("approved reviewed headless cut executes once and independently reads back", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-decision-cut-"));
+  const here = dirname(fileURLToPath(import.meta.url));
+  const sourcePath = join(directory, "source.mp4");
+  const analyzer = await makeHeadlessSpeechAnalyzer(directory);
+  const script = await readFile(analyzer, "utf8");
+  await writeFile(analyzer, script.replace('words: [{ text: "highlight", start: 0.5, end: 1.4, confidence: 0.99 }]', 'words: [{ text: "Hello.", start: 0.5, end: 1, confidence: 0.99 }, { text: "Again", start: 3, end: 3.5, confidence: 0.99 }]')
+    .replace('vadSegments: [{ start: 0, end: 2, kind: "speech", confidence: 0.99 }]', 'vadSegments: [{ start: 0.5, end: 1, kind: "speech", confidence: 0.99 }, { start: 3, end: 3.5, kind: "speech", confidence: 0.99 }]'));
+  const stateDirectory = join(directory, "state");
+  const environment = { ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1", FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
+    FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"), FRAMEKIT_STATE_DIR: stateDirectory,
+    FRAMEKIT_SPEECH_ANALYZER: analyzer, FRAMEKIT_SPEECH_ANALYZER_VERSION: "test-vad@1", FRAMEKIT_SPEECH_ANALYZER_MODEL_ID: "fixture-model", FRAMEKIT_SPEECH_REQUIRE_VAD: "1", FRAMEKIT_AUDIO_ANALYZER: "" };
+  let connection: { client: Client; transport: StdioClientTransport } | undefined;
+  try {
+    await generateSegmentedSource(sourcePath, [{ color: "blue", duration: 5 }], 440);
+    connection = await connectProductionClient(here, environment);
+    const client = connection.client;
+    const created = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: emptyTimeline() } }));
+    const projectId = created.timeline.project.id; const sequenceId = created.timeline.sequence.id;
+    const media = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath, expectedRevision: created.timeline.revision } }));
+    const placed = payload(await client.callTool({ name: "headless.edit.execute", arguments: { projectId, sequenceId, expectedRevision: media.project.timeline.revision,
+      operations: [{ type: "insert-occurrence", occurrence: { id: "interview", name: "Interview", mediaId: media.resource.id, role: "video", track: 0,
+        startTime: { value: "0", timescale: "1" }, durationTime: { value: "5", timescale: "1" }, sourceStartTime: { value: "0", timescale: "1" } } }] } }));
+    const revision = placed.after.timeline.revision; const target = { projectId, sequenceId, expectedRevision: revision };
+    payload(await client.callTool({ name: "media.understand", arguments: { projectId, mediaId: media.resource.id } }));
+    const brief = { schemaVersion: 1, id: "cut-brief", version: 1, purpose: { kind: "specified", value: "interview" }, audience: { kind: "no-preference" }, durationSeconds: { min: 1, max: 5 }, aspectRatio: "9:16", theme: "natural", visualDirection: "natural", requiredContent: [], excludedContent: [], sourceCoverage: [], speechPolicy: { kind: "specified", value: "preserve" }, musicPolicy: { kind: "specified", value: "none" }, captionPolicy: { kind: "specified", value: "none" }, inferences: [], reviewPrompts: [] };
+    const draft = payload(await client.callTool({ name: "headless.brief.create", arguments: { ...target, brief } }));
+    payload(await client.callTool({ name: "headless.brief.accept", arguments: { ...target, expectedDigest: draft.record.digest, confirmed: true } }));
+    const pin = { ...target, mediaId: media.resource.id, range: { start: 0, end: 5 } };
+    const speechRef = payload(await client.callTool({ name: "headless.analysis.pin", arguments: { ...pin, kind: "speech" } })).ref;
+    const vadRef = payload(await client.callTool({ name: "headless.analysis.pin", arguments: { ...pin, kind: "vad" } })).ref;
+    const input = { projectId, timelineId: sequenceId, revision, occurrenceId: "interview", speechRef, vadRef,
+      caption: { style: "basic", maxWordsPerGroup: 3, maxCharsPerLine: 20, maxLines: 2 },
+      music: { occurrenceId: "music", placement: { start: 0, end: 1 }, targetLane: -1, context: { speech: "present", audioEvidence: "unavailable" }, capabilities: { staticMusicPreview: false, ducking: false, fades: false } } };
+    const plan = payload(await client.callTool({ name: "headless.decision.plan", arguments: input }));
+    assert.equal(plan.status, "available", plan.reason);
+    const cut = plan.plan.decisions.find((item: any) => item.kind === "cut"); assert.ok(cut);
+    const args = { ...input, planDigest: plan.plan.planDigest, candidateDigest: cut.candidate.inputDigest };
+    const before = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
+    const preview = payload(await client.callTool({ name: "headless.decision.approved-preview-cut", arguments: args }));
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, before.timeline);
+    const execute = { projectId, sequenceId, previewToken: preview.previewToken, approved: true };
+    const artifact = join(stateDirectory, "analysis-artifacts", vadRef.artifactDigest.slice(7)); const bytes = await readFile(artifact);
+    await writeFile(artifact, "changed");
+    assert.equal((await client.callTool({ name: "headless.decision.approved-execute-cut", arguments: execute })).isError, true);
+    await writeFile(artifact, bytes);
+    assert.equal((await client.callTool({ name: "headless.decision.approved-execute-cut", arguments: execute })).isError, true);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, before.timeline);
+    const approved = payload(await client.callTool({ name: "headless.decision.approved-preview-cut", arguments: args }));
+    const applied = payload(await client.callTool({ name: "headless.decision.approved-execute-cut", arguments: { ...execute, previewToken: approved.previewToken } }));
+    assert.equal(applied.status, "applied");
+    const observed = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
+    assert.deepEqual(observed.timeline, applied.edit.after.timeline);
+    assert.equal(observed.timeline.sequence.occurrences.length, 2);
+    assert.deepEqual(observed.timeline.sequence.occurrences[1].sourceStartTime, { value: String(BigInt(cut.candidate.sourceRange.startTime.value) * BigInt(cut.candidate.sourceRange.durationTime.timescale) + BigInt(cut.candidate.sourceRange.durationTime.value) * BigInt(cut.candidate.sourceRange.startTime.timescale)), timescale: String(BigInt(cut.candidate.sourceRange.startTime.timescale) * BigInt(cut.candidate.sourceRange.durationTime.timescale)) });
+    assert.equal((await client.callTool({ name: "headless.decision.approved-execute-cut", arguments: { ...execute, previewToken: approved.previewToken } })).isError, true);
+  } finally { if (connection) { await connection.client.close(); await connection.transport.close(); } await rm(directory, { recursive: true, force: true }); }
+});
