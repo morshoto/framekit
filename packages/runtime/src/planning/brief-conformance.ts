@@ -28,6 +28,8 @@ export interface BriefArtifactCheck {
   name: "duration" | "aspect-ratio" | "source-coverage" | "music" | "captions";
   status: "passed" | "failed" | "unavailable";
   detail: string;
+  /** Guidance for review or gathering evidence; never authorizes an edit. */
+  nextStep?: string;
 }
 export interface BriefArtifactAssessment {
   status: "incomplete";
@@ -119,22 +121,25 @@ export function assessBriefArtifact(
       && Number.isSafeInteger(artifact.height) && artifact.height > 0;
   } catch { bound = false; }
   if (!bound) {
-    checks.push({ name: "duration", status: "unavailable", detail: "Execution or verified artifact is missing, invalid or not bound to this plan and target." });
-    checks.push({ name: "aspect-ratio", status: "unavailable", detail: "Execution or verified artifact is missing, invalid or not bound to this plan and target." });
+    const nextStep = "Obtain independently authenticated execution and verified artifact evidence bound to the approved plan and target.";
+    checks.push({ name: "duration", status: "unavailable", detail: "Execution or verified artifact is missing, invalid or not bound to this plan and target.", nextStep });
+    checks.push({ name: "aspect-ratio", status: "unavailable", detail: "Execution or verified artifact is missing, invalid or not bound to this plan and target.", nextStep });
   } else {
     const within = artifact.durationSeconds >= brief.durationSeconds.min && artifact.durationSeconds <= brief.durationSeconds.max;
-    checks.push({ name: "duration", status: within ? "passed" : "failed", detail: `Observed duration: ${artifact.durationSeconds} seconds.` });
+    checks.push({ name: "duration", status: within ? "passed" : "failed", detail: `Observed duration: ${artifact.durationSeconds} seconds.`,
+      ...(!within ? { nextStep: "Review a revised edit plan against the approved duration range, then separately approve and verify any edits." } : {}) });
     const ratio = /^(\d+):(\d+)$/.exec(brief.aspectRatio);
     if (!ratio || !Number.isSafeInteger(Number(ratio[1])) || !Number.isSafeInteger(Number(ratio[2])) || Number(ratio[1]) <= 0 || Number(ratio[2]) <= 0) {
-      checks.push({ name: "aspect-ratio", status: "unavailable", detail: "The approved aspect ratio cannot be compared." });
+      checks.push({ name: "aspect-ratio", status: "unavailable", detail: "The approved aspect ratio cannot be compared.", nextStep: "Clarify and review an aspect ratio that can be compared, then reverify the export." });
     } else {
       const matches = BigInt(artifact.width) * BigInt(ratio[2]!) === BigInt(artifact.height) * BigInt(ratio[1]!);
-      checks.push({ name: "aspect-ratio", status: matches ? "passed" : "failed", detail: `Observed dimensions: ${artifact.width} × ${artifact.height}.` });
+      checks.push({ name: "aspect-ratio", status: matches ? "passed" : "failed", detail: `Observed dimensions: ${artifact.width} × ${artifact.height}.`,
+        ...(!matches ? { nextStep: "Review a revised output plan for the approved aspect ratio, then separately approve and verify any edits or export." } : {}) });
     }
   }
-  checks.push({ name: "source-coverage", status: "unavailable", detail: "Independent source and occurrence coverage has not been established." });
-  checks.push({ name: "music", status: "unavailable", detail: "Music placement and final audible output have not been established." });
-  checks.push({ name: "captions", status: "unavailable", detail: "Editable caption and output evidence have not been established." });
+  checks.push({ name: "source-coverage", status: "unavailable", detail: "Independent source and occurrence coverage has not been established.", nextStep: "Independently verify original source identities and their required timeline coverage." });
+  checks.push({ name: "music", status: "unavailable", detail: "Music placement and final audible output have not been established.", nextStep: "Verify music placement and the final audible output against the accepted policy." });
+  checks.push({ name: "captions", status: "unavailable", detail: "Editable caption and output evidence have not been established.", nextStep: "Verify editable captions and their appearance in the output against the accepted policy." });
   return { status: "incomplete", nativeAcceptance: "unavailable", checks,
     ...(bound ? { binding: { planDigest: plan.planDigest, artifactDigest: artifact.fileDigest,
       target: structuredClone(artifact.target), finalRevision: structuredClone(artifact.revision) } } : {}),
