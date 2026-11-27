@@ -82,6 +82,7 @@ export function planMusic(request: MusicPlanRequest): MusicPlan {
   if (!Number.isFinite(request.gainDb) || request.gainDb > 0) return { ...base, decision: "unsupported", reason: "The requested music gain is invalid or amplifies the source." };
   const warnings = ["Verify rendered dialogue audibility and the resulting mix after any separately approved edit."];
   if (request.context.audioEvidence === "unavailable") warnings.push("Audio analysis is unavailable; no mix quality is inferred.");
+  else warnings.push("Supplied audio context is unverified by this music planner; no mix quality is inferred.");
   if (request.context.speech === "unknown") warnings.push("Speech presence is unknown; preserve the source mix until reviewed.");
   return {
     ...base, decision: "propose-music", reason: "The accepted brief requests a background music proposal.", warnings,

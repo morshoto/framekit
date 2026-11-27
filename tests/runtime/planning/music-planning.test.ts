@@ -34,6 +34,8 @@ test("produces a reviewable registered-music proposal without claiming audibilit
   assert.equal(plan.dialogueVerificationRequired, true);
   assert.ok(plan.warnings.some((warning) => /unavailable/i.test(warning)));
   assert.ok(plan.reason);
+  const claimedAudio = planMusic({ ...request, context: { speech: "absent", audioEvidence: "available" } });
+  assert.ok(claimedAudio.warnings.some((warning) => /unverified/i.test(warning)));
 });
 
 test("explicit no music is honored and preference ambiguity is exposed", () => {
