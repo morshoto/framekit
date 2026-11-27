@@ -563,6 +563,8 @@ test("native range preview requires matching target, revision, range and live to
     for (const altered of [
       { ...proposal, operationId: "sha256:" + "0".repeat(64) },
       { ...proposal, planDigest: "sha256:" + "1".repeat(64) },
+      { ...proposal, decisionIndex: proposal.decisionIndex + 1 },
+      { ...proposal, analysisRef: { ...proposal.analysisRef, artifactDigest: "sha256:" + "2".repeat(64) } },
       { ...proposal, source: { ...proposal.source, sourceDigest: "f".repeat(64) } },
       { ...proposal, sourceRange: { ...proposal.sourceRange, start: proposal.sourceRange.start + 0.1 } },
     ]) {

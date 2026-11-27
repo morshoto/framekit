@@ -34,12 +34,24 @@ export interface NativeCutRangePreview {
   expiresAt: string;
 }
 
+function operationIdentityDigest(identity: unknown): string {
+  const encoded = JSON.stringify(identity, (_key, value: unknown) =>
+    value && typeof value === "object" && !Array.isArray(value)
+      ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) : value);
+  return `sha256:${createHash("sha256").update(encoded).digest("hex")}`;
+}
+
 /** Compare supplied observations only; this neither establishes their independence nor authorizes a write. */
 export function checkNativeCutPreview(
   proposal: NativeCutHandoff, observation: NativeCutTargetObservation, preview: NativeCutRangePreview, now: number,
 ): { status: "matched" } | { status: "unavailable"; reason: string } {
   try {
     if (proposal.status !== "proposed" || !observation || !preview || !Number.isFinite(now)
+      || proposal.authorization !== "not-authorized" || !Number.isSafeInteger(proposal.decisionIndex) || proposal.decisionIndex < 0
+      || !/^sha256:[a-f0-9]{64}$/.test(proposal.planDigest)
+      || proposal.operationId !== operationIdentityDigest({ target: proposal.target, planDigest: proposal.planDigest, decisionIndex: proposal.decisionIndex,
+        revision: proposal.revision, source: proposal.source, sourceRange: proposal.sourceRange, occurrenceId: proposal.occurrenceId,
+        analysisRef: proposal.analysisRef, operation: proposal.operation })
       || !observation.targetIdentity?.trim() || !preview.previewToken?.trim()
       || observation.libraryId !== proposal.target.libraryId || observation.eventId !== proposal.target.eventId
       || observation.projectId !== proposal.target.projectId || observation.sequenceId !== proposal.target.sequenceId
@@ -90,6 +102,7 @@ export type NativeCutHandoff =
       operationId: string;
       target: NativePlanTarget;
       planDigest: string;
+      decisionIndex: number;
       revision: EditDecisionPlan["revision"];
       source: EditDecisionPlan["source"];
       sourceRange: TimeRange;
@@ -127,12 +140,9 @@ export async function prepareNativeCutHandoff(
     const identity = { target: boundTarget, planDigest: boundPlan.planDigest, decisionIndex,
       revision: boundPlan.revision, source: boundPlan.source, sourceRange: decision.candidate.sourceRange, occurrenceId: boundPlan.occurrenceId,
       analysisRef: decision.analysisRef, operation: { type: "delete-range", start, end } };
-    const encoded = JSON.stringify(identity, (_key, value: unknown) =>
-      value && typeof value === "object" && !Array.isArray(value)
-        ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) : value);
-    const operationId = `sha256:${createHash("sha256").update(encoded).digest("hex")}`;
+    const operationId = operationIdentityDigest(identity);
     return { status: "proposed", authorization: "not-authorized", operationId, target: boundTarget,
-      planDigest: boundPlan.planDigest, revision: boundPlan.revision, source: boundPlan.source, sourceRange: decision.candidate.sourceRange,
+      planDigest: boundPlan.planDigest, decisionIndex, revision: boundPlan.revision, source: boundPlan.source, sourceRange: decision.candidate.sourceRange,
       occurrenceId: boundPlan.occurrenceId, analysisRef: decision.analysisRef,
       operation: { type: "delete-range", start, end } };
   } catch (error) {
