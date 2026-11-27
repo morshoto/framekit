@@ -3817,6 +3817,19 @@ test("reviewed headless cuts preserve exact source ranges and reject other timel
   const overlay = structuredClone(timeline);
   overlay.sequence.titles = [{ id: "title", text: "existing", lane: 1, startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" } }];
   assert.throws(() => reviewedCutOperations(overlay, candidate, "sha256:" + "a".repeat(64)), /unavailable/i);
+  const sequential = structuredClone(timeline);
+  sequential.sequence.occurrences.push({ ...structuredClone(sequential.sequence.occurrences[0]!), id: "next", startTime: { value: "10", timescale: "1" } });
+  sequential.sequence.durationTime = { value: "20", timescale: "1" };
+  const ripple = reviewedCutOperations(sequential, candidate, "sha256:" + "a".repeat(64));
+  assert.deepEqual(ripple.at(-1), { type: "move-occurrence", occurrenceId: "next", startTime: { value: "9", timescale: "1" } });
+  const laterCandidate = structuredClone(candidate); laterCandidate.occurrenceId = "next";
+  laterCandidate.sequenceRange = { start: 12, end: 13, startTime: { value: "12", timescale: "1" }, durationTime: { value: "1", timescale: "1" } };
+  const laterCut = reviewedCutOperations(sequential, laterCandidate, "sha256:" + "b".repeat(64));
+  assert.equal(laterCut[0]?.type, "split-occurrence");
+  if (laterCut[0]?.type === "split-occurrence") assert.equal(laterCut[0].occurrenceId, "next");
+  assert.equal(laterCut.length, 4, "the preceding clip does not move");
+  const gap = structuredClone(sequential); gap.sequence.occurrences[1]!.startTime.value = "11";
+  assert.throws(() => reviewedCutOperations(gap, candidate, "sha256:" + "a".repeat(64)), /unavailable/i);
 });
 
 test("approved reviewed headless cut executes once and independently reads back", async () => {
@@ -3842,7 +3855,9 @@ test("approved reviewed headless cut executes once and independently reads back"
     const media = payload(await client.callTool({ name: "headless.media.register", arguments: { projectId, sourcePath, expectedRevision: created.timeline.revision } }));
     const placed = payload(await client.callTool({ name: "headless.edit.execute", arguments: { projectId, sequenceId, expectedRevision: media.project.timeline.revision,
       operations: [{ type: "insert-occurrence", occurrence: { id: "interview", name: "Interview", mediaId: media.resource.id, role: "video", track: 0,
-        startTime: { value: "0", timescale: "1" }, durationTime: { value: "5", timescale: "1" }, sourceStartTime: { value: "0", timescale: "1" } } }] } }));
+        startTime: { value: "0", timescale: "1" }, durationTime: { value: "5", timescale: "1" }, sourceStartTime: { value: "0", timescale: "1" } } },
+        { type: "insert-occurrence", occurrence: { id: "next", name: "Next", mediaId: media.resource.id, role: "video", track: 0,
+          startTime: { value: "5", timescale: "1" }, durationTime: { value: "5", timescale: "1" }, sourceStartTime: { value: "0", timescale: "1" } } }] } }));
     const revision = placed.after.timeline.revision; const target = { projectId, sequenceId, expectedRevision: revision };
     payload(await client.callTool({ name: "media.understand", arguments: { projectId, mediaId: media.resource.id } }));
     const brief = { schemaVersion: 1, id: "cut-brief", version: 1, purpose: { kind: "specified", value: "interview" }, audience: { kind: "no-preference" }, durationSeconds: { min: 1, max: 5 }, aspectRatio: "9:16", theme: "natural", visualDirection: "natural", requiredContent: [], excludedContent: [], sourceCoverage: [], speechPolicy: { kind: "specified", value: "preserve" }, musicPolicy: { kind: "specified", value: "none" }, captionPolicy: { kind: "specified", value: "none" }, inferences: [], reviewPrompts: [] };
@@ -3876,7 +3891,7 @@ test("approved reviewed headless cut executes once and independently reads back"
     assert.equal(applied.status, "applied");
     const observed = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
     assert.deepEqual(observed.timeline, applied.edit.after.timeline);
-    assert.equal(observed.timeline.sequence.occurrences.length, 2);
+    assert.equal(observed.timeline.sequence.occurrences.length, 3);
     const rightStart = observed.timeline.sequence.occurrences[1].sourceStartTime;
     const sourceStart = cut.candidate.sourceRange.startTime; const removedDuration = cut.candidate.sourceRange.durationTime;
     assert.equal(BigInt(rightStart.value) * BigInt(sourceStart.timescale) * BigInt(removedDuration.timescale),
@@ -3886,7 +3901,7 @@ test("approved reviewed headless cut executes once and independently reads back"
       parameters: { outputPath, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } } }));
     assert.equal(rendered.status, "passed", JSON.stringify(rendered));
     const probe = await execFileAsync(process.env.FFPROBE_BIN || "ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", outputPath]);
-    const expectedDuration = 5 - Number(removedDuration.value) / Number(removedDuration.timescale);
+    const expectedDuration = 10 - Number(removedDuration.value) / Number(removedDuration.timescale);
     assert.ok(Math.abs(Number(probe.stdout.trim()) - expectedDuration) < 0.05);
     const sample = async (at: number) => (await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-hide_banner", "-loglevel", "error", "-ss", String(at), "-i", outputPath, "-frames:v", "1", "-vf", "scale=1:1", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"], { encoding: "buffer" })).stdout;
     const first = await sample(0.5); const last = await sample(expectedDuration - 0.5);

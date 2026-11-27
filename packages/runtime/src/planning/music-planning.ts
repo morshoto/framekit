@@ -107,6 +107,9 @@ export interface MusicPreviewPort {
   previewMusic(request: MusicAddRequest): Promise<CompositeEditPreview>;
 }
 
+/** Review-only projection; execution requires a separately authorized workflow. */
+export type MusicPlanPreview = Omit<CompositeEditPreview, "previewToken">;
+
 /** Recompute the reviewed proposal against live context, then use the existing preview path. */
 export async function previewMusicPlan(
   runtime: MusicPreviewPort,
@@ -115,7 +118,7 @@ export async function previewMusicPlan(
   occurrenceId: string,
   verifySource: (source: MediaSourceIdentity) => Promise<void>,
   briefStore: CreativeBriefStore,
-): Promise<CompositeEditPreview> {
+): Promise<MusicPlanPreview> {
   request = structuredClone(request);
   reviewed = structuredClone(reviewed);
   if (typeof verifySource === "function") {
@@ -164,5 +167,6 @@ export async function previewMusicPlan(
   const finalPlan = planMusic({ ...request, snapshot: after });
   if (!isDeepStrictEqual(finalPlan, reviewed)) throw new Error("STALE_MUSIC_PLAN: project changed during preview");
   await assertCurrentAcceptedBrief(briefStore, request.projectId, request.accepted);
-  return preview;
+  const { previewToken: _editorToken, ...review } = preview;
+  return review;
 }

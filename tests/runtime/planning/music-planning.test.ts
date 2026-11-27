@@ -108,6 +108,7 @@ test("reviewed music proposal previews through the existing workflow without mut
   const liveRequest = { ...request, snapshot: before, revision: before.revision };
   const plan = planMusic(liveRequest);
   const preview = await previewMusicPlan(runtime, liveRequest, plan, "music-clip", fixtureVerifySource, briefStore);
+  assert.equal("previewToken" in preview, false, "review-only output must not expose an executable editor token");
   assert.deepEqual(await runtime.inspectProject(), before);
   assert.equal(preview.operations.some((operation) => operation.type === "timeline.media.add" && operation.mediaId === "music"), true);
   assert.equal(preview.operations.some((operation) => operation.type === "set-gain" && operation.gainDb === -18), true);
@@ -139,13 +140,13 @@ test("reviewed music proposal previews through the existing workflow without mut
     media: before.media.map((source) => source.mediaId === "music" ? { ...source, sourceDigest: "changed" } : source) },
     previewMusic: runtime.previewMusic.bind(runtime) };
   await assert.rejects(() => previewMusicPlan(sourceRace, liveRequest, plan, "music-clip", fixtureVerifySource, briefStore), /STALE/);
-  const wrongPreview = { inspectProject: runtime.inspectProject.bind(runtime), previewMusic: async () => ({ ...preview,
+  const wrongPreview = { inspectProject: runtime.inspectProject.bind(runtime), previewMusic: async () => ({ ...preview, previewToken: "fixture-token",
     target: { kind: "editor.timeline" as const, projectId: "other", sequenceId: "other" } }) };
   await assert.rejects(() => previewMusicPlan(wrongPreview, liveRequest, plan, "music-clip", fixtureVerifySource, briefStore), /STALE|TARGET/);
-  const wrongOperations = { inspectProject: runtime.inspectProject.bind(runtime), previewMusic: async () => ({ ...preview,
+  const wrongOperations = { inspectProject: runtime.inspectProject.bind(runtime), previewMusic: async () => ({ ...preview, previewToken: "fixture-token",
     operations: preview.operations.map((operation) => operation.type === "set-gain" ? { ...operation, gainDb: -3 } : operation) }) };
   await assert.rejects(() => previewMusicPlan(wrongOperations, liveRequest, plan, "music-clip", fixtureVerifySource, briefStore), /STALE|MISMATCH/);
-  const wrongBase = { inspectProject: runtime.inspectProject.bind(runtime), previewMusic: async () => ({ ...preview,
+  const wrongBase = { inspectProject: runtime.inspectProject.bind(runtime), previewMusic: async () => ({ ...preview, previewToken: "fixture-token",
     baseRevision: { ...preview.baseRevision, sequence: preview.baseRevision.sequence + 1 } }) };
   await assert.rejects(() => previewMusicPlan(wrongBase, liveRequest, plan, "music-clip", fixtureVerifySource, briefStore), /STALE/);
   const racingRuntime = {
