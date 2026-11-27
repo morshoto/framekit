@@ -52,6 +52,8 @@ export function titleHorizontalFitProblem(bytes: Buffer, titles: readonly Timeli
     const opened = create(bytes);
     const font = "fonts" in opened ? opened.fonts[0] : opened;
     if (!font || !Number.isFinite(font.unitsPerEm) || font.unitsPerEm <= 0) return "title font metrics are unavailable";
+    const bounds = font.bbox;
+    if (!Number.isFinite(bounds.minX) || !Number.isFinite(bounds.maxX)) return "title font bounds are unavailable";
     for (const title of titles) {
       const basicDefault = title.style === undefined && title.position === undefined;
       const size = title.style?.fontSize ?? (basicDefault ? height * 44 / 720 : 32);
@@ -61,9 +63,14 @@ export function titleHorizontalFitProblem(bytes: Buffer, titles: readonly Timeli
       for (const line of title.text.split(/\r?\n/u)) {
         const run = font.layout(line);
         let pen = 0; let minimum = 0; let maximum = 0;
-        for (const position of run.positions) {
-          minimum = Math.min(minimum, pen + position.xOffset);
-          maximum = Math.max(maximum, pen + position.xOffset + position.xAdvance);
+        for (let index = 0; index < run.positions.length; index++) {
+          const position = run.positions[index]!;
+          // Some subset fonts cannot expose glyph paths; the whole-font box
+          // is a conservative fallback for those fonts.
+          let glyphBounds = bounds;
+          try { glyphBounds = run.glyphs[index]!.bbox; } catch { /* use font bounds */ }
+          minimum = Math.min(minimum, pen + position.xOffset + glyphBounds.minX);
+          maximum = Math.max(maximum, pen + position.xOffset + glyphBounds.maxX);
           pen += position.xAdvance;
         }
         const pixels = (Math.max(maximum, pen) - Math.min(minimum, 0)) * size / font.unitsPerEm;
