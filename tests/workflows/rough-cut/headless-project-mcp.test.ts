@@ -3892,6 +3892,15 @@ test("approved reviewed headless cut executes once and independently reads back"
     const cut = plan.plan.decisions.find((item: any) => item.kind === "cut"); assert.ok(cut);
     const args = { ...input, planDigest: plan.plan.planDigest, candidateIndex: plan.plan.decisions.indexOf(cut) };
     const before = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
+    const musicApproval = payload(await client.callTool({ name: "headless.decision.approved-preview-music", arguments: { ...input, planDigest: plan.plan.planDigest } }));
+    const vadArtifact = join(stateDirectory, "analysis-artifacts", vadRef.artifactDigest.slice(7));
+    const vadBytes = await readFile(vadArtifact);
+    await writeFile(vadArtifact, "changed VAD artifact");
+    assert.equal((await client.callTool({ name: "headless.decision.preview-music", arguments: { ...input, planDigest: plan.plan.planDigest } })).isError, true);
+    assert.equal((await client.callTool({ name: "headless.decision.approved-execute-music", arguments: { projectId, sequenceId, previewToken: musicApproval.previewToken, approved: true } })).isError, true);
+    await writeFile(vadArtifact, vadBytes);
+    assert.equal((await client.callTool({ name: "headless.decision.approved-execute-music", arguments: { projectId, sequenceId, previewToken: musicApproval.previewToken, approved: true } })).isError, true);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, before.timeline);
     assert.equal((await client.callTool({ name: "headless.decision.approved-preview-cut", arguments: { ...args, candidateIndex: 999 } })).isError, true);
     const preview = payload(await client.callTool({ name: "headless.decision.approved-preview-cut", arguments: args }));
     assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, before.timeline);
