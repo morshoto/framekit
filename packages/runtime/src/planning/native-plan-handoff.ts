@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import type { CreativeBriefStore } from "../application/creative-brief-store.js";
 import type { RationalTime, TimeRange } from "../domain/primitives.js";
-import { addRationalTimes, parseRational } from "../timeline/rational-time.js";
+import { addRationalTimes, parseRational, subtractRationalTimes } from "../timeline/rational-time.js";
 import type { AnalysisArtifactStore, AnalysisRef, AnalysisSourceVerifier } from "./analysis-evidence.js";
 import { assertEditDecisionPlanCurrent } from "./edit-decision-plan.js";
 import type { EditDecisionPlan, EditDecisionPlanRequest } from "./edit-decision-plan.js";
@@ -18,12 +18,16 @@ export interface NativePlanTarget {
 export interface NativeCutTargetObservation extends NativePlanTarget {
   revision: string;
   targetIdentity: string;
+  sequenceStart: RationalTime;
+  sequenceDuration: RationalTime;
 }
 
 export interface NativeCutRangePreview {
   previewToken: string;
   operation: string;
   range: { start: RationalTime; end: RationalTime };
+  beforeDuration: RationalTime;
+  expectedAfterDuration: RationalTime;
   sequenceId?: string;
   revision?: string;
   targetIdentity?: string;
@@ -43,12 +47,21 @@ export function checkNativeCutPreview(
       || preview.sequenceId !== observation.sequenceId || preview.targetIdentity !== observation.targetIdentity
       || preview.operation !== proposal.operation.type || !Number.isFinite(Date.parse(preview.expiresAt))
       || Date.parse(preview.expiresAt) <= now) throw new Error("Native preview target, revision or token does not match.");
-    const sameTime = (left: RationalTime, right: RationalTime): boolean => {
+    const compareTime = (left: RationalTime, right: RationalTime): bigint => {
       const a = parseRational(left, "INVALID_OPERATION"), b = parseRational(right, "INVALID_OPERATION");
-      return a.value * b.timescale === b.value * a.timescale;
+      return a.value * b.timescale - b.value * a.timescale;
     };
-    if (!sameTime(preview.range.start, proposal.operation.start) || !sameTime(preview.range.end, proposal.operation.end)) {
+    if (compareTime(preview.range.start, proposal.operation.start) !== 0n || compareTime(preview.range.end, proposal.operation.end) !== 0n) {
       throw new Error("Native preview range does not match the proposal.");
+    }
+    const zero = { value: "0", timescale: "1" };
+    const duration = subtractRationalTimes(preview.range.end, preview.range.start);
+    const sequenceEnd = addRationalTimes(observation.sequenceStart, observation.sequenceDuration);
+    if (compareTime(observation.sequenceDuration, zero) <= 0n || compareTime(duration, zero) <= 0n
+      || compareTime(preview.range.start, observation.sequenceStart) < 0n || compareTime(preview.range.end, sequenceEnd) > 0n
+      || compareTime(preview.beforeDuration, observation.sequenceDuration) !== 0n
+      || compareTime(preview.expectedAfterDuration, subtractRationalTimes(observation.sequenceDuration, duration)) !== 0n) {
+      throw new Error("Native preview duration or sequence bounds do not match the observation.");
     }
     return { status: "matched" };
   } catch (error) {
