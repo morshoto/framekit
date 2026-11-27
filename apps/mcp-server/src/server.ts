@@ -77,6 +77,7 @@ import {
   externalEditPlanDigest,
   verifyExternalEditExportable,
   type HeadlessProjectWorkflow,
+  type HeadlessCreativeBriefService,
   type HeadlessRoughCutExecutionRequest,
   type HeadlessRoughCutRequest,
 } from "@framekit/headless-application";
@@ -112,6 +113,22 @@ const revisionValueSchema = z.object({
   sequence: z.number().int().nonnegative(),
   timestamp: z.string(),
 });
+const briefChoiceSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("specified"), value: z.string().min(1) }).strict(),
+  z.object({ kind: z.literal("no-preference") }).strict(),
+]);
+const creativeBriefSchema = z.object({
+  schemaVersion: z.literal(1), id: z.string().min(1), version: z.number().int().positive(),
+  purpose: briefChoiceSchema, audience: briefChoiceSchema,
+  durationSeconds: z.object({ min: z.number().finite(), max: z.number().finite() }).strict(),
+  aspectRatio: z.string().min(1), theme: z.string().min(1), visualDirection: z.string().min(1),
+  requiredContent: z.array(z.string().min(1)), excludedContent: z.array(z.string().min(1)),
+  speechPolicy: briefChoiceSchema, musicPolicy: briefChoiceSchema, captionPolicy: briefChoiceSchema,
+  sourceCoverage: z.array(z.object({ requirement: z.string().min(1), sourceId: z.string().min(1), sourceDigest: z.string().optional(), start: z.number().finite(), end: z.number().finite() }).strict()),
+  inferences: z.array(z.object({ field: z.string().min(1), value: z.string().min(1), reason: z.string().min(1), accepted: z.boolean() }).strict()),
+  reviewPrompts: z.array(z.string().min(1)),
+}).strict();
+const briefTargetSchema = { projectId: z.string().min(1), sequenceId: z.string().min(1), expectedRevision: revisionValueSchema };
 const revisionSchema = revisionValueSchema.optional();
 const contextTargetSchema = z.object({
   projectId: z.string().min(1),
@@ -953,6 +970,7 @@ export interface McpServerOptions {
   materializationDirectory?: string;
   sessionMaterializationPublisher?: SessionMaterializationPublisher;
   headlessProjects?: HeadlessProjectWorkflow;
+  headlessBriefs?: HeadlessCreativeBriefService;
 }
 
 export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
@@ -1044,6 +1062,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   const requireHeadlessProjects = (): HeadlessProjectWorkflow => {
     if (!options.headlessProjects) throw new Error("HEADLESS_PROJECT_UNAVAILABLE: headless project storage is not configured");
     return options.headlessProjects;
+  };
+
+  const requireHeadlessBriefs = (): HeadlessCreativeBriefService => {
+    if (!options.headlessBriefs) throw new Error("BRIEF_STORAGE_UNAVAILABLE: headless brief storage is not configured");
+    return options.headlessBriefs;
   };
 
   const prepareSessionReadback = async (sessionId: string, requestedCanonical: boolean, finalVerification: boolean) => {
@@ -1367,6 +1390,26 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Inspect the current persisted Framekit Timeline IR and exact revision.",
     inputSchema: { projectId: z.string().min(1) },
   }, async ({ projectId }) => sessionResult(() => requireHeadlessProjects().inspect(projectId)));
+
+  registerValidatedTool(server, "headless.brief.create", {
+    description: "Create a reviewable creative-brief draft for an exact headless project revision. This does not edit the timeline.",
+    inputSchema: { ...briefTargetSchema, brief: creativeBriefSchema },
+  }, async (input) => sessionResult(() => requireHeadlessBriefs().create(input)));
+
+  registerValidatedTool(server, "headless.brief.inspect", {
+    description: "Inspect the current brief, pending review items and registered source coverage for an exact headless project revision.",
+    inputSchema: briefTargetSchema,
+  }, async (input) => sessionResult(() => requireHeadlessBriefs().inspect(input)));
+
+  registerValidatedTool(server, "headless.brief.revise", {
+    description: "Revise a brief from its reviewed digest; this invalidates its previous acceptance and does not edit the timeline.",
+    inputSchema: { ...briefTargetSchema, expectedDigest: z.string().min(1), brief: creativeBriefSchema },
+  }, async (input) => sessionResult(() => requireHeadlessBriefs().revise(input)));
+
+  registerValidatedTool(server, "headless.brief.accept", {
+    description: "Record explicit user acceptance of the exact reviewed brief and source coverage. Only call after the user confirms; this does not authorize an editor operation.",
+    inputSchema: { ...briefTargetSchema, expectedDigest: z.string().min(1), confirmed: z.boolean() },
+  }, async (input) => sessionResult(() => requireHeadlessBriefs().accept(input)));
 
   registerValidatedTool(server, "headless.media.register", {
     description: "Register one local source file in the canonical Framekit project with digest and ffprobe metadata.",

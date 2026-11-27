@@ -3147,12 +3147,18 @@
       "\"a lock left by a dead process remains reserved after restart\"",
       "\"an empty lock being initialized cannot be stolen by a concurrent writer\"",
       "\"a failed lock initialization retains its reservation\"",
-      "\"a legacy writer removing an initializing lock can bypass upgraded writer exclusion\""
+      "\"a legacy writer removing an initializing lock can bypass upgraded writer exclusion\"",
+      "\"a scoped project lock permits a nested save and rejects a leaked capability\"",
+      "\"a scoped project lock excludes other writers until its callback finishes\"",
+      "\"a scoped lock waits for an unawaited save and rejects concurrent saves\"",
+      "\"a scoped lock reports a failed unawaited save\""
     ],
     "tests/integration/headless-project-mcp.test.ts": [
+      "\"production MCP persists creative brief review across restarts\"",
       "\"production rough-cut renders without FCPXML and rejects changed export intent\"",
       "\"approved headless edit tokens expire without mutation\"",
       "\"headless edit reports primary gaps in preview and execution\"",
+      "\"an approved headless edit commits under its scoped project lock\"",
       "\"approved headless edits report overlap and unsupported dissolve consequences\"",
       "\"approved headless edit rejects a changed base with the same revision\"",
       "\"approved headless edits execute only a matching issued preview\"",

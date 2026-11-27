@@ -74,6 +74,8 @@ const fileSystem: ProjectStoreFileSystem = {
   unlink: async (path) => { await nodeUnlink(path); },
 };
 
+const projectLockCapabilities = new WeakMap<ProjectStore, { path: string; active: boolean }>();
+
 export class FramekitProjectStore implements ProjectStore {
   public constructor(
     private readonly path: string,
@@ -158,7 +160,13 @@ export class FramekitProjectStore implements ProjectStore {
     }
   }
 
-  private async withProjectLock<T>(operation: () => Promise<T>): Promise<T> {
+  /** Exclude cooperating project writers while a related state transition is published. */
+  public ownsProjectLock(store: ProjectStore): boolean {
+    const capability = projectLockCapabilities.get(store);
+    return capability?.active === true && capability.path === this.path;
+  }
+
+  public async withProjectLock<T>(operation: (locked: ProjectStore) => Promise<T>): Promise<T> {
     await this.fs.mkdir(dirname(this.path), { recursive: true });
     const lockPath = `${this.path}.lock`;
     const deadline = Date.now() + 2_000;
@@ -180,10 +188,47 @@ export class FramekitProjectStore implements ProjectStore {
       }
     }
 
+    const capability = { path: this.path, active: true };
+    const saves: Promise<unknown>[] = [];
+    let writing = false;
+    const locked: ProjectStore = Object.freeze({
+      create: async () => { throw new Error("PROJECT_LOCK_UNSUPPORTED: create is not supported by a locked project capability"); },
+      load: async () => {
+        if (!capability.active) throw new Error("PROJECT_LOCK_EXPIRED: project lock capability has expired");
+        return this.load();
+      },
+      save: (project: FramekitProjectDocument, expectedRevision?: ContextRevision) => {
+        if (!capability.active) return Promise.reject(new Error("PROJECT_LOCK_EXPIRED: project lock capability has expired"));
+        if (writing) {
+          const rejected = Promise.reject(new Error("PROJECT_LOCK_BUSY: concurrent saves through one capability are unsupported"));
+          saves.push(rejected);
+          void rejected.catch(() => {});
+          return rejected;
+        }
+        const boundProject = structuredClone(project);
+        const boundRevision = expectedRevision === undefined ? undefined : structuredClone(expectedRevision);
+        writing = true;
+        const task = this.saveUnlocked(boundProject, boundRevision);
+        saves.push(task);
+        void task.finally(() => { writing = false; }).catch(() => {});
+        return task;
+      },
+    });
+    projectLockCapabilities.set(locked, capability);
+    let callbackFailed = false;
     try {
-      return await operation();
+      return await operation(locked);
+    } catch (error) {
+      callbackFailed = true;
+      throw error;
     } finally {
+      capability.active = false;
+      const results = await Promise.allSettled(saves);
       await this.removeTemporaryFile(lockPath);
+      const failed = results.find((result) => result.status === "rejected");
+      if (!callbackFailed && failed?.status === "rejected") {
+        throw new ProjectPersistenceError("PROJECT_SAVE_FAILED", "a save in the locked project scope failed", undefined, { cause: failed.reason });
+      }
     }
   }
 
