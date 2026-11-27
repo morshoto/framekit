@@ -472,5 +472,10 @@ test("configured speech model asset is checked before and after provider executi
     const source = await readFile(wrapper, "utf8");
     await writeFile(wrapper, source.replace("const request = JSON.parse(input);", `const request = JSON.parse(input); await writeFile(${JSON.stringify(model)}, "changed-during-analysis");`));
     await assert.rejects(analyzer.analyze(createInput(media)), /ANALYZER_MODEL_CHANGED/);
+    await writeFile(model, "model-original"); await rm(vadModel);
+    await assert.rejects(analyzer.verifyProviderIdentity(), /ANALYZER_MODEL_UNAVAILABLE/);
+    await writeFile(vadModel, "vad-original");
+    await writeFile(wrapper, source.replace("const request = JSON.parse(input);", `const request = JSON.parse(input); await writeFile(${JSON.stringify(vadModel)}, "changed-during-analysis");`));
+    await assert.rejects(analyzer.analyze(createInput(media)), /ANALYZER_MODEL_CHANGED/);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
