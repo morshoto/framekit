@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { acceptCreativeBrief, type CreativeBrief } from "../../../packages/runtime/src/planning/creative-brief.js";
 import { planMusic } from "../../../packages/runtime/src/planning/music-planning.js";
+import { mapSpeechAnalysisToOccurrence } from "../../../packages/runtime/src/speech/mapping.js";
+import type { RevisionBoundSpeechAnalysis } from "../../../packages/runtime/src/domain/media.js";
 
 const brief: CreativeBrief = {
   schemaVersion: 1, id: "interview", version: 1, purpose: { kind: "specified", value: "interview" }, audience: { kind: "no-preference" },
@@ -110,6 +112,25 @@ test("music review maps supplied speech overlaps and exposes incomplete coverage
   assert.throws(() => planMusic({ ...input, speechMapping: { ...mapping, vadCoverage: [...mapping.vadCoverage, ...mapping.vadCoverage] } }), /INVALID/);
   const alteredSegment = segment(6, 9); alteredSegment.sourceRange.start = 12;
   assert.throws(() => planMusic({ ...input, speechMapping: { ...mapping, vadCoverage: [{ ...mapping.vadCoverage[0], segments: [alteredSegment] }] } }), /INVALID/);
+});
+
+test("music review consumes partial coverage from the speech mapper", () => {
+  const video = { mediaId: "video", source: "interview.mov", sourceDigest: "sha256:video", mediaKind: "video" as const, duration: 30 };
+  const clip = { id: "dialogue", mediaId: "video", name: "Interview", start: 5, duration: 2, sourceStart: 10, track: 1,
+    startTime: { value: "5", timescale: "1" }, durationTime: { value: "2", timescale: "1" } };
+  const speech: RevisionBoundSpeechAnalysis = {
+    schemaVersion: 1, mediaId: "video", sourceIdentity: video, requestedRange: { start: 0, end: 30 }, observedRange: { start: 0, end: 30 },
+    revision, provider: { id: "fixture", provider: "fixture", version: "1" }, sourceTimebase: { value: "1", timescale: "100" },
+    capability: "transcription-only", words: [], vadUnavailableReason: "partial",
+    vadCoverage: [{ start: 0, end: 11, status: "available", segments: [{ start: 10.25, end: 10.35, kind: "speech" }] },
+      { start: 11, end: 30, status: "unavailable", reason: "partial" }],
+  };
+  const mapping = mapSpeechAnalysisToOccurrence(speech, { occurrenceId: clip.id, mediaId: clip.mediaId, revision,
+    sourceRange: { start: 10, end: 12 }, sequenceRange: { start: 5, end: 7, startTime: clip.startTime, durationTime: clip.durationTime } },
+  { sequenceFrameDuration: { value: "1", timescale: "10" } });
+  const result = planMusic({ ...request, snapshot: { ...snapshot, media: [registeredMusic, video], timeline: { ...snapshot.timeline, clips: [clip] } },
+    placement: { start: 5, end: 7 }, speechMapping: mapping });
+  assert.deepEqual(result.dialogueProtection?.speechOverlap, { occurrenceId: clip.id, coverage: "unknown", ranges: [{ start: 5.25, end: 5.35 }], verification: "unverified" });
 });
 
 
