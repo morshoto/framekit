@@ -520,6 +520,18 @@ test("brief conformance requires a verified artifact bound to the approved targe
       assert.equal(rejected.checks.find((check) => check.name === "duration")?.status, "unavailable");
       assert.equal(rejected.binding, undefined);
     }
+    const changedSource = structuredClone(planned.plan);
+    changedSource.source.mediaId = "other-source";
+    const changedDecision = structuredClone(planned.plan);
+    changedDecision.decisions[0]!.rationale = "changed after approval";
+    for (const changedPlan of [changedSource, changedDecision]) {
+      const rejected = assessBriefArtifact(f.request.brief, f.request.accepted, changedPlan, execution, artifact);
+      assert.equal(rejected.checks.find((check) => check.name === "duration")?.status, "unavailable");
+      assert.equal(rejected.binding, undefined);
+    }
+    const malformedPlan = { ...planned.plan, planDigest: "not-a-digest" };
+    assert.equal(assessBriefArtifact(f.request.brief, f.request.accepted, malformedPlan,
+      { ...execution, planDigest: malformedPlan.planDigest }, artifact).checks[0]?.status, "unavailable");
     const revisedBrief = { ...f.request.brief, theme: "changed" };
     assert.equal(assessBriefArtifact(revisedBrief, f.request.accepted, planned.plan, execution, artifact).checks[0]?.status, "unavailable");
     for (const changed of [
