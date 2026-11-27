@@ -252,6 +252,9 @@ edits without titles.
 
 Headless title rendering checks glyph coverage in the selected font and fails
 when a glyph is missing or a variation or joined sequence cannot be verified.
+It also rejects titles whose measured horizontal advances cannot fit the
+requested output width and position. This conservative check is not a visual
+verification: inspect the rendered text, including line breaks and edges.
 Set `FRAMEKIT_RENDER_FONT` to a suitable font file when the default lacks the
 needed characters. An unavailable configured font fails rendering instead of
 falling back to another font. Rough-cut previews with titles require a renderer

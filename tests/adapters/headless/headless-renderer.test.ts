@@ -73,6 +73,25 @@ test("FFmpeg renderer refuses an unimplemented nonzero source origin", async () 
   await assert.rejects(renderer.render(plan), /HEADLESS_RENDER_UNSUPPORTED.*source.*origin/i);
 });
 
+test("FFmpeg renderer rejects caption text wider than the output", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-caption-overflow-"));
+  try {
+    await mediaFixtures.copyTo(directory);
+    const source = await timeline(join(directory, "fixture-red-440hz.mp4"), join(directory, "fixture-blue-880hz.mp4"));
+    source.sequence.titles![0]!.text = "So we can't put it on left click we could put it on the right click we could for example";
+    const output = join(directory, "output.mp4");
+    const renderer = new FfmpegTimelineRenderer();
+    const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(output) });
+    await assert.rejects(renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request))), /HEADLESS_RENDER_UNSUPPORTED.*title.*fit/i);
+    await assert.rejects(readFile(output), /ENOENT/);
+    source.sequence.titles![0]!.text = "Short";
+    source.sequence.titles![0]!.position = { x: 0.99, y: 0 };
+    const shifted = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(output) });
+    await assert.rejects(renderer.render(createFramekitRenderPlan(shifted, renderer.capabilities(shifted))), /HEADLESS_RENDER_UNSUPPORTED.*title.*fit/i);
+    await assert.rejects(readFile(output), /ENOENT/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("FFmpeg renderer rejects a missing explicitly configured title font", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-title-font-"));
   try {
