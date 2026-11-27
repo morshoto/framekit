@@ -3794,3 +3794,23 @@ test("rough cut binds appended titles to an existing selected font", async () =>
     assert.deepEqual(result.after.timeline.sequence.titles?.find((title) => title.id === "second-title")?.font, font);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
+
+test("reviewed headless cuts preserve exact source ranges and reject other timeline content", async () => {
+  const { reviewedCutOperations } = await import("../../../apps/mcp-server/src/headless-decision-cut.js");
+  const timeline = emptyTimeline();
+  timeline.sequence.occurrences = [{ id: "interview", name: "Interview", mediaId: "media", role: "video", track: 0,
+    startTime: { value: "0", timescale: "1" }, durationTime: { value: "10", timescale: "1" }, sourceStartTime: { value: "5", timescale: "1" } }];
+  timeline.sequence.durationTime = { value: "10", timescale: "1" };
+  const candidate = { occurrenceId: "interview", sequenceRange: { start: 2, end: 3, startTime: { value: "2", timescale: "1" }, durationTime: { value: "1", timescale: "1" } },
+    sourceRange: { start: 7, end: 8, startTime: { value: "7", timescale: "1" }, durationTime: { value: "1", timescale: "1" } } };
+  const operations = reviewedCutOperations(timeline, candidate, "sha256:" + "a".repeat(64));
+  assert.deepEqual(operations.map((item: any) => item.type), ["split-occurrence", "split-occurrence", "remove-occurrence", "move-occurrence"]);
+  assert.deepEqual(operations[0].splitOffsetTime, { value: "2", timescale: "1" });
+  assert.deepEqual(operations[1].splitOffsetTime, { value: "1", timescale: "1" });
+  assert.deepEqual(operations[3].startTime, { value: "2", timescale: "1" });
+  const mismatch = structuredClone(candidate); mismatch.sourceRange.startTime.value = "8";
+  assert.throws(() => reviewedCutOperations(timeline, mismatch, "sha256:" + "a".repeat(64)), /source/i);
+  const overlay = structuredClone(timeline);
+  overlay.sequence.titles = [{ id: "title", text: "existing", lane: 1, startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" } }];
+  assert.throws(() => reviewedCutOperations(overlay, candidate, "sha256:" + "a".repeat(64)), /unavailable/i);
+});
