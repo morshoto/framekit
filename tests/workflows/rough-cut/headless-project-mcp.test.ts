@@ -3817,6 +3817,13 @@ test("reviewed headless cuts preserve exact source ranges and reject other timel
   const overlay = structuredClone(timeline);
   overlay.sequence.titles = [{ id: "title", text: "existing", lane: 1, startTime: { value: "0", timescale: "1" }, durationTime: { value: "1", timescale: "1" } }];
   assert.throws(() => reviewedCutOperations(overlay, candidate, "sha256:" + "a".repeat(64)), /unavailable/i);
+  const sequential = structuredClone(timeline);
+  sequential.sequence.occurrences.push({ ...structuredClone(sequential.sequence.occurrences[0]!), id: "next", startTime: { value: "10", timescale: "1" } });
+  sequential.sequence.durationTime = { value: "20", timescale: "1" };
+  const ripple = reviewedCutOperations(sequential, candidate, "sha256:" + "a".repeat(64));
+  assert.deepEqual(ripple.at(-1), { type: "move-occurrence", occurrenceId: "next", startTime: { value: "9", timescale: "1" } });
+  const gap = structuredClone(sequential); gap.sequence.occurrences[1]!.startTime.value = "11";
+  assert.throws(() => reviewedCutOperations(gap, candidate, "sha256:" + "a".repeat(64)), /unavailable/i);
 });
 
 test("approved reviewed headless cut executes once and independently reads back", async () => {
