@@ -3986,6 +3986,26 @@ test("approved reviewed headless cut executes once and independently reads back"
       parameters: { outputPath: finalPath, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } } }));
     assert.equal(finalRender.status, "passed", JSON.stringify(finalRender));
     assertAudioMix(await readAudioWindow(finalPath, 0.25), 440);
+    // Each five-second occurrence loses the same source pause. The second
+    // occurrence's word at source 3 s therefore starts at 8 s minus both cuts.
+    const removedSeconds = Number(removedDuration.value) / Number(removedDuration.timescale);
+    const expectedStartFrame = Math.round((8 - 2 * removedSeconds) * 30);
+    const expectedEndFrame = expectedStartFrame + 15; // source word duration: 0.5 s
+    assert.equal(Number(finalTitle.startTime.value) / Number(finalTitle.startTime.timescale) * 30, expectedStartFrame);
+    assert.equal(Number(finalTitle.durationTime.value) / Number(finalTitle.durationTime.timescale) * 30, 15);
+    const frameAt = async (path: string, frame: number) => {
+      const { stdout } = await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-hide_banner", "-loglevel", "error", "-i", path,
+        "-vf", `select=eq(n\\,${frame})`, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"],
+      { encoding: "buffer", maxBuffer: 320 * 180 * 3 + 1024 });
+      const pixels = stdout as unknown as Buffer;
+      assert.equal(pixels.length, 320 * 180 * 3, `frame ${frame} must decode`);
+      return countBrightPixels(pixels);
+    };
+    for (const [frame, visible] of [[expectedStartFrame - 1, false], [expectedStartFrame, true],
+      [expectedEndFrame - 1, true], [expectedEndFrame, false]] as const) {
+      const difference = await frameAt(finalPath, frame) - await frameAt(beforeCaptionPath, frame);
+      assert.equal(difference > 20, visible, `caption visibility at frame ${frame}: ${difference}`);
+    }
     const titleTime = Number(finalTitle.startTime.value) / Number(finalTitle.startTime.timescale)
       + Number(finalTitle.durationTime.value) / Number(finalTitle.durationTime.timescale) / 2;
     const bright = countBrightPixels(await readVideoFrame(finalPath, titleTime));
