@@ -1,0 +1,81 @@
+Make a two-second video in a new Framekit-owned project, inspect the preview and resulting timeline, and independently check the MP4. This headless example does not open or edit Final Cut Pro. For plugin setup, see [Installation](/en/docs/installation/).
+
+## Prerequisites
+
+The commands below were checked on macOS 26.5.1 with Node.js 22.23.5, npm, FFmpeg/ffprobe 9.0.2, and the published Framekit v0.2.6 server at commit `2f6f03b6a0cba5b5cb5d4a3ea0f44c3ffa9cdf6c`. FFmpeg must provide the `libx264` encoder. Install Git only if you also want a repository checkout; this example does not require one. The published package supports Node.js 20 or newer, but this exact example was checked with the version above.
+
+The scripted MCP workflow below is separate from the `framekit-local` prompt run described later on this page. Both used real sample media.
+
+## Download the sample and tools
+
+[Sample Flash Animation](https://commons.wikimedia.org/wiki/File:Sample_Flash_Animation.webm) by H0iadfpwijdf is an original work dedicated to the public domain under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/). It is 14,384 bytes. Create a new directory, install the pinned MCP client and Framekit package, and download the sample and example client:
+
+```sh
+mkdir framekit-first-video
+cd framekit-first-video
+npm install --no-save --no-package-lock @morshoto/framekit@0.2.6 @modelcontextprotocol/sdk@1.32.2
+curl -fL -o sample.webm 'https://commons.wikimedia.org/wiki/Special:FilePath/Sample_Flash_Animation.webm'
+curl -fL -o first-video.mjs https://raw.githubusercontent.com/morshoto/framekit/0b876c9ef2a314b6c2601eabc980b74c3b3fcc14/apps/docs/public/examples/first-video.mjs
+shasum -a 256 sample.webm
+```
+
+The source SHA-256 must be `e96efec0c3bf57836b54cbead8d195564ee4e1303a320b343b4fda6642ce5904`. Stop if it differs. The client also checks that digest and the installed server’s embedded version and commit before creating a project, then verifies the registered media digest again before preview. If it differs, the client stops before the edit; the disposable project and registration remain in the example state directory. The npm command and downloads write only within the new example directory and normal npm cache.
+
+## Preview and render
+
+```sh
+node first-video.mjs sample.webm
+```
+
+The client starts the pinned package in headless mode with automatic connection disabled, ignores inherited Final Cut socket and FCPXML settings, creates a disposable project, registers the source, and prints the proposed timeline and a new output path. It then asks for confirmation. Review the one `sample-shot` occurrence, starting at zero and lasting two seconds. Type `yes` to execute that same revision-bound edit and render; any other answer stops before edit execution and rendering. Project creation and media registration already write to the new Framekit-owned state directory. A successful run prints `Result: passed` and the directory containing `first-video.mp4` and `evidence.json`.
+
+The observed tool sequence was `headless.project.create`, `headless.media.register`, `headless.edit.preview`, `headless.edit.execute`, and `headless.render`. The render response and its verification both reported `passed`. If execution or verification fails, inspect the error and retained state before deciding what to do; do not blindly repeat an uncertain operation. The client prints its example directory before editing and saves `evidence.json` at each checkpoint. A status of `edited` records the committed project revision and timeline but does not prove rendering succeeded. A status of `previewed` does not prove a later dispatched edit failed; inspect the exact project state before deciding on another action.
+
+## Inspect and verify
+
+Change into the output directory printed by the program. To inspect the saved Framekit timeline before and after the edit:
+
+```sh
+node --input-type=module <<'NODE'
+import { readFileSync } from 'node:fs';
+const evidence = JSON.parse(readFileSync('evidence.json', 'utf8'));
+console.log('Before:', JSON.stringify(evidence.before, null, 2));
+console.log('After:', JSON.stringify(evidence.after, null, 2));
+NODE
+```
+
+In the observed run, the starting sequence had no occurrences and the resulting sequence had one two-second occurrence. Open `first-video.mp4` in a player. This frame was extracted from an earlier v0.2.6 headless render of the same CC0 source and edit, not from Final Cut:
+
+![A stick figure from the rendered CC0 animation](/images/first-video-cc0-output.png)
+
+Independently probe the output:
+
+```sh
+ffprobe -v error -show_entries stream=codec_type,width,height,r_frame_rate -show_entries format=duration -of json first-video.mp4
+```
+
+The observed output contained 400 × 290 video at 12 fps, an audio stream, and a duration of `2.000000` seconds. The sample has an audio stream but its first two seconds are silent; silence in this example is expected and does not verify audible audio handling. Metadata alone does not prove visual or audio correctness; inspect playback as well.
+
+To compare the first two seconds of the downloaded source with the rendered video, run this from the output directory printed by the program (the source remains in its parent directory):
+
+```sh
+ffmpeg -hide_banner -nostdin -i ../sample.webm -i first-video.mp4 -filter_complex '[0:v]trim=duration=2,setpts=PTS-STARTPTS[source];[1:v]setpts=PTS-STARTPTS[render];[source][render]ssim' -an -f null -
+```
+
+The observed run compared 24 frames and reported `SSIM ... All:0.996139`; results can vary with FFmpeg and encoding versions. A high SSIM indicates similar video frames, not correct audio or a native Final Cut edit. Inspect playback as well. `evidence.json` can contain local paths: remove personal information before sharing it.
+
+## Optional Codex prompt
+
+The following prompt was exercised with `framekit-local` in the current Codex environment using the downloaded sample and runtime 0.2.6 at commit `7168ccca0fc0200dd7fdfb0dd09b97cffd99db4e`. The user approved the displayed revision-bound preview before execution. This run used the headless path; it does not establish that an installed published plugin was used or that Final Cut was edited.
+
+```text
+Use the downloaded sample.webm in this directory with Framekit and a new disposable headless project. Register it, inspect its media ID and current project revision, then preview inserting the first two seconds at the beginning of a 12 fps timeline. Show me the proposed timeline and wait for approval before executing. After approval, execute the reviewed edit, render a 400 × 290 MP4 at 12 fps to a new path, and inspect it with ffprobe. Report the revision, output path, and verification results. Do not open or modify Final Cut Pro.
+```
+
+The observed calls included `headless.project.create`, `headless.media.register`, `headless.project.inspect`, `headless.edit.approved-preview`, `headless.edit.approved-execute`, `headless.project.open`, and `headless.render`. The preview showed one clip from source 0–2 seconds at timeline 0–2 seconds with no warnings; execution followed user approval. Framekit reported a passed render and verification. An independent `ffprobe` reported H.264 video at 400 × 290, 12 fps and 24 frames, an AAC audio stream, and a duration of 2.000000 seconds. The sample's audio is silent, so this does not verify audible audio handling.
+
+The `framekit-local` output played through in QuickTime. This is not evidence of a native Final Cut edit or published-plugin installation; check your installed server version when reproducing the prompt.
+
+## If something fails
+
+Check the first failing message and installed versions. If the client reports “Framekit server not found”, run the pinned install command above from the example directory and try the setup again. Missing FFmpeg, an encoder, or a renderer capability can prevent rendering. Use [Troubleshooting](/en/docs/troubleshooting/) for symptom-based checks and the [Error Reference](/en/docs/error-reference/) for coded errors. The MP4 is a headless output; FCPXML is a separate handoff artifact, and neither proves import, playback, or an edit in Final Cut Pro.

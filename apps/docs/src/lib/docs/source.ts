@@ -30,6 +30,7 @@ const pages: Page[] = [
   { slug: 'examples', section: 'guides', order: 3, status: 'ready', titles: { en: 'Examples', ja: 'サンプル' } },
   { slug: 'troubleshooting', section: 'guides', order: 4, status: 'ready', titles: { en: 'Troubleshooting' } },
   { slug: 'editing-capabilities', section: 'guides', order: 5, status: 'ready', titles: { en: 'Editing Capabilities' } },
+  { slug: 'your-first-video', section: 'guides', order: 6, status: 'ready', titles: { en: 'Your First Video' } },
 ];
 export function validateRegistry(docs: DocumentMeta[]) {
   const routes = new Set<string>(); const positions = new Set<string>(); const concepts = new Map<string, DocumentMeta>();
@@ -68,6 +69,7 @@ const englishDescriptions: Record<string, string> = {
   cli: 'Find the supported Framekit command-line entry points.',
   'mcp-tools': 'Discover MCP tools, capabilities, and operation lifecycles.',
   configuration: 'Configure the editor, connection, and optional analyzers.',
+  'your-first-video': 'Run and verify a disposable headless video example.',
   'editing-capabilities': 'Compare editing workflows and their limits.',
 
   troubleshooting: 'Diagnose symptoms and recover safely.',
