@@ -210,6 +210,10 @@ const analyzers = liveMode
       speechModelIdentity: process.env.FRAMEKIT_SPEECH_ANALYZER_MODEL_ID,
       speechModelAssetPath: process.env.FRAMEKIT_SPEECH_MODEL_ASSET_PATH,
       speechModelAssetSha256: process.env.FRAMEKIT_SPEECH_MODEL_ASSET_SHA256,
+      speechVadModelAssetPath: process.env.FRAMEKIT_SILERO_VAD_MODEL?.trim() && process.env.FRAMEKIT_SILERO_VAD_SHA256?.trim()
+        ? process.env.FRAMEKIT_SILERO_VAD_MODEL.trim() : undefined,
+      speechVadModelAssetSha256: process.env.FRAMEKIT_SILERO_VAD_MODEL?.trim() && process.env.FRAMEKIT_SILERO_VAD_SHA256?.trim()
+        ? process.env.FRAMEKIT_SILERO_VAD_SHA256.trim().toLowerCase() : undefined,
       speechRequireVad: process.env.FRAMEKIT_SPEECH_REQUIRE_VAD === "1",
       audioCommand: process.env.FRAMEKIT_AUDIO_ANALYZER,
       audioProviderVersion: process.env.FRAMEKIT_AUDIO_ANALYZER_VERSION,
