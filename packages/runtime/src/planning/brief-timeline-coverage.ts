@@ -1,6 +1,6 @@
 import type { RationalTime } from "../domain/primitives.js";
 import { validateTimelineIr, type TimelineIr } from "../timeline/editing-session.js";
-import { addRationalTimes, parseRational, type RationalParts } from "../timeline/rational-time.js";
+import { addRationalTimes, parseRational, subtractRationalTimes, type RationalParts } from "../timeline/rational-time.js";
 import { assertBriefBinding, type AcceptedCreativeBrief, type CreativeBrief } from "./creative-brief.js";
 
 export interface BriefTimelineCoverageCheck {
@@ -49,9 +49,12 @@ export function inspectBriefTimelineCoverage(brief: CreativeBrief, accepted: Acc
       const occurrences = timeline.sequence.occurrences.filter((item) => item.mediaId === coverage.sourceId && item.enabled !== false);
       let uncertain = false;
       const ranges = occurrences.flatMap((item) => {
+        if (compare(parts(item.startTime), parts(timeline.sequence.durationTime)) >= 0) return [];
         if (!item.sourceStartTime) { uncertain = true; return []; }
         const start = parts(item.sourceStartTime);
-        const end = parts(addRationalTimes(item.sourceStartTime, item.durationTime));
+        const available = subtractRationalTimes(timeline.sequence.durationTime, item.startTime);
+        const visibleDuration = compare(parts(item.durationTime), parts(available)) <= 0 ? item.durationTime : available;
+        const end = parts(addRationalTimes(item.sourceStartTime, visibleDuration));
         return [{ start, end }];
       }).sort((a, b) => compare(a.start, b.start));
       let cursor = decimal(coverage.start);

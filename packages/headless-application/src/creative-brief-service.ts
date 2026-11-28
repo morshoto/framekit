@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { acceptCreativeBrief, assertBriefSourceCoverage, reviewCreativeBrief } from "@framekit/runtime";
+import { acceptCreativeBrief, assertBriefSourceCoverage, inspectBriefTimelineCoverage, reviewCreativeBrief } from "@framekit/runtime";
 import type { CreativeBrief, CreativeBriefProjectBinding, CreativeBriefReview, CreativeBriefStore, FramekitProjectDocument, MediaSourceIdentity, StoredCreativeBrief, ContextRevision } from "@framekit/runtime";
 
 export interface CreativeBriefTarget {
@@ -34,6 +34,23 @@ export class HeadlessCreativeBriefService {
   async inspect(input: CreativeBriefTarget): Promise<CreativeBriefView> {
     const project = await this.openTarget(input);
     return view(await this.options.storeForProject(input.projectId).read(input.projectId), project);
+  }
+
+  /** Point-in-time source placement inspection; this does not assess a render. */
+  async inspectTimelineCoverage(input: CreativeBriefTarget) {
+    input = structuredClone(input);
+    const store = this.options.storeForProject(input.projectId);
+    const record = await store.read(input.projectId);
+    if (record.state !== "accepted" || !record.projectBinding) throw new Error("BRIEF_NOT_ACCEPTED: a project-bound accepted brief is required");
+    return store.withAcceptedBrief(input.projectId, record.accepted, async () => {
+      const before = await this.openTarget(input);
+      assertCreativeBriefProjectBinding(record.projectBinding!, before);
+      const result = inspectBriefTimelineCoverage(record.brief, record.accepted, before.timeline);
+      const after = await this.openTarget(input);
+      if (projectDigest(before) !== projectDigest(after)) throw new Error("STALE_CONTEXT: project changed during coverage inspection");
+      assertCreativeBriefProjectBinding(record.projectBinding!, after);
+      return result;
+    });
   }
 
   async revise(input: CreativeBriefTarget & { expectedDigest: string; brief: CreativeBrief }): Promise<CreativeBriefView> {

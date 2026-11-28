@@ -36,6 +36,9 @@ test("reports exact source coverage across split occurrences, without asserting 
   const disabled = structuredClone(timeline);
   disabled.sequence.occurrences[1]!.enabled = false;
   assert.equal(inspect(disabled).checks[0]?.status, "missing");
+  const beyondEnd = structuredClone(timeline);
+  beyondEnd.sequence.occurrences[1]!.startTime = t(2900);
+  assert.equal(inspect(beyondEnd).checks[0]?.status, "missing");
 });
 
 test("refuses uncertain source identities, unknown source coordinates and stale approval", () => {

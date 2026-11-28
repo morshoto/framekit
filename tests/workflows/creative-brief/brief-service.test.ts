@@ -280,11 +280,16 @@ test("MCP exposes project-bound review and explicit acceptance without timeline 
     assert.notEqual(created.isError, true);
     const response = JSON.parse((created.content as Array<{ text: string }>)[0]!.text);
     assert.equal(response.record.state, "draft");
+    const beforeAcceptance = await client.callTool({ name: "headless.brief.inspect-timeline-coverage", arguments: target });
+    assert.equal(beforeAcceptance.isError, true);
     const denied = await client.callTool({ name: "headless.brief.accept", arguments: { ...target, expectedDigest: response.record.digest, confirmed: false } });
     assert.equal(denied.isError, true);
     const accepted = await client.callTool({ name: "headless.brief.accept", arguments: { ...target, expectedDigest: response.record.digest, confirmed: true } });
     assert.notEqual(accepted.isError, true);
     assert.equal(JSON.parse((accepted.content as Array<{ text: string }>)[0]!.text).record.state, "accepted");
+    const coverage = await client.callTool({ name: "headless.brief.inspect-timeline-coverage", arguments: target });
+    assert.notEqual(coverage.isError, true);
+    assert.equal(JSON.parse((coverage.content as Array<{ text: string }>)[0]!.text).checks[0].status, "unavailable");
     assert.deepEqual(await runtime.inspectProject(), before);
   } finally { await client.close(); await server.close(); await rm(f.dir, { recursive: true, force: true }); }
 });
@@ -293,6 +298,8 @@ test("accepted target reports timeline coverage without asserting final artifact
   const f = await fixture();
   try {
     const current = structuredClone(project);
+    current.timeline.resources[0]!.name = "Media";
+    current.timeline.resources[0]!.metadata!.streams = [{ kind: "video", frameRate: { value: "30", timescale: "1" } }];
     Object.assign(current.timeline, { schemaVersion: 1, project: { id: "p", name: "P" }, sequence: {
       id: "t", name: "T", durationTime: { value: "10", timescale: "1" }, frameDuration: { value: "1", timescale: "30" },
       occurrences: [{ id: "clip", name: "Clip", mediaId: "media", role: "video", track: 0,
