@@ -25,3 +25,13 @@ test('rejects mismatched source identities and invalid timing', () => {
   assert.equal(compareProviderCuts([candidate], 'b'.repeat(64), evidence).status, 'unavailable');
   assert.throws(() => compareProviderCuts([{start: 2, end: 1}], digest, evidence), /range/i);
 });
+
+test('provider comparison case fixes media, cut and context before execution', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const config = JSON.parse(await readFile(new URL('../../../scripts/benchmarks/ai-editing/disagreement-case.json', import.meta.url)));
+  assert.equal(config.meeting, 'TS3003a');
+  assert.deepEqual(config.secondaryWindowSeconds, [72, 82]);
+  assert.equal(config.candidate.start, 77.2);
+  assert.equal(config.secondaryModel, 'mlx-community/whisper-large-v3-turbo');
+  assert.match(config.interpretation, /not proof/i);
+});
