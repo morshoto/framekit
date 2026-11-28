@@ -44,7 +44,11 @@ function inspect(xml) {
     if (anchors.has(id)) throw new Error('duplicate anchor');
     const source = assets.get(clip['@_ref']);
     if (!source) throw new Error('invalid source');
-    anchors.set(id, { id, source, name: clip['@_name'], sourceStart: clip['@_start'], duration: clip['@_duration'] });
+    const structure = structuredClone(clip);
+    delete structure['@_start'];
+    delete structure['@_offset'];
+    delete structure['@_duration'];
+    anchors.set(id, { id, source, name: clip['@_name'], sourceStart: clip['@_start'], duration: clip['@_duration'], structure: JSON.stringify(structure) });
   }
   return { uid, anchors };
 }
@@ -66,5 +70,6 @@ export function findAnchoredTarget(base, external, targetId, manifest) {
     && canonicalTime(left.duration, true) === canonicalTime(right.duration, true);
   if ([...before.anchors.values()].filter(item => sameInterval(item, a)).length !== 1
       || [...after.anchors.values()].filter(item => sameInterval(item, b)).length !== 1) throw new Error('ambiguous source interval');
+  if (a.structure !== b.structure) throw new Error('target structure changed');
   return b;
 }
