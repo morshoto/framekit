@@ -34,7 +34,6 @@ jobs:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     assign-label:
-        needs: sync-labels
         if: ${{ github.event_name == 'pull_request' }}
         permissions:
             contents: read
@@ -53,23 +52,6 @@ jobs:
               with:
                   repo-token: ${{ secrets.GITHUB_TOKEN }}
                   configuration-path: .github/labels/labeling-files.yaml
-
-    sync-labels:
-        if: ${{ github.event_name == 'pull_request' || (github.event_name == 'issues' && github.event.action == 'opened') }}
-        permissions:
-            issues: write
-            contents: read
-            pages: write
-            id-token: write
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-            - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-              with:
-                  node-version: '24.22.3'
-            - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
-            - name: Run github-label-setup
-              run: pnpm dlx --yes @azu/github-label-setup --token ${{ secrets.GITHUB_TOKEN }} --labels .github/labels/labels.json
 
     sync-pull-request-milestone:
         if: >-
