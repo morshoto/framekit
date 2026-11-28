@@ -292,6 +292,7 @@ test("basic titles retain contrast over bright and dark footage", async () => {
         "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono", "-t", "2", "-c:v", "libx264", "-threads", "1", "-c:a", "aac", media]);
       const source = await timeline(media, media);
       source.sequence.transitions = [];
+      delete source.sequence.occurrences[0]!.transform;
       source.sequence.titles = [{ id: "caption", text: "READABLE WORDS", startTime: { value: "1", timescale: "4" }, durationTime: { value: "1", timescale: "2" }, lane: 1 }];
       const output = join(directory, `${color}-title.mp4`);
       const renderer = new FfmpegTimelineRenderer();
@@ -307,6 +308,20 @@ test("basic titles retain contrast over bright and dark footage", async () => {
       }
       assert.ok(visible > 25, `${color} footage must show contrasting title pixels: ${visible}`);
       assert.equal(outside, 0, "title contrast must disappear outside its interval");
+      if (color === "white") {
+        const storyboard = await new FfmpegStoryboardRenderer().render(source, { width: 320, height: 180 });
+        const index = storyboard.samples.findIndex((sample) => sample.kind === "title");
+        assert.ok(index >= 0);
+        const sheet = join(directory, "storyboard.png"); const cropped = join(directory, "storyboard.ppm");
+        await writeFile(sheet, Buffer.from(storyboard.data, "base64"));
+        await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-i", sheet, "-vf", `crop=640:360:${index * 640}:0`, "-frames:v", "1", cropped]);
+        const sample = await readFile(cropped); let dark = 0;
+        for (let y = 110; y < 190; y++) for (let x = 120; x < 520; x++) {
+          const pixel = ppmPixel(sample, x, y); if (Math.max(pixel.r, pixel.g, pixel.b) < 120) dark++;
+        }
+        assert.ok(dark > 100, `storyboard must show contrasting title pixels: ${dark}`);
+        assert.ok(storyboard.limitations.some((text) => /outline.*headless.*FCPXML/i.test(text)));
+      }
     }
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
