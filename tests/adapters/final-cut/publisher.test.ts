@@ -7,6 +7,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { FcpxmlDocumentAdapter, FinalCutProjectPublisher, parseFinalCutProjectPublishRoute } from "@framekit/final-cut";
+import { readPersistedFinalCutPublishJobStatus } from "../../../adapters/final-cut/typescript/src/publisher.js";
 import type { EditorLiveState } from "@framekit/runtime";
 
 function digest(content: string): string {
@@ -1458,6 +1459,9 @@ test("FCPXML publish jobs remain resumable while Final Cut is unavailable", asyn
   });
   assert.deepEqual(publisher.getPublishJob(prepared.jobId), waiting);
   assert.equal(executorCalled, false);
+  await assert.rejects(publisher.verifyPublishJob(prepared.jobId), /PUBLISH_VERIFICATION_ONLY_UNAVAILABLE/);
+  assert.deepEqual(publisher.getPublishJob(prepared.jobId), waiting);
+  assert.equal(executorCalled, false);
 });
 
 test("FCPXML publish jobs report success only after live target verification", async () => {
@@ -1499,9 +1503,13 @@ test("FCPXML publish jobs report success only after live target verification", a
     artifactDigest: digest(source),
   });
 
+  await assert.rejects(publisher.verifyPublishJob(prepared.jobId), /PUBLISH_VERIFICATION_ONLY_UNAVAILABLE/);
+  assert.equal(executorCalls, 0, "verification-only must not dispatch a prepared job");
   const dispatched = await publisher.executePublishJob(prepared.jobId, true);
   assert.equal(dispatched.state, "verification-pending");
-  const verified = await publisher.executePublishJob(prepared.jobId, true, true);
+  const verified = await publisher.verifyPublishJob(prepared.jobId);
+  assert.deepEqual(await publisher.verifyPublishJob(prepared.jobId), verified);
+  assert.equal(executorCalls, 1, "verification and repeated inspection must not redispatch");
 
   assert.equal(verified.state, "verified");
   assert.equal(verified.nextAction, "none");
@@ -2480,6 +2488,9 @@ test("pending dispatch wins over a verified legacy record on restart", async () 
     assert.equal((await restarted.loadPublishJob(fixture.job.jobId)).state, "verification-pending");
     await assert.rejects(restarted.verifyCreatedTarget(fixture.job.jobId), /FINAL_CUT_PUBLISH_TARGET_UNVERIFIED/);
     assert.equal((await restarted.executePublishJob(fixture.job.jobId, true)).state, "verification-pending");
+    assert.deepEqual(await readPersistedFinalCutPublishJobStatus(fixture.publishJobsDirectory, fixture.job.jobId), { jobId: fixture.job.jobId, state: "verification-pending", artifactDigest: fixture.job.artifactDigest });
+    await rm(path);
+    assert.deepEqual(await readPersistedFinalCutPublishJobStatus(fixture.publishJobsDirectory, fixture.job.jobId), { jobId: fixture.job.jobId, state: "verified", artifactDigest: fixture.job.artifactDigest });
     assert.equal(fixture.deliveryCalls(), 1);
   } finally {
     await rm(fixture.directory, { recursive: true, force: true });
