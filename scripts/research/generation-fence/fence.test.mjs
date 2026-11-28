@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startReceiver } from './harness.mjs';
@@ -40,5 +40,8 @@ test('missing or malformed generation fails closed at receiver', async t => {
     await writeFile(paths.generation, generation);
     assert.equal(await child.execute(), 'rejected-stale');
   }
+  const child = await startReceiver({ ...paths, generationId: '1', mode: 'receiver-check' });
+  await unlink(paths.generation);
+  assert.equal(await child.execute(), 'rejected-stale');
   await assert.rejects(readFile(paths.output), { code: 'ENOENT' });
 });
