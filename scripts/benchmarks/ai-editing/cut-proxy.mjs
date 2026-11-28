@@ -13,9 +13,11 @@ export function compareRecognizedWords(baseline, cut) {
   };
   const a = counts(baseline), b = counts(cut);
   let matchedWords = 0;
-  for (const [word,count] of a) matchedWords += Math.min(count,b.get(word) ?? 0);
+  const missingTokens = [], addedTokens = [];
+  for (const [word,count] of a) { const other = b.get(word) ?? 0; matchedWords += Math.min(count,other); for (let i=0;i<count-other;i++) missingTokens.push(word); }
+  for (const [word,count] of b) { const other = a.get(word) ?? 0; for (let i=0;i<count-other;i++) addedTokens.push(word); }
   return {baselineWords:baseline.length,cutWords:cut.length,matchedWords,missingWords:baseline.length-matchedWords,
-    addedWords:cut.length-matchedWords,retention:baseline.length ? matchedWords/baseline.length : null,continuity:'unavailable'};
+    addedWords:cut.length-matchedWords,missingTokens,addedTokens,retention:baseline.length ? matchedWords/baseline.length : null,continuity:'unavailable'};
 }
 
 /** Remove a half-open range from mono signed 16-bit PCM without rounding samples. */

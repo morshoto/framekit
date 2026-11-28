@@ -45,7 +45,8 @@ const cut = recognize(cutPath,cutWav,'cut');
 const comparison = compareRecognizedWords(original.tokens,cut.tokens);
 const report = {gitHead:execFileSync('git',['rev-parse','HEAD'],{cwd:repository,encoding:'utf8'}).trim(),
   sourceSha256:source.sha256,windowSamples:config.windowSamples,removedSamples:config.removedSamples,sampleRate:config.sampleRate,
-  originalWavSha256:hash(originalWav),cutWavSha256:hash(cutWav),model,provider:original.provider,
+  originalWavSha256:hash(originalWav),cutWavSha256:hash(cutWav),model,provider:original.provider ?? null,declaredAnalyzerVersion:process.env.FRAMEKIT_SPEECH_ANALYZER_VERSION ?? null,
+  ffmpegVersion:execFileSync('ffmpeg',['-version'],{encoding:'utf8'}).split('\n')[0],
   originalAnalysisSha256:original.analysisSha256,cutAnalysisSha256:cut.analysisSha256,
   originalLowConfidenceWords:original.lowConfidenceWords,cutLowConfidenceWords:cut.lowConfidenceWords,comparison,
   minimumExploratoryRetention:config.minimumExploratoryRetention,
