@@ -71,6 +71,7 @@ test('recognition proxy is fixed to the measured renders and is not acceptance',
   assert.match(config.baselineSha256, /^[a-f0-9]{64}$/);
   assert.match(config.mixedSha256, /^[a-f0-9]{64}$/);
   assert.equal(config.minimumExploratoryRetention, 0.9);
+  assert.equal(config.secondaryModel, 'mlx-community/whisper-large-v3-turbo');
   assert.match(config.limitation, /not.*intelligibility/i);
 });
 
