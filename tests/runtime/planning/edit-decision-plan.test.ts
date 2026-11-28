@@ -480,6 +480,149 @@ test("caption corrections are not silently dropped when captions lack evidence o
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
+test("native cut handoff binds the current plan and rejects changed target and evidence", async () => {
+  const { prepareNativeCutHandoff } = await import("../../../packages/runtime/src/planning/native-plan-handoff.js");
+  const f = await fixture();
+  try {
+    const result = await createEditDecisionPlan(f.request, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(result.status, "available"); if (result.status !== "available") return;
+    const index = result.plan.decisions.findIndex((item) => item.kind === "cut");
+    assert.ok(index >= 0);
+    const target = { libraryId: "library", eventId: "event", projectId: "p", sequenceId: "t" };
+    const proposal = await prepareNativeCutHandoff(f.request, result.plan, index, target, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(proposal.status, "proposed");
+    if (proposal.status !== "proposed") return;
+    assert.equal(proposal.operation.type, "delete-range");
+    assert.equal(proposal.planDigest, result.plan.planDigest);
+    assert.equal(proposal.target.libraryId, "library");
+    assert.equal(proposal.authorization, "not-authorized");
+    const cut = result.plan.decisions[index]!;
+    assert.equal(cut.kind, "cut");
+    if (cut.kind !== "cut") return;
+    assert.deepEqual(proposal.sourceRange, cut.candidate.sourceRange);
+    assert.deepEqual(proposal.operation.start, cut.range.startTime);
+    const repeated = await prepareNativeCutHandoff(f.request, result.plan, index, target, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(repeated.status, "proposed");
+    if (repeated.status === "proposed") assert.equal(repeated.operationId, proposal.operationId);
+    const differentLibrary = await prepareNativeCutHandoff(f.request, result.plan, index, { ...target, libraryId: "other" }, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(differentLibrary.status, "proposed");
+    if (differentLibrary.status === "proposed") assert.notEqual(differentLibrary.operationId, proposal.operationId);
+    assert.notEqual((await prepareNativeCutHandoff(f.request, result.plan, index, { ...target, sequenceId: "other" }, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "proposed");
+    const changed = structuredClone(result.plan); changed.decisions.splice(index, 1);
+    assert.notEqual((await prepareNativeCutHandoff(f.request, changed, index, target, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "proposed");
+    const unavailableArtifacts = { put: f.artifacts.put.bind(f.artifacts), get: async () => undefined };
+    assert.equal((await prepareNativeCutHandoff(f.request, result.plan, index, target, unavailableArtifacts, verifyLocalMediaSource, f.briefStore)).status, "unavailable");
+    const tamperedArtifacts = { put: f.artifacts.put.bind(f.artifacts), get: async () => new Uint8Array([1, 2, 3]) };
+    assert.equal((await prepareNativeCutHandoff(f.request, result.plan, index, target, tamperedArtifacts, verifyLocalMediaSource, f.briefStore)).status, "unavailable");
+    const staleRevision = structuredClone(f.request);
+    staleRevision.revision.id = "stale";
+    assert.equal((await prepareNativeCutHandoff(staleRevision, result.plan, index, target, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "unavailable");
+    const changedProvider = structuredClone(f.request);
+    changedProvider.speechContext.provider.model = "different-model";
+    assert.equal((await prepareNativeCutHandoff(changedProvider, result.plan, index, target, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "unavailable");
+    await writeFile(f.path, "changed source");
+    assert.notEqual((await prepareNativeCutHandoff(f.request, result.plan, index, target, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "proposed");
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test("native cut handoff snapshots inputs and excludes non-cut decisions", async () => {
+  const { prepareNativeCutHandoff } = await import("../../../packages/runtime/src/planning/native-plan-handoff.js");
+  const f = await fixture();
+  try {
+    const result = await createEditDecisionPlan(f.request, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(result.status, "available"); if (result.status !== "available") return;
+    const index = result.plan.decisions.findIndex((item) => item.kind === "cut");
+    const captionIndex = result.plan.decisions.findIndex((item) => item.kind === "caption");
+    const target = { libraryId: "library", eventId: "event", projectId: "p", sequenceId: "t" };
+    assert.equal((await prepareNativeCutHandoff(f.request, result.plan, captionIndex, target, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "unavailable");
+    const pending = prepareNativeCutHandoff(f.request, result.plan, index, target, f.artifacts, async (source) => {
+      target.libraryId = "changed";
+      result.plan.planDigest = "changed";
+      await verifyLocalMediaSource(source);
+    }, f.briefStore);
+    const proposal = await pending;
+    assert.equal(proposal.status, "proposed");
+    if (proposal.status === "proposed") {
+      assert.equal(proposal.target.libraryId, "library");
+      assert.notEqual(proposal.planDigest, "changed");
+      assert.match(proposal.operationId, /^sha256:[a-f0-9]{64}$/);
+    }
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test("native cut proposal revalidation detects changed operation, target and evidence", async () => {
+  const { prepareNativeCutHandoff, assertNativeCutHandoffCurrent } = await import("../../../packages/runtime/src/planning/native-plan-handoff.js");
+  const f = await fixture();
+  try {
+    const planned = await createEditDecisionPlan(f.request, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(planned.status, "available"); if (planned.status !== "available") return;
+    const index = planned.plan.decisions.findIndex((item) => item.kind === "cut");
+    const target = { libraryId: "library", eventId: "event", projectId: "p", sequenceId: "t" };
+    const proposal = await prepareNativeCutHandoff(f.request, planned.plan, index, target, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(proposal.status, "proposed"); if (proposal.status !== "proposed") return;
+    assert.equal((await assertNativeCutHandoffCurrent(f.request, planned.plan, index, target, proposal, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "current");
+    const changed = structuredClone(proposal); changed.operation.end.value = "999";
+    assert.equal((await assertNativeCutHandoffCurrent(f.request, planned.plan, index, target, changed, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "stale");
+    const changedSourceRange = structuredClone(proposal); changedSourceRange.sourceRange.start = 0;
+    assert.equal((await assertNativeCutHandoffCurrent(f.request, planned.plan, index, target, changedSourceRange, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "stale");
+    const changedWhileChecking = structuredClone(proposal); changedWhileChecking.operation.end.value = "999";
+    const checked = await assertNativeCutHandoffCurrent(f.request, planned.plan, index, target, changedWhileChecking, f.artifacts, async (source) => {
+      changedWhileChecking.operation.end.value = proposal.operation.end.value;
+      await verifyLocalMediaSource(source);
+    }, f.briefStore);
+    assert.equal(checked.status, "stale");
+    assert.equal((await assertNativeCutHandoffCurrent(f.request, planned.plan, index, { ...target, libraryId: "other" }, proposal, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "stale");
+    await writeFile(f.path, "changed source");
+    assert.equal((await assertNativeCutHandoffCurrent(f.request, planned.plan, index, target, proposal, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "stale");
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test("native range preview requires matching target, revision, range and live token", async () => {
+  const { prepareNativeCutHandoff, checkNativeCutPreview } = await import("../../../packages/runtime/src/planning/native-plan-handoff.js");
+  const { subtractRationalTimes } = await import("../../../packages/runtime/src/timeline/rational-time.js");
+  const f = await fixture();
+  try {
+    const planned = await createEditDecisionPlan(f.request, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(planned.status, "available"); if (planned.status !== "available") return;
+    const index = planned.plan.decisions.findIndex((item) => item.kind === "cut");
+    const target = { libraryId: "library", eventId: "event", projectId: "p", sequenceId: "t" };
+    const proposal = await prepareNativeCutHandoff(f.request, planned.plan, index, target, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(proposal.status, "proposed"); if (proposal.status !== "proposed") return;
+    const observed = { ...target, revision: "r1", targetIdentity: "native-clip", sequenceStart: { value: "0", timescale: "1" }, sequenceDuration: { value: "10", timescale: "1" } };
+    const removed = subtractRationalTimes(proposal.operation.end, proposal.operation.start);
+    const preview = { previewToken: "token", operation: "delete-range", range: { start: proposal.operation.start, end: proposal.operation.end }, beforeDuration: observed.sequenceDuration, expectedAfterDuration: subtractRationalTimes(observed.sequenceDuration, removed), sequenceId: "t", revision: "r1", targetIdentity: "native-clip", expiresAt: "2027-01-01T00:00:00Z" };
+    const now = Date.parse("2026-12-01T00:00:00Z");
+    assert.deepEqual(checkNativeCutPreview(proposal, observed, preview, now), {
+      status: "matched", evidence: "caller-supplied", authorization: "not-authorized",
+    });
+    const fabricated = { ...observed, targetIdentity: "fabricated-observation" };
+    assert.deepEqual(checkNativeCutPreview(proposal, fabricated, { ...preview, targetIdentity: fabricated.targetIdentity }, now), {
+      status: "matched", evidence: "caller-supplied", authorization: "not-authorized",
+    });
+    assert.equal(proposal.authorization, "not-authorized");
+    for (const altered of [
+      { ...proposal, operationId: "sha256:" + "0".repeat(64) },
+      { ...proposal, planDigest: "sha256:" + "1".repeat(64) },
+      { ...proposal, decisionIndex: proposal.decisionIndex + 1 },
+      { ...proposal, analysisRef: { ...proposal.analysisRef, artifactDigest: "sha256:" + "2".repeat(64) } },
+      { ...proposal, source: { ...proposal.source, sourceDigest: "f".repeat(64) } },
+      { ...proposal, sourceRange: { ...proposal.sourceRange, start: proposal.sourceRange.start + 0.1 } },
+    ]) {
+      assert.equal(checkNativeCutPreview(altered, observed, preview, now).status, "unavailable");
+    }
+    assert.equal(checkNativeCutPreview(proposal, observed, { ...preview, beforeDuration: { value: "100", timescale: "10" } }, now).status, "matched");
+    assert.equal(checkNativeCutPreview(proposal, { ...observed, libraryId: "other" }, preview, now).status, "unavailable");
+    assert.equal(checkNativeCutPreview(proposal, observed, { ...preview, targetIdentity: undefined }, now).status, "unavailable");
+    assert.equal(checkNativeCutPreview(proposal, observed, { ...preview, revision: "stale" }, now).status, "unavailable");
+    assert.equal(checkNativeCutPreview(proposal, observed, { ...preview, range: { ...preview.range, end: { value: "999", timescale: "1" } } }, now).status, "unavailable");
+    assert.equal(checkNativeCutPreview(proposal, observed, { ...preview, expiresAt: "2026-11-01T00:00:00Z" }, now).status, "unavailable");
+    assert.equal(checkNativeCutPreview(proposal, observed, { ...preview, beforeDuration: { value: "11", timescale: "1" } }, now).status, "unavailable");
+    assert.equal(checkNativeCutPreview(proposal, observed, { ...preview, expectedAfterDuration: { value: "10", timescale: "1" } }, now).status, "unavailable");
+    assert.equal(checkNativeCutPreview(proposal, { ...observed, sequenceStart: { value: "20", timescale: "1" } }, preview, now).status, "unavailable");
+    assert.equal(checkNativeCutPreview(proposal, { ...observed, sequenceDuration: { value: "0", timescale: "1" } }, preview, now).status, "unavailable");
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
 test("planning rejects missing speech evidence at the final brief check", async () => {
   const f = await fixture();
   try {
