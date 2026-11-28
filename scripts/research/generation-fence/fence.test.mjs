@@ -1,0 +1,44 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { startReceiver } from './harness.mjs';
+
+async function setup(t) {
+  const dir = await mkdtemp(join(tmpdir(), 'generation-fence-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const generation = join(dir, 'generation');
+  const output = join(dir, 'output');
+  await writeFile(generation, '1');
+  return { generation, output };
+}
+
+test('receiver-enforced stale generation rejects delayed operation', async t => {
+  const paths = await setup(t);
+  const child = await startReceiver({ ...paths, generationId: '1', mode: 'receiver-check' });
+  await writeFile(paths.generation, '2');
+  assert.equal(await child.execute(), 'rejected-stale');
+  await assert.rejects(readFile(paths.output), { code: 'ENOENT' });
+});
+
+test('legacy and preaccepted delayed work bypass sender generation', async t => {
+  const paths = await setup(t);
+  for (const mode of ['legacy', 'check-before-queue']) {
+    await writeFile(paths.generation, '1');
+    const child = await startReceiver({ ...paths, generationId: '1', mode });
+    await writeFile(paths.generation, '2');
+    assert.equal(await child.execute(), 'executed');
+  }
+  assert.equal(await readFile(paths.output, 'utf8'), 'legacy\ncheck-before-queue\n');
+});
+
+test('missing or malformed generation fails closed at receiver', async t => {
+  const paths = await setup(t);
+  for (const generation of ['', 'partial']) {
+    const child = await startReceiver({ ...paths, generationId: '1', mode: 'receiver-check' });
+    await writeFile(paths.generation, generation);
+    assert.equal(await child.execute(), 'rejected-stale');
+  }
+  await assert.rejects(readFile(paths.output), { code: 'ENOENT' });
+});
