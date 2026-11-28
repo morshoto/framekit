@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startReceiver } from './harness.mjs';
+import { startReceiver, startSender } from './harness.mjs';
 
 async function setup(t) {
   const dir = await mkdtemp(join(tmpdir(), 'generation-fence-'));
@@ -57,4 +57,24 @@ test('generation change after receiver check can still race the write', async t 
   await writeFile(paths.generation, '2');
   assert.equal(await child.finish(), 'executed');
   assert.equal(await readFile(paths.output, 'utf8'), 'check-then-pause\n');
+});
+
+
+test('killing a sender cannot retract work already handed to another process', async t => {
+  const paths = await setup(t);
+  const trigger = `${paths.output}.trigger`;
+  const before = await startSender({ ...paths, trigger });
+  await before.kill();
+  await assert.rejects(readFile(paths.output), { code: 'ENOENT' });
+  const after = await startSender({ ...paths, trigger });
+  await after.dispatch();
+  await after.kill();
+  await writeFile(trigger, 'continue');
+  let actual;
+  for (let i = 0; i < 100; i++) {
+    try { actual = await readFile(paths.output, 'utf8'); break; }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  assert.equal(actual, 'delayed receiver executed\n');
 });
