@@ -1,15 +1,16 @@
-// Usage: node --import tsx run-talking-head.mjs SOURCE_WEBM PYTHON
+// Usage: node --import tsx run-talking-head.mjs SOURCE_WEBM PYTHON [NEW_OUTPUT_DIRECTORY]
 // Configure the production speech backend through FRAMEKIT_* environment variables.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { loadCorpus, verifyAsset } from './corpus.mjs';
 import { probeCaptionPlan } from './caption-plan-probe.mjs';
+import { renderCaptionProbe } from './caption-render-probe.mjs';
 
-const [file,python] = process.argv.slice(2);
+const [file,python,outputDirectory] = process.argv.slice(2);
 if (!file || !python) throw new Error('Expected interview video and Python');
 const asset = (await loadCorpus()).supplementalAssets.find((item)=>item.id==='novara-interview');
 await verifyAsset(file,asset.sha256);
@@ -29,9 +30,19 @@ try {
   const output = JSON.parse(child.stdout);
   const model = process.env.FRAMEKIT_WHISPER_MODEL ?? 'unknown';
   const provider = {...output.provider,model,configurationDigest:hash(JSON.stringify({model,vad:process.env.FRAMEKIT_SILERO_VAD_SHA256 ?? null}))};
-  const plan = await probeCaptionPlan(media,revision,provider,output);
+  const plan = await probeCaptionPlan(media,revision,provider,output,{includeGroups:!!outputDirectory});
+  const groups = plan.captionGroups;
+  delete plan.captionGroups;
+  let rendered;
+  if (outputDirectory && groups) {
+    await mkdir(outputDirectory);
+    rendered = await renderCaptionProbe(sample,sampleDigest,30,groups,outputDirectory);
+    const midpoint = (groups[0].sequenceRange.start + groups[0].sequenceRange.end) / 2;
+    execFileSync('ffmpeg',['-v','error','-ss',String(midpoint),'-i',join(outputDirectory,'caption-output.mp4'),'-frames:v','1',join(outputDirectory,'caption-sample.png')]);
+  }
   const report = {gitHead:execFileSync('git',['rev-parse','HEAD'],{cwd:repository,encoding:'utf8'}).trim(),sourceSha256:asset.sha256,
-    sourceWindowSeconds:asset.windowSeconds,derivedSha256:sampleDigest,backendOutputSha256:hash(child.stdout),declaredModel:model,provider:output.provider,plan,
+    sourceWindowSeconds:asset.windowSeconds,derivedSha256:sampleDigest,backendOutputSha256:hash(child.stdout),declaredModel:model,provider:output.provider,plan,...(rendered ? {rendered} : {}),
     limitation:'No independently checked transcript or word boundaries. Plan coverage is relative to recognized words only; it does not verify caption rendering or native acceptance. Declared model identity does not authenticate loaded bytes.'};
+  if (outputDirectory && rendered) await writeFile(join(outputDirectory,'report.json'),`${JSON.stringify(report,null,2)}\n`);
   process.stdout.write(`${JSON.stringify(report,null,2)}\n`);
 } finally { await rm(directory,{recursive:true,force:true}); }
