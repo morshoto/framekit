@@ -34,12 +34,13 @@ function inspect(xml) {
     if (anchors.has(id)) throw new Error('duplicate anchor');
     const source = assets.get(clip['@_ref']);
     if (!source) throw new Error('invalid source');
-    anchors.set(id, { id, source, name: clip['@_name'], sourceStart: clip['@_start'] });
+    anchors.set(id, { id, source, name: clip['@_name'], sourceStart: clip['@_start'], duration: clip['@_duration'] });
   }
   return { uid, anchors };
 }
 
-export function findAnchoredTarget(base, external, targetId) {
+export function findAnchoredTarget(base, external, targetId, manifest) {
+  if (!manifest || typeof manifest.sourceStart !== 'string' || typeof manifest.duration !== 'string') throw new Error('missing independent manifest');
   const before = inspect(base);
   const after = inspect(external);
   if (before.uid !== after.uid) throw new Error('project mismatch');
@@ -48,5 +49,6 @@ export function findAnchoredTarget(base, external, targetId) {
   if (!a || !b) throw new Error('missing target anchor');
   if (a.source !== b.source) throw new Error('source mismatch');
   if (a.name !== b.name) throw new Error('rename conflict');
+  if (b.sourceStart !== manifest.sourceStart || b.duration !== manifest.duration) throw new Error('target manifest mismatch');
   return b;
 }
