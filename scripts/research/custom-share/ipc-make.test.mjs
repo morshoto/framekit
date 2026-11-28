@@ -30,16 +30,19 @@ test('characterizes a synthetic make exchange between test-owned processes', { s
     assert.equal(ready, 'ready');
     await assert.rejects(run(binary, ['send', String(process.pid)], { timeout: 5000 }), /target is not the test executable/);
     assert.equal((await run(binary, ['ping', String(child.pid)], { timeout: 5000 })).stdout.trim(), 'pong:0');
+    let response;
     try {
-      const response = await run(binary, ['send', String(child.pid)], { timeout: 5000 });
-      assert.match(response.stdout.trim(), /^specifier:aset:ID  :test-asset-[0-9a-f-]{36}$/);
-      t.diagnostic('make handler returned a synthetic object specifier');
+      response = await run(binary, ['send', String(child.pid)], { timeout: 5000 });
     } catch (error) {
       // A timeout without handler entry has been observed after a successful ping.
       // Record this as inconclusive; never infer that the request was handled.
       assert.match(error.stderr ?? '', /errAETimeout/);
       assert.doesNotMatch(receiverError, /make received/);
       t.diagnostic('inconclusive: make timed out without observed handler entry');
+    }
+    if (response) {
+      assert.match(response.stdout.trim(), /^specifier:aset:ID  :test-asset-[0-9a-f-]{36}:location:mock-location$/);
+      t.diagnostic('make specifier resolved by a subsequent synthetic get');
     }
   } finally {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
