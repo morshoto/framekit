@@ -29,6 +29,19 @@ export function assessHumanTarget(reference, words, tolerance) {
   return {status:Math.abs(startError)<=tolerance+1e-9 && Math.abs(endError)<=tolerance+1e-9 ? 'within-tolerance' : 'outside-tolerance',startErrorSeconds:startError,endErrorSeconds:endError,confidence:word.confidence};
 }
 
+/** Classify malformed backend payloads without treating partial coverage as a pass. */
+export function assessHumanBackendResponse(stdout, reference, tolerance) {
+  assessHumanTarget(reference,[],tolerance);
+  let response;
+  try { response=JSON.parse(stdout); } catch { return {assessment:{status:'backend-error'},provider:null}; }
+  const provider=response?.provider;
+  if (!provider || !['id','provider','version'].every((key)=>typeof provider[key]==='string' && provider[key].trim()) || !Array.isArray(response.words)) return {assessment:{status:'backend-error'},provider:null};
+  const observed=response.observedRange;
+  if (!observed || !Number.isFinite(observed.start) || !Number.isFinite(observed.end) || observed.start<0 || observed.end<=observed.start || observed.start>reference.start || observed.end<reference.end) return {assessment:{status:'coverage-unavailable'},provider};
+  try { return {assessment:assessHumanTarget(reference,response.words,tolerance),provider}; }
+  catch (error) { if (error instanceof Error && error.message==='Invalid recognized word') return {assessment:{status:'backend-error'},provider}; throw error; }
+}
+
 /** Keep every fixed target in the denominator and mark incomplete runs unavailable. */
 export function summarizeHumanTargets(rows, minimumFraction) {
   if (!Array.isArray(rows) || !rows.length || !Number.isFinite(minimumFraction) || minimumFraction<0 || minimumFraction>1) throw new Error('Invalid target summary');

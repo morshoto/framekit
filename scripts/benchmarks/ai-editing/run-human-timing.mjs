@@ -1,4 +1,4 @@
-// Usage: FRAMEKIT_WHISPER_MODEL=mlx-community/whisper-tiny node run-human-timing.mjs PINNED_PARQUET PYTHON
+// Usage: FRAMEKIT_WHISPER_MODEL=mlx-community/whisper-tiny node run-human-timing.mjs PINNED_PARQUET PYTHON [expanded]
 // Python needs pyarrow and the selected speech backend. Set the remaining FRAMEKIT_* backend options explicitly.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -7,10 +7,11 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { verifyAsset } from './corpus.mjs';
-import { assessHumanTarget, summarizeHumanTargets } from './caption-quality.mjs';
-const [parquetArg,python]=process.argv.slice(2);
-if (!parquetArg || !python || process.argv.length!==4) throw new Error('Expected pinned parquet and Python executable');
-const configPath=fileURLToPath(new URL('./human-timing-case.json',import.meta.url));
+import { assessHumanBackendResponse, summarizeHumanTargets } from './caption-quality.mjs';
+const [parquetArg,python,selection]=process.argv.slice(2);
+if (!parquetArg || !python || process.argv.length>5) throw new Error('Expected pinned parquet and Python executable');
+if (selection!==undefined && selection!=='expanded') throw new Error('Unknown human timing selection');
+const configPath=fileURLToPath(new URL(selection==='expanded' ? './human-timing-expanded-case.json' : './human-timing-case.json',import.meta.url));
 const config=JSON.parse(await readFile(configPath,'utf8'));
 const parquet=resolve(parquetArg);
 await verifyAsset(parquet,config.parquetSha256);
@@ -31,10 +32,8 @@ try {
     let assessment, provider=null, outputSha256=null;
     if(child.error || child.status!==0) assessment={status:'backend-error'};
     else {
-      const response=JSON.parse(child.stdout); provider=response.provider ?? null; outputSha256=createHash('sha256').update(child.stdout).digest('hex');
-      const observed=response.observedRange;
-      if(!observed || observed.start>sample.start || observed.end<sample.end) assessment={status:'coverage-unavailable'};
-      else assessment=assessHumanTarget({text:sample.target,start:sample.start,end:sample.end},response.words,config.toleranceSeconds);
+      outputSha256=createHash('sha256').update(child.stdout).digest('hex');
+      ({assessment,provider}=assessHumanBackendResponse(child.stdout,{text:sample.target,start:sample.start,end:sample.end},config.toleranceSeconds));
     }
     rows.push({id:sample.id,audioSha256:sample.audioSha256,duration:sample.duration,target:sample.target,humanRange:{start:sample.start,end:sample.end},provider,outputSha256,...assessment});
   }

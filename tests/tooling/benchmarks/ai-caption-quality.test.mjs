@@ -134,6 +134,18 @@ test('pins the human-checked target sample and tolerance before inference', asyn
   assert.match(c.limitation,/read speech/i);
 });
 
+test('expanded human timing sample is fixed, balanced and disjoint from the pilot', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const pilot=JSON.parse(await readFile(new URL('../../../scripts/benchmarks/ai-editing/human-timing-case.json',import.meta.url)));
+  const expanded=JSON.parse(await readFile(new URL('../../../scripts/benchmarks/ai-editing/human-timing-expanded-case.json',import.meta.url)));
+  assert.equal(expanded.sampleIds.length,100);
+  assert.equal(new Set(expanded.sampleIds).size,100);
+  assert.equal(expanded.sampleIds.filter((id)=>pilot.sampleIds.includes(id)).length,0);
+  for(let i=1;i<=10;i++) assert.equal(expanded.sampleIds.filter((id)=>id.startsWith(`EN_S${String(i).padStart(3,'0')}_`)).length,10);
+  assert.equal(expanded.toleranceSeconds,pilot.toleranceSeconds);
+  assert.match(expanded.designation,/after.*pilot/i);
+});
+
 test('human timing summary counts missing, ambiguous and unavailable targets', async () => {
   const { summarizeHumanTargets } = await import('../../../scripts/benchmarks/ai-editing/caption-quality.mjs');
   const x=summarizeHumanTargets([{status:'within-tolerance'},{status:'outside-tolerance'},{status:'missing'},{status:'ambiguous'},{status:'coverage-unavailable'}],0.95);
@@ -145,10 +157,24 @@ test('human timing summary counts missing, ambiguous and unavailable targets', a
   assert.throws(()=>summarizeHumanTargets([{status:'unknown'}],0.95),/status/i);
 });
 
+test('human timing reports malformed provider output without hiding incomplete coverage', async () => {
+  const { assessHumanBackendResponse } = await import('../../../scripts/benchmarks/ai-editing/caption-quality.mjs');
+  const reference={text:'target',start:1,end:1.5};
+  const provider={id:'speech',provider:'command',version:'v1'};
+  const valid={provider,observedRange:{start:0,end:2},words:[{text:'target',start:1,end:1.5,confidence:0.9}]};
+  assert.equal(assessHumanBackendResponse('{',reference,0.2).assessment.status,'backend-error');
+  assert.equal(assessHumanBackendResponse(JSON.stringify({...valid,words:null}),reference,0.2).assessment.status,'backend-error');
+  assert.equal(assessHumanBackendResponse(JSON.stringify({...valid,provider:null}),reference,0.2).assessment.status,'backend-error');
+  assert.equal(assessHumanBackendResponse(JSON.stringify({...valid,words:[{text:'target',start:2,end:1,confidence:0.9}]}),reference,0.2).assessment.status,'backend-error');
+  assert.equal(assessHumanBackendResponse(JSON.stringify({...valid,observedRange:{start:0,end:1.2}}),reference,0.2).assessment.status,'coverage-unavailable');
+  assert.equal(assessHumanBackendResponse(JSON.stringify(valid),reference,0.2).assessment.status,'within-tolerance');
+});
+
 test('human timing runner verifies the parquet before running an extractor', async () => {
   const { execFileSync } = await import('node:child_process');
   const runner=new URL('../../../scripts/benchmarks/ai-editing/run-human-timing.mjs',import.meta.url);
   assert.throws(()=>execFileSync(process.execPath,[fileURLToPath(runner),'/missing/parquet','python'],{stdio:'pipe'}),/ENOENT/);
+  assert.throws(()=>execFileSync(process.execPath,[fileURLToPath(runner),'/missing/parquet','python','unknown'],{stdio:'pipe'}),/selection/i);
 });
 
 test('approved caption probe verifies its input before creating a new output directory', async () => {
