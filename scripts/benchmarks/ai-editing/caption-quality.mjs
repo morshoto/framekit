@@ -26,3 +26,24 @@ export function compareTranscript(reference, hypothesis) {
   const result = row[actual.length];
   return { ...result, referenceWords: expected.length, hypothesisWords: actual.length, wordErrorRate: expected.length ? result.errors / expected.length : null };
 }
+
+/** Exploratory text comparison: AMI's automatic alignment is not a verified timestamp reference. */
+export function assessAmiTranscript(reference, recognized, offset, duration) {
+  if (!Number.isFinite(offset) || offset < 0 || !Number.isFinite(duration) || duration <= 0) throw new Error('Invalid window');
+  const end = offset + duration;
+  const relevant = reference.filter((word) => word.start < end && word.end > offset);
+  const full = relevant.filter((word) => word.start >= offset && word.end <= end)
+    .sort((a, b) => a.start - b.start || a.end - b.end || a.speaker.localeCompare(b.speaker));
+  let overlappingReferencePairs = 0;
+  for (let i = 0; i < full.length; i++) {
+    for (let j = i + 1; j < full.length && full[j].start < full[i].end; j++) {
+      if (full[i].speaker !== full[j].speaker) overlappingReferencePairs++;
+    }
+  }
+  const tokens = recognized.flatMap((word) => word.text.trim().split(/\s+/u)).filter((word) => /[\p{L}\p{N}]/u.test(word));
+  const result = compareTranscript(full.map((word) => word.text), tokens);
+  return { ...result, referenceBoundaryWordsExcluded: relevant.length - full.length, overlappingReferencePairs,
+    lowConfidenceWords: recognized.filter((word) => word.confidence < 0.8).length,
+    timingStatus: 'unavailable',
+    limitation: 'Reference timings are automatically aligned; cross-speaker overlap makes linear word order ambiguous.' };
+}

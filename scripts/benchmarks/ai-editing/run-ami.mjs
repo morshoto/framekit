@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { bindSpeechAnalysis } from '../../../packages/runtime/src/speech/analysis.ts';
 import { rankNarrativeCuts } from '../../../packages/runtime/src/planning/narrative-cuts.ts';
 import { loadCorpus, parseAmiWords, screenAlignedCuts, verifyAsset } from './corpus.mjs';
+import { assessAmiTranscript } from './caption-quality.mjs';
 
 const [assetDirectory, meeting, startArgument, python] = process.argv.slice(2);
 const corpus = await loadCorpus();
@@ -54,7 +55,7 @@ try {
     declaredVadSha256: process.env.FRAMEKIT_SILERO_VAD_SHA256 ?? null,
     gitHead: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repository, encoding: 'utf8' }).trim(),
     ffmpegVersion: execFileSync('ffmpeg', ['-version'], { encoding: 'utf8' }).split('\n')[0],
-    recognizedWords: analysis.words.length, candidates: screenAlignedCuts(plan.candidates, start, words), warnings: plan.warnings,
+    recognizedWords: analysis.words.length, transcriptScreening: assessAmiTranscript(words, analysis.words, start, 60), candidates: screenAlignedCuts(plan.candidates, start, words), warnings: plan.warnings,
     referenceTiming: corpus.referenceTiming,
     limitations: ['Reference overlaps are screening disagreements, not proof of speech clipping.', 'A provider declaration does not prove which model bytes were loaded.', 'No listening or native acceptance is implied.'],
   };
