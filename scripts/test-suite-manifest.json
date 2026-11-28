@@ -3121,11 +3121,11 @@
       "owner": "scripts/benchmarks",
       "reviewed": true,
       "tags": [
-        "unit"
+        "integration"
       ],
-      "evidence": "fixture",
-      "dependsOn": ["scripts/benchmarks"],
-      "requires": [],
+      "evidence": "process",
+      "dependsOn": ["scripts/benchmarks", "packages/runtime", "adapters/headless"],
+      "requires": ["ffmpeg", "ffprobe"],
       "platforms": [
         "any"
       ],
