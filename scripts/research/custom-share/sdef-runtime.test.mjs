@@ -47,7 +47,7 @@ test('characterizes Cocoa scripting in an uninstalled test app', { skip: process
       t.diagnostic('inconclusive: make timed out');
       return;
     }
-    assert.equal(make.stdout.trim(), 'make:asset-1:get:Synthetic:location:reco:unknown-rejected');
+    assert.equal(make.stdout.trim(), 'make:asset-1:get:Synthetic:location:reco:metadata:verified:unknown-rejected');
     assert.match(stderr, /MOCK MAKE COMMAND INVOKED/);
     t.diagnostic('SDEF-backed Cocoa make and get resolved the test asset and generic location record');
   } finally {
