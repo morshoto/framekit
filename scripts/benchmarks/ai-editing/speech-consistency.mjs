@@ -32,3 +32,17 @@ export function proxyModel(config, variant) {
   if (typeof model !== 'string' || !model.trim()) throw new Error('Missing proxy model');
   return model;
 }
+
+/** Exclude words crossing window boundaries instead of attributing them to the music interval. */
+export function proxyWindowWords(words, range) {
+  if (!Array.isArray(words) || !Number.isFinite(range?.start) || !Number.isFinite(range?.end) || range.start < 0 || range.end <= range.start) throw new Error('Invalid word window');
+  const tokens = [];
+  let excludedBoundaryWords = 0, outsideWords = 0;
+  for (const word of words) {
+    if (!word || typeof word.text !== 'string' || !Number.isFinite(word.start) || !Number.isFinite(word.end) || word.start < 0 || word.end <= word.start) throw new Error('Invalid word');
+    if (word.end <= range.start || word.start >= range.end) { outsideWords++; continue; }
+    if (word.start < range.start || word.end > range.end) { excludedBoundaryWords++; continue; }
+    tokens.push(...word.text.trim().split(/\s+/u).filter((text)=>/[\p{L}\p{N}]/u.test(text)));
+  }
+  return {tokens,excludedBoundaryWords,outsideWords};
+}
