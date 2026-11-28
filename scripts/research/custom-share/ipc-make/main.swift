@@ -20,7 +20,10 @@ final class TestMakeReceiver: NSObject {
         super.init()
     }
     @objc func handlePing(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {
-        reply.setParam(NSAppleEventDescriptor(string: "pong"), forKeyword: AEKeyword(keyDirectObject))
+        var handler: AEEventHandlerUPP?
+        var reference: UnsafeMutableRawPointer?
+        let status = AEGetEventHandler(AEEventClass(kCoreEventClass), makeEvent, &handler, &reference, false)
+        reply.setParam(NSAppleEventDescriptor(string: "pong:\(status)"), forKeyword: AEKeyword(keyDirectObject))
     }
     @objc func handleMake(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {
         fputs("make received\n", stderr)
@@ -68,8 +71,8 @@ if args.count == 2 && args[1] == "listen" {
     else { event.setParam(NSAppleEventDescriptor(typeCode: args[1] == "send" ? assetType : OSType(0x62616421)), forKeyword: objectClass) }
     do {
         let response = try event.sendEvent(options: [.waitForReply, .neverInteract], timeout: 3)
-        if args[1] == "ping", response.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue == "pong" {
-            print("pong"); exit(0)
+        if args[1] == "ping", let value = response.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue, value.hasPrefix("pong:") {
+            print(value); exit(0)
         }
         if args[1] == "send-invalid", response.paramDescriptor(forKeyword: AEKeyword(keyErrorNumber))?.int32Value == Int32(errAEEventNotHandled) {
             print("invalid rejected"); exit(0)
