@@ -1,0 +1,54 @@
+import { readQaRecord } from "./read-record.js";
+import { bindQaAuthorization, inspectRun, type QaRunManifest } from "./run-store.js";
+import { readQaEvidence, resumeHeadlessQaRun, startQaRun } from "./supervisor.js";
+import { readQaArtifactEvidence, verifyQaArtifact } from "./artifact-evidence.js";
+import { inspectQaPublisherFromStore } from "./publisher-inspection.js";
+import { readQaPublisherFixtureEvidence, verifyQaPublisherFixture } from "./publisher-fixture-evidence.js";
+import { readQaPublisherSourceEvidence, verifyQaPublisherSources } from "./publisher-source-evidence.js";
+import { readQaPublisherStages } from "./publisher-stages.js";
+import { readQaEvidenceBundle } from "./evidence-bundle.js";
+import { readQaPluginEvidence, verifyQaPluginIdentity } from "./plugin-evidence.js";
+import { readQaPublisherObservation, startQaPublisherObservation } from "./publisher-observation.js";
+import { readQaPublisherSimulation, startQaPublisherSimulation, type QaPublisherSimulationSpec } from "./publisher-simulation.js";
+
+const [command, root, input, ...extra] = process.argv.slice(2);
+const commands = ["start", "inspect", "evidence", "evidence-bundle", "record-authorization", "resume-headless", "verify-artifact", "artifact-evidence", "inspect-publisher-store", "verify-publisher-fixture", "publisher-fixture-evidence", "verify-publisher-sources", "publisher-source-evidence", "publisher-stages", "start-publisher-fixture", "resume-publisher-fixture", "verify-plugin", "plugin-evidence", "start-publisher-observation", "publisher-observation", "start-publisher-simulation", "publisher-simulation"];
+const expectsExtra = command === "verify-plugin" || command === "record-authorization" || command === "verify-artifact" || command === "inspect-publisher-store" || command === "verify-publisher-fixture" || command === "verify-publisher-sources" || command === "start-publisher-fixture" || command === "resume-publisher-fixture" || command === "start-publisher-observation" || command === "publisher-observation" || command === "start-publisher-simulation";
+const allowsOptionalArtifact = command === "start" || command === "resume-headless";
+if (!root || !input || !commands.includes(command ?? "") || (expectsExtra ? extra.length !== 1 : allowsOptionalArtifact ? extra.length > 1 : extra.length !== 0)) throw new Error("QA_CLI_ARGUMENTS_INVALID");
+let result: unknown;
+if (command === "start") result = await startQaRun(root, JSON.parse(await readQaRecord(input)) as QaRunManifest, extra[0]);
+else if (command === "start-publisher-simulation") result = await startQaPublisherSimulation(root, JSON.parse(await readQaRecord(input)) as QaRunManifest, JSON.parse(await readQaRecord(extra[0]!)) as QaPublisherSimulationSpec);
+else if (command === "publisher-simulation") result = await readQaPublisherSimulation(root, input);
+else if (command === "start-publisher-fixture") result = await startQaRun(root, JSON.parse(await readQaRecord(input)) as QaRunManifest, extra[0], { publisherFixture: true });
+else if (command === "inspect") result = await inspectRun(root, input);
+else if (command === "resume-headless") result = await resumeHeadlessQaRun(root, input, extra[0]);
+else if (command === "resume-publisher-fixture") result = await resumeHeadlessQaRun(root, input, extra[0], { publisherFixture: true });
+else if (command === "verify-artifact") result = await verifyQaArtifact(root, input, extra[0]!);
+else if (command === "verify-plugin") {
+  let spec: unknown;
+  try { spec = JSON.parse(await readQaRecord(extra[0]!)); } catch { throw new Error("QA_PLUGIN_INPUT_INVALID"); }
+  result = await verifyQaPluginIdentity(root, input, spec as { checkout: string; codexHome: string; installedPath: string });
+}
+else if (command === "plugin-evidence") result = await readQaPluginEvidence(root, input);
+else if (command === "artifact-evidence") result = await readQaArtifactEvidence(root, input);
+else if (command === "inspect-publisher-store") result = await inspectQaPublisherFromStore(root, input, extra[0]!);
+else if (command === "start-publisher-observation") {
+  let spec: unknown;
+  try { spec = JSON.parse(await readQaRecord(extra[0]!)); } catch { throw new Error("QA_OBSERVATION_INPUT_INVALID"); }
+  if (!spec || typeof spec !== "object" || Array.isArray(spec) || Object.keys(spec).sort().join(",") !== "directory,observationId") throw new Error("QA_OBSERVATION_INPUT_INVALID");
+  const item = spec as { directory: string; observationId: string };
+  result = await startQaPublisherObservation(root, input, item.observationId, item.directory);
+}
+else if (command === "publisher-observation") result = await readQaPublisherObservation(root, input, extra[0]!);
+else if (command === "verify-publisher-fixture") result = await verifyQaPublisherFixture(root, input, extra[0]!);
+else if (command === "publisher-fixture-evidence") result = await readQaPublisherFixtureEvidence(root, input);
+else if (command === "verify-publisher-sources") result = await verifyQaPublisherSources(root, input, extra[0]!);
+else if (command === "publisher-source-evidence") result = await readQaPublisherSourceEvidence(root, input);
+else if (command === "publisher-stages") result = await readQaPublisherStages(root, input);
+else if (command === "evidence-bundle") result = await readQaEvidenceBundle(root, input);
+else if (command === "record-authorization") {
+  const run = await inspectRun(root, input);
+  result = { ...await bindQaAuthorization(root, run.manifest, extra[0]!), authorizationVerified: false, dispatchAllowed: false };
+} else result = await readQaEvidence(root, input);
+process.stdout.write(`${JSON.stringify(result)}\n`);
