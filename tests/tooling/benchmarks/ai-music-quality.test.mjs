@@ -64,3 +64,12 @@ test('reports recognition retention without equating it with listening', async (
   assert.equal(recognitionRetention([], ['invented']).retention, null);
   assert.throws(() => recognitionRetention(['...'], ['hello']), /word/i);
 });
+
+test('recognition proxy is fixed to the measured renders and is not acceptance', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const config = JSON.parse(await readFile(new URL('../../../scripts/benchmarks/ai-editing/speech-proxy-case.json', import.meta.url)));
+  assert.match(config.baselineSha256, /^[a-f0-9]{64}$/);
+  assert.match(config.mixedSha256, /^[a-f0-9]{64}$/);
+  assert.equal(config.minimumExploratoryRetention, 0.9);
+  assert.match(config.limitation, /not.*intelligibility/i);
+});
