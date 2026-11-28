@@ -70,6 +70,6 @@ const report = {gitHead:execFileSync('git',['rev-parse','HEAD'],{cwd:repository,
   preparedSpeechSha256:speechDigest, outputs:{speech:sha(await readFile(speechRender)),music:sha(await readFile(musicRender)),mixed:sha(await readFile(mixedRender))},
   ffmpegVersion:execFileSync(ffmpeg,['-version'],{encoding:'utf8'}).split('\n')[0], sampleRate:48000, measurements,
   placement, requestedGainDb:-24, observedMusicGainDb:20*Math.log10(renderedMusicRms/inputMusicRms),
-  limitation:'Decoded isolated component levels and lossy-encoding residuals do not establish dialogue intelligibility, creative suitability or native acceptance.'};
+  limitation:'The speech field measures all source audio in each window, including silence; it is not a speech-only signal-to-noise ratio. Alignment is measured at frame resolution on isolated music. The direct headless render does not test planning or approval. Levels and lossy-encoding residuals do not establish dialogue intelligibility, creative suitability or native acceptance.'};
 await writeFile(join(output,'report.json'), `${JSON.stringify(report,null,2)}\n`);
 process.stdout.write(`${JSON.stringify(report,null,2)}\n`);
