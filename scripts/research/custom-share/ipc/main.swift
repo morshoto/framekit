@@ -3,6 +3,7 @@ import AppKit
 import Carbon
 import Darwin
 import Foundation
+import Security
 
 let arguments = CommandLine.arguments
 if (arguments.count == 2 || (arguments.count == 3 && arguments[2] == "-1701")) && arguments[1] == "listen" {
@@ -23,7 +24,27 @@ if (arguments.count == 2 || (arguments.count == 3 && arguments[2] == "-1701")) &
             _ = withUnsafeMutableBytes(of: &token) { audit.copyBytes(to: $0) }
             auditPID = audit_token_to_pid(token)
         }
-        print("handled:\(value):\(event.returnID):\(sender):\(auditLength):\(auditPID):\(auditType)"); fflush(stdout)
+        var lookupStatus: OSStatus = errSecParam
+        var pathMatches = false
+        var validityStatus: OSStatus = errSecParam
+        if let audit, audit.count == MemoryLayout<audit_token_t>.size {
+            var code: SecCode?
+            let attributes = [kSecGuestAttributeAudit as String: audit as CFData] as CFDictionary
+            lookupStatus = SecCodeCopyGuestWithAttributes(nil, attributes, SecCSFlags(), &code)
+            if lookupStatus == errSecSuccess, let code {
+                validityStatus = SecCodeCheckValidity(code, SecCSFlags(), nil)
+                var staticCode: SecStaticCode?
+                if SecCodeCopyStaticCode(code, SecCSFlags(), &staticCode) == errSecSuccess, let staticCode {
+                    var codeURL: CFURL?
+                    if SecCodeCopyPath(staticCode, SecCSFlags(), &codeURL) == errSecSuccess, let codeURL {
+                        let senderPath = (codeURL as URL).resolvingSymlinksInPath().path
+                        let ownPath = URL(fileURLWithPath: arguments[0]).resolvingSymlinksInPath().path
+                        pathMatches = senderPath == ownPath
+                    }
+                }
+            }
+        }
+        print("handled:\(value):\(event.returnID):\(sender):\(auditLength):\(auditPID):\(auditType):\(lookupStatus):\(pathMatches ? 1 : 0):\(validityStatus)"); fflush(stdout)
     }
     DispatchQueue.main.async {
         receiver.register()
