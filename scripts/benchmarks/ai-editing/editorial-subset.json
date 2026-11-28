@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "purpose": "Exploratory staged speech and read-aloud samples; cleaned references are evaluation-only, not word timing or editing intent.",
+  "limitations": [
+    "Intentional-pause controls are unavailable.",
+    "DisfluencySpeech is a single-speaker reenactment.",
+    "No listening or native acceptance is implied."
+  ],
+  "datasets": {
+    "amaai-lab/DisfluencySpeech": {
+      "license": "apache-2.0",
+      "attribution": "Kyra Wang and Dorien Herremans, DisfluencySpeech, 2024, https://arxiv.org/abs/2406.08820"
+    },
+    "Hebrish/Self-Correction-Sentences": {
+      "license": "cc-by-4.0",
+      "attribution": "Daniel Rosehill (Hebrish), CC BY 4.0"
+    },
+    "danielrosehill/Proofed-ASR-Cleanup-Training-Data": {
+      "license": "cc-by-4.0",
+      "attribution": "Daniel Rosehill (Hebrish), CC BY 4.0"
+    }
+  },
+  "items": [
+    {
+      "dataset": "amaai-lab/DisfluencySpeech",
+      "revision": "b7da294fe3a70dd96df6640893f2a5dfc2c87638",
+      "config": "default",
+      "split": "train",
+      "row": 0,
+      "filename": "DisfluencySpeech-0.wav",
+      "sha256": "3fcfd1324f00da13c72d737b43c0c53431c193172c80aa7a70de4121fa8e130a"
+    },
+    {
+      "dataset": "amaai-lab/DisfluencySpeech",
+      "revision": "b7da294fe3a70dd96df6640893f2a5dfc2c87638",
+      "config": "default",
+      "split": "train",
+      "row": 2,
+      "filename": "DisfluencySpeech-2.wav",
+      "sha256": "53369ea1378e6c2c0797ef4851941377eb3411c4c7d5e41f08c423753662cc53"
+    },
+    {
+      "dataset": "amaai-lab/DisfluencySpeech",
+      "revision": "b7da294fe3a70dd96df6640893f2a5dfc2c87638",
+      "config": "default",
+      "split": "train",
+      "row": 5,
+      "filename": "DisfluencySpeech-5.wav",
+      "sha256": "c2e62bd1fe30a4d61198f3e32986bbc90d8fa7a144809135706234469b1aebcf"
+    },
+    {
+      "dataset": "amaai-lab/DisfluencySpeech",
+      "revision": "b7da294fe3a70dd96df6640893f2a5dfc2c87638",
+      "config": "default",
+      "split": "train",
+      "row": 7,
+      "filename": "DisfluencySpeech-7.wav",
+      "sha256": "e618d5e2af2fff946e06b8581b59e119ac266e80630728f893d1afd413d0eaa5"
+    },
+    {
+      "dataset": "Hebrish/Self-Correction-Sentences",
+      "revision": "57419c32258f7aa13fec6f12d54e9823c155b95f",
+      "config": "takes",
+      "split": "train",
+      "row": 0,
+      "filename": "Self-Correction-Sentences-0.flac",
+      "sha256": "0bfd8187575a55cecb340c7e549d462733e7e19d1c5ee0346d8e6116b733a37f"
+    },
+    {
+      "dataset": "Hebrish/Self-Correction-Sentences",
+      "revision": "57419c32258f7aa13fec6f12d54e9823c155b95f",
+      "config": "takes",
+      "split": "train",
+      "row": 1,
+      "filename": "Self-Correction-Sentences-1.flac",
+      "sha256": "ab18c06b9729a61df6124b55be0f6519d375f7f659919d77e7bf8dc785dfb225"
+    },
+    {
+      "dataset": "danielrosehill/Proofed-ASR-Cleanup-Training-Data",
+      "revision": "5827d2a754a834c3061973a44922906c6dde5604",
+      "config": "default",
+      "split": "train",
+      "row": 319,
+      "filename": "Proofed-ASR-Cleanup-Training-Data-319.wav",
+      "sha256": "109e50cd042fcef9d55a212ad8ff932a57662058f8557ce3c8d5f9ea33de3d74"
+    }
+  ]
+}
