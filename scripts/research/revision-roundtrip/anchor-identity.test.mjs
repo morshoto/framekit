@@ -36,8 +36,12 @@ test('rejects unsupported timed children even when their raw XML is unchanged', 
   const { base, external } = await fixtures();
   const insert = value => value.replace('<metadata><md key="com.framekit.id" value="opening-v1"/>', '<marker start="1s" duration="1/30s" value="mark"/><metadata><md key="com.framekit.id" value="opening-v1"/>');
   assert.throws(() => findAnchoredTarget(insert(base), insert(external), 'opening-v1', expected), /unsupported/);
-  const nested = value => value.replace('<audio ref="m"', '<audio ref="m"').replace('/><title ref="title-effect"', '><title lane="1" offset="1s" duration="1s"/></audio><title ref="title-effect"');
+  const nested = value => value.replace('/><title ref="title-effect"', '><title lane="1" offset="1s" duration="1s"/></audio><title ref="title-effect"');
+  assert.notEqual(nested(base), base);
+  assert.notEqual(nested(external), external);
   assert.throws(() => findAnchoredTarget(nested(base), nested(external), 'opening-v1', expected), /unsupported/);
+  const retimed = value => value.replace('<metadata><md key="com.framekit.id" value="opening-v1"/>', '<timeMap><timept time="0s" value="0s"/></timeMap><metadata><md key="com.framekit.id" value="opening-v1"/>');
+  assert.throws(() => findAnchoredTarget(retimed(base), retimed(external), 'opening-v1', expected), /unsupported/);
 });
 
 test('rejects copied, missing and changed anchors and source declarations', async () => {

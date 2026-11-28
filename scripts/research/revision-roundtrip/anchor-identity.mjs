@@ -25,6 +25,22 @@ const one = (value, kind) => {
   if (entries.length !== 1 || !entries[0] || typeof entries[0] !== 'object') throw new Error(`invalid ${kind}`);
   return entries[0];
 };
+const supportedChildren = {
+  'asset-clip': new Set(['audio', 'title', 'metadata']),
+  audio: new Set(),
+  title: new Set(['text', 'text-style-def']),
+  text: new Set(['text-style']),
+  'text-style-def': new Set(['text-style']),
+  'text-style': new Set(),
+};
+function checkSupportedChildren(node, kind) {
+  if (!node || typeof node !== 'object') return;
+  for (const [name, children] of Object.entries(node)) {
+    if (name.startsWith('@_') || name === '#text') continue;
+    if (!supportedChildren[kind].has(name)) throw new Error(`unsupported ${kind} child: ${name}`);
+    if (name !== 'metadata') for (const child of array(children)) checkSupportedChildren(child, name);
+  }
+}
 
 function inspect(xml) {
   if (typeof xml !== 'string' || /<!DOCTYPE|<!ENTITY/i.test(xml) || XMLValidator.validate(xml) !== true) throw new Error('invalid XML');
@@ -44,6 +60,7 @@ function inspect(xml) {
   }
   const anchors = new Map();
   for (const clip of array(spine['asset-clip'])) {
+    checkSupportedChildren(clip, 'asset-clip');
     if (!clip.metadata || typeof clip.metadata !== 'object') throw new Error('missing anchor');
     const entries = array(one(clip.metadata, 'metadata').md).filter(item => item['@_key'] === 'com.framekit.id');
     if (entries.length === 0) throw new Error('missing anchor');
