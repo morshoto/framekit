@@ -45,3 +45,16 @@ test('missing or malformed generation fails closed at receiver', async t => {
   assert.equal(await child.execute(), 'rejected-stale');
   await assert.rejects(readFile(paths.output), { code: 'ENOENT' });
 });
+
+test('generation change after receiver check can still race the write', async t => {
+  const paths = await setup(t);
+  const child = await startReceiver({ ...paths, generationId: '1', mode: 'check-then-pause' });
+  if (typeof child.begin !== 'function') {
+    await child.execute();
+    assert.fail('receiver has no deterministic check/write barrier');
+  }
+  assert.equal(await child.begin(), 'checked');
+  await writeFile(paths.generation, '2');
+  assert.equal(await child.finish(), 'executed');
+  assert.equal(await readFile(paths.output, 'utf8'), 'check-then-pause\n');
+});
