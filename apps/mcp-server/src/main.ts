@@ -348,6 +348,7 @@ const server = createMcpServer(runtime, {
     openProject: (projectId) => headlessProjects.open(projectId),
     withProjectLock: (projectId, operation) => headlessProjects.withProjectLock(projectId, operation),
     storeForProject: briefStoreForProject,
+    render: { inspect: (renderId) => headlessProjects.inspectRender(renderId), reverify: (renderId) => headlessProjects.reverifyRender(renderId) },
   }),
   analysisEvidence: { index: semanticMediaIndexStore, artifacts: analysisArtifacts,
     currentProvider: currentAnalysisProvider },

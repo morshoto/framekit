@@ -1440,6 +1440,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: briefTargetSchema,
   }, async (input) => sessionResult(() => requireHeadlessBriefs().inspectTimelineCoverage(input)));
 
+  registerValidatedTool(server, "headless.brief.inspect-render", {
+    description: "Compare a reverified headless artifact's duration and aspect ratio with an accepted brief at the same revision. This does not authenticate the edit chain or establish complete brief or native acceptance.",
+    inputSchema: { ...briefTargetSchema, renderId: z.string().min(1) },
+  }, async (input) => sessionResult(() => requireHeadlessBriefs().inspectRender(input)));
+
   registerValidatedTool(server, "headless.brief.revise", {
     description: "Revise a brief from its reviewed digest; this invalidates its previous acceptance and does not edit the timeline.",
     inputSchema: { ...briefTargetSchema, expectedDigest: z.string().min(1), brief: creativeBriefSchema },

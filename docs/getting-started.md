@@ -122,6 +122,10 @@ reports whether each required source range appears in the current headless
 timeline, including across split occurrences. It checks source identity and
 timeline placement at that moment; it does not establish the meaning, visibility,
 audibility, rendered output, or native acceptance of that content.
+`headless.brief.inspect-render` compares a reverified render's duration and
+aspect ratio to an accepted brief bound to the same project revision and
+timeline. It reports source, music and caption conformance as unavailable and
+does not authenticate the editing approval chain or establish native acceptance.
 If acceptance is interrupted, the brief may report
 `BRIEF_RECONCILIATION_REQUIRED` and remains unavailable until the interrupted
 state is inspected and reconciled; do not treat it as approval for an edit.

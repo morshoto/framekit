@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { acceptCreativeBrief, assertBriefSourceCoverage, inspectBriefTimelineCoverage, reviewCreativeBrief } from "@framekit/runtime";
 import type { CreativeBrief, CreativeBriefProjectBinding, CreativeBriefReview, CreativeBriefStore, FramekitProjectDocument, MediaSourceIdentity, StoredCreativeBrief, ContextRevision } from "@framekit/runtime";
+import type { FramekitRenderAndVerifyResult } from "@framekit/runtime";
+import type { HeadlessRenderRecord, HeadlessRenderReverification } from "./headless-projects.js";
 
 export interface CreativeBriefTarget {
   projectId: string;
@@ -19,6 +22,16 @@ export interface HeadlessCreativeBriefOptions {
   /** Excludes cooperating project writes until the callback finishes. */
   withProjectLock<T>(projectId: string, operation: () => Promise<T>): Promise<T>;
   storeForProject(projectId: string): CreativeBriefStore;
+  render?: { inspect(renderId: string): Promise<HeadlessRenderRecord>; reverify(renderId: string): Promise<HeadlessRenderReverification> };
+}
+
+export interface BriefRenderInspection {
+  status: "incomplete" | "unavailable";
+  nativeAcceptance: "unavailable";
+  checks: { name: "duration" | "aspect-ratio" | "source-coverage" | "music" | "captions"; status: "matches" | "does-not-match" | "unavailable"; detail: string; expected?: unknown; observed?: unknown; nextStep?: string }[];
+  binding?: { projectId: string; sequenceId: string; revision: ContextRevision; briefDigest: string; timelineDigest: string; artifactDigest: string };
+  reviewPrompts: string[];
+  notice: string;
 }
 
 /** Headless brief review only; acceptance is not editor-operation authorization. */
@@ -51,6 +64,66 @@ export class HeadlessCreativeBriefService {
       assertCreativeBriefProjectBinding(record.projectBinding!, after);
       return { ...result, binding: { projectId: input.projectId, sequenceId: input.sequenceId,
         revision: structuredClone(after.timeline.revision), timelineDigest: record.projectBinding!.timelineDigest, briefDigest: record.accepted.digest } };
+    });
+  }
+
+  /** Compare only measurable output properties; this does not attest the edit chain. */
+  async inspectRender(input: CreativeBriefTarget & { renderId: string }): Promise<BriefRenderInspection> {
+    input = structuredClone(input);
+    const notice = "Point-in-time comparison only; this does not authenticate the render record, editing approvals or execution, establish full brief conformance, or verify native editing.";
+    const checks: BriefRenderInspection["checks"] = [
+      { name: "duration", status: "unavailable", detail: "A current bound artifact has not been verified.", nextStep: "Reverify a render of the accepted target revision." },
+      { name: "aspect-ratio", status: "unavailable", detail: "A current bound artifact or comparable ratio is unavailable.", nextStep: "Reverify the render and review the requested aspect ratio." },
+      { name: "source-coverage", status: "unavailable", detail: "Source content in the rendered artifact has not been independently verified.", nextStep: "Independently verify required source content in the output." },
+      { name: "music", status: "unavailable", detail: "Music placement and audible output have not been established.", nextStep: "Review music placement and listen to the output." },
+      { name: "captions", status: "unavailable", detail: "Editable caption and rendered appearance have not been established.", nextStep: "Review captions in the output and the target editor." },
+    ];
+    const store = this.options.storeForProject(input.projectId);
+    const record = await store.read(input.projectId);
+    if (record.state !== "accepted" || !record.projectBinding) throw new Error("BRIEF_NOT_ACCEPTED: a project-bound accepted brief is required");
+    const unavailable = (): BriefRenderInspection => ({ status: "unavailable", nativeAcceptance: "unavailable", checks, reviewPrompts: [...record.brief.reviewPrompts], notice });
+    if (!this.options.render) return unavailable();
+    const render = this.options.render;
+    return store.withAcceptedBrief(input.projectId, record.accepted, async () => {
+      const before = await this.openTarget(input);
+      assertCreativeBriefProjectBinding(record.projectBinding!, before);
+      const original = await render.inspect(input.renderId);
+      const outcome = original.outcome as FramekitRenderAndVerifyResult | undefined;
+      if (original.renderId !== input.renderId || original.status !== "passed" || original.projectId !== input.projectId
+        || original.sequenceId !== input.sequenceId || !isDeepStrictEqual(original.requestedRevision, before.timeline.revision)
+        || !outcome?.plan || !isDeepStrictEqual(outcome.plan.timeline, before.timeline)) return unavailable();
+      const verification = await render.reverify(input.renderId);
+      const observation = verification.observation;
+      if (verification.renderId !== input.renderId || verification.status !== "verified" || !observation || observation.status !== "passed"
+        || observation.target?.projectId !== input.projectId || observation.target?.sequenceId !== input.sequenceId
+        || !isDeepStrictEqual(observation.revision, before.timeline.revision) || !/^[a-f0-9]{64}$/.test(observation.fileDigest)
+        || !Number.isFinite(observation.durationSeconds) || observation.durationSeconds <= 0
+        || !Number.isSafeInteger(observation.width) || observation.width <= 0 || !Number.isSafeInteger(observation.height) || observation.height <= 0) return unavailable();
+      const after = await this.openTarget(input);
+      assertCreativeBriefProjectBinding(record.projectBinding!, after);
+      if (!isDeepStrictEqual(before.timeline, after.timeline) || !isDeepStrictEqual(original, await render.inspect(input.renderId))) return unavailable();
+      const finalVerification = await render.reverify(input.renderId);
+      if (finalVerification.renderId !== input.renderId || finalVerification.status !== "verified" || !isDeepStrictEqual(observation, finalVerification.observation)) return unavailable();
+      const finalProject = await this.openTarget(input);
+      assertCreativeBriefProjectBinding(record.projectBinding!, finalProject);
+      if (!isDeepStrictEqual(before.timeline, finalProject.timeline) || !isDeepStrictEqual(original, await render.inspect(input.renderId))) return unavailable();
+      const duration = record.brief.durationSeconds;
+      checks[0]!.status = observation.durationSeconds >= duration.min && observation.durationSeconds <= duration.max ? "matches" : "does-not-match";
+      checks[0]!.detail = "Reverified output duration compared with the accepted range.";
+      checks[0]!.expected = structuredClone(duration); checks[0]!.observed = observation.durationSeconds;
+      if (checks[0]!.status === "does-not-match") checks[0]!.nextStep = "Review a revised edit plan and separately approve any changes.";
+      else delete checks[0]!.nextStep;
+      const ratio = /^(\d+):(\d+)$/.exec(record.brief.aspectRatio);
+      if (ratio && Number.isSafeInteger(Number(ratio[1])) && Number.isSafeInteger(Number(ratio[2])) && Number(ratio[1]) > 0 && Number(ratio[2]) > 0) {
+        checks[1]!.status = BigInt(observation.width) * BigInt(ratio[2]!) === BigInt(observation.height) * BigInt(ratio[1]!) ? "matches" : "does-not-match";
+        checks[1]!.detail = "Reverified output dimensions compared with the accepted ratio.";
+        checks[1]!.expected = record.brief.aspectRatio; checks[1]!.observed = { width: observation.width, height: observation.height };
+        if (checks[1]!.status === "does-not-match") checks[1]!.nextStep = "Review a revised output plan and separately approve any changes.";
+        else delete checks[1]!.nextStep;
+      }
+      return { status: "incomplete", nativeAcceptance: "unavailable", checks, reviewPrompts: [...record.brief.reviewPrompts], notice,
+        binding: { projectId: input.projectId, sequenceId: input.sequenceId, revision: structuredClone(after.timeline.revision),
+          briefDigest: record.accepted.digest, timelineDigest: record.projectBinding!.timelineDigest, artifactDigest: observation.fileDigest } };
     });
   }
 

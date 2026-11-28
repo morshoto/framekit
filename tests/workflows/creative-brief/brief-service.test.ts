@@ -58,15 +58,29 @@ test("brief render inspection binds current project and reverified artifact with
     const observation = { status: "passed", target: { projectId: "p", sequenceId: "t" }, revision, fileDigest: "b".repeat(64), durationSeconds: 45, width: 1080, height: 1920 };
     let record = structuredClone(stored);
     let verified = true;
-    const service = f.withRender({ inspect: async () => structuredClone(record), reverify: async () => verified ? { status: "verified", observation: structuredClone(observation) } : { status: "unavailable" } });
+    let verificationCount = 0;
+    let driftOnSecond = false;
+    const service = f.withRender({ inspect: async () => structuredClone(record), reverify: async () => {
+      verificationCount++;
+      if (!verified || (driftOnSecond && verificationCount % 2 === 0)) return { renderId: "render-fixture", status: "unavailable" };
+      return { renderId: "render-fixture", status: "verified", observation: structuredClone(observation) };
+    } });
     const draft = await service.create({ ...target, brief });
     await service.accept({ ...target, expectedDigest: draft.record.digest, confirmed: true });
     const result = await service.inspectRender({ ...target, renderId: "render-fixture" });
     assert.equal(result.status, "incomplete");
     assert.equal(result.nativeAcceptance, "unavailable");
-    assert.deepEqual(result.checks.map((check: any) => check.status), ["matches", "matches"]);
-    assert.equal(result.binding.artifactDigest, observation.fileDigest);
+    assert.deepEqual(result.checks.map((check: any) => check.status), ["matches", "matches", "unavailable", "unavailable", "unavailable"]);
+    assert.equal(result.binding?.artifactDigest, observation.fileDigest);
     assert.match(result.notice, /not.*(approval|execution)/i);
+    observation.durationSeconds = 20; observation.width = 1920; observation.height = 1080;
+    const mismatch = await service.inspectRender({ ...target, renderId: "render-fixture" });
+    assert.deepEqual(mismatch.checks.slice(0, 2).map((check) => check.status), ["does-not-match", "does-not-match"]);
+    assert.ok(mismatch.checks.slice(0, 2).every((check) => check.nextStep));
+    observation.durationSeconds = 45; observation.width = 1080; observation.height = 1920;
+    verificationCount = 0; driftOnSecond = true;
+    assert.equal((await service.inspectRender({ ...target, renderId: "render-fixture" })).status, "unavailable");
+    driftOnSecond = false;
     verified = false;
     assert.equal((await service.inspectRender({ ...target, renderId: "render-fixture" })).status, "unavailable");
     verified = true;
@@ -316,6 +330,9 @@ test("MCP exposes project-bound review and explicit acceptance without timeline 
     const coverage = await client.callTool({ name: "headless.brief.inspect-timeline-coverage", arguments: target });
     assert.notEqual(coverage.isError, true);
     assert.equal(JSON.parse((coverage.content as Array<{ text: string }>)[0]!.text).checks[0].status, "unavailable");
+    const noRender = await client.callTool({ name: "headless.brief.inspect-render", arguments: { ...target, renderId: "render-fixture" } });
+    assert.notEqual(noRender.isError, true);
+    assert.equal(JSON.parse((noRender.content as Array<{ text: string }>)[0]!.text).status, "unavailable");
     assert.deepEqual(await runtime.inspectProject(), before);
   } finally { await client.close(); await server.close(); await rm(f.dir, { recursive: true, force: true }); }
 });
