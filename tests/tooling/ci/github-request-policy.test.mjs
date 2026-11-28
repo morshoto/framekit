@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createGitHubRequestPolicy } from '../../../scripts/github-request-policy.mjs';
+import { createGitHubRequestPolicy, isReadOnlyGraphQL } from '../../../scripts/github-request-policy.mjs';
 
 test('retries transient read failures with bounded injected timing', async () => {
  let calls = 0;
@@ -96,4 +96,10 @@ test('secondary and primary rate limits honor guidance and stop at attempt limit
   assert.equal(calls, 2);
   assert.deepEqual(delays, [expected]);
  }
+});
+
+test('only explicit GraphQL queries are marked safe to retry', () => {
+ assert.equal(isReadOnlyGraphQL('  query Fetch { viewer { id } }'), true);
+ assert.equal(isReadOnlyGraphQL('mutation Change { update { id } }'), false);
+ assert.equal(isReadOnlyGraphQL('{ viewer { id } }'), false);
 });

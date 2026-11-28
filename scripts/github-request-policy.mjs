@@ -1,3 +1,5 @@
+export const isReadOnlyGraphQL = (query) => /^\s*query\b/.test(query);
+
 // Only read-only requests may be replayed automatically. A write with an
 // uncertain outcome requires fresh domain state, not a transport-level retry.
 export function createGitHubRequestPolicy({ fetchImpl = fetch, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), now = Date.now, random = Math.random, log = console.log, maxAttempts = 4, budgetMs = 120000 } = {}) {

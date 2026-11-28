@@ -1,4 +1,4 @@
-import { createGitHubRequestPolicy } from './github-request-policy.mjs';
+import { createGitHubRequestPolicy, isReadOnlyGraphQL } from './github-request-policy.mjs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createProjectStatusClient } from './sync-project-status.mjs';
@@ -69,7 +69,7 @@ export function createPullRequestStatusSource({ repository, token, apiUrl = 'htt
 		method: 'POST',
 		headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
 		body: JSON.stringify({ query, variables }),
-	}, { graphql: true, readOnly: true });
+	}, { graphql: true, readOnly: isReadOnlyGraphQL(query) });
 
 	const readContexts = async (rollup, number) => {
 		if (!rollup) return [];

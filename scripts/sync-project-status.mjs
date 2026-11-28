@@ -1,4 +1,4 @@
-import { createGitHubRequestPolicy } from './github-request-policy.mjs';
+import { createGitHubRequestPolicy, isReadOnlyGraphQL } from './github-request-policy.mjs';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -145,7 +145,7 @@ export function createProjectStatusClient({
 	);
 	const graphql = (query, variables) => request(`${apiRoot}/graphql`, {
 		method: 'POST', headers, body: JSON.stringify({ query, variables }),
-	}, { graphql: true, readOnly: /^\s*query\b/.test(query) });
+	}, { graphql: true, readOnly: isReadOnlyGraphQL(query) });
 
 	const getProject = async () => {
 		const items = [];
