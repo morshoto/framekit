@@ -50,6 +50,8 @@ async function exercise(t, errorCode, useFile = false) {
         assert.equal(Number(parts[4]), 32, 'sender audit token missing or wrong size');
         assert.equal(Number(parts[5]), senders[id].pid, 'audit token PID does not match sender');
         assert.equal(Number(parts[6]), Buffer.from('tokn').readUInt32BE(), 'unexpected audit descriptor type');
+        assert.equal(Number(parts[7]), 0, 'cannot resolve sender code from audit token');
+        assert.equal(parts[8], '1', 'resolved code path does not match test executable');
       }
       t.diagnostic(`mock-${id} handler observations: ${observations.join(', ')}`);
     }
