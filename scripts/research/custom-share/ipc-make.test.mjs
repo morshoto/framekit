@@ -29,7 +29,7 @@ test('characterizes a synthetic make exchange between test-owned processes', { s
     clearTimeout(timer);
     assert.equal(ready, 'ready');
     await assert.rejects(run(binary, ['send', String(process.pid)], { timeout: 5000 }), /target is not the test executable/);
-    assert.equal((await run(binary, ['ping', String(child.pid)], { timeout: 5000 })).stdout.trim(), 'pong');
+    assert.equal((await run(binary, ['ping', String(child.pid)], { timeout: 5000 })).stdout.trim(), 'pong:0');
     try {
       const response = await run(binary, ['send', String(child.pid)], { timeout: 5000 });
       assert.match(response.stdout.trim(), /^specifier:aset:ID  :test-asset-[0-9a-f-]{36}$/);
