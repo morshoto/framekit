@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import { FcpxmlDocumentAdapter, compileTimelineIrToFcpxml } from '@framekit/final-cut/fcpxml';
 import { createTimelineIrFromProjectSnapshot, reconcileTimelineIr, timelineIrDigest } from '@framekit/runtime';
@@ -81,4 +83,23 @@ test('same-name insertion can redirect a rename through positional identity', as
   assert.deepEqual(renamed?.sourceStartTime, { value: '4', timescale: '1' });
   assert.deepEqual(base.sequence.occurrences[0]?.sourceStartTime, { value: '1', timescale: '1' });
   assert.equal(result.conflicts.length, 0);
+});
+
+
+test('document revision advances within one adapter but resets on a fresh adapter', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'framekit-903-revision-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const path = join(directory, 'synthetic.fcpxml');
+  const before = await readFile(fixture, 'utf8');
+  const after = before.replace('name="Opening"', 'name="Manually changed"');
+  await writeFile(path, before);
+  const adapter = new FcpxmlDocumentAdapter(path);
+  const first = await adapter.readProject();
+  await writeFile(path, after);
+  const sameAdapter = await adapter.readProject();
+  const freshAdapter = await new FcpxmlDocumentAdapter(path).readProject();
+  assert.notEqual(first.revision.id, sameAdapter.revision.id);
+  assert.deepEqual(freshAdapter.revision, first.revision);
+  assert.notEqual(createHash('sha256').update(before).digest('hex'), createHash('sha256').update(after).digest('hex'));
+  assert.equal(freshAdapter.timeline.clips[0]?.name, 'Manually changed');
 });
