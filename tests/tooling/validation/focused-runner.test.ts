@@ -35,7 +35,8 @@ async function checkout(t: test.TestContext) {
   await save();
   const run = (args: string[]) => exec(process.execPath, ["scripts/run-tests-with-isolated-home.mjs", ...args], {
     cwd: root, timeout: 15_000, env: { ...childEnvironment, HOME: process.env.FRAMEKIT_TEST_ORIGINAL_HOME ?? process.env.HOME,
-      GITHUB_STEP_SUMMARY: join(root, "caller-step-summary.md"), FRAMEKIT_TEST_REPORT_DIR: "", FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "1", FRAMEKIT_FINAL_CUT_HEADLESS: "0", FRAMEKIT_AUTO_CONNECT: "1", FRAMEKIT_FINAL_CUT_LIBRARY_HEADED: "1" },
+      GITHUB_STEP_SUMMARY: join(root, "caller-step-summary.md"), GIT_DIR: join(root, "foreign.git"), GIT_WORK_TREE: root,
+      GIT_INDEX_FILE: join(root, "foreign-index"), FRAMEKIT_TEST_REPORT_DIR: "", FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "1", FRAMEKIT_FINAL_CUT_HEADLESS: "0", FRAMEKIT_AUTO_CONNECT: "1", FRAMEKIT_FINAL_CUT_LIBRARY_HEADED: "1" },
   });
   return { root, manifest, save, run, files };
 }
@@ -48,6 +49,7 @@ test("focused file and name selection preserves read-only HOME, safety and clean
   const { env, mode } = JSON.parse(await readFile(join(root, "observed.json"), "utf8"));
   assert.equal(mode & 0o222, 0);
   assert.equal(env.GITHUB_STEP_SUMMARY, "", "test subprocesses cannot write the caller step summary");
+  for (const key of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"]) assert.equal(env[key], undefined, key);
   assert.equal(existsSync(join(root, "caller-step-summary.md")), false, "internal filtering reports are not CI publications");
   for (const key of ["HOME", "USERPROFILE", "TMPDIR", "TMP", "TEMP", "FRAMEKIT_STATE_DIR", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR", "npm_config_cache"]) {
     assert.ok(env[key].startsWith(env.FRAMEKIT_TEST_STATE_DIR + '/'), key);
