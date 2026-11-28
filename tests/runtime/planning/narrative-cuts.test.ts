@@ -301,3 +301,24 @@ test("suggests a long reviewed pause with partially aligned adjacent VAD", () =>
     { kind: "speech" as const, start: 4, end: 5 }, partial.analysis.vadSegments[1]!] } };
   assert.equal(rankNarrativeCuts(conflicting).candidates.length, 0);
 });
+
+test("explicit pause margin offers a shorter reviewed pause without crossing speech", () => {
+  const original = rankNarrativeCuts(input);
+  const shorter = rankNarrativeCuts({ ...input, pauseMarginSeconds: 0.1 });
+  assert.equal(original.candidates.length, 1);
+  assert.equal(shorter.candidates.length, 1);
+  const prior = original.candidates[0]!;
+  const candidate = shorter.candidates[0]!;
+  assert.ok(candidate.sourceRange.start < prior.sourceRange.start);
+  assert.ok(candidate.sourceRange.end > prior.sourceRange.end);
+  assert.ok(candidate.sourceRange.start >= 1.1 && candidate.sourceRange.end <= 2.9);
+  assert.equal(candidate.reviewRequired, true);
+  assert.notEqual(candidate.inputDigest, prior.inputDigest);
+  assert.ok(shorter.warnings.some((warning) => /reduced.*margin.*listen/i.test(warning)));
+  const protectedInput = { ...input, pauseMarginSeconds: 0.1, analysis: { ...input.analysis,
+    protectedSegments: [{ kind: "speech" as const, start: 1.15, end: 1.4 }] } };
+  assert.equal(rankNarrativeCuts(protectedInput).candidates.length, 0);
+  for (const margin of [-1, 0, 0.099, 0.201, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.throws(() => rankNarrativeCuts({ ...input, pauseMarginSeconds: margin }), /INVALID_PAUSE_MARGIN/);
+  }
+});
