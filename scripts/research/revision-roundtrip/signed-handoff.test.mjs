@@ -49,3 +49,13 @@ test('rejects wrong key roles and signed noncanonical payloads', async () => {
   const signature = sign(null, Buffer.from(noncanonical), input.privateKey).toString('base64');
   assert.throws(() => createSignedRevisionB({ ...input, envelope: { payload: noncanonical, signature } }), /invalid/);
 });
+
+test('rejects media bytes that differ from signed source digests', async () => {
+  const input = await fixture();
+  const sourceBytes = { a: Buffer.from('synthetic video'), m: Buffer.from('synthetic music') };
+  const claim = { ...input.claim, sourceDigests: { a: hash(sourceBytes.a), m: hash(sourceBytes.m) } };
+  const signed = { ...input, sourceBytes, envelope: signFixtureClaim(claim, input.privateKey) };
+  assert.match(createSignedRevisionB(signed).digest, /^[a-f0-9]{64}$/);
+  assert.throws(() => createSignedRevisionB({ ...signed, sourceBytes: { ...sourceBytes, m: Buffer.from('changed') } }), /stale/);
+  assert.throws(() => createSignedRevisionB({ ...signed, sourceBytes: undefined }), /source/);
+});
