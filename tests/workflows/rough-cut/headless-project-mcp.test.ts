@@ -4021,6 +4021,7 @@ test("approved reviewed headless cut executes once and independently reads back"
     assert.equal((await client.callTool({ name: "headless.decision.approved-execute-cut", arguments: execute })).isError, true);
     assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, before.timeline);
     const approved = payload(await client.callTool({ name: "headless.decision.approved-preview-cut", arguments: args }));
+    const evidence = payload(await client.callTool({ name: "headless.evidence.begin", arguments: { ...target, confirmed: true } }));
     const concurrent = await Promise.all([0, 1].map(() => client.callTool({ name: "headless.decision.approved-execute-cut", arguments: { ...execute, previewToken: approved.previewToken } })));
     assert.equal(concurrent.filter((result) => result.isError).length, 1);
     const applied = payload(concurrent.find((result) => !result.isError));
@@ -4032,10 +4033,18 @@ test("approved reviewed headless cut executes once and independently reads back"
     const sourceStart = cut.candidate.sourceRange.startTime; const removedDuration = cut.candidate.sourceRange.durationTime;
     assert.equal(BigInt(rightStart.value) * BigInt(sourceStart.timescale) * BigInt(removedDuration.timescale),
       (BigInt(sourceStart.value) * BigInt(removedDuration.timescale) + BigInt(removedDuration.value) * BigInt(sourceStart.timescale)) * BigInt(rightStart.timescale));
+    const observedTarget = { projectId, sequenceId, expectedRevision: observed.timeline.revision };
+    payload(await client.callTool({ name: "headless.brief.accept", arguments: { ...observedTarget, expectedDigest: draft.record.digest, confirmed: true } }));
     const outputPath = join(directory, "approved-cut.mp4");
     const rendered = payload(await client.callTool({ name: "headless.render", arguments: { projectId, sequenceId, expectedRevision: observed.timeline.revision,
       parameters: { outputPath, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } } }));
     assert.equal(rendered.status, "passed", JSON.stringify(rendered));
+    const evidenceResult = payload(await client.callTool({ name: "headless.evidence.inspect", arguments: { ...observedTarget, sessionId: evidence.sessionId, renderId: rendered.renderId } }));
+    assert.equal(evidenceResult.status, "observed", JSON.stringify(evidenceResult));
+    assert.equal(evidenceResult.steps.length, 1);
+    assert.equal(evidenceResult.steps[0].kind, "approved-decision");
+    assert.equal(evidenceResult.nativeAcceptance, "unavailable");
+    assert.equal(evidenceResult.conformance, "incomplete");
     const probe = await execFileAsync(process.env.FFPROBE_BIN || "ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", outputPath]);
     const expectedDuration = 10 - Number(removedDuration.value) / Number(removedDuration.timescale);
     assert.ok(Math.abs(Number(probe.stdout.trim()) - expectedDuration) < 0.05);
@@ -4052,9 +4061,11 @@ test("approved reviewed headless cut executes once and independently reads back"
     // Brief acceptance is revision-bound. Reapprove the same brief and repin
     // source analysis at each new revision before a second reviewed cut.
     let current = undone.project;
+    let continuedEvidence: any;
     for (const occurrenceId of ["interview", "next"]) {
       const currentTarget = { projectId, sequenceId, expectedRevision: current.timeline.revision };
       payload(await client.callTool({ name: "headless.brief.accept", arguments: { ...currentTarget, expectedDigest: draft.record.digest, confirmed: true } }));
+      continuedEvidence ??= payload(await client.callTool({ name: "headless.evidence.begin", arguments: { ...currentTarget, confirmed: true } }));
       const currentPin = { ...currentTarget, mediaId: media.resource.id, range: { start: 0, end: 5 } };
       const currentSpeech = payload(await client.callTool({ name: "headless.analysis.pin", arguments: { ...currentPin, kind: "speech" } })).ref;
       const currentVad = payload(await client.callTool({ name: "headless.analysis.pin", arguments: { ...currentPin, kind: "vad" } })).ref;
@@ -4103,10 +4114,17 @@ test("approved reviewed headless cut executes once and independently reads back"
     assert.equal(musicApplied.status, "applied");
     const musicFinal = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
     assert.deepEqual(musicFinal.timeline, musicApplied.edit.after.timeline);
+    const finalTarget = { projectId, sequenceId, expectedRevision: musicFinal.timeline.revision };
+    payload(await client.callTool({ name: "headless.brief.accept", arguments: { ...finalTarget, expectedDigest: draft.record.digest, confirmed: true } }));
     const finalPath = join(directory, "approved-cuts-caption-music.mp4");
     const finalRender = payload(await client.callTool({ name: "headless.render", arguments: { projectId, sequenceId, expectedRevision: musicFinal.timeline.revision,
       parameters: { outputPath: finalPath, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } } }));
     assert.equal(finalRender.status, "passed", JSON.stringify(finalRender));
+    const chain = payload(await client.callTool({ name: "headless.evidence.inspect", arguments: { ...finalTarget, sessionId: continuedEvidence.sessionId, renderId: finalRender.renderId } }));
+    assert.equal(chain.status, "observed", JSON.stringify(chain));
+    assert.equal(chain.steps.length, 4);
+    const interrupted = payload(await client.callTool({ name: "headless.evidence.inspect", arguments: { ...finalTarget, sessionId: evidence.sessionId, renderId: finalRender.renderId } }));
+    assert.equal(interrupted.status, "unavailable");
     assertAudioMix(await readAudioWindow(finalPath, 0.25), 440);
     // Each five-second occurrence loses the same source pause. The second
     // occurrence's word at source 3 s therefore starts at 8 s minus both cuts.

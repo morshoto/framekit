@@ -3952,6 +3952,42 @@
       "network": "none"
     },
     {
+      "path": "tests/workflows/creative-brief/brief-service.test.ts",
+      "owner": "packages/headless-application",
+      "tags": [
+        "contract",
+        "fast-integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "apps/mcp-server",
+        "packages/headless-application",
+        "packages/runtime",
+        "packages/testkit"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/workflows/creative-brief/session-evidence.test.ts",
+      "owner": "apps/mcp-server",
+      "reviewed": true,
+      "tags": [
+        "unit"
+      ],
+      "evidence": "fixture",
+      "dependsOn": ["apps/mcp-server", "packages/headless-application", "packages/runtime"],
+      "requires": [],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
       "path": "tests/workflows/dialogue-normalization/dialogue-normalization-skill.test.ts",
       "owner": "adapters/final-cut/typescript",
       "tags": [
@@ -4099,27 +4135,6 @@
       "evidence": "fixture",
       "dependsOn": [
         "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/workflows/creative-brief/brief-service.test.ts",
-      "owner": "packages/headless-application",
-      "tags": [
-        "contract",
-        "fast-integration"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "fixture",
-      "dependsOn": [
-        "apps/mcp-server",
-        "packages/headless-application",
-        "packages/runtime",
-        "packages/testkit"
       ],
       "platforms": [
         "any"

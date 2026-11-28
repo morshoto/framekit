@@ -126,6 +126,16 @@ audibility, rendered output, or native acceptance of that content.
 aspect ratio to an accepted brief bound to the same project revision and
 timeline. It reports source, music and caption conformance as unavailable and
 does not authenticate the editing approval chain or establish native acceptance.
+For same-process headless tracking, `headless.evidence.begin` starts at an
+explicitly confirmed, accepted brief and current revision; previous project
+history is outside its scope. After separately approving edits and rendering,
+reaccept the unchanged brief at the final revision and call
+`headless.evidence.inspect` with the session and render IDs. An observed chain
+requires contiguous tracked edits including a decision-bound edit, a render
+produced in the same process, and current artifact reverification. Untracked
+changes, unavailable verification, process restart, or session expiry make the
+chain unavailable. This is not tamper-proof, human authentication, complete
+brief conformance, content review, or evidence of a Final Cut operation.
 For an aspect-ratio mismatch, `headless.brief.preview-render-correction` can
 propose smaller even output dimensions for review. It does not render or edit,
 and the sizing change can stretch or distort footage. Duration correction is

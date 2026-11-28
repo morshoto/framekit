@@ -1,0 +1,48 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+test("session evidence requires a contiguous approved chain and its own verified render", async () => {
+  const { HeadlessSessionEvidenceLedger } = await import("../../../apps/mcp-server/src/headless-session-evidence.js");
+  const { createHash } = await import("node:crypto");
+  const digest = (timeline: unknown) => createHash("sha256").update(JSON.stringify(timeline)).digest("hex");
+  const revision = (sequence: number) => ({ id: `r${sequence}`, sequence, timestamp: `2026-01-01T00:00:0${sequence}Z` });
+  const timeline = (sequence: number) => ({ schemaVersion: 1 as const, project: { id: "p", name: "P" }, sequence: { id: "s", name: "S",
+    durationTime: { value: "0", timescale: "1" }, frameDuration: { value: "1", timescale: "30" }, occurrences: [], storyElements: [], markers: [], captions: [] }, resources: [], revision: revision(sequence) });
+  const bind = (n: number) => ({ projectId: "p", sequenceId: "s", revision: revision(n), timelineDigest: digest(timeline(n)), briefDigest: "a".repeat(64) });
+  const edit = (before: number, after: number) => ({ committed: true as const, undoId: `undo-${after}`, before: { timeline: timeline(before) }, after: { timeline: timeline(after) } });
+  const render = { renderId: "render-1", projectId: "p", sequenceId: "s", status: "passed" as const, createdAt: "2026-01-01T00:00:03Z", requestedRevision: revision(2), outcome: { plan: { timeline: timeline(2) } } };
+  const ledger = new HeadlessSessionEvidenceLedger();
+  const session = ledger.begin(bind(0), true);
+  ledger.recordEdit("p", "s", edit(0, 1), "approved-edit");
+  ledger.recordEdit("p", "s", edit(1, 2), "approved-decision", "sha256:" + "c".repeat(64));
+  ledger.recordRender("p", "s", render);
+  const failedRender = { ...render, renderId: "render-failed", status: "failed" as const };
+  ledger.recordRender("p", "s", failedRender);
+  assert.equal(ledger.inspect(session, bind(2), render).status, "observed", "a failed same-revision render should not erase a prior passed render");
+  assert.equal(ledger.inspect(session, bind(2), failedRender).status, "unavailable");
+  const result = ledger.inspect(session, bind(2), render);
+  assert.equal(result.status, "observed");
+  assert.equal(result.steps?.length, 2);
+  assert.match(result.notice, /not.*(native|human)/i);
+  assert.equal(ledger.inspect(session, bind(1), render).status, "unavailable");
+  assert.equal(ledger.inspect(session, bind(2), { ...render, renderId: "forged" }).status, "unavailable");
+  ledger.recordRender("p", "s", { ...failedRender, requestedRevision: revision(1) });
+  assert.equal(ledger.inspect(session, bind(2), render).status, "unavailable", "an unbound render still invalidates the previous association");
+  ledger.recordRender("p", "s", render);
+  const gap = ledger.begin(bind(0), true);
+  ledger.recordEdit("p", "s", edit(1, 2), "approved-edit");
+  ledger.recordRender("p", "s", render);
+  assert.equal(ledger.inspect(gap, bind(2), render).status, "unavailable");
+  assert.equal(new HeadlessSessionEvidenceLedger().inspect(session, bind(2), render).status, "unavailable");
+  const invalidPlan = new HeadlessSessionEvidenceLedger();
+  const invalidSession = invalidPlan.begin(bind(0), true);
+  invalidPlan.recordEdit("p", "s", edit(0, 1), "approved-decision", "not-a-digest");
+  assert.equal(invalidPlan.inspect(invalidSession, bind(1), render).status, "unavailable");
+  const noDecision = new HeadlessSessionEvidenceLedger();
+  const noDecisionSession = noDecision.begin(bind(0), true);
+  noDecision.recordEdit("p", "s", edit(0, 1), "approved-edit");
+  noDecision.recordEdit("p", "s", edit(1, 2), "approved-edit");
+  noDecision.recordRender("p", "s", render);
+  assert.equal(noDecision.inspect(noDecisionSession, bind(2), render).status, "unavailable");
+  assert.throws(() => ledger.begin(bind(0), false), /CONFIRM/);
+});
