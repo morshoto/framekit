@@ -22,6 +22,7 @@
       <property name="name" code="pnam" type="text" access="r"><cocoa key="name"/></property>
       <property name="location info" code="locn" type="asset location" access="r"><cocoa key="locationInfo"/></property>
       <property name="metadata" code="meta" type="user defined record" access="r"><cocoa key="metadata"/></property>
+      <property name="data options" code="dopt" type="user defined record" access="r"><cocoa key="dataOptions"/></property>
     </class>
   </suite>
 </dictionary>

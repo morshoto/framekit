@@ -4,7 +4,7 @@ import AppKit
 import Carbon
 import Darwin
 
-// Test-only encoder for string metadata; it deliberately rejects other types.
+// Test-only conversion for string metadata and the two documented string-list options.
 extension NSDictionary {
     @objc(scriptingUserDefinedRecordWithDescriptor:)
     class func testUserRecord(with descriptor: NSAppleEventDescriptor) -> NSDictionary? {
@@ -12,15 +12,24 @@ extension NSDictionary {
         guard descriptor.descriptorType == DescType(typeAERecord),
               let fields = descriptor.forKeyword(AEKeyword(keyASUserRecordFields)),
               fields.descriptorType == DescType(typeAEList), fields.numberOfItems % 2 == 0 else { return nil }
-        var values = [String: String]()
+        var values = [String: Any]()
         var index = 1
         while index <= fields.numberOfItems {
             guard let keyDescriptor = fields.atIndex(index), let valueDescriptor = fields.atIndex(index + 1),
                   [DescType(typeUnicodeText), DescType(typeUTF8Text)].contains(keyDescriptor.descriptorType),
-                  [DescType(typeUnicodeText), DescType(typeUTF8Text)].contains(valueDescriptor.descriptorType),
-                  let key = keyDescriptor.stringValue, !key.isEmpty,
-                  let value = valueDescriptor.stringValue, values[key] == nil else { return nil }
-            values[key] = value
+                  let key = keyDescriptor.stringValue, !key.isEmpty, values[key] == nil else { return nil }
+            if [DescType(typeUnicodeText), DescType(typeUTF8Text)].contains(valueDescriptor.descriptorType), let value = valueDescriptor.stringValue {
+                values[key] = value
+            } else if ["availableMetadataSets", "availableDescriptionVersions"].contains(key), valueDescriptor.descriptorType == DescType(typeAEList) {
+                var list = [String]()
+                for itemIndex in 1...Swift.max(valueDescriptor.numberOfItems, 1) {
+                    guard itemIndex <= valueDescriptor.numberOfItems, let item = valueDescriptor.atIndex(itemIndex),
+                          [DescType(typeUnicodeText), DescType(typeUTF8Text)].contains(item.descriptorType),
+                          let value = item.stringValue, !value.isEmpty, !list.contains(value) else { return nil }
+                    list.append(value)
+                }
+                values[key] = list
+            } else { return nil }
             index += 2
         }
         return values as NSDictionary
@@ -46,7 +55,10 @@ final class MockAsset: NSObject {
     @objc dynamic let uniqueID: String
     @objc dynamic let name: String
     @objc dynamic let metadata: NSDictionary
-    init(id: String, name: String, metadata: [String: String]) { self.uniqueID = id; self.name = name; self.metadata = metadata as NSDictionary }
+    @objc dynamic let dataOptions: NSDictionary
+    init(id: String, name: String, metadata: [String: String], options: [String: String]) {
+        self.uniqueID = id; self.name = name; self.metadata = metadata as NSDictionary; self.dataOptions = options as NSDictionary
+    }
     @objc dynamic var locationInfo: NSDictionary {
         ["folder": URL(fileURLWithPath: "/synthetic/share-output", isDirectory: true),
          "basename": name, "hasDescription": true, "hasMedia": false]
@@ -69,11 +81,15 @@ final class MockMakeCommand: NSCreateCommand {
         }
         let properties = evaluatedArguments?["KeyDictionary"] as? [String: Any]
         let metadata = properties?["metadata"] as? [String: String]
-        guard properties == nil || properties?["name"] as? String == "Named" && metadata?["example.test.title"] == "Incoming" else {
+        let incoming = properties?["dataOptions"] as? [String: [String]]
+        guard properties == nil || properties?["name"] as? String == "Named" && metadata?["example.test.title"] == "Incoming"
+              && incoming?["availableMetadataSets"] == ["General View", "Camera View"]
+              && incoming?["availableDescriptionVersions"] == ["1.11", "1.10"] else {
             scriptErrorNumber = Int(errAEEventNotHandled); return nil
         }
         let asset = MockAsset(id: "asset-\(MockStore.assets.count + 1)", name: properties == nil ? "Synthetic" : "Named",
-            metadata: metadata ?? ["example.test.title": "Synthetic metadata"])
+            metadata: metadata ?? ["example.test.title": "Synthetic metadata"],
+            options: ["metadataSet": "General View", "descriptionVersion": "1.11"])
         MockStore.assets.append(asset)
         return NSUniqueIDSpecifier(containerClassDescription: description, containerSpecifier: nil, key: "assets", uniqueID: asset.uniqueID)
     }
@@ -116,6 +132,24 @@ if args.count == 2 && args[1] == "conversion-control" {
         malformed.setDescriptor(invalidKey, forKeyword: AEKeyword(keyASUserRecordFields))
         guard NSDictionary.testUserRecord(with: malformed) == nil else { fputs("coerced metadata key accepted\n", stderr); exit(1) }
     }
+    for invalid in [NSAppleEventDescriptor.list(), NSAppleEventDescriptor(int32: 1), NSAppleEventDescriptor(boolean: true)] {
+        let options = NSAppleEventDescriptor.record()
+        let fields = NSAppleEventDescriptor.list()
+        fields.insert(NSAppleEventDescriptor(string: "availableMetadataSets"), at: 1)
+        fields.insert(invalid, at: 2)
+        options.setDescriptor(fields, forKeyword: AEKeyword(keyASUserRecordFields))
+        guard NSDictionary.testUserRecord(with: options) == nil else { fputs("invalid options accepted\n", stderr); exit(1) }
+    }
+    for items in [[NSAppleEventDescriptor(int32: 1)], [NSAppleEventDescriptor(string: "same"), NSAppleEventDescriptor(string: "same")]] {
+        let options = NSAppleEventDescriptor.record()
+        let fields = NSAppleEventDescriptor.list()
+        let list = NSAppleEventDescriptor.list()
+        for (index, item) in items.enumerated() { list.insert(item, at: index + 1) }
+        fields.insert(NSAppleEventDescriptor(string: "availableDescriptionVersions"), at: 1)
+        fields.insert(list, at: 2)
+        options.setDescriptor(fields, forKeyword: AEKeyword(keyASUserRecordFields))
+        guard NSDictionary.testUserRecord(with: options) == nil else { fputs("invalid option list accepted\n", stderr); exit(1) }
+    }
     let app = NSApplication.shared
     app.setActivationPolicy(.prohibited)
     guard let d = NSScriptSuiteRegistry.shared().commandDescription(withAppleEventClass: AEEventClass(0x636f7265), andAppleEventCode: AEEventID(0x6372656c)) else { exit(2) }
@@ -157,6 +191,16 @@ if args.count == 2 && args[1] == "conversion-control" {
             let metadata = NSAppleEventDescriptor.record()
             metadata.setDescriptor(fields, forKeyword: AEKeyword(keyASUserRecordFields))
             properties.setDescriptor(metadata, forKeyword: AEKeyword(0x6d657461))
+            let optionsFields = NSAppleEventDescriptor.list()
+            for (index, pair) in [("availableMetadataSets", ["General View", "Camera View"]), ("availableDescriptionVersions", ["1.11", "1.10"])].enumerated() {
+                optionsFields.insert(NSAppleEventDescriptor(string: pair.0), at: index * 2 + 1)
+                let items = NSAppleEventDescriptor.list()
+                for (itemIndex, item) in pair.1.enumerated() { items.insert(NSAppleEventDescriptor(string: item), at: itemIndex + 1) }
+                optionsFields.insert(items, at: index * 2 + 2)
+            }
+            let options = NSAppleEventDescriptor.record()
+            options.setDescriptor(optionsFields, forKeyword: AEKeyword(keyASUserRecordFields))
+            properties.setDescriptor(options, forKeyword: AEKeyword(0x646f7074))
             event.setParam(properties, forKeyword: AEKeyword(0x70726474))
         }
     }
@@ -188,7 +232,16 @@ if args.count == 2 && args[1] == "conversion-control" {
             let metadata = metadataReply.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.forKeyword(AEKeyword(keyASUserRecordFields))
             guard metadata?.numberOfItems == 2, metadata?.atIndex(1)?.stringValue == "example.test.title",
                   metadata?.atIndex(2)?.stringValue == "Incoming" else { fputs("incoming metadata mismatch: \(metadataReply)\n", stderr); exit(1) }
-            print("properties:asset-2:get:Named:metadata:Incoming"); exit(0)
+            property.setDescriptor(NSAppleEventDescriptor(typeCode: OSType(0x646f7074)), forKeyword: AEKeyword(keyAEKeyData))
+            guard let optionsSpecifier = property.coerce(toDescriptorType: DescType(typeObjectSpecifier)) else { exit(1) }
+            let optionsGet = NSAppleEventDescriptor(eventClass: AEEventClass(0x636f7265), eventID: AEEventID(0x67657464),
+                targetDescriptor: NSAppleEventDescriptor(processIdentifier: target), returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
+            optionsGet.setParam(optionsSpecifier, forKeyword: AEKeyword(keyDirectObject))
+            let optionsReply = try optionsGet.sendEvent(options: [.waitForReply, .neverInteract], timeout: 3)
+            let fields = optionsReply.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.forKeyword(AEKeyword(keyASUserRecordFields))
+            guard fields?.numberOfItems == 4, fields?.atIndex(1)?.stringValue == "descriptionVersion", fields?.atIndex(2)?.stringValue == "1.11",
+                  fields?.atIndex(3)?.stringValue == "metadataSet", fields?.atIndex(4)?.stringValue == "General View" else { fputs("data options mismatch: \(optionsReply)\n", stderr); exit(1) }
+            print("properties:asset-2:get:Named:metadata:Incoming:options:verified"); exit(0)
         }
         if !make, let value = reply.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue, value.hasPrefix("pong:") { print(value); exit(0) }
         if args[3] == "make", let result = reply.paramDescriptor(forKeyword: AEKeyword(keyDirectObject)),
