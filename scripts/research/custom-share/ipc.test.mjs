@@ -48,6 +48,7 @@ async function exercise(t, errorCode, useFile = false) {
         const parts = observation.split(':');
         assert.equal(Number(parts[3]), senders[id].pid, 'sender PID does not match test-owned process');
         assert.equal(Number(parts[4]), 32, 'sender audit token missing or wrong size');
+        assert.equal(Number(parts[5]), senders[id].pid, 'audit token PID does not match sender');
       }
       t.diagnostic(`mock-${id} handler observations: ${observations.join(', ')}`);
     }
