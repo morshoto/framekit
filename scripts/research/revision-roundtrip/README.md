@@ -156,3 +156,15 @@ xmllint --noout --dtdvalid 'file:///Applications/Final%20Cut%20Pro.app/Contents/
 ```
 
 The probe checks the checkout commit, input digest, observed import/edit/export shape and matcher rejections. Output is create-only. The observed output SHA-256 was `8680396f3747b49086ea1c60d4d49c9808b0b105cdf6a4ca0e85a03090ac25ce`. The checkout pin does not authenticate a locally modified checkout; run it only against a clean, trusted checkout. The scripted split and supplied media metadata are fixture assumptions, not independent original-source evidence.
+
+### Explicit fixture selection after Uncut loses IDs
+
+`uncut-selection.test.mjs` runs the pinned Uncut import/split/export described above, then supplies a separate selection manifest with the exact exported-byte SHA-256, zero-based spine ordinal, source URL, source range and intended name. The fixture-only Python handoff checks these fields, rejects another clip with the same resource ID and equivalent rational source range, and creates B without overwriting an existing file. A separate Python process verifies the three cuts, text, music lane and URLs, and compares the complete parsed B tree with the external XML after changing only the selected name. A local 1.10 DTD check is optional; stale digest, wrong ordinal, equivalent rational duplicate and existing output are negative controls.
+
+```sh
+FRAMEKIT_UNCUT_CHECKOUT="$research_dir/uncut" \
+FRAMEKIT_UNCUT_DTD='file:///Applications/Final%20Cut%20Pro.app/Contents/Frameworks/Interchange.framework/Versions/A/Resources/FCPXMLv1_10.dtd' \
+node --test scripts/research/revision-roundtrip/uncut-selection.test.mjs
+```
+
+`research_dir` is the temporary directory from the preceding checkout instructions. Without `FRAMEKIT_UNCUT_CHECKOUT` the test skips, and without `FRAMEKIT_UNCUT_DTD` it does not perform DTD validation. This is a successful **scripted fixture** A → third-party core edit → externally specified selection → B: the manifest is authored by the test, not an authenticated human approval, and the external edit is scripted rather than performed in an editor UI. The experiment targets exactly this three-clip 1.10 shape and a fixed rename; it does not restore the missing occurrence ID, infer historical identity, establish original-media authenticity, or prove Final Cut import, playback or editability. The digest only binds a caller-trusted selection to bytes; there is no trusted manifest store, duplicate-URL resource resolution, complete ambiguity analysis, filesystem race defense, transaction or production integration. Do not use it for real projects.
