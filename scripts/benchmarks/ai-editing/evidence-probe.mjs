@@ -6,6 +6,12 @@ import { InMemoryAnalysisArtifactStore, pinAnalysisEvidence, verifyAnalysisEvide
 import { bindSpeechAnalysis } from '../../../packages/runtime/src/speech/analysis.ts';
 import { verifyLocalMediaSource } from '../../../packages/runtime/src/index.ts';
 
+/** Do not treat unrelated failures as evidence of a coverage guard. */
+export function classifyPartialRejection(error) {
+  if (error instanceof Error && /ANALYSIS_INVALID: speech coverage is incomplete or not provider-reported/.test(error.message)) return 'rejected';
+  throw error;
+}
+
 /** Exercise evidence checks against a disposable copy, never mutating the caller's source. */
 export async function exerciseEvidence(media, revision, provider, payload) {
   const directory = await mkdtemp(join(tmpdir(), 'framekit-real-evidence-'));
@@ -34,7 +40,7 @@ export async function exerciseEvidence(media, revision, provider, payload) {
     const partial = new InMemorySemanticMediaIndexStore();
     await partial.save({...record,speech:{...speech,observedRange:{start:0,end:source.duration/2}}});
     try { await pinAnalysisEvidence(partial,new InMemoryAnalysisArtifactStore(),context,verifyLocalMediaSource); statuses.partialCoverage='incorrectly-accepted'; }
-    catch { statuses.partialCoverage='rejected'; }
+    catch (error) { statuses.partialCoverage=classifyPartialRejection(error); }
     await writeFile(path, 'tampered source');
     statuses.changedSource = (await check(artifacts,context)).status;
     return {artifactDigest:reference.artifactDigest,statuses};
