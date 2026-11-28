@@ -52,3 +52,21 @@ test('rejects a concurrent rename of the target occurrence', async () => {
   const changed = value.external.toString().replace('name="Opening"', 'name="Manual rename"');
   assert.throws(() => createRevisionB({ ...value, external: Buffer.from(changed), externalDigest: hash(changed) }), /conflict/);
 });
+
+test('anchored handoff retains an externally shifted target and same-name insertion', async () => {
+  const { createAnchoredRevisionB } = await import('./xml-handoff.mjs');
+  const baseline = await read('./anchored-base.fcpxml');
+  const external = await read('./anchored-edit.fcpxml');
+  const options = { baseline, external, baselineDigest: hash(baseline), externalDigest: hash(external),
+    projectUid: 'project-framekit-8b68711b3f', sourceDigests, targetId: 'opening-v1',
+    manifest: { sourceStart: '2s', duration: '1s' }, name: 'Approved name' };
+  const result = createAnchoredRevisionB(options);
+  const clips = parser.parse(result.xml.toString()).fcpxml.library.event.project.sequence.spine['asset-clip'];
+  assert.deepEqual(clips.map(item => [item['@_name'], item['@_start']]), [['Approved name', '2s'], ['Closing A', '3s'], ['Opening', '4s']]);
+  assert.equal(clips[0].audio['@_lane'], '-1');
+  assert.equal(clips[0].title.text['text-style']['#text'], 'Intro');
+  const swapped = external.toString().replace('value="opening-v1"', 'value="temporary-v1"')
+    .replace('value="inserted-v1"', 'value="opening-v1"').replace('value="temporary-v1"', 'value="inserted-v1"');
+  assert.throws(() => createAnchoredRevisionB({ ...options, external: Buffer.from(swapped), externalDigest: hash(swapped) }), /manifest/);
+  assert.throws(() => createAnchoredRevisionB({ ...options, manifest: undefined }), /manifest/);
+});
