@@ -180,3 +180,12 @@ test('identifies recognized words with no frame-start sample', async () => {
   assert.deepEqual(sampleFreeWordIndices([{start:0,end:0.01},{start:0.01,end:0.02},{start:1/30,end:2/30}],30),[1]);
   assert.throws(() => sampleFreeWordIndices([{start:1,end:0.5}],30), /timing/i);
 });
+
+test('selects only fixed exploratory talking-head windows', async () => {
+  const { talkingHeadWindow } = await import('../../../scripts/benchmarks/ai-editing/caption-quality.mjs');
+  const asset = {windowSeconds:[0,30],additionalWindowsSeconds:[[30,60],[60,90]]};
+  assert.deepEqual(talkingHeadWindow(asset,undefined),[0,30]);
+  assert.deepEqual(talkingHeadWindow(asset,'second'),[30,60]);
+  assert.deepEqual(talkingHeadWindow(asset,'third'),[60,90]);
+  assert.throws(() => talkingHeadWindow(asset,'other'), /window/i);
+});
