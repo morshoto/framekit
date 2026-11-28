@@ -18,7 +18,8 @@ async function exercise(t, errorCode, useFile = false) {
   const control = errorCode === -1701 ? ['-1701'] : [];
   if (useFile) await Promise.all([0, 1, 2].map(i => writeFile(join(dir, `mock-${i}.fcpxml`), '<fcpxml/>')));
   const sendArgs = (pid, id) => useFile ? ['send-file', String(pid), `mock-${id}`, join(dir, `mock-${id}.fcpxml`)] : ['send', String(pid), `mock-${id}`, ...control];
-  const child = spawn(binary, ['listen', ...control], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const designated = await readFile(join(here, 'finalcut-requirement.txt'), 'utf8');
+  const child = spawn(binary, ['listen', ...control], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, FRAMEKIT_TEST_REQUIREMENT: designated } });
   const exited = once(child, 'exit');
   let output = '';
   child.stdout.on('data', chunk => { output += chunk.toString(); });
@@ -54,6 +55,8 @@ async function exercise(t, errorCode, useFile = false) {
         assert.equal(parts[8], '1', 'resolved code path does not match test executable');
         assert.equal(Number(parts[10]), 0, 'Apple-anchor requirement did not compile');
         assert.notEqual(Number(parts[11]), 0, 'test sender unexpectedly met the Apple-anchor requirement');
+        assert.equal(Number(parts[12]), 0, 'pinned Final Cut requirement did not compile');
+        assert.notEqual(Number(parts[13]), 0, 'test sender unexpectedly met the pinned Final Cut requirement');
       }
       t.diagnostic(`mock-${id} handler observations: ${observations.join(', ')}`);
     }
