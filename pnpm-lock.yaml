@@ -185,6 +185,9 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
     devDependencies:
+      '@actions/expressions':
+        specifier: 0.3.62
+        version: 0.3.62
       '@babel/parser':
         specifier: 7.29.14
         version: 7.29.14
@@ -452,6 +455,10 @@ importers:
         version: 7.0.2
 
 packages:
+
+  '@actions/expressions@0.3.62':
+    resolution: {integrity: sha512-z3cIOc3phey4kAUZeVQaAlphewdR3UGp68wyC9KKypMGS4RYTi+jr/qxTzKGV+CI5HIb7WwJn/8yuORNyOuV2w==}
+    engines: {node: '>= 20'}
 
   '@adobe/css-tools@4.5.0':
     resolution: {integrity: sha512-6OzddxPio9UiWTCemp4N8cYLV2ZN1ncRnV1cVGtve7dhPOtRkleRyx32GQCYSwDYgaHU3USMm84tNsvKzRCa1Q==}
@@ -4294,6 +4301,8 @@ packages:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
 snapshots:
+
+  '@actions/expressions@0.3.62': {}
 
   '@adobe/css-tools@4.5.0': {}
 

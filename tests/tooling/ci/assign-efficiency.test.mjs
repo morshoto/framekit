@@ -58,7 +58,7 @@ test('workflow conditions preserve behavior across issue and PR event fixtures',
   const source = workflow.jobs[job].if.replace(/^\s*\$\{\{|\}\}\s*$/g, '').trim();
   const tokens = new Lexer(source).lex().tokens;
   const expr = new Parser(tokens, ['github'], []).parse();
-  const object = (entries) => new data.Dictionary(Object.entries(entries).map(([key, value]) => ({ key, value: typeof value === 'string' ? new data.StringData(value) : object(value) })));
+  const object = (entries) => new data.Dictionary(...Object.entries(entries).map(([key, value]) => ({ key, value: typeof value === 'string' ? new data.StringData(value) : object(value) })));
   const context = object({ github: { event_name: eventName, actor, event: { action, label: { name: label } } } });
   return new Evaluator(expr, context).evaluate().coerceString() === 'true';
  };
