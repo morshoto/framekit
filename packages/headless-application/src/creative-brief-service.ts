@@ -31,6 +31,9 @@ export interface BriefRenderInspection {
   nativeAcceptance: "unavailable";
   checks: { name: "duration" | "aspect-ratio" | "source-coverage" | "music" | "captions"; status: "matches" | "does-not-match" | "unavailable"; detail: string; expected?: unknown; observed?: unknown; nextStep?: string }[];
   binding?: { projectId: string; sequenceId: string; revision: ContextRevision; briefDigest: string; timelineDigest: string; artifactDigest: string };
+  timelineCoverage?: Omit<ReturnType<typeof inspectBriefTimelineCoverage>, "checks"> & {
+    checks: (ReturnType<typeof inspectBriefTimelineCoverage>["checks"][number] & { nextStep?: string })[];
+  };
   reviewPrompts: string[];
   notice: string;
 }
@@ -137,7 +140,12 @@ export class HeadlessCreativeBriefService {
         if (checks[1]!.status === "does-not-match") checks[1]!.nextStep = "Review a revised output plan and separately approve any changes.";
         else delete checks[1]!.nextStep;
       }
-      return { status: "incomplete", nativeAcceptance: "unavailable", checks, reviewPrompts: [...record.brief.reviewPrompts], notice,
+      const coverage = inspectBriefTimelineCoverage(record.brief, record.accepted, finalProject.timeline);
+      const timelineCoverage = { ...coverage, checks: coverage.checks.map((check) => ({ ...check,
+        ...(check.status === "missing" ? { nextStep: "Review a revised edit plan to include the required source range; separately approve any edit." }
+          : check.status === "unavailable" ? { nextStep: "Verify the source identity and timeline placement, then inspect again." } : {}),
+      })) };
+      return { status: "incomplete", nativeAcceptance: "unavailable", checks, timelineCoverage, reviewPrompts: [...record.brief.reviewPrompts], notice,
         binding: { projectId: input.projectId, sequenceId: input.sequenceId, revision: structuredClone(after.timeline.revision),
           briefDigest: record.accepted.digest, timelineDigest: record.projectBinding!.timelineDigest, artifactDigest: observation.fileDigest } };
     });
