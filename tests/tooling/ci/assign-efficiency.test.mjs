@@ -30,3 +30,12 @@ test('issue project sync starts only for lifecycle or status-label events and ma
  assert.ok(condition.includes('github.event.label.name'));
  assert.ok(condition.includes("github.event_name == 'workflow_dispatch'"));
 });
+
+test('write-capable PR jobs run checked-out code and configuration from the default branch', () => {
+ const assign = readWorkflow('assign');
+ for (const name of ['assign-label', 'sync-pull-request-milestone']) {
+  const checkout = assign.jobs[name].steps.find((step) => step.uses?.startsWith('actions/checkout@'));
+  assert.equal(checkout.with.ref, '${{ github.event.repository.default_branch }}', name);
+  assert.equal(checkout.with['persist-credentials'], false, name);
+ }
+});
