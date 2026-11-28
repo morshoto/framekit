@@ -74,12 +74,14 @@ export class HeadlessSessionEvidenceLedger {
   recordRender(projectId: string, sequenceId: string, record: HeadlessRenderRecord): void {
     for (const session of this.sessions.values()) {
       if (session.base.projectId !== projectId || session.base.sequenceId !== sequenceId || session.invalid) continue;
-      delete session.render;
       try {
         const outcome = record.outcome as { plan?: { timeline?: unknown } };
-        if (record.status !== "passed" || record.projectId !== projectId || record.sequenceId !== sequenceId
-          || !isDeepStrictEqual(record.requestedRevision, session.current.revision) || !outcome.plan?.timeline
-          || hashTimeline(outcome.plan.timeline) !== session.current.timelineDigest) continue;
+        const bound = record.projectId === projectId && record.sequenceId === sequenceId
+          && isDeepStrictEqual(record.requestedRevision, session.current.revision) && outcome.plan?.timeline
+          && hashTimeline(outcome.plan.timeline) === session.current.timelineDigest;
+        if (record.status === "failed" && bound) continue;
+        delete session.render;
+        if (record.status !== "passed" || !bound) continue;
         session.render = JSON.parse(JSON.stringify(record)) as HeadlessRenderRecord;
       } catch { session.invalid = true; }
     }
