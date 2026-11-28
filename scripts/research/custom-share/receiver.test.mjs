@@ -1,0 +1,61 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, writeFile, symlink, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createReceiver } from './receiver.mjs';
+
+async function fixture(t) {
+  const root = await mkdtemp(join(tmpdir(), 'share-research-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  return root;
+}
+
+test('persists independent mock exports and rejects replay after restart', async t => {
+  const root = await fixture(t);
+  const receiver = await createReceiver(root);
+  const a = await receiver.create('Example');
+  const b = await receiver.create('Example');
+  assert.notEqual(a.id, b.id);
+  const xml = join(a.directory, 'Example.fcpxml');
+  await writeFile(xml, '<fcpxml/>');
+  const receipt = await receiver.complete(a.id, [xml]);
+  assert.equal(receipt.state, 'observed');
+  assert.equal(receipt.files[0].sha256.length, 64);
+  assert.equal(receipt.targetVerified, false);
+  const restarted = await createReceiver(root);
+  assert.equal((await restarted.get(a.id)).state, 'observed');
+  await assert.rejects(restarted.complete(a.id, [xml]), /already completed/);
+  assert.equal((await restarted.get(b.id)).state, 'pending');
+});
+
+test('rejects missing, foreign and symlink outputs without completing', async t => {
+  const root = await fixture(t);
+  const outside = await fixture(t);
+  const receiver = await createReceiver(root);
+  const a = await receiver.create('Example');
+  await assert.rejects(receiver.complete('unknown', []), /unknown/);
+  await assert.rejects(receiver.complete(a.id, []), /empty/);
+  await assert.rejects(receiver.complete(a.id, [join(a.directory, 'missing.fcpxml')]));
+  const foreign = join(outside, 'Example.fcpxml');
+  await writeFile(foreign, 'foreign');
+  await assert.rejects(receiver.complete(a.id, [foreign]), /outside/);
+  const link = join(a.directory, 'Example.fcpxml');
+  await symlink(foreign, link);
+  await assert.rejects(receiver.complete(a.id, [link]), /symlink/);
+  assert.equal((await receiver.get(a.id)).state, 'pending');
+});
+
+test('rejects wrong basenames, duplicate output paths and malformed names', async t => {
+  const root = await fixture(t);
+  const receiver = await createReceiver(root);
+  await assert.rejects(receiver.create('../escape'), /name/);
+  const a = await receiver.create('Example');
+  const wrong = join(a.directory, 'Other.fcpxml');
+  const valid = join(a.directory, 'Example.fcpxml');
+  await writeFile(wrong, 'wrong');
+  await writeFile(valid, 'valid');
+  await assert.rejects(receiver.complete(a.id, [wrong]), /basename/);
+  await assert.rejects(receiver.complete(a.id, [valid, valid]), /duplicate/);
+  assert.equal((await receiver.get(a.id)).state, 'pending');
+});
