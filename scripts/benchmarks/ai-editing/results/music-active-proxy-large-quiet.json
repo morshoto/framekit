@@ -1,0 +1,38 @@
+{
+  "gitHead": "2109dddd78ad9dffed6b1d32600433687e053950",
+  "baselineSha256": "1627b9e7d08945578c7bbfead6f905520172fce85734b075e0e189f8eee6aebb",
+  "mixedSha256": "32a78a7b66c1daf2235c4a3e7fc3e51c01ff018fe02ee65509978dd0a74d760a",
+  "model": "mlx-community/whisper-large-v3-turbo",
+  "baselineAnalysisSha256": "49ba7f28d71c37b5f9115f04feb63f3604acc965335f3a97ab530eef845f1ff4",
+  "mixedAnalysisSha256": "21bd8fc053187363af7d61c8176ed35a91b03e61c110226f5d7f1b4fa9386d5d",
+  "baselineLowConfidenceWords": 2,
+  "mixedLowConfidenceWords": 3,
+  "comparison": {
+    "baselineWords": 15,
+    "mixedWords": 15,
+    "commonWords": 15,
+    "retention": 1,
+    "intelligibility": "unavailable"
+  },
+  "activeWindow": {
+    "range": {
+      "start": 2,
+      "end": 8
+    },
+    "designation": "Post hoc comparison restricted to the active music interval; boundary-crossing words are excluded and counted.",
+    "comparison": {
+      "baselineWords": 8,
+      "mixedWords": 8,
+      "commonWords": 8,
+      "retention": 1,
+      "intelligibility": "unavailable"
+    },
+    "baselineExcludedBoundaryWords": 1,
+    "mixedExcludedBoundaryWords": 1,
+    "baselineOutsideWords": 6,
+    "mixedOutsideWords": 6
+  },
+  "minimumExploratoryRetention": 0.9,
+  "meetsExploratoryTarget": true,
+  "limitation": "ASR consistency is not a measurement of human intelligibility; common errors, hallucinations and unrecognized baseline words are not detected. Subjective listening remains unavailable. Provider declarations do not authenticate loaded model bytes."
+}

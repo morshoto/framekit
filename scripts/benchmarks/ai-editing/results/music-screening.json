@@ -1,0 +1,67 @@
+{
+  "gitHead": "98dd036b86617cf08e11fd27f90f7de0df3530bd",
+  "speechSha256": "a15017d0d3c871866971ee178052a0ce3a7e44d6fbf89fc23dcab326511b65f5",
+  "musicSha256": "a6b34c5428412b88d1065843255956ac44cb965ae48f2d4cf49bb78bd524e668",
+  "preparedSpeechSha256": "9cc7e67d7f349e526e33a8629c19c6a4166233c68d5ee061151bdfd14acc6fa3",
+  "outputs": {
+    "speech": "1627b9e7d08945578c7bbfead6f905520172fce85734b075e0e189f8eee6aebb",
+    "music": "3d344160ddb251b0f12cb80fd4c41263e2280efc70ba85a7a63df39ee08c37cf",
+    "mixed": "a6120f7a84f002af634bdd44268028b3b64177bb645587b89371b56d42f9719c"
+  },
+  "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+  "sampleRate": 48000,
+  "measurements": [
+    {
+      "rangeSeconds": [
+        0.5,
+        1.5
+      ],
+      "samples": 48000,
+      "speechRms": 0.003662567592159792,
+      "musicRms": 0,
+      "mixRms": 0.003662567592159792,
+      "speechToMusicDb": null,
+      "mixResidualRms": 0,
+      "peak": 0.01128380373120308,
+      "clippedSamples": 0,
+      "intelligibility": "unavailable"
+    },
+    {
+      "rangeSeconds": [
+        3,
+        7
+      ],
+      "samples": 192000,
+      "speechRms": 0.0037506534250900275,
+      "musicRms": 0.011511359369481037,
+      "mixRms": 0.012115923481616202,
+      "speechToMusicDb": -9.740393534394416,
+      "mixResidualRms": 0.00011679673225149025,
+      "peak": 0.06052544340491295,
+      "clippedSamples": 0,
+      "intelligibility": "unavailable"
+    },
+    {
+      "rangeSeconds": [
+        8.5,
+        9.5
+      ],
+      "samples": 48000,
+      "speechRms": 0.005496936515093946,
+      "musicRms": 0,
+      "mixRms": 0.005496925411320474,
+      "speechToMusicDb": null,
+      "mixResidualRms": 0.0000033740359419514696,
+      "peak": 0.027075747027993202,
+      "clippedSamples": 0,
+      "intelligibility": "unavailable"
+    }
+  ],
+  "placement": {
+    "offsetFrames": 0,
+    "correlation": 0.9999730598890391
+  },
+  "requestedGainDb": -24,
+  "observedMusicGainDb": -24.012784192060018,
+  "limitation": "The speech field measures all source audio in each window, including silence; it is not a speech-only signal-to-noise ratio. Alignment is measured at frame resolution on isolated music. The direct headless render does not test planning or approval. Levels and lossy-encoding residuals do not establish dialogue intelligibility, creative suitability or native acceptance."
+}

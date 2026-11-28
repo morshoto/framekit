@@ -1,0 +1,18 @@
+{
+  "gitHead": "c362e39c2dcba6c4d333ef46ad131c33104b28ee",
+  "speechSha256": "a15017d0d3c871866971ee178052a0ce3a7e44d6fbf89fc23dcab326511b65f5",
+  "musicSha256": "a6b34c5428412b88d1065843255956ac44cb965ae48f2d4cf49bb78bd524e668",
+  "preparedSpeechSha256": "9cc7e67d7f349e526e33a8629c19c6a4166233c68d5ee061151bdfd14acc6fa3",
+  "outputSha256": "a6120f7a84f002af634bdd44268028b3b64177bb645587b89371b56d42f9719c",
+  "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+  "placementSeconds": [
+    2,
+    8
+  ],
+  "gainDb": -24,
+  "programmaticConfirmation": true,
+  "nativeWrites": false,
+  "nativeAcceptance": "unavailable",
+  "dialogueIntelligibility": "unavailable",
+  "limitation": "One exploratory headless run with programmatic confirmation. Audio levels, creative suitability and dialogue intelligibility require separate measurement or listening."
+}

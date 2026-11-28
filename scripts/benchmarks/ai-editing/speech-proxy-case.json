@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "baselineSha256": "1627b9e7d08945578c7bbfead6f905520172fce85734b075e0e189f8eee6aebb",
+  "mixedSha256": "a6120f7a84f002af634bdd44268028b3b64177bb645587b89371b56d42f9719c",
+  "model": "mlx-community/whisper-tiny",
+  "minimumExploratoryRetention": 0.9,
+  "limitation": "ASR consistency is not a measurement of human intelligibility; common errors, hallucinations and unrecognized baseline words are not detected. Subjective listening remains unavailable.",
+  "followUpMixedSha256": "32a78a7b66c1daf2235c4a3e7fc3e51c01ff018fe02ee65509978dd0a74d760a",
+  "followUpDesignation": "Post hoc exploratory -36 dB comparison, not independent validation.",
+  "secondaryModel": "mlx-community/whisper-large-v3-turbo",
+  "secondaryDesignation": "Post hoc corroborating model on the same previously inspected renders; not an independent listening judgment.",
+  "activeMusicSeconds": [
+    2,
+    8
+  ],
+  "activeWindowDesignation": "Post hoc comparison restricted to the active music interval; boundary-crossing words are excluded and counted."
+}

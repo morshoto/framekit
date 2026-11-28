@@ -1,0 +1,20 @@
+{
+  "gitHead": "5b337a184de0138d86584b6461486a261fc1d66e",
+  "baselineSha256": "1627b9e7d08945578c7bbfead6f905520172fce85734b075e0e189f8eee6aebb",
+  "mixedSha256": "a6120f7a84f002af634bdd44268028b3b64177bb645587b89371b56d42f9719c",
+  "model": "mlx-community/whisper-tiny",
+  "baselineAnalysisSha256": "5eaecedd5fb3806575dcb38fd2d167a5041d12f38447d4087b92e2e1d85fda86",
+  "mixedAnalysisSha256": "4f97396ae8df2640b28e9b013baa5a827405c3495b825abd2c95ccd55a54689a",
+  "baselineLowConfidenceWords": 8,
+  "mixedLowConfidenceWords": 13,
+  "comparison": {
+    "baselineWords": 20,
+    "mixedWords": 22,
+    "commonWords": 17,
+    "retention": 0.85,
+    "intelligibility": "unavailable"
+  },
+  "minimumExploratoryRetention": 0.9,
+  "meetsExploratoryTarget": false,
+  "limitation": "ASR consistency is not a measurement of human intelligibility; common errors, hallucinations and unrecognized baseline words are not detected. Subjective listening remains unavailable. Provider declarations do not authenticate loaded model bytes."
+}
