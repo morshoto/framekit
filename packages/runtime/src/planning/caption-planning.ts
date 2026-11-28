@@ -175,7 +175,7 @@ export async function planCaptionGroups(
           const range = sampledFrameRange(word.sequenceRange, snapshot.timeline.frameDuration!);
           return range && { ...word, frameAlignedRange: range };
         });
-        if (sampled.some((word) => !word)) return { status: "unavailable", reason: "Frame rounding causes caption groups to overlap and some words have no sampled frame." };
+        if (sampled.some((word) => !word)) return { status: "unavailable", reason: "Caption timing cannot be mapped to the sequence frame grid." };
         const sampledGroups = frameSafeGroups(sampled as CaptionWord[], separator, request.maxWordsPerGroup, request.maxCharsPerLine, request.maxLines, true);
         if (!sampledGroups) return { status: "unavailable", reason: "Frame rounding causes caption groups to overlap." };
         grouped = sampledGroups;
