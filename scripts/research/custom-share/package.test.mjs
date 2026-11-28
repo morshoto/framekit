@@ -31,7 +31,10 @@ test('builds a temporary uninstalled bundle without launching it', { skip: proce
   const bundle = join(temporary, 'ShareResearch.app');
   await run(process.execPath, [new URL('./build-bundle.mjs', import.meta.url).pathname, bundle]);
   const { stat } = await import('node:fs/promises');
-  assert.ok((await stat(join(bundle, 'Contents', 'MacOS', 'ShareResearch'))).isFile());
+  const binary = join(bundle, 'Contents', 'MacOS', 'ShareResearch');
+  assert.ok((await stat(binary)).isFile());
+  assert.match((await run('file', ['-b', binary])).stdout, /Mach-O.*executable/);
+  await run('plutil', ['-lint', join(bundle, 'Contents', 'Info.plist')]);
   assert.ok((await stat(join(bundle, 'Contents', 'Resources', 'ShareResearch.sdef'))).isFile());
   await assert.rejects(run(process.execPath, [new URL('./build-bundle.mjs', import.meta.url).pathname, bundle]));
 });
