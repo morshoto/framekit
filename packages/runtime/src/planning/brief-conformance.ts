@@ -54,7 +54,7 @@ function briefArtifactObservationFromRender(result: FramekitRenderAndVerifyResul
       || !Array.isArray(verification.checks) || verification.checks.some((check) => check.passed !== true)) return undefined;
     // Reuse the render contract's digest check before trusting its target or timeline.
     createFramekitRenderResult(plan, render.output);
-    const required = ["output-exists", "output-digest", "output-stability", "playable", "format", "dimensions", "frame-rate", "duration"];
+    const required = ["output-exists", "output-digest", "output-stability", "playable", "format", "dimensions", "frame-rate", "frame-count", "duration"];
     if (required.some((name) => verification.checks.filter((check) => check.name === name && check.passed).length !== 1)) return undefined;
     const artifact = verification.artifact;
     const digestCheck = verification.checks.find((check) => check.name === "output-digest");
