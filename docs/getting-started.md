@@ -133,6 +133,12 @@ appropriate. The server loads the current project and accepted brief; it
 rejects stale targets, mismatched configured analyzer descriptors, missing or
 changed pinned evidence, relevant changes to
 the current analysis index, and brief or project changes observed during planning. Review the returned decisions and warnings. If no safe cut is proposed, warnings can identify low-confidence words or a VAD-bounded pause that is too short; they are not proof that all speech was recognized. When VAD only partially overlaps an adjacent transcript word, a candidate retains both transcript and VAD boundaries, carries reduced confidence, and requires careful listening and review.
+To review a shorter retained pause, set `pauseMarginSeconds` from 0.1 to 0.2
+seconds in the decision input. The default is 0.2 seconds on each speech
+boundary. A smaller value reduces the cushion and adds a listening warning;
+the requested value changes the plan digest and must be included in the
+separate preview. Transcript, VAD and protected ranges remain excluded, but
+their timing estimates can be wrong and require human review.
 To correct a recognized word in the caption proposal, supply
 `caption.wordCorrections` entries with the transcript `wordIndex` and replacement
 `text`. The plan keeps the original text, timing and analysis reference visible;

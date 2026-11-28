@@ -178,6 +178,7 @@ const analysisRefSchema = z.object({ schemaVersion: z.literal(1), kind: z.enum([
 const decisionPlanSchema = {
   projectId: z.string().min(1), timelineId: z.string().min(1), revision: revisionValueSchema, occurrenceId: z.string().min(1),
   speechRef: analysisRefSchema.optional(), vadRef: analysisRefSchema.optional(), audioRef: analysisRefSchema.optional(),
+  pauseMarginSeconds: z.number().min(0.1).max(0.2).optional(),
   caption: z.object({ style: z.string(), maxWordsPerGroup: z.number().int(), maxCharsPerLine: z.number().int(), maxLines: z.number().int(),
     emphasisWordIndices: z.array(z.number().int()).optional(), wordSeparator: z.enum([" ", ""]).optional(),
     wordCorrections: z.array(z.object({ wordIndex: z.number().int().nonnegative(), text: z.string().min(1).max(400) }).strict()).max(500).optional() }).strict(),
