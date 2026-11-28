@@ -20,3 +20,14 @@ test('prepares an exact sample cut and rejects invalid boundaries', () => {
   assert.throws(()=>prepareCutPcm(input,3,2),/range/i);
   assert.throws(()=>prepareCutPcm(Buffer.from([1]),0,1),/PCM/i);
 });
+
+test('pins disputed cut, sample windows and proxy limits before inference', async () => {
+  const {readFile} = await import('node:fs/promises');
+  const c = JSON.parse(await readFile(new URL('../../../scripts/benchmarks/ai-editing/cut-proxy-case.json', import.meta.url)));
+  assert.equal(c.meeting,'TS3003a');
+  assert.deepEqual(c.windowSamples,[1152000,1328000]);
+  assert.deepEqual(c.removedSamples,[1235200,1242667]);
+  assert.equal(c.sampleRate,16000);
+  assert.equal(c.minimumExploratoryRetention,1);
+  assert.match(c.limitation,/not.*continuity/i);
+});
