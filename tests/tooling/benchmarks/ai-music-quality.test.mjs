@@ -87,3 +87,10 @@ test('allows explicit bounded gain for an exploratory comparison', async () => {
   assert.throws(() => selectedGain('1', -24), /gain/i);
   assert.throws(() => selectedGain('bad', -24), /gain/i);
 });
+
+test('labels the quieter gain comparison as exploratory and post hoc', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const config = JSON.parse(await readFile(new URL('../../../scripts/benchmarks/ai-editing/music-corpus.json', import.meta.url)));
+  assert.equal(config.followUp.gainDb, -36);
+  assert.match(config.followUp.designation, /post hoc/i);
+});
