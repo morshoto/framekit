@@ -33,15 +33,17 @@ try {
   const plan = await probeCaptionPlan(media,revision,provider,output,{includeGroups:!!outputDirectory});
   const groups = plan.captionGroups;
   delete plan.captionGroups;
-  let rendered;
+  let rendered, visualSample;
   if (outputDirectory && groups) {
     await mkdir(outputDirectory);
     rendered = await renderCaptionProbe(sample,sampleDigest,30,groups,outputDirectory);
     const midpoint = (groups[0].sequenceRange.start + groups[0].sequenceRange.end) / 2;
-    execFileSync('ffmpeg',['-v','error','-ss',String(midpoint),'-i',join(outputDirectory,'caption-output.mp4'),'-frames:v','1',join(outputDirectory,'caption-sample.png')]);
+    const sampleImage = join(outputDirectory,'caption-sample.png');
+    execFileSync('ffmpeg',['-v','error','-ss',String(midpoint),'-i',join(outputDirectory,'caption-output.mp4'),'-frames:v','1',sampleImage]);
+    visualSample = {midpointSeconds:midpoint,sha256:hash(await readFile(sampleImage))};
   }
   const report = {gitHead:execFileSync('git',['rev-parse','HEAD'],{cwd:repository,encoding:'utf8'}).trim(),sourceSha256:asset.sha256,
-    sourceWindowSeconds:asset.windowSeconds,derivedSha256:sampleDigest,backendOutputSha256:hash(child.stdout),declaredModel:model,provider:output.provider,plan,...(rendered ? {rendered} : {}),
+    sourceWindowSeconds:asset.windowSeconds,derivedSha256:sampleDigest,backendOutputSha256:hash(child.stdout),declaredModel:model,provider:output.provider,plan,...(rendered ? {rendered,visualSample} : {}),
     limitation:'No independently checked transcript or word boundaries. Plan coverage is relative to recognized words only; it does not verify caption rendering or native acceptance. Declared model identity does not authenticate loaded bytes.'};
   if (outputDirectory && rendered) await writeFile(join(outputDirectory,'report.json'),`${JSON.stringify(report,null,2)}\n`);
   process.stdout.write(`${JSON.stringify(report,null,2)}\n`);
