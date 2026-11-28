@@ -117,6 +117,21 @@ test("render-and-verify returns verified provenance and independent artifact met
     const matchingForgedVerifier = { verify: async () => structuredClone(forgedFrameCount.verification!) };
     assert.equal(await reverifyBriefArtifactObservation(forgedFrameCount, matchingForgedVerifier), undefined,
       "a passed count must still match the requested frame rate and canonical duration");
+    for (const [observedFrames, allowed] of [[59, true], [61, true], [58, false], [62, false]] as const) {
+      const candidate = structuredClone(outcome);
+      candidate.verification!.checks.find((check) => check.name === "frame-count")!.observed = observedFrames;
+      const matching = { verify: async () => structuredClone(candidate.verification!) };
+      assert.equal(Boolean(await reverifyBriefArtifactObservation(candidate, matching)), allowed, `decoded count ${observedFrames}`);
+    }
+    for (const invalid of [undefined, "60", 0, -1, 60.5, Number.NaN]) {
+      const candidate = structuredClone(outcome);
+      candidate.verification!.checks.find((check) => check.name === "frame-count")!.observed = invalid;
+      const matching = { verify: async () => structuredClone(candidate.verification!) };
+      assert.equal(await reverifyBriefArtifactObservation(candidate, matching), undefined, `invalid decoded count ${invalid}`);
+    }
+    const wrongExpectation = structuredClone(outcome);
+    wrongExpectation.verification!.checks.find((check) => check.name === "frame-count")!.expected = 2;
+    assert.equal(await reverifyBriefArtifactObservation(wrongExpectation, { verify: async () => structuredClone(wrongExpectation.verification!) }), undefined);
     const changedArtifact = structuredClone(outcome);
     changedArtifact.verification!.artifact!.fileDigest = "f".repeat(64);
     assert.equal(await reverifyBriefArtifactObservation(changedArtifact, verifier), undefined);
