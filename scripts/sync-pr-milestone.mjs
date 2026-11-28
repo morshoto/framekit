@@ -106,6 +106,23 @@ export async function syncPullRequestMilestone({
 	return { action: 'updated', milestoneNumber: decision.milestone.number };
 }
 
+// Manual recovery deliberately uses current PR state, not a stale event body.
+export async function repairPullRequestMilestone({ repository, pullRequestNumber, token, apiUrl = 'https://api.github.com', fetchImpl = fetch }) {
+	if (!/^[^/]+\/[^/]+$/.test(repository)) throw new Error('GITHUB_REPOSITORY_INVALID');
+	if (!Number.isSafeInteger(pullRequestNumber) || pullRequestNumber <= 0) throw new Error('PULL_REQUEST_NUMBER_INVALID');
+	if (!token) throw new Error('GITHUB_TOKEN_REQUIRED');
+	const url = `${apiUrl.replace(/\/$/, '')}/repos/${repository}/pulls/${pullRequestNumber}`;
+	const response = await fetchImpl(url, { headers: {
+		Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}`, 'X-GitHub-Api-Version': '2022-11-28',
+	} });
+	if (response.status === 404) return { action: 'skip', reason: 'pull-request-not-found' };
+	if (!response.ok) throw new Error(`GITHUB_API_REQUEST_FAILED: GET ${new URL(url).pathname} returned ${response.status}`);
+	const pr = await response.json();
+	if (pr.state !== 'open') return { action: 'skip', reason: 'pull-request-not-open' };
+	if (pr.head?.repo?.full_name !== repository) return { action: 'skip', reason: 'pull-request-not-same-repository' };
+	return syncPullRequestMilestone({ repository, pullRequestNumber, body: pr.body ?? '', token, apiUrl, fetchImpl });
+}
+
 function nextPageUrl(linkHeader) {
 	if (!linkHeader) return null;
 	for (const match of linkHeader.matchAll(/<([^>]+)>\s*;\s*rel="?next"?/g)) return match[1];
@@ -118,6 +135,16 @@ async function main() {
 	if (!eventPath) throw new Error('GITHUB_EVENT_PATH_REQUIRED');
 	if (!token) throw new Error('GITHUB_TOKEN_REQUIRED');
 	const event = JSON.parse(await readFile(eventPath, 'utf8'));
+	if (process.env.GITHUB_EVENT_NAME === 'workflow_dispatch' && event.inputs?.pr_number) {
+		const result = await repairPullRequestMilestone({
+			repository: process.env.GITHUB_REPOSITORY,
+			pullRequestNumber: Number(event.inputs.pr_number),
+			token,
+			apiUrl: process.env.GITHUB_API_URL,
+		});
+		console.log(`Manual milestone repair: ${JSON.stringify(result)}`);
+		return;
+	}
 	const pullRequest = event.pull_request;
 	if (!pullRequest) throw new Error('PULL_REQUEST_EVENT_REQUIRED');
 	const result = await syncPullRequestMilestone({
