@@ -24,3 +24,11 @@ export function syncPullRequestMilestone(options: {
 	timelineRetryDelaysMs?: number[];
 	sleepImpl?: (milliseconds: number) => Promise<void>;
 }): Promise<{ action: 'updated'; milestoneNumber: number } | MilestoneDecision>;
+
+export function repairPullRequestMilestone(options: {
+	repository: string;
+	pullRequestNumber: number;
+	token: string;
+	apiUrl?: string;
+	fetchImpl?: typeof fetch;
+}): Promise<{ action: 'updated'; milestoneNumber: number } | MilestoneDecision | { action: 'skip'; reason: 'pull-request-not-found' | 'pull-request-not-open' | 'pull-request-not-same-repository' }>;

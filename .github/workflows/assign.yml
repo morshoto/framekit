@@ -8,6 +8,11 @@ on:
     issues:
         types: [opened, reopened, closed, labeled, unlabeled, milestoned, demilestoned]
     workflow_dispatch:
+        inputs:
+            pr_number:
+                description: 'Repair milestone for this same-repository PR; leave empty for project backfill'
+                required: false
+                type: string
     schedule:
         - cron: "17 * * * *"
 
@@ -58,6 +63,7 @@ jobs:
 
     sync-pull-request-milestone:
         if: >-
+            (github.event_name == 'workflow_dispatch' && github.event.inputs.pr_number != '') ||
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
             (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository)
         permissions:
@@ -76,11 +82,12 @@ jobs:
                   GITHUB_REPOSITORY: ${{ github.repository }}
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   GITHUB_EVENT_PATH: ${{ github.event_path }}
+                  GITHUB_EVENT_NAME: ${{ github.event_name }}
                   GITHUB_API_URL: ${{ github.api_url }}
 
     sync-project-status:
         if: >-
-            github.event_name == 'workflow_dispatch' ||
+            (github.event_name == 'workflow_dispatch' && github.event.inputs.pr_number == '') ||
             (github.event_name == 'issues' && (
               contains(fromJSON('["opened","reopened","closed","milestoned","demilestoned"]'), github.event.action) ||
               (contains(fromJSON('["labeled","unlabeled"]'), github.event.action) &&
