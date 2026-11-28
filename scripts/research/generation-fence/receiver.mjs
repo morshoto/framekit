@@ -9,7 +9,12 @@ process.on('message', async message => {
     process.send('ready');
     return;
   }
-  if (message !== 'execute') return;
+  if (message !== 'execute' && message !== 'continue') return;
+  if (options.mode === 'check-then-pause' && message === 'execute') {
+    accepted = (await readFile(options.generation, 'utf8')) === options.generationId;
+    process.send('checked');
+    return;
+  }
   let permitted = options.mode === 'legacy' || accepted;
   if (options.mode === 'receiver-check') {
     try { permitted = (await readFile(options.generation, 'utf8')) === options.generationId; }

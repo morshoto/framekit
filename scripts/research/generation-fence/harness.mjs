@@ -8,6 +8,20 @@ export async function startReceiver(options) {
   const [ready] = await once(child, 'message');
   if (ready !== 'ready') throw new Error('receiver did not initialize');
   return {
+    async begin() {
+      const response = once(child, 'message');
+      child.send('execute');
+      return (await response)[0];
+    },
+    async finish() {
+      const response = once(child, 'message');
+      const exited = once(child, 'exit');
+      child.send('continue');
+      const [value] = await response;
+      const [code] = await exited;
+      if (code !== 0) throw new Error(`receiver exited ${code}`);
+      return value;
+    },
     async execute() {
       const response = once(child, 'message');
       const exited = once(child, 'exit');
