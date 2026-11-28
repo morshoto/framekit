@@ -168,7 +168,7 @@ export async function createEditDecisionPlan(request: EditDecisionPlanRequest, a
           fillerDecisions.push(...candidates.map((candidate): EditDecision => ({ kind: "filler-observation", support: "unavailable", reviewRequired: true,
             reasonCodes: structuredClone(candidate.reasonCodes), confidenceStatus: candidate.eligible ? "meets-threshold" : "below-threshold", protection: bound.protectedSegments?.some((segment) => segment.start < candidate.sourceRange.end && candidate.sourceRange.start < segment.end) ? "overlaps-protected" : "not-evaluated",
             rationale: "Potential filler observation only; this is not a safe removal or an executable edit.", range: structuredClone(candidate.sequenceRange),
-            sourceRange: structuredClone(candidate.sourceRange), word: structuredClone(candidate.word), analysisRef: structuredClone(request.speechRef!) })));
+            sourceRange: structuredClone(candidate.sourceRange), word: { text: candidate.word.text, start: candidate.word.start, end: candidate.word.end, confidence: candidate.word.confidence }, analysisRef: structuredClone(request.speechRef!) })));
           fillerWarnings.push("Filler observations are not safe removals; review speech, protection and context separately before any edit.");
           fillerWarnings.push("Transcription may omit fillers; observations do not establish that all fillers were found.");
         }
