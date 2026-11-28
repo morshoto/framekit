@@ -51,3 +51,50 @@ final class ShareEventReceiver: NSObject {
         reply.setParam(NSAppleEventDescriptor(int32: Int32(errAEEventNotHandled)), forKeyword: AEKeyword(keyErrorNumber))
     }
 }
+
+// Synthetic KVC model. It does not represent an authenticated native asset.
+@objc(ResearchAsset)
+final class ResearchAsset: NSObject {
+    @objc dynamic let uniqueID: String
+    @objc dynamic let name: String
+    @objc dynamic let locationInfo: NSDictionary
+    @objc dynamic let libraryInfo: NSDictionary
+    @objc dynamic var metadata: NSDictionary = [:]
+    @objc dynamic var dataOptions: NSDictionary = [:]
+
+    init(id: UUID, name: String, root: URL) {
+        self.uniqueID = id.uuidString.lowercased()
+        self.name = name
+        let folder = root.appendingPathComponent(id.uuidString.lowercased(), isDirectory: true)
+        self.locationInfo = ["folder": folder, "basename": name, "hasDescription": true, "hasMedia": false]
+        self.libraryInfo = ["folder": folder, "basename": name, "hasArchive": false, "hasDescription": false]
+    }
+}
+
+// This in-memory lexical lookup is not a secure file containment or sender check.
+final class MockAssetRegistry {
+    private let root: URL
+    private let lock = NSLock()
+    private var assets: [ResearchAsset] = []
+
+    init(root: URL) { self.root = root }
+
+    func make(name: String) -> ResearchAsset? {
+        guard !name.trimmingCharacters(in: .whitespaces).isEmpty,
+              name.range(of: "^[A-Za-z0-9 _-]+$", options: .regularExpression) != nil else { return nil }
+        lock.lock(); defer { lock.unlock() }
+        let asset = ResearchAsset(id: UUID(), name: name, root: root)
+        assets.append(asset)
+        return asset
+    }
+
+    func matchOutput(_ url: URL) -> ResearchAsset? {
+        guard url.isFileURL else { return nil }
+        lock.lock(); defer { lock.unlock() }
+        let matches = assets.filter { asset in
+            guard let folder = asset.locationInfo["folder"] as? URL else { return false }
+            return url == folder.appendingPathComponent("\(asset.name).fcpxml")
+        }
+        return matches.count == 1 ? matches[0] : nil
+    }
+}
