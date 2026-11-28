@@ -42,3 +42,17 @@ test('isolated sessions reject unknown assets and out-of-order events', async t 
   assert.deepEqual(protocol.trace(a.id), ['make', 'location']);
   assert.deepEqual(protocol.trace(b.id), ['make']);
 });
+
+test('failed output observation stays at open and restarted protocol cannot resume in-memory trace', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'share-protocol-restart-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const protocol = await createProtocol(root);
+  const asset = await protocol.make('Example', ['xml', 'media']);
+  for (const event of ['location', 'library', 'metadata', 'options']) await protocol.event(asset.id, event);
+  const xml = join(asset.directory, 'Example.fcpxml');
+  await writeFile(xml, '<fcpxml/>');
+  await assert.rejects(protocol.event(asset.id, 'open', [xml]), /missing requested media/);
+  assert.deepEqual(protocol.trace(asset.id), ['make', 'location', 'library', 'metadata', 'options']);
+  const restarted = await createProtocol(root);
+  await assert.rejects(restarted.event(asset.id, 'open', [xml]), /unknown/);
+});
