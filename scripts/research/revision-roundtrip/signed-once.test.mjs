@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash, generateKeyPairSync } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { signFixtureClaim } from './signed-handoff.mjs';
@@ -20,7 +20,7 @@ async function fixture(t) {
   const claim = { version: 1, projectUid: 'project-framekit-8b68711b3f', targetId: 'opening-v1',
     baselineDigest: hash(baseline), externalDigest: hash(external), sourceDigests: { a: hash(sourceBytes.a), m: hash(sourceBytes.m) },
     sourceStart: '2s', duration: '1s', name: 'Synthetic rename' };
-  return { baseline, external, sourceBytes, envelope: signFixtureClaim(claim, pair.privateKey), trustedKey: pair.publicKey,
+  return { baseline, external, sourceBytes, claim, envelope: signFixtureClaim(claim, pair.privateKey), trustedKey: pair.publicKey,
     expectedProject: claim.projectUid, expectedTarget: claim.targetId, claimDirectory: dir, output: join(dir, 'b.fcpxml') };
 }
 
@@ -55,6 +55,29 @@ test('separate processes share the same one-shot claim', async t => {
   const results = await Promise.allSettled([run(process.execPath, args), run(process.execPath, args)]);
   assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
   assert.equal(results.filter(result => result.status === 'rejected').length, 1);
+  assert.match(results.find(result => result.status === 'rejected').reason.stderr, /EEXIST/);
   const winner = JSON.parse(results.find(result => result.status === 'fulfilled').value.stdout);
   assert.equal(winner.digest, hash(await readFile(input.output)));
+  const later = [script, input.claimDirectory, join(input.claimDirectory, 'later.fcpxml'), envelopePath, publicPath, pin];
+  await assert.rejects(run(process.execPath, later), error => /EEXIST/.test(error.stderr));
+});
+
+
+test('deleting the unauthenticated marker permits replay', async t => {
+  const input = await fixture(t);
+  const first = await commitSignedRevisionB(input);
+  await unlink(first.claimPath);
+  const second = await commitSignedRevisionB({ ...input, output: join(input.claimDirectory, 'replayed.fcpxml') });
+  assert.equal(second.digest, first.digest);
+});
+
+
+test('a different trusted key creates a separate claim for the same content', async t => {
+  const input = await fixture(t);
+  const first = await commitSignedRevisionB(input);
+  const other = generateKeyPairSync('ed25519');
+  const second = await commitSignedRevisionB({ ...input, trustedKey: other.publicKey,
+    envelope: signFixtureClaim(input.claim, other.privateKey), output: join(input.claimDirectory, 'other-key.fcpxml') });
+  assert.equal(second.digest, first.digest);
+  assert.notEqual(second.claimPath, first.claimPath);
 });
