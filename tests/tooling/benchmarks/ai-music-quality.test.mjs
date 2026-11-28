@@ -25,3 +25,15 @@ test('rejects mismatched, empty and non-finite measurements', () => {
   assert.throws(() => measureMix([0], [0, 0], [0]), /samples/i);
   assert.throws(() => measureMix([NaN], [0], [0]), /samples/i);
 });
+
+test('pins licensed music and a fixed scenario before evaluation', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const scenario = JSON.parse(await readFile(new URL('../../../scripts/benchmarks/ai-editing/music-corpus.json', import.meta.url)));
+  assert.match(scenario.music.sha256, /^[a-f0-9]{64}$/);
+  assert.match(scenario.music.license, /CC BY 4.0/);
+  assert.equal(scenario.scenario.gainDb, -24);
+  assert.deepEqual(scenario.scenario.placementSeconds, [2, 8]);
+  assert.equal(scenario.tolerances.placementFrames, 1);
+  assert.equal(scenario.tolerances.gainDb, 1);
+  assert.equal(scenario.intelligibility, 'requires independent listening');
+});
