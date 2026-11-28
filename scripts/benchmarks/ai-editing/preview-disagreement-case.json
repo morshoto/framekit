@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "designation": "Post hoc exploratory comparison of a previously observed production cut preview; not a held-out benchmark.",
+  "inputSha256": "f3dba83dfe1994f713d0014d058ad5da8db2eb00a9cc92e72bd4f01dddc5e18b",
+  "durationSeconds": 61,
+  "originalSourceOffsetSeconds": 60,
+  "candidate": {"start": 38.03333333333333, "end": 39},
+  "primaryModel": "mlx-community/whisper-tiny",
+  "model": "mlx-community/whisper-large-v3-turbo",
+  "expected": "Report every secondary word overlapping the previewed candidate, including low-confidence words; incomplete coverage is unavailable.",
+  "interpretation": "Model outputs are not independent human annotations. Any overlap is a disagreement requiring review, not proof of speech clipping or safety."
+}

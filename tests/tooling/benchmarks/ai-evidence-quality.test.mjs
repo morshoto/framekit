@@ -13,6 +13,13 @@ test('surfaces even low-confidence provider words that overlap a candidate', () 
   assert.equal(result.safety, 'unverified');
 });
 
+test('reports adjacent model words as context without claiming safety', async () => {
+  const { adjacentCandidateWords } = await import('../../../scripts/benchmarks/ai-editing/evidence-quality.mjs');
+  const words=[{text:'before',start:3,end:4,confidence:0.8},{text:'after',start:6,end:7,confidence:0.4}];
+  assert.deepEqual(adjacentCandidateWords(candidate,words),{before:words[0],after:words[1]});
+  assert.deepEqual(adjacentCandidateWords(candidate,[]),{before:null,after:null});
+});
+
 test('does not infer safety from absent or partially covered secondary evidence', () => {
   assert.equal(compareProviderCuts([candidate], digest, {...evidence, coverage: {start: 0, end: 5.5}}).status, 'unavailable');
   const result = compareProviderCuts([candidate], digest, {...evidence, words: []});
@@ -34,6 +41,22 @@ test('provider comparison case fixes media, cut and context before execution', a
   assert.equal(config.candidate.start, 77.2);
   assert.equal(config.secondaryModel, 'mlx-community/whisper-large-v3-turbo');
   assert.match(config.interpretation, /not proof/i);
+});
+
+test('production preview comparison fixes transformed input and candidate', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const config=JSON.parse(await readFile(new URL('../../../scripts/benchmarks/ai-editing/preview-disagreement-case.json', import.meta.url)));
+  assert.match(config.designation,/post hoc/i);
+  assert.equal(config.inputSha256,'f3dba83dfe1994f713d0014d058ad5da8db2eb00a9cc92e72bd4f01dddc5e18b');
+  assert.deepEqual(config.candidate,{start:38.03333333333333,end:39});
+  assert.equal(config.model,'mlx-community/whisper-large-v3-turbo');
+  assert.match(config.interpretation,/not proof/i);
+});
+
+test('preview disagreement runner rejects missing source before invoking a model', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const runner = new URL('../../../scripts/benchmarks/ai-editing/run-preview-disagreement.mjs', import.meta.url);
+  assert.throws(()=>execFileSync(process.execPath,[runner.pathname,'/missing/source','python'],{stdio:'pipe'}),/ENOENT/);
 });
 
 test('provider runner verifies source before invoking a model', async () => {
