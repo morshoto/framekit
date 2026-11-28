@@ -38,3 +38,12 @@ test('matches equivalent rational intervals and rejects invalid ranges', () => {
   assert.throws(() => reconcileOccurrences([clip('base', '1/1', { duration: '0/1' })], []), /invalid/);
   assert.throws(() => reconcileOccurrences([clip('base', '1/1', { duration: '-1/1' })], []), /invalid/);
 });
+
+test('finds a unique unchanged target when an unrelated clip is cut', async () => {
+  const { locateTarget } = await import('./matching.mjs');
+  const base = [clip('target', '1/1', { duration: '1/1' }), clip('other', '3/1', { duration: '2/1' })];
+  const observed = [clip('target-now', '1/1', { duration: '1/1' }), clip('other-cut', '3/1', { duration: '1/1' })];
+  assert.equal(locateTarget(base, observed, 'target'), 'target-now');
+  assert.throws(() => locateTarget(base, [...observed, clip('identical', '1/1', { duration: '1/1' })], 'target'), /ambiguous/);
+  assert.throws(() => locateTarget(base, observed, 'unknown'), /missing/);
+});
