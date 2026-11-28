@@ -26,3 +26,11 @@ test('requires complete human-reviewed coverage before reporting a pass', () => 
 test('rejects invalid ranges rather than overlooking an unsafe candidate', () => {
   assert.throws(() => assessCuts([{start: 2, end: 1}], []), /range/i);
 });
+
+test('passes only when every proposed cut is covered by reviewed audio', () => {
+  const cuts = [{start: 1, end: 2}, {start: 4, end: 5}];
+  const words = [{start: 2, end: 3, verification: 'human-verified'}];
+  assert.equal(assessCuts(cuts, words, {reviewedRanges: [{start: 0, end: 3}]}).status, 'unavailable');
+  assert.equal(assessCuts(cuts, words, {reviewedRanges: [{start: 0, end: 3}, {start: 4, end: 6}]}).status, 'pass');
+  assert.equal(assessCuts([], words, {reviewedRanges: [{start: 0, end: 6}]}).status, 'unavailable');
+});
