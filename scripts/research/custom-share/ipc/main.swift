@@ -29,6 +29,10 @@ if (arguments.count == 2 || (arguments.count == 3 && arguments[2] == "-1701")) &
         var validityStatus: OSStatus = errSecParam
         var anchorStatus: OSStatus = errSecParam
         var requirement: SecRequirement?
+        var pinnedRequirement: SecRequirement?
+        let pinnedText = ProcessInfo.processInfo.environment["FRAMEKIT_TEST_REQUIREMENT"] ?? ""
+        let pinnedCreateStatus = SecRequirementCreateWithString(pinnedText as CFString, SecCSFlags(), &pinnedRequirement)
+        var pinnedCheckStatus: OSStatus = errSecParam
         let requirementStatus = SecRequirementCreateWithString("anchor apple" as CFString, SecCSFlags(), &requirement)
         if let audit, audit.count == MemoryLayout<audit_token_t>.size {
             var code: SecCode?
@@ -36,6 +40,9 @@ if (arguments.count == 2 || (arguments.count == 3 && arguments[2] == "-1701")) &
             lookupStatus = SecCodeCopyGuestWithAttributes(nil, attributes, SecCSFlags(), &code)
             if lookupStatus == errSecSuccess, let code {
                 validityStatus = SecCodeCheckValidity(code, SecCSFlags(), nil)
+                if pinnedCreateStatus == errSecSuccess, let pinnedRequirement {
+                    pinnedCheckStatus = SecCodeCheckValidity(code, SecCSFlags(), pinnedRequirement)
+                }
                 if requirementStatus == errSecSuccess, let requirement {
                     anchorStatus = SecCodeCheckValidity(code, SecCSFlags(), requirement)
                 }
@@ -50,7 +57,7 @@ if (arguments.count == 2 || (arguments.count == 3 && arguments[2] == "-1701")) &
                 }
             }
         }
-        print("handled:\(value):\(event.returnID):\(sender):\(auditLength):\(auditPID):\(auditType):\(lookupStatus):\(pathMatches ? 1 : 0):\(validityStatus):\(requirementStatus):\(anchorStatus)"); fflush(stdout)
+        print("handled:\(value):\(event.returnID):\(sender):\(auditLength):\(auditPID):\(auditType):\(lookupStatus):\(pathMatches ? 1 : 0):\(validityStatus):\(requirementStatus):\(anchorStatus):\(pinnedCreateStatus):\(pinnedCheckStatus)"); fflush(stdout)
     }
     DispatchQueue.main.async {
         receiver.register()

@@ -18,7 +18,7 @@ async function exercise(t, errorCode, useFile = false) {
   const control = errorCode === -1701 ? ['-1701'] : [];
   if (useFile) await Promise.all([0, 1, 2].map(i => writeFile(join(dir, `mock-${i}.fcpxml`), '<fcpxml/>')));
   const sendArgs = (pid, id) => useFile ? ['send-file', String(pid), `mock-${id}`, join(dir, `mock-${id}.fcpxml`)] : ['send', String(pid), `mock-${id}`, ...control];
-  const designated = await readFile(join(here, 'finalcut-requirement.txt'), 'utf8');
+  const designated = await readFile(join(here, 'finalcut-10.7.1-requirement.txt'), 'utf8');
   const child = spawn(binary, ['listen', ...control], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, FRAMEKIT_TEST_REQUIREMENT: designated } });
   const exited = once(child, 'exit');
   let output = '';

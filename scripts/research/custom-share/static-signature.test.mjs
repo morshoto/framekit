@@ -15,6 +15,6 @@ test('pinned Final Cut requirement rejects a separately compiled test program', 
   const binary = join(dir, 'mock-sender');
   await writeFile(source, 'print("synthetic")\n');
   await run('xcrun', ['swiftc', source, '-o', binary]);
-  await assert.rejects(verifyStaticSignature(binary));
+  await assert.rejects(verifyStaticSignature(binary), error => error.code === 3 && /code failed to satisfy specified code requirement/.test(error.stderr));
   await assert.rejects(verifyStaticSignature(join(dir, 'missing.app')));
 });
