@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
+import fs from "node:fs";
 import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { createServer } from "node:net";
 import { join } from "node:path";
@@ -38,6 +40,37 @@ const manifest = {
   operation: "rough-cut-publish" as const, authorizationDigest: "7".repeat(64),
 };
 const cleanGitEnvironment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
+
+test("simulation read observes a result published during inspection consistently", async () => {
+  const { performQaPublisherSimulation, readQaPublisherSimulation } = await import("../../../scripts/native-qa/publisher-simulation.js");
+  const root = await mkdtemp(join(tmpdir(), "framekit-simulation-read-race-"));
+  const originalLstat = fs.promises.lstat;
+  try {
+    const fixture = await createQaPublisherFixture(root, false);
+    const spec = { artifactPath: fixture.artifact, target: publisherTarget, mode: "pending" as const };
+    await createOrInspectRun(root, fixture.bound, "publisher-simulation-v1");
+    const digest = createHash("sha256").update(JSON.stringify({ artifactPath: spec.artifactPath,
+      targetDigest: publisherTargetDigest(spec.target), mode: spec.mode })).digest("hex");
+    await publishQaRecord(join(root, fixture.bound.qaRunId, "simulation-request.json"), `${JSON.stringify({ schemaVersion: 1, digest })}\n`);
+    let interleaved = false;
+    fs.promises.lstat = (async (...args: Parameters<typeof originalLstat>) => {
+      if (!interleaved && String(args[0]).endsWith("/simulation-result.json")) {
+        interleaved = true;
+        await performQaPublisherSimulation(root, fixture.bound.qaRunId, spec);
+      }
+      return originalLstat(...args);
+    }) as typeof originalLstat;
+    syncBuiltinESMExports();
+    const result = await readQaPublisherSimulation(root, fixture.bound.qaRunId);
+    assert.equal(interleaved, true);
+    assert.equal(result.status, "verification-pending");
+    assert.equal(result.dispatchAllowed, false);
+  } finally {
+    fs.promises.lstat = originalLstat;
+    syncBuiltinESMExports();
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 async function createQaPublisherFixture(root: string, createRun = true) {
   const sources = join(root, ".publisher-sources");

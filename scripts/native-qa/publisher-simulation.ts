@@ -71,10 +71,21 @@ export async function startQaPublisherSimulation(root: string, manifest: QaRunMa
 
 /** A historical fixture result never establishes native receiver completion. */
 export async function readQaPublisherSimulation(root: string, runId: string) {
-  const run = await inspectRun(root, runId);
+  let run = await inspectRun(root, runId);
   assertQaHeadlessProfile(run, "publisher-simulation-v1");
   await assertQaJobIndex(root, run.manifest);
   const request = await readRequest(root, runId);
+  // Read the immutable result before its prerequisite state. A worker can
+  // publish the result while an observer is reading; older state is not a
+  // consistent snapshot of a result that has just appeared.
+  let value: unknown;
+  let resultPublished = true;
+  try { value = JSON.parse(await readQaRecord(join(root, runId, "simulation-result.json"))); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new Error("QA_SIMULATION_RESULT_CORRUPT");
+    resultPublished = false;
+  }
+  if (resultPublished) run = await inspectRun(root, runId);
   let workerStarted = false;
   try {
     const claim: unknown = JSON.parse(await readQaRecord(join(root, runId, "simulation-worker-started.json")));
@@ -84,12 +95,7 @@ export async function readQaPublisherSimulation(root: string, runId: string) {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new Error("QA_SIMULATION_RESULT_CORRUPT");
   }
-  let value: unknown;
-  try { value = JSON.parse(await readQaRecord(join(root, runId, "simulation-result.json"))); }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { status: "pending-or-interrupted" as const, scope: "simulated-receiver" as const, verdict: "BLOCKED" as const, dispatchAllowed: false as const };
-    throw new Error("QA_SIMULATION_RESULT_CORRUPT");
-  }
+  if (!resultPublished) return { status: "pending-or-interrupted" as const, scope: "simulated-receiver" as const, verdict: "BLOCKED" as const, dispatchAllowed: false as const };
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("QA_SIMULATION_RESULT_CORRUPT");
   const item = value as Record<string, unknown>;
   const history = await readQaPublisherStages(root, runId);
