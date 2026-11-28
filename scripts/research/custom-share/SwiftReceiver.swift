@@ -34,6 +34,11 @@ final class MockShareJournal {
 }
 
 final class ShareEventReceiver: NSObject {
+    private let rejectionCode: Int32
+    init(rejectionCode: Int32 = Int32(errAEEventNotHandled)) {
+        self.rejectionCode = rejectionCode
+        super.init()
+    }
     var onRejectedOpen: ((NSAppleEventDescriptor) -> Void)?
     // Registration is exercised only in the isolated test process.
     func register() {
@@ -50,7 +55,7 @@ final class ShareEventReceiver: NSObject {
         // Open Document does not itself establish an authenticated sender or exact target.
         // Do not consume files or commit a receipt until a separately proven correlation exists.
         onRejectedOpen?(event)
-        reply.setParam(NSAppleEventDescriptor(int32: Int32(errAEEventNotHandled)), forKeyword: AEKeyword(keyErrorNumber))
+        reply.setParam(NSAppleEventDescriptor(int32: rejectionCode), forKeyword: AEKeyword(keyErrorNumber))
     }
 }
 
