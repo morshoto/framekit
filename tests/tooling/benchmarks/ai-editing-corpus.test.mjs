@@ -35,10 +35,10 @@ test('checks actual asset bytes and rejects missing or altered files', async () 
 test('extracts timed words from AMI annotations as unverified screening evidence', async () => {
   const { parseAmiWords } = await import('../../../scripts/benchmarks/ai-editing/corpus.mjs');
   const xml = `<nite:root xmlns:nite="urn:nite"><w starttime="0.5" endtime="0.8">hello</w><w starttime="0.8" endtime="0.8">.</w><w starttime="2" endtime="3">quiet &amp; clear</w></nite:root>`;
-  assert.deepEqual(parseAmiWords(xml, 'A'), [
+  assert.deepEqual(await parseAmiWords(xml, 'A'), [
     { start: 0.5, end: 0.8, text: 'hello', speaker: 'A', verification: 'automatic-alignment' },
     { start: 2, end: 3, text: 'quiet & clear', speaker: 'A', verification: 'automatic-alignment' },
   ]);
-  assert.throws(() => parseAmiWords('<wrong/>', 'A'), /annotation/i);
-  assert.throws(() => parseAmiWords('<nite:root><w starttime="bad" endtime="2">oops</w></nite:root>', 'A'), /timing/i);
+  await assert.rejects(parseAmiWords('<wrong/>', 'A'), /annotation/i);
+  await assert.rejects(parseAmiWords('<nite:root><w starttime="bad" endtime="2">oops</w></nite:root>', 'A'), /timing/i);
 });
