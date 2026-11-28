@@ -91,3 +91,17 @@ test('receipt completed before journal advance remains ambiguous after restart',
   await assert.rejects(restarted.inspect(asset.id), /invalid journal/);
   await assert.rejects(restarted.event(asset.id, 'open', [xml]), /invalid journal/);
 });
+
+test('two cached mock sessions can both accept the same callback', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'share-protocol-clients-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const creator = await createProtocol(root);
+  const asset = await creator.make('Example', ['xml']);
+  const first = await createProtocol(root);
+  const second = await createProtocol(root);
+  await first.inspect(asset.id);
+  await second.inspect(asset.id);
+  assert.equal((await first.event(asset.id, 'location')).baseName, 'Example');
+  assert.equal((await second.event(asset.id, 'location')).baseName, 'Example');
+  assert.deepEqual(await (await createProtocol(root)).inspect(asset.id), ['make', 'location']);
+});
