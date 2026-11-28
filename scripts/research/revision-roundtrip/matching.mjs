@@ -45,3 +45,12 @@ export function reconcileOccurrences(base, observed) {
   const inserted = [...after].filter(([key]) => !before.has(key)).map(([, id]) => id);
   return { matches, inserted };
 }
+
+// This only finds an unchanged unique interval, not durable native identity.
+export function locateTarget(base, observed, targetId) {
+  const before = index(base);
+  const after = index(observed);
+  const found = [...before].find(([, id]) => id === targetId);
+  if (!found || !after.has(found[0])) throw new Error('missing target interval');
+  return after.get(found[0]);
+}
