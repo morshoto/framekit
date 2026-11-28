@@ -168,3 +168,9 @@ test('headless caption probe samples active frames against a title-free render',
     assert.equal(result.nativeStatus,'unavailable');
   } finally { await rm(directory,{recursive:true,force:true}); }
 });
+
+test('records exact expected text and time for visual caption review', async () => {
+  const { captionSampleMetadata } = await import('../../../scripts/benchmarks/ai-editing/caption-quality.mjs');
+  assert.deepEqual(captionSampleMetadata({lines:['Hello','world'],sequenceRange:{start:1,end:2}}), {midpointSeconds:1.5,expectedLines:['Hello','world']});
+  assert.throws(() => captionSampleMetadata({lines:[],sequenceRange:{start:2,end:1}}), /caption/i);
+});
