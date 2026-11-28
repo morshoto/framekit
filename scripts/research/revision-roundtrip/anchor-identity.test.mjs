@@ -37,3 +37,9 @@ test('requires an independent target-range manifest and rejects swapped IDs', as
     .replace('value="inserted-v1"', 'value="opening-v1"').replace('value="temporary-v1"', 'value="inserted-v1"');
   assert.throws(() => findAnchoredTarget(base, swapped, 'opening-v1', manifest), /manifest/);
 });
+
+test('rejects equal source intervals even when unique IDs were exchanged', async () => {
+  const { base, external } = await fixtures();
+  const duplicate = external.replace('</spine>', '<asset-clip ref="a" name="Opening" offset="0s" start="4/2s" duration="2/2s"><metadata><md key="com.framekit.id" value="another-v1"/></metadata></asset-clip></spine>');
+  assert.throws(() => findAnchoredTarget(base, duplicate, 'opening-v1', expected), /ambiguous/);
+});
