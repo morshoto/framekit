@@ -60,6 +60,9 @@ export function createRevisionB({ baseline, external, baselineDigest, externalDi
     if (!other || source.src !== other.src || source.digest !== other.digest) throw new Error('source mismatch');
   }
   const selected = locateTarget(base.entries, edited.entries, String(targetIndex));
+  const originalName = base.clips[targetIndex][':@']?.['@_name'];
+  const externalName = edited.clips[Number(selected)][':@']?.['@_name'];
+  if (typeof originalName !== 'string' || externalName !== originalName) throw new Error('rename conflict');
   edited.clips[Number(selected)][':@']['@_name'] = name;
   const xml = Buffer.from(new XMLBuilder(parserOptions).build(edited.document));
   return { xml, digest: bindRevision(xml).digest };
