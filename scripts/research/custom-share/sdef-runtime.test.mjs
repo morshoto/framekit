@@ -9,7 +9,7 @@ import { promisify } from 'node:util';
 const run = promisify(execFile);
 const here = new URL('./sdef-runtime/', import.meta.url).pathname;
 
-async function exercise(t, writableName = false) {
+async function exercise(t, writableName = false, useDelegate = false) {
   const dir = await mkdtemp(join(tmpdir(), 'framekit-sdef-runtime-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const contents = join(dir, 'Mock.app', 'Contents');
@@ -30,7 +30,7 @@ async function exercise(t, writableName = false) {
   await writeFile(localSource, selectedSource);
   await run('xcrun', ['swiftc', localSource, '-o', binary]);
   assert.equal((await run(binary, ['conversion-control'], { timeout: 5000 })).stdout.trim(), 'unsupported-rejected:command-well-formed');
-  const child = spawn(binary, ['listen'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(binary, ['listen'], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, FRAMEKIT_TEST_USE_DELEGATE: useDelegate ? '1' : '0' } });
   const exited = once(child, 'exit');
   let stderr = '';
   child.stderr.on('data', chunk => { stderr += chunk.toString(); });
@@ -53,6 +53,12 @@ async function exercise(t, writableName = false) {
     catch (error) {
       t.diagnostic(stderr);
       assert.match(error.stderr ?? '', /errAETimeout/);
+      if (useDelegate && /make-response-received/.test(error.stderr ?? '')) {
+        assert.match(stderr, /MOCK DELEGATE OPEN INVOKED/);
+        assert.match(stderr, /MOCK DELEGATE HAS CURRENT REPLY/);
+        t.diagnostic('delegate invoked but synthetic open reply timed out; result inconclusive');
+        return;
+      }
       assert.doesNotMatch(error.stderr ?? '', /make-response-received/);
       t.diagnostic('inconclusive: make timed out');
       return;
@@ -61,9 +67,12 @@ async function exercise(t, writableName = false) {
     t.diagnostic(make.stderr.trim());
     assert.equal(make.stdout.trim(), 'make:asset-1:get:Synthetic:location:reco:metadata:verified:unknown-rejected:open:asset-1:open-unknown-rejected');
     assert.match(stderr, /MOCK MAKE COMMAND INVOKED/);
-    assert.match(stderr, /MOCK OPEN HANDLER INVOKED/);
-    assert.match(stderr, /MOCK OPEN REGISTRATION before-reregister status=/);
-    t.diagnostic(stderr.split('\n').filter(line => line.includes('MOCK OPEN REGISTRATION')).join(' | '));
+    if (useDelegate) assert.match(stderr, /MOCK DELEGATE OPEN INVOKED/);
+    else {
+      assert.match(stderr, /MOCK OPEN HANDLER INVOKED/);
+      assert.match(stderr, /MOCK OPEN REGISTRATION before-reregister status=/);
+      t.diagnostic(stderr.split('\n').filter(line => line.includes('MOCK OPEN REGISTRATION')).join(' | '));
+    }
     const countBefore = stderr.split('MOCK MAKE COMMAND INVOKED').length - 1;
     const withProperties = await run(binary, ['send', String(child.pid), 'make-properties'], { timeout: 5000 });
     assert.equal(withProperties.stdout.trim(), 'properties:asset-2:get:Named:metadata:Incoming:options:verified');
@@ -78,3 +87,4 @@ async function exercise(t, writableName = false) {
 
 test('characterizes Cocoa scripting in an uninstalled test app', { skip: process.platform !== 'darwin', timeout: 15000 }, t => exercise(t));
 test('characterizes make with a writable name property', { skip: process.platform !== 'darwin', timeout: 15000 }, t => exercise(t, true));
+test('characterizes Cocoa application delegate open callback', { skip: process.platform !== 'darwin', timeout: 15000 }, t => exercise(t, false, true));

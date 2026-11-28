@@ -68,7 +68,7 @@ enum MockStore { static var assets: [MockAsset] = [] }
 extension NSApplication {
     @objc dynamic var assets: [MockAsset] { MockStore.assets }
     @objc(valueInAssetsWithUniqueID:) func asset(withID id: String) -> MockAsset? {
-        if let receiver = Receiver.active {
+        if let receiver = Receiver.active, ProcessInfo.processInfo.environment["FRAMEKIT_TEST_USE_DELEGATE"] != "1" {
             Receiver.reportRegistration("before-reregister")
             if ProcessInfo.processInfo.environment["FRAMEKIT_TEST_NO_REREGISTER"] != "1" {
                 NSAppleEventManager.shared().setEventHandler(receiver, andSelector: #selector(Receiver.ping(_:withReplyEvent:)),
@@ -136,6 +136,21 @@ final class Receiver: NSObject {
         reply.setParam(NSAppleEventDescriptor(string: "pong:\(loaded ? "loaded" : "absent"):\(command):\(propertyCode)"), forKeyword: AEKeyword(keyDirectObject))
     }
 }
+final class MockDelegate: NSObject, NSApplicationDelegate {
+    func application(_ application: NSApplication, open urls: [URL]) {
+        fputs("MOCK DELEGATE OPEN INVOKED\n", stderr)
+        guard let reply = NSAppleEventManager.shared().currentReplyAppleEvent else { fputs("MOCK DELEGATE NO CURRENT REPLY\n", stderr); return }
+        fputs("MOCK DELEGATE HAS CURRENT REPLY\n", stderr)
+        let matches = MockStore.assets.filter { asset in urls.count == 1 && urls[0].path == "/synthetic/share-output/\(asset.name).fcpxml" }
+        guard matches.count == 1, let description = NSScriptClassDescription(for: NSApplication.self),
+              let descriptor = NSUniqueIDSpecifier(containerClassDescription: description, containerSpecifier: nil,
+                  key: "assets", uniqueID: matches[0].uniqueID).descriptor else {
+            reply.setParam(NSAppleEventDescriptor(int32: Int32(errAEEventNotHandled)), forKeyword: AEKeyword(keyErrorNumber)); application.reply(toOpenOrPrint: .failure); return
+        }
+        reply.setParam(descriptor, forKeyword: AEKeyword(keyDirectObject))
+        application.reply(toOpenOrPrint: .success)
+    }
+}
 let args = CommandLine.arguments
 if args.count == 2 && args[1] == "conversion-control" {
     let unsupported: NSDictionary = ["synthetic": 42]
@@ -197,14 +212,20 @@ if args.count == 2 && args[1] == "conversion-control" {
     let app = NSApplication.shared
     app.setActivationPolicy(.prohibited)
     let receiver = Receiver()
+    let delegate = MockDelegate()
+    if ProcessInfo.processInfo.environment["FRAMEKIT_TEST_USE_DELEGATE"] == "1" { app.delegate = delegate }
     Receiver.active = receiver
     DispatchQueue.main.async {
         NSAppleEventManager.shared().setEventHandler(receiver, andSelector: #selector(Receiver.ping(_:withReplyEvent:)),
-            forEventClass: AEEventClass(kCoreEventClass), andEventID: AEEventID(kAEOpenDocuments))
-        Receiver.reportRegistration("initial")
+            forEventClass: AEEventClass(kCoreEventClass), andEventID: AEEventID(0x666b7069))
+        if ProcessInfo.processInfo.environment["FRAMEKIT_TEST_USE_DELEGATE"] != "1" {
+            NSAppleEventManager.shared().setEventHandler(receiver, andSelector: #selector(Receiver.ping(_:withReplyEvent:)),
+                forEventClass: AEEventClass(kCoreEventClass), andEventID: AEEventID(kAEOpenDocuments))
+            Receiver.reportRegistration("initial")
+        }
         print("ready"); fflush(stdout)
     }
-    withExtendedLifetime(receiver) { app.run() }
+    withExtendedLifetime((receiver, delegate)) { app.run() }
 } else if args.count == 4 && args[1] == "send", let target = Int32(args[2]), target > 0, ["ping", "make", "make-properties"].contains(args[3]) {
     var path = [CChar](repeating: 0, count: 4096)
     let length = proc_pidpath(target, &path, UInt32(path.count))
@@ -212,7 +233,7 @@ if args.count == 2 && args[1] == "conversion-control" {
     let targetPath = URL(fileURLWithPath: String(cString: path)).resolvingSymlinksInPath().path
     guard length > 0, own == targetPath, target != getpid() else { fputs("target is not the test executable\n", stderr); exit(2) }
     let make = args[3] != "ping"
-    let event = NSAppleEventDescriptor(eventClass: make ? AEEventClass(0x636f7265) : AEEventClass(kCoreEventClass), eventID: make ? AEEventID(0x6372656c) : AEEventID(kAEOpenDocuments),
+    let event = NSAppleEventDescriptor(eventClass: make ? AEEventClass(0x636f7265) : AEEventClass(kCoreEventClass), eventID: make ? AEEventID(0x6372656c) : AEEventID(0x666b7069),
         targetDescriptor: NSAppleEventDescriptor(processIdentifier: target), returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
     if make {
         event.setParam(NSAppleEventDescriptor(typeCode: OSType(0x61736574)), forKeyword: AEKeyword(0x6b6f636c))
