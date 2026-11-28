@@ -3552,6 +3552,48 @@
       "network": "none"
     },
     {
+      "path": "tests/tooling/native-qa/preflight.test.ts",
+      "owner": "scripts",
+      "reviewed": true,
+      "tags": [
+        "unit"
+      ],
+      "evidence": "fixture",
+      "dependsOn": [
+        "scripts"
+      ],
+      "requires": [],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/tooling/native-qa/run-store.test.ts",
+      "owner": "scripts",
+      "reviewed": true,
+      "tags": [
+        "unit",
+        "integration"
+      ],
+      "evidence": "fixture",
+      "dependsOn": [
+        "scripts",
+        "apps/mcp-server",
+        "adapters/final-cut/typescript",
+        "packages/runtime",
+        "packages/testkit"
+      ],
+      "requires": [
+        "mkfifo"
+      ],
+      "platforms": [
+        "darwin",
+        "linux"
+      ],
+      "network": "none"
+    },
+    {
       "path": "tests/tooling/skills/agents-playbooks.test.ts",
       "owner": "scripts",
       "tags": [
