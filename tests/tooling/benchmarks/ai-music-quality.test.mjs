@@ -53,3 +53,14 @@ test('finds music placement by normalized correlation at frame resolution', asyn
   assert.ok(result.correlation > 0.999);
   assert.equal(estimateOffsetFrames([0, 0], [0, 0, 0, 0], 1, 1, 1), null);
 });
+
+test('reports recognition retention without equating it with listening', async () => {
+  const { recognitionRetention } = await import('../../../scripts/benchmarks/ai-editing/speech-consistency.mjs');
+  const result = recognitionRetention(['Hello,', 'there', 'friend'], ['hello', 'friend']);
+  assert.equal(result.commonWords, 2);
+  assert.equal(result.baselineWords, 3);
+  assert.equal(result.retention, 2 / 3);
+  assert.equal(result.intelligibility, 'unavailable');
+  assert.equal(recognitionRetention([], ['invented']).retention, null);
+  assert.throws(() => recognitionRetention(['...'], ['hello']), /word/i);
+});
