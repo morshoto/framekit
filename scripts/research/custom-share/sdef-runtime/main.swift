@@ -4,10 +4,29 @@ import AppKit
 import Carbon
 import Darwin
 
+// Test-only encoder for string metadata; it deliberately rejects other types.
+extension NSDictionary {
+    @objc(scriptingUserDefinedRecordDescriptor)
+    func testUserRecordDescriptor() -> NSAppleEventDescriptor? {
+        guard let values = self as? [String: String] else { return nil }
+        let record = NSAppleEventDescriptor.record()
+        let fields = NSAppleEventDescriptor.list()
+        var index = 1
+        for key in values.keys.sorted() {
+            fields.insert(NSAppleEventDescriptor(string: key), at: index)
+            fields.insert(NSAppleEventDescriptor(string: values[key]!), at: index + 1)
+            index += 2
+        }
+        record.setDescriptor(fields, forKeyword: AEKeyword(keyASUserRecordFields))
+        return record
+    }
+}
+
 @objc(MockAsset)
 final class MockAsset: NSObject {
     @objc dynamic let uniqueID = "asset-1"
     @objc dynamic let name = "Synthetic"
+    @objc dynamic var metadata: NSDictionary { ["example.test.title": "Synthetic metadata"] }
     @objc dynamic var locationInfo: NSDictionary {
         ["folder": URL(fileURLWithPath: "/synthetic/share-output", isDirectory: true),
          "basename": name, "hasDescription": true, "hasMedia": false]
@@ -42,7 +61,11 @@ final class Receiver: NSObject {
     }
 }
 let args = CommandLine.arguments
-if args.count == 2 && args[1] == "listen" {
+if args.count == 2 && args[1] == "conversion-control" {
+    let unsupported: NSDictionary = ["synthetic": 42]
+    guard unsupported.testUserRecordDescriptor() == nil else { fputs("unsupported metadata accepted\n", stderr); exit(1) }
+    print("unsupported-rejected")
+} else if args.count == 2 && args[1] == "listen" {
     let app = NSApplication.shared
     app.setActivationPolicy(.prohibited)
     let receiver = Receiver()
@@ -99,6 +122,19 @@ if args.count == 2 && args[1] == "listen" {
                   location?.forKeyword(AEKeyword(0x6173686d))?.booleanValue == false else {
                 fputs("unexpected location reply: \(locationReply)\n", stderr); exit(1)
             }
+            property.setDescriptor(NSAppleEventDescriptor(typeCode: OSType(0x6d657461)), forKeyword: AEKeyword(keyAEKeyData))
+            guard let metadataSpecifier = property.coerce(toDescriptorType: DescType(typeObjectSpecifier)) else { exit(1) }
+            let metadataGet = NSAppleEventDescriptor(eventClass: AEEventClass(0x636f7265), eventID: AEEventID(0x67657464),
+                targetDescriptor: NSAppleEventDescriptor(processIdentifier: target), returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
+            metadataGet.setParam(metadataSpecifier, forKeyword: AEKeyword(keyDirectObject))
+            let metadataReply = try metadataGet.sendEvent(options: [.waitForReply, .neverInteract], timeout: 3)
+            let metadata = metadataReply.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))
+            let userFields = metadata?.forKeyword(AEKeyword(keyASUserRecordFields))
+            guard metadata?.descriptorType == DescType(typeAERecord), userFields?.numberOfItems == 2,
+                  userFields?.atIndex(1)?.stringValue == "example.test.title",
+                  userFields?.atIndex(2)?.stringValue == "Synthetic metadata" else {
+                fputs("unexpected metadata reply: \(metadataReply)\n", stderr); exit(1)
+            }
             property.setDescriptor(NSAppleEventDescriptor(typeCode: OSType(0x706e616d)), forKeyword: AEKeyword(keyAEKeyData))
             let wrong = NSAppleEventDescriptor.record()
             wrong.setDescriptor(NSAppleEventDescriptor(typeCode: OSType(0x61736574)), forKeyword: AEKeyword(keyAEDesiredClass))
@@ -118,7 +154,7 @@ if args.count == 2 && args[1] == "listen" {
                 rejected = invalidReply.paramDescriptor(forKeyword: AEKeyword(keyErrorNumber))?.int32Value == Int32(errAENoSuchObject)
             } catch { rejected = (error as NSError).code == Int(errAENoSuchObject) }
             guard rejected else { fputs("unknown asset did not produce errAENoSuchObject\n", stderr); exit(1) }
-            print("make:asset-1:get:Synthetic:location:reco:unknown-rejected"); exit(0)
+            print("make:asset-1:get:Synthetic:location:reco:metadata:verified:unknown-rejected"); exit(0)
         }
         fputs("unexpected reply\n", stderr); exit(1)
     } catch {

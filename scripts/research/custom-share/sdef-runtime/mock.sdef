@@ -8,6 +8,7 @@
       <property name="has description" code="ashd" type="boolean"><cocoa key="hasDescription"/></property>
       <property name="has media" code="ashm" type="boolean"><cocoa key="hasMedia"/></property>
     </record-type>
+    <value-type name="user defined record" code="usrf"><cocoa class="NSDictionary"/></value-type>
     <command name="make" code="corecrel">
       <cocoa class="MockMakeCommand"/>
       <parameter name="new" code="kocl" type="type"><cocoa key="ObjectClass"/></parameter>
@@ -19,6 +20,7 @@
       <property name="id" code="ID  " type="text" access="r"><cocoa key="uniqueID"/></property>
       <property name="name" code="pnam" type="text" access="r"><cocoa key="name"/></property>
       <property name="location info" code="locn" type="asset location" access="r"><cocoa key="locationInfo"/></property>
+      <property name="metadata" code="meta" type="user defined record" access="r"><cocoa key="metadata"/></property>
     </class>
   </suite>
 </dictionary>

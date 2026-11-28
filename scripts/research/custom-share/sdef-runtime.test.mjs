@@ -21,6 +21,7 @@ test('characterizes Cocoa scripting in an uninstalled test app', { skip: process
   await run('xmllint', ['--xinclude', '--noout', '--dtdvalid', '/System/Library/DTDs/sdef.dtd', join(contents, 'Resources', 'mock.sdef')]);
   const binary = join(contents, 'MacOS', 'mock');
   await run('xcrun', ['swiftc', join(here, 'main.swift'), '-o', binary]);
+  assert.equal((await run(binary, ['conversion-control'], { timeout: 5000 })).stdout.trim(), 'unsupported-rejected');
   const child = spawn(binary, ['listen'], { stdio: ['ignore', 'pipe', 'pipe'] });
   const exited = once(child, 'exit');
   let stderr = '';
@@ -49,7 +50,7 @@ test('characterizes Cocoa scripting in an uninstalled test app', { skip: process
     }
     assert.equal(make.stdout.trim(), 'make:asset-1:get:Synthetic:location:reco:metadata:verified:unknown-rejected');
     assert.match(stderr, /MOCK MAKE COMMAND INVOKED/);
-    t.diagnostic('SDEF-backed Cocoa make and get resolved the test asset and generic location record');
+    t.diagnostic('SDEF-backed Cocoa make and get resolved the asset, location and string metadata');
   } finally {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
     await exited;
