@@ -34,3 +34,14 @@ test('passes only when every proposed cut is covered by reviewed audio', () => {
   assert.equal(assessCuts(cuts, words, {reviewedRanges: [{start: 0, end: 3}, {start: 4, end: 6}]}).status, 'pass');
   assert.equal(assessCuts([], words, {reviewedRanges: [{start: 0, end: 6}]}).status, 'unavailable');
 });
+
+test('evaluation protocol records separate measurable and listening criteria', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const protocol = JSON.parse(await readFile(new URL('../../../scripts/benchmarks/ai-editing/protocol.json', import.meta.url)));
+  assert.equal(protocol.cutSafety.maximumVerifiedWordOverlaps, 0);
+  assert.ok(protocol.cutSafety.requiresHumanReviewedBoundaries);
+  assert.ok(protocol.subjective.includes('narrative continuity'));
+  assert.ok(protocol.subjective.includes('dialogue intelligibility'));
+  assert.ok(protocol.caption.maximumBoundaryErrorSeconds > 0);
+  assert.ok(protocol.evidence.includes('provider disagreement'));
+});
