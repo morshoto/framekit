@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fcpxml version="1.11"><resources>
+<format id="f" name="FFVideoFormat720p30" frameDuration="1/30s" width="1280" height="720"/>
+<asset id="a" name="Interview" start="0s" duration="10s" hasVideo="1" format="f"><media-rep kind="original-media" src="file:///synthetic/interview.mov"/></asset>
+<asset id="m" name="Music" start="0s" duration="10s" hasAudio="1"><media-rep kind="original-media" src="file:///synthetic/music.wav"/></asset>
+</resources><library><event name="Research"><project name="Independent" uid="research-project"><sequence format="f" duration="3s"><spine>
+<asset-clip ref="a" name="Opening" offset="0s" start="1s" duration="3s"><audio ref="m" lane="-1" offset="1s" start="0s" duration="3s"/></asset-clip>
+</spine></sequence></project></event></library></fcpxml>
