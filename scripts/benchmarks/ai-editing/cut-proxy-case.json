@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "designation": "Post hoc exploratory check of a previously identified disputed candidate; not a held-out benchmark.",
+  "meeting": "TS3003a",
+  "sampleRate": 16000,
+  "windowSamples": [1152000, 1328000],
+  "removedSamples": [1235200, 1242667],
+  "models": ["mlx-community/whisper-tiny", "mlx-community/whisper-large-v3-turbo"],
+  "minimumExploratoryRetention": 1,
+  "limitation": "Word-multiset agreement is not proof of speech safety or narrative continuity; it ignores order and cannot detect words omitted by both recognitions. Independent listening and human-checked boundaries remain required."
+}
