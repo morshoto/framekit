@@ -80,3 +80,13 @@ test('range handoff rejects unexamined spine occurrences in either input', async
   const alteredBase = addClip(value.baseline);
   assert.throws(() => createRevisionB({ ...value, baseline: Buffer.from(alteredBase), baselineDigest: hash(alteredBase) }), /unsupported spine/);
 });
+
+test('range handoff rejects proxy representation under the same URL', async () => {
+  const value = await input();
+  const proxy = bytes => bytes.toString().replace('kind="original-media"', 'kind="proxy-media"');
+  const changed = proxy(value.external);
+  assert.notEqual(changed, value.external.toString());
+  assert.throws(() => createRevisionB({ ...value, external: Buffer.from(changed), externalDigest: hash(changed) }), /proxy|representation/);
+  const changedBase = proxy(value.baseline);
+  assert.throws(() => createRevisionB({ ...value, baseline: Buffer.from(changedBase), baselineDigest: hash(changedBase) }), /proxy|representation/);
+});

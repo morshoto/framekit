@@ -86,3 +86,12 @@ test('rejects unexamined spine elements that may carry copied anchors', async ()
   assert.throws(() => findAnchoredTarget(base, gap, 'opening-v1', expected), /unsupported/);
   assert.throws(() => findAnchoredTarget(gap, external, 'opening-v1', expected), /unsupported/);
 });
+
+test('rejects proxy representations even if source URL and ranges match', async () => {
+  const { base, external } = await fixtures();
+  const proxy = xml => xml.replace('kind="original-media"', 'kind="proxy-media"');
+  assert.throws(() => findAnchoredTarget(base, proxy(external), 'opening-v1', expected), /proxy|representation/);
+  assert.throws(() => findAnchoredTarget(proxy(base), external, 'opening-v1', expected), /proxy|representation/);
+  const defaultOriginal = external.replace('kind="original-media" ', '');
+  assert.equal(findAnchoredTarget(base, defaultOriginal, 'opening-v1', expected).id, 'opening-v1');
+});

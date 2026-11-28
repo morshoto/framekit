@@ -58,6 +58,7 @@ function inspect(xml) {
     const id = asset['@_id'];
     const rep = one(asset['media-rep'], 'media representation');
     const src = rep['@_src'];
+    if ((rep['@_kind'] ?? 'original-media') !== 'original-media') throw new Error('unsupported media representation');
     if (typeof id !== 'string' || !id || assets.has(id) || typeof src !== 'string' || !src) throw new Error('invalid source');
     assets.set(id, src);
   }

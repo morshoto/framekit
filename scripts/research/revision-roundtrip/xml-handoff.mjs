@@ -36,6 +36,7 @@ function parse(bytes, projectUid, sourceDigests) {
     const id = asset[':@']?.['@_id'];
     const rep = only(asset.asset, 'media-rep');
     const src = rep[':@']?.['@_src'];
+    if ((rep[':@']?.['@_kind'] ?? 'original-media') !== 'original-media') throw new Error('unsupported media representation');
     if (typeof id !== 'string' || !id || assets.has(id) || typeof src !== 'string' || !src
         || !/^[a-f0-9]{64}$/.test(sourceDigests[id] ?? '')) throw new Error('invalid source');
     assets.set(id, { src, digest: sourceDigests[id] });
