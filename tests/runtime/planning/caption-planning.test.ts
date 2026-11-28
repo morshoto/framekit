@@ -158,6 +158,31 @@ test("sampled frame boundaries preserve readable adjacent caption groups", async
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
+test("sample-free words remain visible with neighboring sampled speech", async () => {
+  const words = [{ text: "First.", start: 1.01, end: 1.24, confidence: 0.9 },
+    { text: "brief", start: 1.24, end: 1.25, confidence: 0.9 },
+    { text: "next", start: 1.25, end: 1.48, confidence: 0.9 }];
+  const f = await fixture(words);
+  try {
+    const result = await planCaptionGroups({ ...f.request, maxWordsPerGroup: 2 }, f.ref, f.current, f.artifacts, verifyLocalMediaSource);
+    assert.equal(result.status, "available", JSON.stringify(result));
+    if (result.status !== "available") return;
+    const groups = result.plan.groups;
+    assert.deepEqual(groups.flatMap((group) => group.words.map((word) => word.text)), words.map((word) => word.text));
+    assert.ok(groups.every((group) => group.sequenceRange.end > group.sequenceRange.start));
+    assert.ok(groups.some((group) => group.words.some((word) => word.text === "brief") && group.words.length > 1));
+    for (let n = 210; n < 215; n++) {
+      const time = n / 10;
+      const active = groups.filter((group) => time >= group.sequenceRange.start - 1e-9 && time < group.sequenceRange.end - 1e-9);
+      assert.ok(active.length <= 1);
+      for (const [index, word] of words.entries()) if (time >= 20 + word.start - 1e-9 && time < 20 + word.end - 1e-9) {
+        assert.ok(active[0]?.words.some((item) => item.wordIndex === index));
+      }
+    }
+    assert.ok(result.plan.warnings.some((warning) => /sample/i.test(warning)));
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
 test("sampled caption boundaries retain exact fractional frame timing", async () => {
   const f = await fixture([{ text: "First.", start: 1.01, end: 1.24, confidence: 0.9 }, { text: "Next", start: 1.24, end: 1.48, confidence: 0.9 }]);
   try {
