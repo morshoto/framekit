@@ -65,7 +65,7 @@ export class FfmpegTimelineRenderer implements FramekitRenderProvider {
 
   public constructor(options: FfmpegTimelineRendererOptions = {}) {
     this.ffmpegPath = options.ffmpegPath ?? process.env.FFMPEG_BIN ?? "ffmpeg";
-    this.version = options.version ?? "0.2.0";
+    this.version = options.version ?? "0.3.0";
     this.environment = { ...process.env, ...options.env };
     this.fontFile = resolveFontFile(options.env?.FRAMEKIT_RENDER_FONT ?? process.env.FRAMEKIT_RENDER_FONT);
   }
@@ -613,7 +613,7 @@ function addTitleOverlays(
     );
     const style = title.style;
     const color = escapeFilterValue(style?.color ?? "white");
-    const basicDefault = style === undefined && title.position === undefined;
+    const basicDefault = style === undefined;
     const size = formatNumber(style?.fontSize ?? (basicDefault ? model.height * 44 / 720 : 32));
     const x = title.position
       ? `${formatNumber(model.width / 2 + title.position.x * model.width / 2)}-(text_w/2)`

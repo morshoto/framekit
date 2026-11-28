@@ -272,9 +272,9 @@ it reports native font availability as unverified until checked on the Final Cut
 Title-bearing approvals created before font and face binding
 must be previewed again. A storyboard using a different or unverified font is
 reported unavailable. Glyph coverage alone does not establish visual correctness
-or shaping. Unstyled, unpositioned titles use a canvas-scaled size (44 pixels
-at 720p) with their baseline at the frame center and a black outline in
-headless renders and storyboards. The outline is not encoded in FCPXML; native
+or shaping. Unstyled titles use a canvas-scaled size (44 pixels at 720p) and a
+black outline in headless renders; unpositioned titles use a centered baseline.
+Storyboards show the unpositioned subset. The outline is not encoded in FCPXML; native
 Final Cut appearance remains unverified. Explicitly styled or positioned titles
 retain their requested settings.
 For standalone FCPXML export, a positioned basic title is represented by a

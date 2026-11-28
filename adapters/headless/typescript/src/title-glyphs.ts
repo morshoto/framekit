@@ -60,7 +60,7 @@ export function titleFitProblem(bytes: Buffer, titles: readonly TimelineIrTitle[
     const bounds = font.bbox;
     if (![bounds.minX, bounds.maxX, bounds.minY, bounds.maxY, font.ascent, font.descent, font.lineGap].every(Number.isFinite)) return "title font bounds are unavailable";
     for (const title of titles) {
-      const basicDefault = title.style === undefined && title.position === undefined;
+      const basicDefault = title.style === undefined;
       const size = title.style?.fontSize ?? (basicDefault ? height * 44 / 720 : 32);
       const outline = basicDefault ? basicTitleOutlineWidth(height) : 0;
       const center = title.position ? width / 2 + title.position.x * width / 2 : width / 2;
