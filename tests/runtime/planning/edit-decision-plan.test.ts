@@ -950,6 +950,18 @@ test("cut planning preserves required source coverage and allows independently r
     assert.equal(partial.status, "available");
     if (partial.status !== "available") return;
     assert.equal(partial.plan.decisions.some((decision) => decision.kind === "cut"), false);
+    const tail = { ...duplicate, id: "duplicate-tail", start: 13, startTime: { value: "13", timescale: "1" },
+      sourceStart: 3, sourceStartTime: { value: "3", timescale: "1" }, duration: 7, durationTime: { value: "7", timescale: "1" } };
+    const joined = { ...snapshot, timeline: { ...snapshot.timeline, clips: [...snapshot.timeline.clips, tail] } };
+    const union = await createEditDecisionPlan({ ...request, snapshot: joined }, f.artifacts, verifyLocalMediaSource, store);
+    assert.equal(union.status, "available");
+    if (union.status !== "available") return;
+    assert.ok(union.plan.decisions.some((decision) => decision.kind === "cut"));
+    tail.sourceStartTime = { value: "31", timescale: "10" };
+    const gap = await createEditDecisionPlan({ ...request, snapshot: joined }, f.artifacts, verifyLocalMediaSource, store);
+    assert.equal(gap.status, "available");
+    if (gap.status !== "available") return;
+    assert.equal(gap.plan.decisions.some((decision) => decision.kind === "cut"), false);
     duplicate.duration = 10;
     duplicate.durationTime = { value: "10", timescale: "1" };
     const unknownDuration = structuredClone(snapshot);
