@@ -24,7 +24,7 @@ async function exercise(t, writableName = false) {
   await run('xmllint', ['--xinclude', '--noout', '--dtdvalid', '/System/Library/DTDs/sdef.dtd', join(contents, 'Resources', 'mock.sdef')]);
   const binary = join(contents, 'MacOS', 'mock');
   const source = await readFile(join(here, 'main.swift'), 'utf8');
-  const selectedSource = writableName ? source.replace('@objc dynamic let name = "Synthetic"', '@objc dynamic var name = "Synthetic"') : source;
+  const selectedSource = writableName ? source.replace('@objc dynamic let name: String', '@objc dynamic var name: String') : source;
   if (writableName) assert.notEqual(selectedSource, source);
   const localSource = join(dir, 'main.swift');
   await writeFile(localSource, selectedSource);
@@ -61,7 +61,7 @@ async function exercise(t, writableName = false) {
     assert.match(stderr, /MOCK MAKE COMMAND INVOKED/);
     const countBefore = stderr.split('MOCK MAKE COMMAND INVOKED').length - 1;
     const withProperties = await run(binary, ['send', String(child.pid), 'make-properties'], { timeout: 5000 });
-    assert.equal(withProperties.stdout.trim(), 'properties:asset-2:get:Named');
+    assert.equal(withProperties.stdout.trim(), 'properties:asset-2:get:Named:metadata:Incoming');
     assert.equal(stderr.split('MOCK MAKE COMMAND INVOKED').length - 1, countBefore + 1);
     t.diagnostic(`SDEF-backed Cocoa make/get accepted ${writableName ? 'writable' : 'read-only'} name properties`);
   } finally {
