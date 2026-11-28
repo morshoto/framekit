@@ -66,7 +66,17 @@ let args = CommandLine.arguments
 if args.count == 2 && args[1] == "conversion-control" {
     let unsupported: NSDictionary = ["synthetic": 42]
     guard unsupported.testUserRecordDescriptor() == nil else { fputs("unsupported metadata accepted\n", stderr); exit(1) }
-    print("unsupported-rejected")
+    let app = NSApplication.shared
+    app.setActivationPolicy(.prohibited)
+    guard let d = NSScriptSuiteRegistry.shared().commandDescription(withAppleEventClass: AEEventClass(0x636f7265), andAppleEventCode: AEEventID(0x6372656c)) else { exit(2) }
+    let c = MockMakeCommand(commandDescription: d)
+    c.arguments = ["ObjectClass": NSNumber(value: OSType(0x61736574)), "KeyDictionary": ["name": "Synthetic"]]
+    guard c.isWellFormed, let args = c.evaluatedArguments,
+          (args["ObjectClass"] as? NSNumber)?.uint32Value == OSType(0x61736574),
+          (args["KeyDictionary"] as? [String: String])?["name"] == "Synthetic" else {
+        fputs("synthetic command arguments not well formed\n", stderr); exit(1)
+    }
+    print("unsupported-rejected:command-well-formed")
 } else if args.count == 2 && args[1] == "listen" {
     let app = NSApplication.shared
     app.setActivationPolicy(.prohibited)

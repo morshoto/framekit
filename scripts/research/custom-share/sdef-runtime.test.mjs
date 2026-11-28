@@ -21,7 +21,7 @@ test('characterizes Cocoa scripting in an uninstalled test app', { skip: process
   await run('xmllint', ['--xinclude', '--noout', '--dtdvalid', '/System/Library/DTDs/sdef.dtd', join(contents, 'Resources', 'mock.sdef')]);
   const binary = join(contents, 'MacOS', 'mock');
   await run('xcrun', ['swiftc', join(here, 'main.swift'), '-o', binary]);
-  assert.equal((await run(binary, ['conversion-control'], { timeout: 5000 })).stdout.trim(), 'unsupported-rejected');
+  assert.equal((await run(binary, ['conversion-control'], { timeout: 5000 })).stdout.trim(), 'unsupported-rejected:command-well-formed');
   const child = spawn(binary, ['listen'], { stdio: ['ignore', 'pipe', 'pipe'] });
   const exited = once(child, 'exit');
   let stderr = '';
