@@ -51,6 +51,77 @@ function runtime(): AgentVideoRuntime {
   }));
 }
 
+test("decision caption preview rejects revision-only drift after replanning", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-decision-revision-"));
+  const initial = timeline();
+  const digest = `sha256:${"a".repeat(64)}`;
+  let drift = false;
+  const server = createMcpServer(runtime(), { sessionDirectory: directory,
+    headlessDecisionPlans: { plan: async () => ({ status: "available", plan: { planDigest: digest,
+      decisions: [{ kind: "caption", group: { lines: ["hello"] }, range: { startTime: { value: "0", timescale: "1" }, durationTime: initial.sequence.frameDuration } }] } }) } as never,
+    headlessProjects: { selectTitleFont: () => ({}), previewEdit: async () => ({ before: { timeline: initial } }),
+      open: async () => ({ timeline: drift ? { ...initial, revision: { ...initial.revision, sequence: initial.revision.sequence + 1 } } : initial }) } as never });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "decision-revision-test", version: "1" });
+  await server.connect(serverTransport); await client.connect(clientTransport);
+  const args = { projectId: initial.project.id, timelineId: initial.sequence.id, revision: initial.revision, occurrenceId: "occurrence-1", planDigest: digest,
+    caption: { style: "basic", maxWordsPerGroup: 3, maxCharsPerLine: 20, maxLines: 2 },
+    music: { occurrenceId: "music", placement: { start: 0, end: 1 }, targetLane: 1,
+      context: { speech: "unknown", audioEvidence: "unavailable" }, capabilities: { staticMusicPreview: false, ducking: false, fades: false } } };
+  try {
+    assert.notEqual((await client.callTool({ name: "headless.decision.preview-captions", arguments: args })).isError, true);
+    drift = true;
+    const rejected = await client.callTool({ name: "headless.decision.preview-captions", arguments: args });
+    assert.equal(rejected.isError, true);
+    assert.match(JSON.stringify(rejected), /STALE_DECISION_PLAN/);
+  } finally { await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test("decision cut semantic mismatch retains committed Undo", async () => {
+  const { HeadlessDecisionPlanService } = await import("../../../apps/mcp-server/src/headless-decision-plan.js");
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-cut-readback-"));
+  const before = timeline();
+  before.sequence.frameDuration = { value: "1", timescale: "1" };
+  before.sequence.durationTime = { value: "10", timescale: "1" };
+  before.sequence.occurrences[0]!.startTime = { value: "0", timescale: "1" };
+  before.sequence.occurrences[0]!.durationTime = { value: "10", timescale: "1" };
+  before.sequence.occurrences[0]!.sourceStartTime = { value: "5", timescale: "1" };
+  const digest = `sha256:${"a".repeat(64)}`;
+  const candidate = { occurrenceId: "occurrence-1", sequenceRange: { start: 2, end: 3, startTime: { value: "2", timescale: "1" }, durationTime: { value: "1", timescale: "1" } },
+    sourceRange: { start: 7, end: 8, startTime: { value: "7", timescale: "1" }, durationTime: { value: "1", timescale: "1" } } };
+  const plan = { planDigest: digest, decisions: [{ kind: "cut", candidate }] };
+  const corrupted = structuredClone(before);
+  corrupted.revision = { ...before.revision, id: "committed", sequence: before.revision.sequence + 1 };
+  corrupted.sequence.durationTime = { value: "9", timescale: "1" };
+  corrupted.sequence.occurrences = [
+    { ...structuredClone(before.sequence.occurrences[0]!), durationTime: { value: "2", timescale: "1" } },
+    { ...structuredClone(before.sequence.occurrences[0]!), id: `decision-cut-${"a".repeat(16)}-right`, startTime: { value: "2", timescale: "1" }, durationTime: { value: "7", timescale: "1" }, sourceStartTime: { value: "9", timescale: "1" } },
+  ];
+  let current = before;
+  const plans = new HeadlessDecisionPlanService({} as never);
+  plans.plan = async () => ({ status: "available", plan } as never);
+  plans.withAcceptedPlan = async (_input, _digest, operation) => operation(plan as never, {} as never);
+  plans.recheckEvidence = async () => {};
+  const preview = { before: { timeline: before }, after: { timeline: before }, command: { operations: [] } };
+  const server = createMcpServer(runtime(), { sessionDirectory: directory, headlessDecisionPlans: plans,
+    headlessProjects: { open: async () => ({ timeline: current }), previewEdit: async (_id: string, command: unknown) => ({ ...preview, command }),
+      previewApprovedEdit: async (_id: string, command: unknown) => ({ ...preview, command, previewToken: "edit-token" }),
+      executeApprovedEdit: async () => { current = corrupted; return { before: { timeline: before }, after: { timeline: corrupted }, undoId: "undo-retained" }; } } as never });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "cut-readback-test", version: "1" });
+  await server.connect(serverTransport); await client.connect(clientTransport);
+  const input = { projectId: before.project.id, timelineId: before.sequence.id, revision: before.revision, occurrenceId: "occurrence-1", planDigest: digest, candidateIndex: 0,
+    caption: { style: "basic", maxWordsPerGroup: 3, maxCharsPerLine: 20, maxLines: 2 },
+    music: { occurrenceId: "music", placement: { start: 0, end: 1 }, targetLane: 1,
+      context: { speech: "unknown", audioEvidence: "unavailable" }, capabilities: { staticMusicPreview: false, ducking: false, fades: false } } };
+  try {
+    const approved = payload(await client.callTool({ name: "headless.decision.approved-preview-cut", arguments: input }));
+    const result = payload(await client.callTool({ name: "headless.decision.approved-execute-cut", arguments: { projectId: before.project.id, sequenceId: before.sequence.id, previewToken: approved.previewToken, approved: true } }));
+    assert.equal(result.status, "applied-unverified");
+    assert.equal(result.edit.undoId, "undo-retained");
+  } finally { await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 function runtimeWithoutIncrementalChanges(): AgentVideoRuntime {
   const adapter = new InMemoryEditorAdapter({
     projectId: "fixture-project",

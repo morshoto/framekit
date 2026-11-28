@@ -1966,6 +1966,8 @@
       "\"runtime dependency scan includes side-effect imports and value re-exports\""
     ],
     "tests/integration/headless-project-mcp.test.ts": [
+      "\"reviewed headless cuts preserve exact source ranges and reject other timeline content\"",
+      "\"approved reviewed headless cut executes once and independently reads back\"",
       "\"same-session and fresh-session renders retain all frames after JSON and gain edits\"",
       "\"production MCP preserves approval for an unsampled dissolve\"",
       "\"production rough-cut tools expose digest-bound edit operations\"",
@@ -3089,7 +3091,9 @@
   "addedTestNames": {
     "tests/integration/headless-session-mcp.test.ts": [
       "\"analysis pin rejects a configured provider changed while publishing evidence\"",
-      "\"analysis pin rejects index changes while publishing evidence\""
+      "\"analysis pin rejects index changes while publishing evidence\"",
+      "\"decision caption preview rejects revision-only drift after replanning\"",
+      "\"decision cut semantic mismatch retains committed Undo\""
     ],
     "tests/integration/mcp.test.ts": [
       "\"MCP preserves omitted opaque input behavior across SDK migration\"",
@@ -3158,6 +3162,9 @@
       "\"a scoped lock reports a failed unawaited save\""
     ],
     "tests/integration/headless-project-mcp.test.ts": [
+      "\"production decision planning pins real FFmpeg source audio\"",
+      "\"a lost save acknowledgement preserves recovery information for a committed headless edit\"",
+      "\"reviewed music decision previews the exact headless placement without changing the project\"",
       "\"production MCP persists creative brief review across restarts\"",
       "\"production rough-cut renders without FCPXML and rejects changed export intent\"",
       "\"approved headless edit tokens expire without mutation\"",
@@ -3333,6 +3340,8 @@
     ],
     "tests/integration/headless-renderer.test.ts": [
       "\"FFmpeg renders differently scaled occurrences across cuts and dissolves\"",
+      "\"FFmpeg renderer rejects caption text wider than the output\"",
+      "\"FFmpeg renderer rejects vertically clipped titles\"",
       "\"FFmpeg renderer rejects a missing explicitly configured title font\"",
       "\"FFmpeg renderer refuses an unimplemented nonzero source origin\"",
       "\"FFmpeg renderer rejects an explicit nonzero sequence timecode origin\"",
@@ -3376,7 +3385,8 @@
       "\"speech mapping rejects evidence outside its declared source clock\"",
       "\"speech mapping uses the analysis clock independently of the editor source clock\"",
       "\"cached speech remaps rational trim reorder and split snapshots after restart\"",
-      "\"speech mapping retains partial VAD coverage and only advertises fully covered occurrences\""
+      "\"speech mapping retains partial VAD coverage and only advertises fully covered occurrences\"",
+      "\"clipped VAD coverage retains exact fractional occurrence duration\""
     ]
   },
   "identityDiscoveryCorrections": {
@@ -3882,6 +3892,18 @@
       "addedTestNames": {
         "tests/speech/command-analyzer.test.ts": [
           "\"command audio bounds source verification before and after the provider\""
+        ]
+      }
+    },
+    {
+      "pullRequests": [877],
+      "reason": "Preserve fractional VAD timing and reject vertically clipped titles.",
+      "addedTestNames": {
+        "tests/speech/mapping.test.ts": [
+          "\"clipped VAD coverage retains exact fractional occurrence duration\""
+        ],
+        "tests/integration/headless-renderer.test.ts": [
+          "\"FFmpeg renderer rejects vertically clipped titles\""
         ]
       }
     }

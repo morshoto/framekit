@@ -2530,23 +2530,6 @@
       "network": "none"
     },
     {
-      "path": "tests/runtime/planning/narrative-cuts.test.ts",
-      "owner": "packages/runtime",
-      "tags": [
-        "unit"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "unit",
-      "dependsOn": [
-        "packages/runtime"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
       "path": "tests/runtime/planning/caption-planning.test.ts",
       "owner": "packages/runtime",
       "tags": [
@@ -2598,6 +2581,27 @@
       "network": "none"
     },
     {
+      "path": "tests/runtime/planning/edit-decision-plan.test.ts",
+      "owner": "packages/runtime",
+      "tags": [
+        "unit",
+        "contract",
+        "fast-integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "apps/mcp-server",
+        "packages/runtime",
+        "packages/testkit"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
       "path": "tests/runtime/planning/music-planning.test.ts",
       "owner": "packages/runtime",
       "tags": [
@@ -2610,6 +2614,23 @@
       "dependsOn": [
         "packages/runtime",
         "packages/testkit"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/runtime/planning/narrative-cuts.test.ts",
+      "owner": "packages/runtime",
+      "tags": [
+        "unit"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "unit",
+      "dependsOn": [
+        "packages/runtime"
       ],
       "platforms": [
         "any"

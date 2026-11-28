@@ -1,3 +1,4 @@
+import { reviewedCutOperations, verifyReviewedCutReadback } from "./headless-decision-cut.js";
 import { registerValidatedTool } from "./tools/validated-tool.js";
 import type { SessionSqliteObservationProvider } from "./headless-sessions.js";
 import { McpServer } from "@modelcontextprotocol/server";
@@ -80,6 +81,7 @@ import {
   type SessionMaterializationPublisher,
 } from "./materialization-jobs.js";
 import {
+  HeadlessEditUncertainError,
   externalEditOperations,
   externalEditPlanDigest,
   verifyExternalEditExportable,
@@ -89,6 +91,7 @@ import {
   type HeadlessRoughCutRequest,
 } from "@framekit/headless-application";
 import { projectSnapshotFromTimelineIr } from "./headless-project-snapshot.js";
+import type { HeadlessDecisionPlanService, HeadlessDecisionRequest } from "./headless-decision-plan.js";
 import { chooseTimelineReadback } from "./readback-policy.js";
 import { registerSkillTools, skillPreviewResult } from "./tools/skills/register.js";
 
@@ -163,6 +166,26 @@ const rangeSchema = z.object({
   message: "end must be greater than start",
   path: ["end"],
 });
+const evidenceRangeSchema = z.object({ start: z.number().finite().nonnegative(), end: z.number().finite().positive(),
+  startTime: rationalTimeSchema.optional(), durationTime: rationalTimeSchema.optional() }).strict().refine((r) => r.end > r.start);
+const evidenceSourceSchema = z.object({ mediaId: z.string().min(1), source: z.string().min(1), sourceDigest: z.string().min(1).optional(),
+  mediaKind: z.enum(["video", "audio"]).optional(), duration: z.number().finite().positive().optional() }).strict();
+const evidenceProviderSchema = z.object({ id: z.string().min(1), provider: z.string().min(1), version: z.string().optional(),
+  model: z.string().optional(), configurationDigest: z.string().optional() }).strict();
+const analysisRefSchema = z.object({ schemaVersion: z.literal(1), kind: z.enum(["speech", "vad", "audio"]), source: evidenceSourceSchema,
+  provider: evidenceProviderSchema, revision: revisionValueSchema, range: evidenceRangeSchema, artifactDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  analysisRevision: revisionValueSchema }).strict();
+const decisionPlanSchema = {
+  projectId: z.string().min(1), timelineId: z.string().min(1), revision: revisionValueSchema, occurrenceId: z.string().min(1),
+  speechRef: analysisRefSchema.optional(), vadRef: analysisRefSchema.optional(), audioRef: analysisRefSchema.optional(),
+  caption: z.object({ style: z.string(), maxWordsPerGroup: z.number().int(), maxCharsPerLine: z.number().int(), maxLines: z.number().int(),
+    emphasisWordIndices: z.array(z.number().int()).optional(), wordSeparator: z.enum([" ", ""]).optional(),
+    wordCorrections: z.array(z.object({ wordIndex: z.number().int().nonnegative(), text: z.string().min(1).max(400) }).strict()).max(500).optional() }).strict(),
+  music: z.object({ occurrenceId: z.string().min(1), music: evidenceSourceSchema.optional(), placement: evidenceRangeSchema,
+    gainDb: z.number().finite().optional(), targetLane: z.number().int(), context: z.object({ speech: z.enum(["present", "absent", "unknown"]),
+      audioEvidence: z.enum(["available", "unavailable"]) }).strict(), capabilities: z.object({ staticMusicPreview: z.boolean(), ducking: z.boolean(), fades: z.boolean() }).strict(),
+    requestedDucking: z.boolean().optional(), requestedFades: z.boolean().optional() }).strict(),
+};
 const mediaIndexQuerySchema = z.object({
   query: z.string().optional(),
   subject: z.string().optional(),
@@ -786,7 +809,8 @@ async function sessionResult(action: () => Promise<unknown>) {
       isError: true,
       content: [{
         type: "text" as const,
-        text: JSON.stringify({ code: message.split(":", 1)[0] || "SESSION_ERROR", message }),
+        text: JSON.stringify({ code: message.split(":", 1)[0] || "SESSION_ERROR", message,
+          ...(error instanceof HeadlessEditUncertainError ? { recovery: error.recovery } : {}) }),
       }],
     };
   }
@@ -977,9 +1001,10 @@ export interface McpServerOptions {
   materializationDirectory?: string;
   sessionMaterializationPublisher?: SessionMaterializationPublisher;
   headlessProjects?: HeadlessProjectWorkflow;
+  headlessBriefs?: HeadlessCreativeBriefService;
+  headlessDecisionPlans?: HeadlessDecisionPlanService;
   analysisEvidence?: { index: SemanticMediaIndexStore; artifacts: AnalysisArtifactStore;
     currentProvider(kind: "speech" | "vad" | "audio"): AnalyzerDescriptor | undefined | Promise<AnalyzerDescriptor | undefined> };
-  headlessBriefs?: HeadlessCreativeBriefService;
 }
 
 export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
@@ -2415,6 +2440,240 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       range: rangeSchema.optional(),
     },
   }, async ({ mediaId, range }) => jsonResult(await runtime.analyzeVisual(mediaId, range)));
+
+  registerValidatedTool(server, "headless.decision.plan", {
+    description: "Create a read-only review plan using the current headless project, accepted brief and pinned evidence. This does not approve or execute edits.",
+    inputSchema: decisionPlanSchema,
+  }, async (input) => sessionResult(async () => {
+    if (!options.headlessDecisionPlans) throw new Error("DECISION_PLAN_UNAVAILABLE: headless planning is not configured");
+    return options.headlessDecisionPlans.plan(input);
+  }));
+
+  const decisionCutApprovals = new Map<string, { input: HeadlessDecisionRequest; planDigest: string; candidateIndex: number; editToken: string; expiresAt: number }>();
+  const samePreviewBase = (left: TimelineIr, right: TimelineIr) => left.revision.id === right.revision.id
+    && left.revision.sequence === right.revision.sequence && left.revision.timestamp === right.revision.timestamp
+    && timelineIrDigest(left) === timelineIrDigest(right);
+  const previewDecisionCut = async (input: HeadlessDecisionRequest, planDigest: string, candidateIndex: number) => {
+    const plans = options.headlessDecisionPlans;
+    if (!plans) throw new Error("DECISION_PLAN_UNAVAILABLE: headless planning is not configured");
+    const initial = await plans.plan(input);
+    if (initial.status !== "available" || initial.plan.planDigest !== planDigest) throw new Error("STALE_DECISION_PLAN: review the current plan before previewing");
+    const decision = initial.plan.decisions[candidateIndex];
+    if (!decision || decision.kind !== "cut") throw new Error("CUT_PREVIEW_UNAVAILABLE: select a reviewed cut decision");
+    const service = requireHeadlessProjects();
+    const before = await service.open(input.projectId);
+    if (before.timeline.project.id !== input.projectId || before.timeline.sequence.id !== input.timelineId) throw new Error("STALE_DECISION_PLAN: target changed");
+    const operations = reviewedCutOperations(before.timeline, decision.candidate, planDigest);
+    const preview = await service.previewEdit(input.projectId, { schemaVersion: 1, expectedRevision: input.revision, operations }, input.timelineId);
+    if (!samePreviewBase(before.timeline, preview.before.timeline)) throw new Error("STALE_DECISION_PLAN: project changed during preview");
+    const current = await plans.plan(input);
+    if (current.status !== "available" || current.plan.planDigest !== planDigest) throw new Error("STALE_DECISION_PLAN: inputs changed during preview");
+    const after = await service.open(input.projectId);
+    if (!samePreviewBase(after.timeline, preview.before.timeline)) throw new Error("STALE_DECISION_PLAN: project changed during preview");
+    return { scope: "headless-preview", planDigest, candidateIndex, preview, notice: "Review only; this is not approval or native editing." };
+  };
+  registerValidatedTool(server, "headless.decision.preview-cut", {
+    description: "Preview one reviewed cut in a contiguous headless primary storyline without executing it.",
+    inputSchema: { ...decisionPlanSchema, planDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/), candidateIndex: z.number().int().nonnegative() },
+  }, async ({ planDigest, candidateIndex, ...input }) => sessionResult(() => previewDecisionCut(input, planDigest, candidateIndex)));
+  registerValidatedTool(server, "headless.decision.approved-preview-cut", {
+    description: "Prepare a single-use headless cut preview bound to the reviewed decision plan.",
+    inputSchema: { ...decisionPlanSchema, planDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/), candidateIndex: z.number().int().nonnegative() },
+  }, async ({ planDigest, candidateIndex, ...input }) => sessionResult(async () => {
+    const reviewed = await previewDecisionCut(input, planDigest, candidateIndex);
+    const approved = await requireHeadlessProjects().previewApprovedEdit(input.projectId, {
+      schemaVersion: 1, expectedRevision: input.revision, operations: reviewed.preview.command.operations,
+    }, input.timelineId);
+    if (!samePreviewBase(approved.before.timeline, reviewed.preview.before.timeline)
+      || timelineIrDigest(approved.after.timeline) !== timelineIrDigest(reviewed.preview.after.timeline)) throw new Error("STALE_DECISION_PLAN: approved preview differs from the reviewed proposal");
+    await previewDecisionCut(input, planDigest, candidateIndex);
+    const now = Date.now();
+    for (const [token, entry] of decisionCutApprovals) if (entry.expiresAt <= now) decisionCutApprovals.delete(token);
+    while (decisionCutApprovals.size >= 256) decisionCutApprovals.delete(decisionCutApprovals.keys().next().value!);
+    const previewToken = `decision-cut-${randomUUID()}`;
+    decisionCutApprovals.set(previewToken, { input: structuredClone(input), planDigest, candidateIndex, editToken: approved.previewToken, expiresAt: now + 10 * 60 * 1000 });
+    return { ...reviewed, previewToken };
+  }));
+  registerValidatedTool(server, "headless.decision.approved-execute-cut", {
+    description: "Execute one separately approved, decision-bound headless cut; native Final Cut is not used.",
+    inputSchema: { projectId: z.string().min(1), sequenceId: z.string().min(1), previewToken: z.string().min(1), approved: z.literal(true) },
+  }, async ({ projectId, sequenceId, previewToken }) => sessionResult(async () => {
+    const entry = decisionCutApprovals.get(previewToken);
+    if (!entry || entry.expiresAt <= Date.now() || entry.input.projectId !== projectId || entry.input.timelineId !== sequenceId) {
+      throw new Error("DECISION_PREVIEW_INVALID: token is unknown, expired or belongs to another target");
+    }
+    decisionCutApprovals.delete(previewToken);
+    const plans = options.headlessDecisionPlans;
+    if (!plans) throw new Error("DECISION_PLAN_UNAVAILABLE: headless planning is not configured");
+    return plans.executeAcceptedPlan(entry.input, entry.planDigest, (lockedProject) =>
+      requireHeadlessProjects().executeApprovedEdit(projectId, sequenceId, entry.editToken, lockedProject), async (edit, plan) => {
+      const observed = await requireHeadlessProjects().open(projectId);
+      const revision = observed.timeline.revision; const expected = edit.after.timeline.revision;
+      if (observed.timeline.project.id !== projectId || observed.timeline.sequence.id !== sequenceId
+        || revision.id !== expected.id || revision.sequence !== expected.sequence || revision.timestamp !== expected.timestamp
+        || timelineIrDigest(observed.timeline) !== timelineIrDigest(edit.after.timeline)) {
+        throw new Error("HEADLESS_DECISION_READBACK_MISMATCH: committed project differs from independent readback");
+      }
+      const decision = plan.decisions[entry.candidateIndex];
+      if (!decision || decision.kind !== "cut") throw new Error("HEADLESS_DECISION_READBACK_MISMATCH: reviewed cut is unavailable");
+      verifyReviewedCutReadback(edit.before.timeline, observed.timeline, decision.candidate, entry.planDigest);
+    });
+  }));
+
+  const decisionMusicApprovals = new Map<string, { input: HeadlessDecisionRequest; planDigest: string; editToken: string; expiresAt: number }>();
+  const previewDecisionMusic = async (input: HeadlessDecisionRequest, planDigest: string) => {
+    const plans = options.headlessDecisionPlans;
+    if (!plans) throw new Error("DECISION_PLAN_UNAVAILABLE: headless planning is not configured");
+    const initial = await plans.plan(input);
+    if (initial.status !== "available" || initial.plan.planDigest !== planDigest) throw new Error("STALE_DECISION_PLAN: review the current plan before previewing");
+    const decision = initial.plan.decisions.find((item) => item.kind === "music-proposal");
+    const placement = decision?.kind === "music-proposal" && decision.musicPlan.decision === "propose-music" ? decision.musicPlan.placement : undefined;
+    const source = input.music.music;
+    if (!placement || !source || !placement.range.startTime || !placement.range.durationTime || placement.targetLane < 1) {
+      throw new Error("MUSIC_PREVIEW_UNAVAILABLE: an exact rational range and a positive headless audio track are required");
+    }
+    await verifyLocalMediaSource(source);
+    const preview = await requireHeadlessProjects().previewEdit(input.projectId, {
+      schemaVersion: 1, expectedRevision: input.revision, operations: [{ type: "insert-occurrence", occurrence: {
+        id: placement.occurrenceId, name: placement.occurrenceId, mediaId: placement.mediaId, role: "music", track: placement.targetLane,
+        startTime: placement.range.startTime, durationTime: placement.range.durationTime,
+        sourceStartTime: { value: "0", timescale: "1" }, gainDb: placement.gainDb,
+      } }],
+    }, input.timelineId);
+    const frame = preview.before.timeline.sequence.frameDuration;
+    const aligned = (time: { value: string; timescale: string }) =>
+      (BigInt(time.value) * BigInt(frame.timescale)) % (BigInt(time.timescale) * BigInt(frame.value)) === 0n;
+    if (!aligned(placement.range.startTime) || !aligned(placement.range.durationTime)) throw new Error("MUSIC_PREVIEW_UNAVAILABLE: placement must align to the sequence frame grid");
+    await verifyLocalMediaSource(source);
+    const current = await plans.plan(input);
+    if (current.status !== "available" || current.plan.planDigest !== planDigest) throw new Error("STALE_DECISION_PLAN: inputs changed during preview");
+    const after = await requireHeadlessProjects().open(input.projectId);
+    if (!samePreviewBase(after.timeline, preview.before.timeline)) throw new Error("STALE_DECISION_PLAN: project changed during preview");
+    return { scope: "headless-preview", planDigest, preview, notice: "Review only; this is not approval, native placement, or proof of dialogue audibility." };
+  };
+  registerValidatedTool(server, "headless.decision.preview-music", {
+    description: "Preview the exact reviewed music proposal in the Framekit-owned headless timeline. This does not approve or execute an edit.",
+    inputSchema: { ...decisionPlanSchema, planDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/) },
+  }, async ({ planDigest, ...input }) => sessionResult(() => previewDecisionMusic(input, planDigest)));
+
+  registerValidatedTool(server, "headless.decision.approved-preview-music", {
+    description: "Prepare a single-use headless music preview bound to the reviewed decision plan; execution requires separate approval.",
+    inputSchema: { ...decisionPlanSchema, planDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/) },
+  }, async ({ planDigest, ...input }) => sessionResult(async () => {
+    const reviewed = await previewDecisionMusic(input, planDigest);
+    const approved = await requireHeadlessProjects().previewApprovedEdit(input.projectId, {
+      schemaVersion: 1, expectedRevision: input.revision, operations: reviewed.preview.command.operations,
+    }, input.timelineId);
+    if (!samePreviewBase(approved.before.timeline, reviewed.preview.before.timeline)
+      || timelineIrDigest(approved.after.timeline) !== timelineIrDigest(reviewed.preview.after.timeline)) throw new Error("STALE_DECISION_PLAN: approved preview differs from the reviewed proposal");
+    await previewDecisionMusic(input, planDigest);
+    const now = Date.now();
+    for (const [token, entry] of decisionMusicApprovals) if (entry.expiresAt <= now) decisionMusicApprovals.delete(token);
+    while (decisionMusicApprovals.size >= 256) decisionMusicApprovals.delete(decisionMusicApprovals.keys().next().value!);
+    const previewToken = `decision-music-${randomUUID()}`;
+    decisionMusicApprovals.set(previewToken, { input: structuredClone(input), planDigest, editToken: approved.previewToken, expiresAt: now + 10 * 60 * 1000 });
+    return { ...reviewed, previewToken };
+  }));
+
+  registerValidatedTool(server, "headless.decision.approved-execute-music", {
+    description: "Execute one separately approved, decision-bound headless music preview; native Final Cut is not used.",
+    inputSchema: { projectId: z.string().min(1), sequenceId: z.string().min(1), previewToken: z.string().min(1), approved: z.literal(true) },
+  }, async ({ projectId, sequenceId, previewToken }) => sessionResult(async () => {
+    const entry = decisionMusicApprovals.get(previewToken);
+    if (!entry || entry.expiresAt <= Date.now() || entry.input.projectId !== projectId || entry.input.timelineId !== sequenceId) {
+      throw new Error("DECISION_PREVIEW_INVALID: token is unknown, expired or belongs to another target");
+    }
+    decisionMusicApprovals.delete(previewToken);
+    const plans = options.headlessDecisionPlans;
+    if (!plans) throw new Error("DECISION_PLAN_UNAVAILABLE: headless planning is not configured");
+    return plans.executeAcceptedPlan(entry.input, entry.planDigest, async (lockedProject) => {
+      if (!entry.input.music.music) throw new Error("MUSIC_PREVIEW_UNAVAILABLE: registered music is required");
+      await verifyLocalMediaSource(entry.input.music.music);
+      return requireHeadlessProjects().executeApprovedEdit(projectId, sequenceId, entry.editToken, lockedProject);
+    }, async (edit) => {
+      const observed = await requireHeadlessProjects().open(projectId);
+      const revision = observed.timeline.revision; const expected = edit.after.timeline.revision;
+      if (observed.timeline.project.id !== projectId || observed.timeline.sequence.id !== sequenceId
+        || revision.id !== expected.id || revision.sequence !== expected.sequence || revision.timestamp !== expected.timestamp
+        || timelineIrDigest(observed.timeline) !== timelineIrDigest(edit.after.timeline)) {
+        throw new Error("HEADLESS_DECISION_READBACK_MISMATCH: committed project differs from independent readback");
+      }
+    });
+  }));
+
+  const decisionCaptionApprovals = new Map<string, { input: HeadlessDecisionRequest; planDigest: string; editToken: string; expiresAt: number }>();
+  const previewDecisionCaptions = async (input: HeadlessDecisionRequest, planDigest: string) => {
+    const plans = options.headlessDecisionPlans;
+    if (!plans) throw new Error("DECISION_PLAN_UNAVAILABLE: headless planning is not configured");
+    const initial = await plans.plan(input);
+    if (initial.status !== "available" || initial.plan.planDigest !== planDigest) throw new Error("STALE_DECISION_PLAN: review the current plan before previewing");
+    const captions = initial.plan.decisions.filter((item) => item.kind === "caption");
+    if (!captions.length || captions.some((item) => !item.range.startTime || !item.range.durationTime)) {
+      throw new Error("CAPTION_PREVIEW_UNAVAILABLE: exact reviewed caption ranges are required");
+    }
+    const service = requireHeadlessProjects();
+    const font = service.selectTitleFont(captions.map((item) => item.group.lines.join("\n")));
+    const operations = captions.map((item, index) => ({ type: "add-title" as const, title: {
+      id: `decision-caption-${planDigest.slice(7, 23)}-${index}`, text: item.group.lines.join("\n"),
+      startTime: item.range.startTime!, durationTime: item.range.durationTime!, lane: 1, font: structuredClone(font),
+    } }));
+    const preview = await service.previewEdit(input.projectId, { schemaVersion: 1, expectedRevision: input.revision, operations }, input.timelineId);
+    const frame = preview.before.timeline.sequence.frameDuration;
+    const aligned = (time: { value: string; timescale: string }) =>
+      (BigInt(time.value) * BigInt(frame.timescale)) % (BigInt(time.timescale) * BigInt(frame.value)) === 0n;
+    if (operations.some((operation) => !aligned(operation.title.startTime) || !aligned(operation.title.durationTime))) {
+      throw new Error("CAPTION_PREVIEW_UNAVAILABLE: captions must align to the sequence frame grid");
+    }
+    const current = await plans.plan(input);
+    if (current.status !== "available" || current.plan.planDigest !== planDigest) throw new Error("STALE_DECISION_PLAN: inputs changed during preview");
+    const after = await service.open(input.projectId);
+    if (!samePreviewBase(after.timeline, preview.before.timeline)) throw new Error("STALE_DECISION_PLAN: project changed during preview");
+    return { scope: "headless-preview", planDigest, preview, notice: "Basic text only; emphasis is a review suggestion. This is not approval or native title proof." };
+  };
+  registerValidatedTool(server, "headless.decision.preview-captions", {
+    description: "Preview reviewed basic captions in a Framekit-owned headless timeline without executing edits.",
+    inputSchema: { ...decisionPlanSchema, planDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/) },
+  }, async ({ planDigest, ...input }) => sessionResult(() => previewDecisionCaptions(input, planDigest)));
+  registerValidatedTool(server, "headless.decision.approved-preview-captions", {
+    description: "Prepare a single-use headless caption preview bound to the reviewed decision plan.",
+    inputSchema: { ...decisionPlanSchema, planDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/) },
+  }, async ({ planDigest, ...input }) => sessionResult(async () => {
+    const reviewed = await previewDecisionCaptions(input, planDigest);
+    const approved = await requireHeadlessProjects().previewApprovedEdit(input.projectId, {
+      schemaVersion: 1, expectedRevision: input.revision, operations: reviewed.preview.command.operations,
+    }, input.timelineId);
+    if (!samePreviewBase(approved.before.timeline, reviewed.preview.before.timeline)
+      || timelineIrDigest(approved.after.timeline) !== timelineIrDigest(reviewed.preview.after.timeline)) throw new Error("STALE_DECISION_PLAN: approved preview differs from the reviewed proposal");
+    await previewDecisionCaptions(input, planDigest);
+    const now = Date.now();
+    for (const [token, entry] of decisionCaptionApprovals) if (entry.expiresAt <= now) decisionCaptionApprovals.delete(token);
+    while (decisionCaptionApprovals.size >= 256) decisionCaptionApprovals.delete(decisionCaptionApprovals.keys().next().value!);
+    const previewToken = `decision-captions-${randomUUID()}`;
+    decisionCaptionApprovals.set(previewToken, { input: structuredClone(input), planDigest, editToken: approved.previewToken, expiresAt: now + 10 * 60 * 1000 });
+    return { ...reviewed, previewToken };
+  }));
+  registerValidatedTool(server, "headless.decision.approved-execute-captions", {
+    description: "Execute one separately approved, decision-bound headless caption preview; native Final Cut is not used.",
+    inputSchema: { projectId: z.string().min(1), sequenceId: z.string().min(1), previewToken: z.string().min(1), approved: z.literal(true) },
+  }, async ({ projectId, sequenceId, previewToken }) => sessionResult(async () => {
+    const entry = decisionCaptionApprovals.get(previewToken);
+    if (!entry || entry.expiresAt <= Date.now() || entry.input.projectId !== projectId || entry.input.timelineId !== sequenceId) {
+      throw new Error("DECISION_PREVIEW_INVALID: token is unknown, expired or belongs to another target");
+    }
+    decisionCaptionApprovals.delete(previewToken);
+    const plans = options.headlessDecisionPlans;
+    if (!plans) throw new Error("DECISION_PLAN_UNAVAILABLE: headless planning is not configured");
+    return plans.executeAcceptedPlan(entry.input, entry.planDigest, (lockedProject) =>
+      requireHeadlessProjects().executeApprovedEdit(projectId, sequenceId, entry.editToken, lockedProject), async (edit) => {
+      const observed = await requireHeadlessProjects().open(projectId);
+      const revision = observed.timeline.revision; const expected = edit.after.timeline.revision;
+      if (observed.timeline.project.id !== projectId || observed.timeline.sequence.id !== sequenceId
+        || revision.id !== expected.id || revision.sequence !== expected.sequence || revision.timestamp !== expected.timestamp
+        || timelineIrDigest(observed.timeline) !== timelineIrDigest(edit.after.timeline)) {
+        throw new Error("HEADLESS_DECISION_READBACK_MISMATCH: committed project differs from independent readback");
+      }
+    });
+  }));
 
   registerValidatedTool(server, "headless.analysis.pin", {
     description: "Pin existing provider-reported source analysis for a headless project. This read-only reference does not approve or authorize an edit.",

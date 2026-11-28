@@ -28,9 +28,11 @@ import {
   isFinalCutVideoProbeAvailable,
 } from "@framekit/final-cut";
 import { FixtureAudioAnalyzer, FixtureMetadataAnalyzer, FixtureSpeechAnalyzer, FixtureVisualAnalyzer } from "@framekit/testkit";
-import { AgentVideoRuntime, FileAnalysisArtifactStore, JsonCreativeBriefStore, JsonSemanticMediaIndexStore } from "@framekit/runtime";
+import { AgentVideoRuntime, FileAnalysisArtifactStore, JsonCreativeBriefStore, JsonSemanticMediaIndexStore, verifyLocalMediaSource } from "@framekit/runtime";
 import { assertCreativeBriefProjectBinding, HeadlessCreativeBriefService, HeadlessProjectService } from "@framekit/headless-application";
 import { createMcpServer } from "./server.js";
+import { HeadlessDecisionPlanService } from "./headless-decision-plan.js";
+import { projectSnapshotFromTimelineIr } from "./headless-project-snapshot.js";
 import { createCanonicalSessionChangeSource } from "./headless-sessions.js";
 import { createCanonicalNativeSnapshotReader } from "./canonical-native-snapshot.js";
 import { FfmpegMediaMetadataProbe, FfmpegRenderVerifier, FfmpegTimelineRenderer, FfmpegStoryboardRenderer } from "@framekit/headless-renderer";
@@ -310,6 +312,12 @@ const videoExporter = liveMode && !headlessFinalCut && process.env.FRAMEKIT_FINA
       nativeOperationLease,
     })
   : undefined;
+const briefStoreForProject = (projectId: string) => new JsonCreativeBriefStore(join(framekitStateDirectory, "creative-briefs", `${createHash("sha256").update(projectId).digest("hex")}.json`),
+  (binding, operation) => headlessProjects.withProjectLock(projectId, async (lockedProject) => {
+    assertCreativeBriefProjectBinding(binding, await headlessProjects.open(projectId));
+    return operation(lockedProject);
+  }));
+const analysisArtifacts = new FileAnalysisArtifactStore(join(framekitStateDirectory, "analysis-artifacts"));
 const currentAnalysisProvider = async (kind: "speech" | "vad" | "audio") => {
   const analyzer = kind === "audio" ? analyzers.audioAnalyzer : analyzers.speechAnalyzer;
   if (analyzer && "verifyProviderIdentity" in analyzer && typeof analyzer.verifyProviderIdentity === "function") {
@@ -336,16 +344,17 @@ const server = createMcpServer(runtime, {
   sessionChangeSource: createCanonicalSessionChangeSource(() => runtime.inspectProject()),
   materializationDirectory: join(framekitStateDirectory, "materializations"),
   headlessProjects,
-  analysisEvidence: { index: semanticMediaIndexStore, artifacts: new FileAnalysisArtifactStore(join(framekitStateDirectory, "analysis-artifacts")),
-    currentProvider: currentAnalysisProvider },
   headlessBriefs: new HeadlessCreativeBriefService({
     openProject: (projectId) => headlessProjects.open(projectId),
     withProjectLock: (projectId, operation) => headlessProjects.withProjectLock(projectId, operation),
-    storeForProject: (projectId) => new JsonCreativeBriefStore(join(framekitStateDirectory, "creative-briefs", `${createHash("sha256").update(projectId).digest("hex")}.json`),
-      (binding, operation) => headlessProjects.withProjectLock(projectId, async (lockedProject) => {
-        assertCreativeBriefProjectBinding(binding, await headlessProjects.open(projectId));
-        return operation(lockedProject);
-      })),
+    storeForProject: briefStoreForProject,
+  }),
+  analysisEvidence: { index: semanticMediaIndexStore, artifacts: analysisArtifacts,
+    currentProvider: currentAnalysisProvider },
+  headlessDecisionPlans: new HeadlessDecisionPlanService({
+    readProject: async (projectId) => projectSnapshotFromTimelineIr((await headlessProjects.open(projectId)).timeline),
+    storeForProject: briefStoreForProject, artifacts: analysisArtifacts, index: semanticMediaIndexStore, verifySource: verifyLocalMediaSource,
+    currentProvider: currentAnalysisProvider,
   }),
 });
 const transport = new StdioServerTransport();

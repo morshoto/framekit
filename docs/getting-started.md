@@ -125,6 +125,84 @@ A matching source digest establishes source identity, not that the footage
 satisfies the requirement; review the content separately. Brief acceptance does
 not authorize or apply timeline edits and is not evidence of a Final Cut import.
 
+For a review-only integrated proposal, call `headless.decision.plan` with
+`projectId`, `timelineId`, the current `revision`, the target `occurrenceId`,
+caption grouping options, and music placement and context options. Pass the
+`ref` from `headless.analysis.pin` as `speechRef`, `vadRef`, or `audioRef` as
+appropriate. The server loads the current project and accepted brief; it
+rejects stale targets, mismatched configured analyzer descriptors, missing or
+changed pinned evidence, relevant changes to
+the current analysis index, and brief or project changes observed during planning. Review the returned decisions and warnings. If no safe cut is proposed, warnings can identify low-confidence words or a VAD-bounded pause that is too short; they are not proof that all speech was recognized.
+To correct a recognized word in the caption proposal, supply
+`caption.wordCorrections` entries with the transcript `wordIndex` and replacement
+`text`. The plan keeps the original text, timing and analysis reference visible;
+the correction itself still requires review and changes the plan digest.
+Music capability and speech-presence inputs are caller-supplied context, not
+independent capability discovery or verified speech detection.
+
+For a reviewed cut, call `headless.decision.preview-cut` with the same planning
+inputs, the `planDigest`, and the zero-based `candidateIndex` of the cut in
+`decisions`. The current implementation supports contiguous primary video clips with no
+overlays, transitions, markers or other timeline content; other timelines return
+unavailable. Later clips move earlier by the selected cut duration.
+To execute it, review `headless.decision.approved-preview-cut` and pass its
+single-use `previewToken`, the project and sequence IDs, and `approved: true`
+to `headless.decision.approved-execute-cut`. The server rechecks the accepted
+brief and pinned evidence, then reloads the saved headless project. An
+`applied-unverified` result requires inspection of the edit and Undo record.
+These point-in-time checks do not establish native editing or lock media files.
+Before a later approved edit, review and accept the brief against the new project
+revision, repin any analysis references at that revision, and create a new plan
+and approval. A prior acceptance or preview token cannot authorize the next edit.
+
+For reviewed basic captions, call `headless.decision.preview-captions` with the
+same planning inputs and `planDigest`. To prepare execution, call
+`headless.decision.approved-preview-captions`, review the exact text, timing,
+and bound font, then call `headless.decision.approved-execute-captions` with
+the project and sequence IDs, returned `previewToken`, and `approved: true`.
+The token is single-use and expires after ten minutes or a server restart.
+The server rechecks the accepted brief, pinned evidence and project, and reloads
+the project after execution. An `applied-unverified` result means the edit
+committed but a subsequent verification failed; inspect the returned edit and
+Undo information. Emphasis remains a review suggestion rather than styling.
+When outward-rounded word ranges cannot form non-overlapping groups, the plan
+may use frame-sample timing instead and warns that a caption can start up to one
+frame after a word begins. Original word timing remains available for review;
+words with no representable frame remain unavailable.
+These operations affect only the Framekit-owned headless timeline and do not
+prove editable native Final Cut titles or continuous media-file fencing.
+
+For a proposed background-music placement, call
+`headless.decision.preview-music` with the same planning inputs and returned
+`planDigest`. Supply frame-aligned rational `startTime` and `durationTime` in
+the placement and a positive headless audio track. The server rechecks the
+accepted brief, evidence, project and music source and returns the headless
+timeline preview. This preview neither approves nor executes an edit. Native
+edit support remains unavailable, and the digest is not edit authorization.
+Source audio analysis does not verify the resulting mix or dialogue audibility.
+When a pinned VAD reference is supplied, the music decision also includes its
+reference and speech-overlap ranges mapped to the selected occurrence. Review
+the ranges and coverage; they do not verify the edited mix or intelligibility.
+
+To execute this supported **headless** placement, call
+`headless.decision.approved-preview-music` with the same inputs and plan digest,
+review its returned preview, then call `headless.decision.approved-execute-music`
+with the project and sequence IDs, returned `previewToken`, and `approved: true`.
+The token is single-use and expires after ten minutes or a server restart. The
+server rechecks the plan, holds the brief's cooperative writer lock during
+execution, and independently reloads the headless project. If it returns
+`applied-unverified`, the edit committed but a later readback, source or
+analysis check failed: inspect the returned edit and Undo information
+before continuing. These checks are point-in-time; they do not lock media files
+or establish native execution, dialogue audibility, or crash-atomic updates
+across project, brief and analysis stores.
+
+If an edit returns `HEADLESS_EDIT_UNCERTAIN`, a save was attempted but its
+outcome is unknown. The error includes a candidate revision and Undo ID; they
+are not proof that the edit committed. Reopen and inspect the exact project
+before deciding whether to use Undo. Do not repeat the edit based on the error
+alone. Undo checks the target, revision and recorded content before restoring.
+
 For later Timeline IR revisions that require explicit approval, call
 `headless.edit.approved-preview` with the project, sequence, current revision
 and operations. Review the result, then call `headless.edit.approved-execute`
@@ -178,6 +256,9 @@ edits without titles.
 
 Headless title rendering checks glyph coverage in the selected font and fails
 when a glyph is missing or a variation or joined sequence cannot be verified.
+It also rejects titles whose measured horizontal or conservative vertical font
+bounds cannot fit the requested output and position. This check is not a visual
+verification: inspect the rendered text, including line breaks and edges.
 Set `FRAMEKIT_RENDER_FONT` to a suitable font file when the default lacks the
 needed characters. An unavailable configured font fails rendering instead of
 falling back to another font. Rough-cut previews with titles require a renderer
@@ -344,8 +425,9 @@ To include model identity in speech provenance, set
 when the model changes. To additionally check one local model asset, set both
 `FRAMEKIT_SPEECH_MODEL_ASSET_PATH` to its absolute file path and
 `FRAMEKIT_SPEECH_MODEL_ASSET_SHA256` to its lowercase SHA-256. Framekit checks
-that file before and after speech analysis, when reusing cached speech, and
-when pinning speech evidence. Missing or changed bytes are rejected. This is
+that file before and after speech analysis, when reusing cached speech, when
+pinning speech evidence, and around evidence-bound headless decision execution.
+Missing or changed bytes are rejected. This is
 point-in-time verification of the configured file: an opaque command may load
 other files or ignore it, so it does not prove the complete model that ran.
 Command providers capture their execution environment and report a

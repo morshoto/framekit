@@ -4,6 +4,8 @@ import { readdir, readFile, rename, writeFile, mkdir, link, unlink, realpath, st
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   FramekitProjectStore,
+  ProjectPersistenceError,
+  ProjectTransactionError,
   LocalMediaRegistrar,
   ProjectTransactionService,
   createFramekitRenderRequest,
@@ -105,6 +107,17 @@ function editConsequences(timeline: TimelineIr): string[] {
     }
   }
   return warnings;
+}
+
+/** A save was attempted but its final outcome is unknown; the revision is a candidate, not proof. */
+export class HeadlessEditUncertainError extends Error {
+  readonly recovery: { projectId: string; sequenceId: string; undoId: string; expectedRevision: ContextRevision; nextAction: "inspect-before-undo" };
+
+  constructor(recovery: HeadlessEditUncertainError["recovery"], cause?: unknown) {
+    super("HEADLESS_EDIT_UNCERTAIN: save may have committed; inspect the project before deciding whether Undo is safe", { cause });
+    this.name = "HeadlessEditUncertainError";
+    this.recovery = structuredClone(recovery);
+  }
 }
 
 export interface HeadlessProjectWorkflow {
@@ -484,7 +497,9 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     if (lockedProject && !this.store(projectId).ownsProjectLock(lockedProject)) throw new Error("PROJECT_LOCK_INVALID: project lock is expired or belongs to another project");
     const project = await this.open(projectId);
     const timestamp = this.clock();
-    const transaction = new ProjectTransactionService(this.snapshotStore(projectId, project, lockedProject), { clock: () => timestamp });
+    const store = this.snapshotStore(projectId, project, lockedProject);
+    let saveAttempted = false;
+    const transaction = new ProjectTransactionService({ ...store, save: async (...args) => { saveAttempted = true; return store.save(...args); } }, { clock: () => timestamp });
     const editCommand = {
       ...command,
       target: command.target ?? { projectId, sequenceId },
@@ -510,9 +525,18 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     // The client retains this commitment independently of the stored record.
     const undoId = `${recordId}-${hash(serialized)}`;
     await writeFile(join(directory, `${recordId}.json`), serialized, { encoding: "utf8", flag: "wx" });
-    const result = await transaction.execute(editCommand);
+    const recovery = { projectId, sequenceId, undoId, expectedRevision: record.afterRevision, nextAction: "inspect-before-undo" as const };
+    let result: ProjectEditResult;
+    try { result = await transaction.execute(editCommand); }
+    catch (error) {
+      // This specific store error is emitted before its atomic write starts.
+      if (error instanceof ProjectTransactionError && error.code === "PROJECT_EDIT_STALE_REVISION"
+        && error.cause instanceof ProjectPersistenceError && error.cause.code === "PROJECT_STALE_REVISION") throw error;
+      if (saveAttempted) throw new HeadlessEditUncertainError(recovery, error);
+      throw error;
+    }
     if (!sameRevision(result.after.timeline.revision, record.afterRevision) || timelineIrDigest(result.after.timeline) !== afterDigest) {
-      throw new Error("HEADLESS_EDIT_UNCERTAIN: committed edit differs from the recorded Undo state");
+      throw new HeadlessEditUncertainError(recovery);
     }
     return { ...result, undoId, warnings: editConsequences(result.after.timeline) };
   }
