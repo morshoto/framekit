@@ -32,13 +32,16 @@ try {
   if (backend.error) throw backend.error;
   if (backend.status !== 0) throw new Error(`Speech backend failed: ${backend.stderr}`);
   const response = JSON.parse(backend.stdout);
+  const { exerciseEvidence } = await import('./evidence-probe.mjs');
+  const descriptor = {...response.provider, model:config.secondaryModel, configurationDigest:hash(JSON.stringify({model:config.secondaryModel, vad:process.env.FRAMEKIT_SILERO_VAD_SHA256 ?? null}))};
+  const evidenceChecks = await exerciseEvidence(media,revision,descriptor,response);
   const observed = response.observedRange;
   const evidence = {sourceSha256:source.sha256,coverage:observed && {start:observed.start+from,end:observed.end+from},
     words:response.words.map((word) => ({...word,start:word.start+from,end:word.end+from}))};
   const report = {gitHead:execFileSync('git',['rev-parse','HEAD'],{cwd:repository,encoding:'utf8'}).trim(),
     sourceSha256:source.sha256,decodedSha256,backendOutputSha256:hash(backend.stdout),secondaryProvider:response.provider,
     declaredSecondaryModel:config.secondaryModel,primaryModel:config.primaryModel,primaryWindowSeconds:config.primaryWindowSeconds,
-    secondaryWindowSeconds:config.secondaryWindowSeconds,candidate:config.candidate,screening:compareProviderCuts([config.candidate],source.sha256,evidence),
-    limitation:config.interpretation+' Provider model declarations do not authenticate the loaded model bytes. No native execution occurred.'};
+    secondaryWindowSeconds:config.secondaryWindowSeconds,candidate:config.candidate,evidenceChecks,screening:compareProviderCuts([config.candidate],source.sha256,evidence),
+    limitation:config.interpretation+' Provider model declarations do not authenticate the loaded model bytes. Evidence checks use a reconstructed index and disposable source, not a production MCP approval. No native execution occurred.'};
   process.stdout.write(`${JSON.stringify(report,null,2)}\n`);
 } finally { await rm(directory,{recursive:true,force:true}); }
