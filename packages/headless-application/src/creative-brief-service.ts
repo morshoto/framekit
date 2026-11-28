@@ -49,7 +49,8 @@ export class HeadlessCreativeBriefService {
       const after = await this.openTarget(input);
       if (projectDigest(before) !== projectDigest(after)) throw new Error("STALE_CONTEXT: project changed during coverage inspection");
       assertCreativeBriefProjectBinding(record.projectBinding!, after);
-      return result;
+      return { ...result, binding: { projectId: input.projectId, sequenceId: input.sequenceId,
+        revision: structuredClone(after.timeline.revision), timelineDigest: record.projectBinding!.timelineDigest, briefDigest: record.accepted.digest } };
     });
   }
 

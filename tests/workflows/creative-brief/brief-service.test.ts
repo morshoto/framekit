@@ -312,6 +312,10 @@ test("accepted target reports timeline coverage without asserting final artifact
     await f.service.accept({ ...target, expectedDigest: draft.record.digest, confirmed: true });
     const result = await f.service.inspectTimelineCoverage(target);
     assert.equal(result.checks[0]?.status, "present");
+    assert.equal(result.checks[0]?.sourceDigest, digest);
+    assert.deepEqual(result.binding.revision, revision);
+    assert.equal(result.binding.projectId, "p");
+    assert.equal(result.binding.briefDigest, draft.record.digest);
     assert.match(result.notice, /not.*(render|output)/i);
     const changed = structuredClone(current);
     changed.timeline.sequence.occurrences[0]!.durationTime.value = "9";

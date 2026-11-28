@@ -6,6 +6,7 @@ import { assertBriefBinding, type AcceptedCreativeBrief, type CreativeBrief } fr
 export interface BriefTimelineCoverageCheck {
   requirement: string;
   sourceId: string;
+  sourceDigest?: string;
   start: number;
   end: number;
   status: "present" | "missing" | "unavailable";
@@ -37,7 +38,7 @@ export function inspectBriefTimelineCoverage(brief: CreativeBrief, accepted: Acc
   let valid = true;
   try { validateTimelineIr(timeline); } catch { valid = false; }
   const checks = brief.sourceCoverage.map((coverage): BriefTimelineCoverageCheck => {
-    const check = { requirement: coverage.requirement, sourceId: coverage.sourceId, start: coverage.start, end: coverage.end };
+    const check = { requirement: coverage.requirement, sourceId: coverage.sourceId, sourceDigest: coverage.sourceDigest, start: coverage.start, end: coverage.end };
     if (!valid) return { ...check, status: "unavailable" };
     const resources = timeline.resources.filter((resource) => resource.id === coverage.sourceId);
     const resource = resources[0];

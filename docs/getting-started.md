@@ -117,6 +117,11 @@ or bind it to an edit approval. The guard is a foundation for a downstream
 integration, not a gate on those tools. Cooperating headless project writers are
 excluded during a guarded operation; external source changes and native operations
 require their own verification and operation-specific authorization.
+For a project-bound accepted brief, `headless.brief.inspect-timeline-coverage`
+reports whether each required source range appears in the current headless
+timeline, including across split occurrences. It checks source identity and
+timeline placement at that moment; it does not establish the meaning, visibility,
+audibility, rendered output, or native acceptance of that content.
 If acceptance is interrupted, the brief may report
 `BRIEF_RECONCILIATION_REQUIRED` and remains unavailable until the interrupted
 state is inspected and reconciled; do not treat it as approval for an edit.
