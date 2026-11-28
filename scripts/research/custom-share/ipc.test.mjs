@@ -31,7 +31,11 @@ async function exercise(t, errorCode, useFile = false) {
     assert.equal(marker, 'ready');
     assert.equal(child.exitCode, null);
     await assert.rejects(run(binary, sendArgs(process.pid, 0), { timeout: 5000 }), /target is not the test executable/);
-    const responses = await Promise.all(Array.from({ length: 3 }, (_, i) => run(binary, sendArgs(child.pid, i), { timeout: 5000 })));
+    const senders = Array.from({ length: 3 }, (_, i) => {
+      const task = run(binary, sendArgs(child.pid, i), { timeout: 5000 });
+      return { task, pid: task.child.pid };
+    });
+    const responses = await Promise.all(senders.map(sender => sender.task));
     assert.deepEqual(responses.map(response => response.stdout.trim()), Array(3).fill(`rejected:${errorCode}`));
     if (useFile) for (const i of [0, 1, 2]) assert.equal(await readFile(join(dir, `mock-${i}.fcpxml`), 'utf8'), '<fcpxml/>');
     for (let i = 0; i < 100 && ![0, 1, 2].every(id => output.includes(`handled:mock-${id}:`)); i++) {
@@ -40,6 +44,11 @@ async function exercise(t, errorCode, useFile = false) {
     for (const id of [0, 1, 2]) {
       const observations = output.split('\n').filter(line => line.startsWith(`handled:mock-${id}:`));
       assert.ok(observations.length >= 1, `missing handler observation for mock-${id}`);
+      for (const observation of observations) {
+        const parts = observation.split(':');
+        assert.equal(Number(parts[3]), senders[id].pid, 'sender PID does not match test-owned process');
+        assert.equal(Number(parts[4]), 32, 'sender audit token missing or wrong size');
+      }
       t.diagnostic(`mock-${id} handler observations: ${observations.join(', ')}`);
     }
   } finally {
