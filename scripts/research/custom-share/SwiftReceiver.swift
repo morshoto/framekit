@@ -41,6 +41,10 @@ final class ShareEventReceiver: NSObject {
             forEventClass: AEEventClass(kCoreEventClass), andEventID: AEEventID(kAEOpenDocuments))
     }
 
+    func unregister() {
+        NSAppleEventManager.shared().removeEventHandler(forEventClass: AEEventClass(kCoreEventClass), andEventID: AEEventID(kAEOpenDocuments))
+    }
+
     @objc func handleOpen(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {
         // Open Document does not itself establish an authenticated sender or exact target.
         // Do not consume files or commit a receipt until a separately proven correlation exists.
