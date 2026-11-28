@@ -1,0 +1,37 @@
+{
+  "gitHead": "77a4e7ea1333e3387582fdaa39a551469f880e32",
+  "sourceSha256": "b6ce59ff735c234afdd94b13744aa26f6785af746170543fd03b33160e920a6d",
+  "windowSamples": [
+    1152000,
+    1328000
+  ],
+  "removedSamples": [
+    1235200,
+    1242667
+  ],
+  "sampleRate": 16000,
+  "originalWavSha256": "40fdbc1ce9e1bf567d519d9b546d8d9b8e03046cf0f17a012e0350a643e950fc",
+  "cutWavSha256": "23d606a6149c26697707d44b438770f0e5609b6181bdca5187b2e73c608b4a6c",
+  "model": "mlx-community/whisper-large-v3-turbo",
+  "provider": null,
+  "declaredAnalyzerVersion": "mlx-whisper-0.4.3",
+  "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+  "originalAnalysisSha256": "13e8df139b6e4e38e6fe4155579456831b10f193e179bf79a8baacd70fe04c48",
+  "cutAnalysisSha256": "da9b1a08c29108fc876e6053fa35e96fc89ec2399883cc95a8662ca2ca26e1fb",
+  "originalLowConfidenceWords": 3,
+  "cutLowConfidenceWords": 3,
+  "comparison": {
+    "baselineWords": 27,
+    "cutWords": 27,
+    "matchedWords": 27,
+    "missingWords": 0,
+    "addedWords": 0,
+    "missingTokens": [],
+    "addedTokens": [],
+    "retention": 1,
+    "continuity": "unavailable"
+  },
+  "minimumExploratoryRetention": 1,
+  "meetsExploratoryTarget": true,
+  "limitation": "Word-multiset agreement is not proof of speech safety or narrative continuity; it ignores order and cannot detect words omitted by both recognitions. Independent listening and human-checked boundaries remain required. Model declarations do not authenticate loaded model bytes."
+}
