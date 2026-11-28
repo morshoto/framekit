@@ -18,6 +18,7 @@ export function createGitHubRequestPolicy({ fetchImpl = fetch, sleep = (ms) => n
     else if (response.status === 401) category = 'authentication';
     else if (response.status >= 500 && response.status <= 599) category = 'server';
     else if (!response.ok) category = 'http';
+    else if (graphql && payload?.errors?.length && payload.errors.every((error) => error.type === 'RATE_LIMITED')) category = 'rate-limit';
     else if (graphql && payload?.errors?.length) category = payload.errors.every((error) => /internal|service unavailable|something went wrong/i.test(error.message ?? '')) ? 'graphql-transient' : 'graphql';
     else return graphql ? payload?.data : payload;
    } catch { category = 'network'; }
@@ -25,7 +26,7 @@ export function createGitHubRequestPolicy({ fetchImpl = fetch, sleep = (ms) => n
    const header = (name) => response?.headers?.get(name);
    const retryAfter = header('retry-after');
    const seconds = retryAfter === null || retryAfter === undefined ? NaN : Number(retryAfter);
-   const date = retryAfter ? Date.parse(retryAfter) : NaN;
+   const date = retryAfter && !Number.isFinite(seconds) ? Date.parse(retryAfter) : NaN;
    const reset = Number(header('x-ratelimit-reset'));
    const guidance = Math.max(Number.isFinite(seconds) ? seconds * 1000 : 0, Number.isFinite(date) ? date - now() : 0, category === 'rate-limit' && header('x-ratelimit-remaining') === '0' && Number.isFinite(reset) ? reset * 1000 - now() : 0);
    const delay = Math.max(guidance, 500 * 2 ** (attempt - 1) * (1 + random()));
