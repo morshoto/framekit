@@ -377,6 +377,53 @@ disposable target, and records `sourceIdentity` with verified, failed,
 unavailable, or unrun statuses. It does not promote unavailable native
 capabilities into a successful result.
 
+### Detached publisher status observation
+
+For an existing QA run with an uncertain publisher dispatch and recorded job
+ID, a detached worker can read one existing publisher-store status after the
+initiating client exits. Create a private JSON input containing
+`{"observationId":"status-0","directory":"/absolute/path/to/publisher-store"}`,
+then run:
+
+```sh
+node --import tsx scripts/native-qa/cli.ts start-publisher-observation "$QA_ROOT" "$QA_RUN_ID" observation.json
+node --import tsx scripts/native-qa/cli.ts publisher-observation "$QA_ROOT" "$QA_RUN_ID" status-0
+```
+
+IDs range from `status-0` through `status-31`. Repeating an ID never schedules
+another worker; `pending-or-interrupted` does not establish that one is still
+running. A new ID may be used for another **read-only** observation. Results
+are historical store snapshots; missing or mismatched status stays blocked.
+They do not contact Final Cut, prove receiver quiescence, authorize a write, or
+release or replay a reservation. The status directory path is not stored in the
+result.
+
+### Detached publisher simulation
+
+For deterministic supervision tests, use a **separate private QA root** and a
+synthetic publisher fixture. Do not use a real run or its authorization in this
+simulation. Prepare a run manifest whose artifact, source, and target digests
+match the fixture, and a private JSON specification with `artifactPath`,
+`target` (the library path and baseline project, sequence, and revision IDs),
+and `mode` (`pending`, `accepted-response-lost`, or `intent-before-dispatch`). The target digest is computed
+with `publisherTargetDigest` from `scripts/native-qa/publisher-supervision.ts`.
+
+```sh
+node --import tsx scripts/native-qa/cli.ts start-publisher-simulation "$QA_ROOT" manifest.json simulation.json
+node --import tsx scripts/native-qa/cli.ts publisher-simulation "$QA_ROOT" "$QA_RUN_ID"
+node --import tsx scripts/native-qa/cli.ts evidence-bundle "$QA_ROOT" "$QA_RUN_ID"
+```
+
+The detached worker calls a fixed in-process fake receiver and cannot contact
+Final Cut. Repeating the same start is inspection-only; changed inputs are
+rejected. `pending-or-interrupted` does not establish whether a worker is alive.
+Even a recorded simulated dispatch remains `BLOCKED` and cannot establish
+native receiver quiescence, independent readback, or permission to publish.
+QA registration uses a bounded mutex to serialize index updates. If a process
+dies while holding it, later registration returns `QA_REGISTRATION_BUSY` and
+does not remove it automatically; inspect and reconcile the QA root before
+any recovery. This mutex is separate from native reservations.
+
 ### CodeQL baselines for stacked pull requests
 
 The JavaScript CodeQL policy requires an analysis of the exact base branch commit. Security scans pushes to branches for this baseline; full validation and Swift scanning remain limited to main on push. Existing branches must first contain this workflow change and receive a push, or run the Security workflow manually on that branch. If the child PR scan finishes before its base scan, rerun the child's CodeQL workflow after the base scan completes. Missing or stale baseline evidence fails the policy closed. The trusted policy is loaded from the default branch, so changes to it take effect only after merging.
