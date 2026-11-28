@@ -8,6 +8,8 @@ test('counts missing and added recognized words without claiming continuity', ()
   assert.equal(r.matchedWords,2);
   assert.equal(r.missingWords,1);
   assert.equal(r.addedWords,1);
+  assert.deepEqual(r.missingTokens,['well']);
+  assert.deepEqual(r.addedTokens,['new']);
   assert.equal(r.continuity,'unavailable');
   assert.equal(compareRecognizedWords([], ['new']).retention,null);
 });
