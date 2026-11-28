@@ -7,7 +7,8 @@ function validate(report) {
   if (!report || report.probeVersion !== 1 || !report.finalCut || !report.supportedSurfaces
       || !report.supportedSurfaces.appleEvents || !report.supportedSurfaces.workflowExtension
       || !report.classification || typeof report.classification.classification !== 'string'
-      || !['string', 'object'].includes(typeof report.finalCut.version)) {
+      || !(report.finalCut.version === null || typeof report.finalCut.version === 'string')
+      || !['accessGroups', 'commands', 'classes'].every(key => Array.isArray(report.supportedSurfaces.appleEvents[key]))) {
     throw new Error('invalid report');
   }
 }
