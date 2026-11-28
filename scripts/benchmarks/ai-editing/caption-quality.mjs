@@ -81,3 +81,16 @@ export function screenWordTiming(reference, hypothesis, tolerance) {
   return { referenceWords: a.length, hypothesisWords: b.length, matchedWords, withinTolerance, toleranceSeconds: tolerance, status: 'unavailable',
     limitation: 'Word matches and reference timestamps are automatic; omissions and ambiguous matches are not timing successes.' };
 }
+
+/** Extract text from coarse SRT cues; cue intervals are not word-level ground truth. */
+export function subtitleWords(srt) {
+  const cues = srt.replace(/\r\n?/g, '\n').trim().split(/\n\s*\n/u);
+  const words = [];
+  for (const cue of cues) {
+    const lines = cue.split('\n');
+    if (!/^\d+\s*$/u.test(lines[0] ?? '') || !/^\d{2}:\d{2}:\d{2},\d{3}\s+-->\s+\d{2}:\d{2}:\d{2},\d{3}/u.test(lines[1] ?? '') || lines.length < 3) throw new Error('Invalid subtitle cue');
+    words.push(...lines.slice(2).join(' ').split(/\s+/u).filter((word) => /[\p{L}\p{N}]/u.test(word)));
+  }
+  if (!words.length) throw new Error('Empty subtitle');
+  return words;
+}
