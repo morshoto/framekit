@@ -12,9 +12,9 @@ const here = new URL('./sdef-runtime/', import.meta.url).pathname;
 async function exercise(t, writableName = false, useDelegate = false, fileDelegate = false) {
   const dir = await mkdtemp(join(tmpdir(), 'framekit-sdef-runtime-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
-  const shareDir = useDelegate ? await realpath(dir) : undefined;
-  if (shareDir) await writeFile(join(shareDir, 'Synthetic.fcpxml'), '<fcpxml version="1.11"/>', { flag: 'wx' });
-  const testEnv = { ...process.env, FRAMEKIT_TEST_USE_DELEGATE: useDelegate ? (fileDelegate ? 'file' : '1') : '0', FRAMEKIT_TEST_SHARE_DIR: shareDir ?? '/synthetic/share-output' };
+  const shareDir = await realpath(dir);
+  await writeFile(join(shareDir, 'Synthetic.fcpxml'), '<fcpxml/>', { flag: 'wx' });
+  const testEnv = { ...process.env, FRAMEKIT_TEST_USE_DELEGATE: useDelegate ? (fileDelegate ? 'file' : '1') : '0', FRAMEKIT_TEST_SHARE_DIR: shareDir };
   const contents = join(dir, 'Mock.app', 'Contents');
   await mkdir(join(contents, 'MacOS'), { recursive: true });
   await mkdir(join(contents, 'Resources'));
@@ -31,7 +31,7 @@ async function exercise(t, writableName = false, useDelegate = false, fileDelega
   if (writableName) assert.notEqual(selectedSource, source);
   const localSource = join(dir, 'main.swift');
   await writeFile(localSource, selectedSource);
-  await run('xcrun', ['swiftc', localSource, '-o', binary]);
+  await run('xcrun', ['swiftc', localSource, new URL('./SwiftOutputVerifier.swift', import.meta.url).pathname, '-o', binary]);
   assert.equal((await run(binary, ['conversion-control'], { timeout: 5000 })).stdout.trim(), 'unsupported-rejected:command-well-formed');
   const child = spawn(binary, ['listen'], { stdio: ['ignore', 'pipe', 'pipe'], env: testEnv });
   const exited = once(child, 'exit');
@@ -81,6 +81,9 @@ async function exercise(t, writableName = false, useDelegate = false, fileDelega
       assert.match(stderr, /MOCK OPEN HANDLER INVOKED/);
       assert.match(stderr, /MOCK OPEN REGISTRATION before-reregister status=/);
       t.diagnostic(stderr.split('\n').filter(line => line.includes('MOCK OPEN REGISTRATION')).join(' | '));
+      await writeFile(join(shareDir, 'Synthetic.fcpxml'), 'changed');
+      const changed = await run(binary, ['send', String(child.pid), 'open-only'], { timeout: 5000, env: testEnv });
+      assert.equal(changed.stdout.trim(), 'changed-output-rejected');
     }
     const countBefore = stderr.split('MOCK MAKE COMMAND INVOKED').length - 1;
     const withProperties = await run(binary, ['send', String(child.pid), 'make-properties'], { timeout: 5000 });
