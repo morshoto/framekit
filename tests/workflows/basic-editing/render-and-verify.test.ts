@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { appendFile, chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
@@ -11,6 +11,7 @@ import {
   createFramekitRenderRequest,
   createFramekitRenderResult,
   renderAndVerifyFramekitProject,
+  reverifyBriefArtifactObservation,
   type FramekitRenderArtifactVerifier,
   type FramekitRenderParameters,
   type TimelineIr,
@@ -76,6 +77,47 @@ test("render-and-verify returns verified provenance and independent artifact met
     assert.equal(outcome.verification?.artifact?.height, 180);
     assert.match(outcome.verification?.artifact?.fileDigest ?? "", /^[a-f0-9]{64}$/);
     assert.equal(outcome.verification?.checks.every(({ passed }) => passed), true);
+    const verifier = new FfmpegRenderVerifier({ ffprobePath: process.env.FFPROBE_BIN || "ffprobe" });
+    const observed = await reverifyBriefArtifactObservation(outcome, verifier);
+    assert.ok(observed);
+    const changing = structuredClone(outcome);
+    const duringVerification = { verify: async (plan: Parameters<typeof verifier.verify>[0], render: Parameters<typeof verifier.verify>[1]) => {
+      changing.plan!.target.sequenceId = "changed-during-verification";
+      return verifier.verify(plan, render);
+    } };
+    assert.deepEqual(await reverifyBriefArtifactObservation(changing, duringVerification), observed);
+    assert.equal(observed.fileDigest, outcome.verification?.artifact?.fileDigest);
+    assert.deepEqual(observed.revision, timeline.revision);
+    assert.equal(await reverifyBriefArtifactObservation({ ...outcome, status: "failed" }, verifier), undefined);
+    const malformedRevision = structuredClone(outcome);
+    malformedRevision.plan!.projectRevision = { id: "", sequence: -1, timestamp: "" };
+    malformedRevision.render!.projectRevision = structuredClone(malformedRevision.plan!.projectRevision);
+    const matchingVerifier = { verify: async () => structuredClone(outcome.verification!) };
+    assert.equal(await reverifyBriefArtifactObservation(malformedRevision, matchingVerifier), undefined);
+    const changed = structuredClone(outcome);
+    changed.render!.planDigest = "wrong";
+    assert.equal(await reverifyBriefArtifactObservation(changed, verifier), undefined);
+    const missingCheck = structuredClone(outcome);
+    missingCheck.verification!.checks = missingCheck.verification!.checks.filter((check) => check.name !== "output-stability");
+    assert.equal(await reverifyBriefArtifactObservation(missingCheck, verifier), undefined);
+    const changedArtifact = structuredClone(outcome);
+    changedArtifact.verification!.artifact!.fileDigest = "f".repeat(64);
+    assert.equal(await reverifyBriefArtifactObservation(changedArtifact, verifier), undefined);
+    const changedTarget = structuredClone(outcome);
+    changedTarget.render!.target.sequenceId = "other";
+    assert.equal(await reverifyBriefArtifactObservation(changedTarget, verifier), undefined);
+    const rewrittenTarget = structuredClone(outcome);
+    rewrittenTarget.plan!.target.sequenceId = "other";
+    rewrittenTarget.render!.target.sequenceId = "other";
+    assert.equal(await reverifyBriefArtifactObservation(rewrittenTarget, verifier), undefined,
+      "matching target changes must not reuse the original render-plan digest");
+    const rewrittenTimeline = structuredClone(outcome);
+    rewrittenTimeline.plan!.timeline.sequence.occurrences[0]!.name = "changed after render";
+    assert.equal(await reverifyBriefArtifactObservation(rewrittenTimeline, verifier), undefined,
+      "changed timeline contents must not reuse the original render-plan digest");
+    const contradictoryCheck = structuredClone(outcome);
+    contradictoryCheck.verification!.checks.push({ name: "dimensions", passed: false, detail: "contradiction" });
+    assert.equal(await reverifyBriefArtifactObservation(contradictoryCheck, verifier), undefined);
 
     const rangedFrame = await frameAt(outcome.verification!.artifact!.path, 1.1, directory, "range-selected");
     const unrangedTimeline = structuredClone(timeline);
@@ -91,6 +133,8 @@ test("render-and-verify returns verified provenance and independent artifact met
     await unrangedRenderer.render(unrangedPlan);
     const unrangedFrame = await frameAt(unrangedParameters.outputPath, 1.1, directory, "range-ignored");
     assert.notEqual(frameDigest(rangedFrame), frameDigest(unrangedFrame), "sourceStartTime must change the verified artifact segment");
+    await appendFile(outcome.verification!.artifact!.path, "changed after verification");
+    assert.equal(await reverifyBriefArtifactObservation(outcome, verifier), undefined);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

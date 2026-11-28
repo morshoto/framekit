@@ -73,6 +73,15 @@ function digest(value: unknown): string {
   return `sha256:${createHash("sha256").update(encoded).digest("hex")}`;
 }
 
+/** Check that the plan content matches its digest; this does not authenticate approval. */
+export function hasValidEditDecisionPlanDigest(plan: EditDecisionPlan): boolean {
+  try {
+    if (!plan || typeof plan !== "object" || typeof plan.planDigest !== "string" || !/^sha256:[a-f0-9]{64}$/.test(plan.planDigest)) return false;
+    const { planDigest, ...content } = plan;
+    return digest(content) === planDigest;
+  } catch { return false; }
+}
+
 /** Integrate verified proposals without executing or silently switching editor backends. */
 export async function createEditDecisionPlan(request: EditDecisionPlanRequest, artifacts: AnalysisArtifactStore, verifySource: AnalysisSourceVerifier, briefStore: CreativeBriefStore): Promise<EditDecisionPlanResult> {
   try {
