@@ -35,12 +35,16 @@ for (const externalMode of ['authored', 'process', 'process-renumbered'] as cons
     if (externalMode !== 'authored') {
       const inputPath = join(dir, 'a.fcpxml'), editPath = join(dir, 'external.fcpxml');
       await writeFile(inputPath, baseline, { flag: 'wx' });
-      await run('python3', ['scripts/research/revision-roundtrip/external-edit.py', inputPath, editPath]);
+      const edit = await run('python3', ['scripts/research/revision-roundtrip/external-edit.py', inputPath, editPath,
+        ...(externalMode === 'process-renumbered' ? ['--renumber-assets'] : [])]);
       external = await readFile(editPath);
       if (externalMode === 'process-renumbered') {
-        external = Buffer.from(external.toString().replace('id="a"', 'id="v9"').replaceAll('ref="a"', 'ref="v9"')
-          .replace('id="m"', 'id="s8"').replaceAll('ref="m"', 'ref="s8"'));
-        await writeFile(editPath, external);
+        assert.match(edit.stdout, /fixture asset IDs renumbered/);
+        const document = new XMLParser({ ignoreAttributes: false }).parse(external.toString()).fcpxml;
+        assert.deepEqual(document.resources.asset.map((asset: any) => asset['@_id']), ['v9', 's8']);
+        const opening = document.library.event.project.sequence.spine['asset-clip'][0];
+        assert.equal(opening['@_ref'], 'v9');
+        assert.equal(opening.audio['@_ref'], 's8');
       }
       assert.notEqual(hash(baseline), hash(external));
     } else external = await getXml('./anchored-edit.fcpxml');
