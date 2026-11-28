@@ -106,3 +106,12 @@ test('checks caption plan word preservation and timing without claiming rendered
   assert.equal(assessCaptionPlan(words, [{...groups[0],words:[{wordIndex:0,text:'changed'},{wordIndex:1,text:'there'}]}], 1/30).status, 'fail');
   assert.equal(assessCaptionPlan(words, null, 1/30).status, 'unavailable');
 });
+
+test('pins the talking-head interview and a fixed evaluation window', async () => {
+  const { loadCorpus } = await import('../../../scripts/benchmarks/ai-editing/corpus.mjs');
+  const asset = (await loadCorpus()).supplementalAssets.find((item) => item.id === 'novara-interview');
+  assert.match(asset.sha256, /^[a-f0-9]{64}$/);
+  assert.match(asset.license, /CC BY 3.0/);
+  assert.deepEqual(asset.windowSeconds, [0,30]);
+  assert.equal(asset.referenceText, 'unavailable');
+});
