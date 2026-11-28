@@ -319,6 +319,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "headless.fcpxml.export",
         "headless.render",
         "headless.render.inspect",
+        "headless.render.reverify",
         "headless.rough-cut.execute",
         "headless.rough-cut.preview",
       ].sort(),

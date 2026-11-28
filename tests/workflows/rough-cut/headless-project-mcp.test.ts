@@ -2210,6 +2210,7 @@ test("production stdio MCP persists and reopens the headless project and render 
     const listedTools = await client.listTools();
     assert.ok(listedTools.tools.some((tool) => tool.name === "headless.project.create"));
     assert.ok(listedTools.tools.some((tool) => tool.name === "headless.render.inspect"));
+    assert.ok(listedTools.tools.some((tool) => tool.name === "headless.render.reverify"));
     assert.match(client.getInstructions() ?? "", /headless Framekit-owned project/i);
 
     const supportedRoute = payload(await client.callTool({ name: "editing.route", arguments: {
@@ -2314,6 +2315,16 @@ test("production stdio MCP persists and reopens the headless project and render 
     const reopenedRender = payload(await client.callTool({ name: "headless.render.inspect", arguments: { renderId: render.renderId } }));
     assert.equal(reopenedRender.status, "passed");
     assert.equal(reopenedRender.outcome.render.projectRevision.id, finished.after.timeline.revision.id);
+    const reverified = payload(await client.callTool({ name: "headless.render.reverify", arguments: { renderId: render.renderId } }));
+    assert.equal(reverified.status, "verified");
+    assert.equal(reverified.observation.fileDigest, render.outcome.verification.artifact.fileDigest);
+    const outputPath = join(directory, "mcp-final.mp4");
+    await writeFile(outputPath, Buffer.concat([await readFile(outputPath), Buffer.from([0])]));
+    const changed = payload(await client.callTool({ name: "headless.render.reverify", arguments: { renderId: render.renderId } }));
+    assert.equal(changed.status, "unavailable");
+    assert.equal(changed.observation, undefined);
+    const historic = payload(await client.callTool({ name: "headless.render.inspect", arguments: { renderId: render.renderId } }));
+    assert.equal(historic.status, "passed", "inspection remains historical");
   } finally {
     await client?.close();
     await transport?.close();
