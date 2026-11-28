@@ -43,7 +43,7 @@ test('isolated sessions reject unknown assets and out-of-order events', async t 
   assert.deepEqual(protocol.trace(b.id), ['make']);
 });
 
-test('failed output observation stays at open and restarted protocol cannot resume in-memory trace', async t => {
+test('failed observation stays at open and the mock journal survives restart', async t => {
   const root = await mkdtemp(join(tmpdir(), 'share-protocol-restart-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const protocol = await createProtocol(root);
@@ -54,5 +54,24 @@ test('failed output observation stays at open and restarted protocol cannot resu
   await assert.rejects(protocol.event(asset.id, 'open', [xml]), /missing requested media/);
   assert.deepEqual(protocol.trace(asset.id), ['make', 'location', 'library', 'metadata', 'options']);
   const restarted = await createProtocol(root);
-  await assert.rejects(restarted.event(asset.id, 'open', [xml]), /unknown/);
+  assert.deepEqual(await restarted.inspect(asset.id), ['make', 'location', 'library', 'metadata', 'options']);
+  const movie = join(asset.directory, 'Example.mov');
+  await writeFile(movie, 'synthetic');
+  assert.equal((await restarted.event(asset.id, 'open', [xml, movie])).state, 'observed');
+  const again = await createProtocol(root);
+  await assert.rejects(again.event(asset.id, 'open', [xml, movie]), /order/);
+});
+
+
+test('a partial or mismatched protocol journal stays unknown after restart', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'share-protocol-corrupt-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const protocol = await createProtocol(root);
+  const asset = await protocol.make('Example', ['xml']);
+  const journal = join(root, `protocol-${asset.id}.json`);
+  await writeFile(journal, '{');
+  const restarted = await createProtocol(root);
+  await assert.rejects(restarted.inspect(asset.id), /journal/);
+  await writeFile(journal, JSON.stringify({ id: asset.id, next: 5, trace: ['make'] }));
+  await assert.rejects(restarted.event(asset.id, 'open', []), /journal/);
 });
