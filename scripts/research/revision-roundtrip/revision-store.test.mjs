@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -38,4 +38,16 @@ test('rejects changed artifacts, wrong target, partial record and symlink', asyn
   const link = join(directory, 'link.json');
   await symlink(path, link);
   await assert.rejects(readRevision(link, bytes, 'project-a'));
+});
+
+test('valid replacement of record and artifact is not authenticated', async t => {
+  const directory = await fixture(t);
+  const original = join(directory, 'original.json');
+  const replacement = join(directory, 'replacement.json');
+  const oldBytes = Buffer.from('<fcpxml/>');
+  const newBytes = Buffer.from('<fcpxml version="1.11"/>');
+  await writeRevision(original, oldBytes, 'project-a');
+  await writeRevision(replacement, newBytes, 'project-a');
+  await writeFile(original, await readFile(replacement));
+  assert.equal((await readRevision(original, newBytes, 'project-a')).digest, (await readRevision(replacement, newBytes, 'project-a')).digest);
 });

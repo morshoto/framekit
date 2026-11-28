@@ -25,3 +25,24 @@ test('uses saved A and external pins to create an independently checked B record
   await assert.rejects(createStoredRevisionB(options), /EEXIST/);
   await assert.rejects(createStoredRevisionB({ ...options, external: Buffer.from('changed'), output: join(dir, 'other'), outputRecord: join(dir, 'other.json') }), /stale/);
 });
+
+test('failed B record creation leaves an orphan without claiming completion', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'framekit-stored-orphan-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const baseline = await readFile(new URL('./independent-edited.fcpxml', import.meta.url));
+  const external = await readFile(new URL('./external-cut.fcpxml', import.meta.url));
+  const projectUid = 'project-framekit-8b68711b3f';
+  const baselineRecord = join(dir, 'a.json');
+  const externalRecord = join(dir, 'external.json');
+  const output = join(dir, 'b.fcpxml');
+  const outputRecord = join(dir, 'b.json');
+  await writeRevision(baselineRecord, baseline, projectUid);
+  await writeRevision(externalRecord, external, projectUid);
+  await writeRevision(outputRecord, Buffer.from('unrelated'), projectUid);
+  const options = { baseline, external, baselineRecord, externalRecord, output, outputRecord, projectUid,
+    sourceDigests: { a: 'a'.repeat(64), m: 'b'.repeat(64) }, targetIndex: 0, name: 'Approved name' };
+  await assert.rejects(createStoredRevisionB(options), /EEXIST/);
+  const orphan = await readFile(output);
+  await assert.rejects(readRevision(outputRecord, orphan, projectUid), /stale/);
+  await assert.rejects(createStoredRevisionB(options), /EEXIST/);
+});
