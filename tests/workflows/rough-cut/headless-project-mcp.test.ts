@@ -3410,7 +3410,8 @@ test("external JSON binds one font through preview, render and FCPXML", async ()
     const renderArgs = { projectId, sequenceId, expectedRevision: executed.after.timeline.revision, parameters: { outputPath: output, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } };
     await writeFile(fontPath, Buffer.concat([fontBytes, Buffer.from([0])]));
     const wrongFont = await client.callTool({ name: "headless.render", arguments: renderArgs });
-    assert.equal(payload(wrongFont).status, "unavailable");
+    assert.equal(wrongFont.isError, true);
+    assert.equal(JSON.parse(toolErrorText(wrongFont)).status, "unavailable");
     assert.equal(existsSync(output), false);
     await writeFile(fontPath, fontBytes);
     const rendered = payload(await client.callTool({ name: "headless.render", arguments: renderArgs }));
