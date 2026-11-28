@@ -22,3 +22,22 @@ test('independent XML exposes negative audio lane round-trip boundary', async ()
   assert.equal(timelineIrDigest(ir), 'd97454a4cc07b85ff5e57c0e4fc24013706da40d0f33179aba5f65884019c778');
   assert.throws(() => compileTimelineIrToFcpxml(ir, { target }), /track must be a non-negative integer/);
 });
+
+test('independent insertion changes positional occurrence identifiers', async () => {
+  const xml = await readFile(fixture, 'utf8');
+  const shifted = xml.replace('<spine>', '<spine><gap name="Manual gap" offset="0s" duration="1s"/>')
+    .replace('name="Opening" offset="0s"', 'name="Opening" offset="1s"')
+    .replace('duration="3s"><spine>', 'duration="4s"><spine>');
+  const parse = (value: string) => createTimelineIrFromProjectSnapshot(
+    FcpxmlDocumentAdapter.readProjectFromContent('/synthetic/independent.fcpxml', value),
+  );
+  const before = parse(xml);
+  const after = parse(shifted);
+  const beforeClip = before.sequence.occurrences.find(item => item.name === 'Opening');
+  const afterClip = after.sequence.occurrences.find(item => item.name === 'Opening');
+  assert.ok(beforeClip && afterClip);
+  assert.equal(beforeClip.mediaId, afterClip.mediaId);
+  assert.deepEqual(beforeClip.sourceStartTime, afterClip.sourceStartTime);
+  assert.notEqual(beforeClip.id, afterClip.id);
+  assert.notEqual(timelineIrDigest(before), timelineIrDigest(after));
+});
