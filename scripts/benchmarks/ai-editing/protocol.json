@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "purpose": "Exploratory quality evaluation; this protocol does not establish native acceptance or population performance.",
+  "cutSafety": {
+    "maximumVerifiedWordOverlaps": 0,
+    "requiresHumanReviewedBoundaries": true,
+    "noCandidates": "unavailable, not a pass",
+    "automaticAlignment": "screening only; conflicting boundaries require human adjudication"
+  },
+  "caption": {
+    "maximumBoundaryErrorSeconds": 0.2,
+    "minimumWordsWithinBoundaryToleranceFraction": 0.95,
+    "maximumWordErrorRate": 0.1,
+    "reference": "independent human-checked transcript and word boundaries; report omissions separately"
+  },
+  "music": {
+    "placementToleranceFrames": 1,
+    "gainToleranceDb": 1,
+    "measurement": "independently measure isolated dialogue and music contributions and report levels; no level alone proves intelligibility"
+  },
+  "evidence": ["source and artifact digest", "provider, model and configuration", "stale and missing analysis rejection", "provider disagreement", "partial coverage", "low confidence"],
+  "subjective": ["narrative continuity", "speech integrity at each cut", "dialogue intelligibility", "music appropriateness"],
+  "listening": "Record reviewer, media and context, original and edited samples, and pass/fail/uncertain with rationale. Unreviewed or uncertain is unavailable.",
+  "interpretation": "Thresholds are exploratory engineering targets selected before new evaluation, not validated universal perceptual standards. Report denominators, exclusions, disagreements and uncertainty. Prior AMI observations are exploratory, not held-out evidence."
+}
