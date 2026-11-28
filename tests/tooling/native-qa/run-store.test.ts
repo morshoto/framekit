@@ -2017,6 +2017,8 @@ test("status-only reader prioritizes a pending modern record over verified legac
     await writeFile(modernPath, JSON.stringify(current));
     await writeFile(join(store, `${createHash("sha256").update(jobId).digest("hex")}.json`), JSON.stringify(legacy));
     assert.deepEqual(await readPersistedFinalCutPublishJobStatus(store, jobId), { jobId, artifactDigest, state: "verification-pending" });
+    await writeFile(modernPath, "{corrupt");
+    await assert.rejects(readPersistedFinalCutPublishJobStatus(store, jobId));
     await rm(modernPath);
     assert.deepEqual(await readPersistedFinalCutPublishJobStatus(store, jobId), { jobId, artifactDigest, state: "verified" });
   } finally { await rm(store, { recursive: true, force: true }); }
