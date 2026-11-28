@@ -26,7 +26,8 @@ async function fixture() {
     return operation(locked);
   }));
   const service = new HeadlessCreativeBriefService({ openProject: async () => structuredClone(current), withProjectLock: async (_projectId, operation) => operation(), storeForProject: () => store });
-  return { dir, store, service, setProject: (value: FramekitProjectDocument) => { current = structuredClone(value); } };
+  return { dir, store, service, setProject: (value: FramekitProjectDocument) => { current = structuredClone(value); },
+    withRender: (render: any) => new HeadlessCreativeBriefService({ openProject: async () => structuredClone(current), withProjectLock: async (_id, operation) => operation(), storeForProject: () => store, render }) };
 }
 const target = { projectId: "p", sequenceId: "t", expectedRevision: revision };
 
@@ -46,6 +47,31 @@ test("draft, review, explicitly accept and revise without editing the project", 
     assert.equal(revised.record.state, "draft");
     assert.equal(revised.record.brief.version, 2);
     assert.deepEqual(project, initial);
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test("brief render inspection binds current project and reverified artifact without claiming complete acceptance", async () => {
+  const f = await fixture();
+  try {
+    const current = structuredClone(project);
+    const stored = { renderId: "render-fixture", projectId: "p", sequenceId: "t", requestedRevision: revision, status: "passed", outcome: { plan: { timeline: current.timeline } } };
+    const observation = { status: "passed", target: { projectId: "p", sequenceId: "t" }, revision, fileDigest: "b".repeat(64), durationSeconds: 45, width: 1080, height: 1920 };
+    let record = structuredClone(stored);
+    let verified = true;
+    const service = f.withRender({ inspect: async () => structuredClone(record), reverify: async () => verified ? { status: "verified", observation: structuredClone(observation) } : { status: "unavailable" } });
+    const draft = await service.create({ ...target, brief });
+    await service.accept({ ...target, expectedDigest: draft.record.digest, confirmed: true });
+    const result = await service.inspectRender({ ...target, renderId: "render-fixture" });
+    assert.equal(result.status, "incomplete");
+    assert.equal(result.nativeAcceptance, "unavailable");
+    assert.deepEqual(result.checks.map((check: any) => check.status), ["matches", "matches"]);
+    assert.equal(result.binding.artifactDigest, observation.fileDigest);
+    assert.match(result.notice, /not.*(approval|execution)/i);
+    verified = false;
+    assert.equal((await service.inspectRender({ ...target, renderId: "render-fixture" })).status, "unavailable");
+    verified = true;
+    record.outcome.plan.timeline.sequence.id = "other";
+    assert.equal((await service.inspectRender({ ...target, renderId: "render-fixture" })).status, "unavailable");
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
