@@ -26,6 +26,9 @@ test("session evidence requires a contiguous approved chain and its own verified
   assert.match(result.notice, /not.*(native|human)/i);
   assert.equal(ledger.inspect(session, bind(1), render).status, "unavailable");
   assert.equal(ledger.inspect(session, bind(2), { ...render, renderId: "forged" }).status, "unavailable");
+  ledger.recordRender("p", "s", { ...failedRender, requestedRevision: revision(1) });
+  assert.equal(ledger.inspect(session, bind(2), render).status, "unavailable", "an unbound render still invalidates the previous association");
+  ledger.recordRender("p", "s", render);
   const gap = ledger.begin(bind(0), true);
   ledger.recordEdit("p", "s", edit(1, 2), "approved-edit");
   ledger.recordRender("p", "s", render);
