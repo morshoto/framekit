@@ -148,6 +148,11 @@ final class Receiver: NSObject {
             guard MockStore.claimCompletion(matches[0].uniqueID) else {
                 reply.setParam(NSAppleEventDescriptor(int32: Int32(errAEEventNotHandled)), forKeyword: AEKeyword(keyErrorNumber)); return
             }
+            if matches[0].name == "Named" && ProcessInfo.processInfo.environment["FRAMEKIT_TEST_PAUSE_AFTER_CLAIM"] == "1" {
+                fputs("MOCK CLAIM PAUSED BEFORE REPLY\n", stderr)
+                fflush(stderr)
+                sleep(30) // Test-owned receiver is terminated by the harness before this returns.
+            }
             reply.setParam(descriptor, forKeyword: AEKeyword(keyDirectObject)); return
         }
         let registry = NSScriptSuiteRegistry.shared()

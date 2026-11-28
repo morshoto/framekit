@@ -120,6 +120,41 @@ async function exercise(t, writableName = false, useDelegate = false, fileDelega
             const stale = await run(binary, ['send', String(restarted.pid), 'open-named'], { timeout: 5000, env: testEnv });
             assert.equal(stale.stdout.trim(), 'open-named:accepted');
             t.diagnostic('restarted test app accepted an indistinguishable prior-generation callback');
+            restarted.kill('SIGTERM');
+            await restartedExit;
+            const interrupted = spawn(binary, ['listen'], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...testEnv, FRAMEKIT_TEST_PAUSE_AFTER_CLAIM: '1' } });
+            const interruptedExit = once(interrupted, 'exit');
+            try {
+              let readyTimer;
+              const ready = await Promise.race([once(interrupted.stdout, 'data').then(([chunk]) => chunk.toString().trim()), interruptedExit.then(() => 'exited'), new Promise(resolve => { readyTimer = setTimeout(() => resolve('timeout'), 5000); })]);
+              clearTimeout(readyTimer);
+              assert.equal(ready, 'ready');
+              await run(binary, ['send', String(interrupted.pid), 'make'], { timeout: 5000, env: testEnv });
+              await run(binary, ['send', String(interrupted.pid), 'make-properties'], { timeout: 5000, env: testEnv });
+              let marker = '';
+              let markClaimed;
+              const claimed = new Promise(resolve => { markClaimed = resolve; });
+              interrupted.stderr.on('data', chunk => {
+                marker += chunk.toString();
+                if (marker.includes('MOCK CLAIM PAUSED BEFORE REPLY')) markClaimed(true);
+              });
+              const pending = run(binary, ['send', String(interrupted.pid), 'open-named'], { timeout: 7000, env: testEnv })
+                .then(value => ({ value }), error => ({ error }));
+              let claimTimer;
+              const observed = await Promise.race([claimed, interruptedExit.then(() => false), new Promise(resolve => { claimTimer = setTimeout(() => resolve(false), 4000); })]);
+              clearTimeout(claimTimer);
+              assert.equal(observed, true, 'receiver did not reach the claimed-before-reply test hook');
+              assert.equal(interrupted.kill('SIGKILL'), true);
+              const [exitCode, signal] = await interruptedExit;
+              assert.equal(exitCode, null);
+              assert.equal(signal, 'SIGKILL');
+              const reply = await pending;
+              assert.notEqual(reply.value?.stdout.trim(), 'open-named:accepted');
+              t.diagnostic('test-owned receiver killed after claim and before its reply; no acceptance observed');
+            } finally {
+              if (interrupted.exitCode === null && interrupted.signalCode === null) interrupted.kill('SIGKILL');
+              await interruptedExit;
+            }
           } catch (error) {
             if (/errAETimeout/.test(error.stderr ?? '')) {
               t.diagnostic('inconclusive: restarted test app transport timed out');
@@ -140,7 +175,7 @@ async function exercise(t, writableName = false, useDelegate = false, fileDelega
   }
 }
 
-test('characterizes Cocoa scripting in an uninstalled test app', { skip: process.platform !== 'darwin', timeout: 15000 }, t => exercise(t));
+test('characterizes Cocoa scripting in an uninstalled test app', { skip: process.platform !== 'darwin', timeout: 25000 }, t => exercise(t));
 test('characterizes make with a writable name property', { skip: process.platform !== 'darwin', timeout: 15000 }, t => exercise(t, true));
 test('characterizes Cocoa application delegate open callback', { skip: process.platform !== 'darwin', timeout: 15000 }, t => exercise(t, false, true));
 test('characterizes Cocoa application openFile callback', { skip: process.platform !== 'darwin', timeout: 15000 }, t => exercise(t, false, true, true));

@@ -87,3 +87,5 @@ The test-owned Cocoa app now also exercises a process restart after the concurre
 ```sh
 node --test --test-name-pattern='uninstalled test app' scripts/research/custom-share/sdef-runtime.test.mjs
 ```
+
+The same targeted test also starts a third test-owned receiver with a test-only pause immediately after its in-memory completion claim and before the Apple Event reply. Once the receiver emits the pause marker, the harness sends SIGKILL only to that receiver and confirms its signal exit; the test-owned sender does not observe an acceptance. This provides an actual process-interruption observation for that exact synthetic ordering, not a durable claim, a terminal receipt, native recovery, or evidence that Final Cut has stopped work. A timeout before the hook remains a failure or explicitly inconclusive transport outcome; inspect the test diagnostics to determine which paths ran. No existing user process is signalled.
