@@ -7,7 +7,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { loadCorpus } from './corpus.mjs';
+import { headlessProbeEnvironment, loadCorpus } from './corpus.mjs';
 import { prepareApprovedMusicOutput } from './music-approved-preflight.mjs';
 
 const [speechArg,musicArg,outputArg] = process.argv.slice(2);
@@ -20,7 +20,7 @@ await prepareApprovedMusicOutput(speech,music,output,asset.sha256,config.music.s
 const ffmpeg=process.env.FFMPEG_BIN || 'ffmpeg', input=join(output,'source-speech.mp4');
 execFileSync(ffmpeg,['-v','error','-f','lavfi','-i','color=c=black:s=320x180:r=30:d=10','-ss','60','-i',speech,'-t','10','-map','0:v:0','-map','1:a:0','-c:v','libx264','-preset','ultrafast','-threads','1','-c:a','aac','-ac','2','-ar','48000',input]);
 const ffmpegVersion=execFileSync(ffmpeg,['-version'],{encoding:'utf8'}).split('\n')[0];
-const env={...process.env,FRAMEKIT_EDITOR:'final-cut-live',FRAMEKIT_AUTO_CONNECT:'0',FRAMEKIT_FINAL_CUT_HEADLESS:'1',FRAMEKIT_FINAL_CUT_NATIVE_WRITES:'0',FRAMEKIT_FINAL_CUT_SOCKET:join(output,'missing.sock'),FRAMEKIT_STATE_DIR:join(output,'state'),FRAMEKIT_SPEECH_ANALYZER:'',FRAMEKIT_AUDIO_ANALYZER:join(root,'apps/mcp-server/runtime/ffmpeg-audio-backend.py'),FRAMEKIT_AUDIO_ANALYZER_VERSION:ffmpegVersion};
+const env={...headlessProbeEnvironment(process.env,output),FRAMEKIT_SPEECH_ANALYZER:'',FRAMEKIT_AUDIO_ANALYZER:join(root,'apps/mcp-server/runtime/ffmpeg-audio-backend.py'),FRAMEKIT_AUDIO_ANALYZER_VERSION:ffmpegVersion};
 const transport=new StdioClientTransport({command:process.execPath,args:['--import','tsx',join(root,'apps/mcp-server/src/main.ts')],env,stderr:'pipe'});
 const client=new Client({name:'approved-music-probe',version:'1.0.0'}); await client.connect(transport);
 const call=async(name,args)=>{const response=await client.callTool({name,arguments:args}); if(response.isError || response.content?.[0]?.type!=='text') throw new Error(`${name}: ${JSON.stringify(response.content)}`); return JSON.parse(response.content[0].text);};

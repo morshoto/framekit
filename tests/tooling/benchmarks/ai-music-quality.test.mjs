@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { measureMix } from '../../../scripts/benchmarks/ai-editing/music-quality.mjs';
@@ -41,7 +42,7 @@ test('pins licensed music and a fixed scenario before evaluation', async () => {
 test('music runner rejects missing source before invoking a renderer', async () => {
   const { execFileSync } = await import('node:child_process');
   const runner = new URL('../../../scripts/benchmarks/ai-editing/run-music.mjs', import.meta.url);
-  assert.throws(() => execFileSync(process.execPath, ['--import', 'tsx', runner.pathname, '/missing/speech', '/missing/music', '/missing/output'], {stdio: 'pipe'}), /ENOENT/);
+  assert.throws(() => execFileSync(process.execPath, ['--import', 'tsx', fileURLToPath(runner), '/missing/speech', '/missing/music', '/missing/output'], {stdio: 'pipe'}), /ENOENT/);
 });
 
 test('finds music placement by normalized correlation at frame resolution', async () => {
@@ -80,7 +81,7 @@ test('recognition proxy is fixed to the measured renders and is not acceptance',
 test('speech proxy runner checks media identity before recognition', async () => {
   const { execFileSync } = await import('node:child_process');
   const runner = new URL('../../../scripts/benchmarks/ai-editing/run-speech-proxy.mjs', import.meta.url);
-  assert.throws(() => execFileSync(process.execPath,[runner.pathname,'/missing/a','/missing/b','python'],{stdio:'pipe'}), /ENOENT/);
+  assert.throws(() => execFileSync(process.execPath,[fileURLToPath(runner),'/missing/a','/missing/b','python'],{stdio:'pipe'}), /ENOENT/);
 });
 
 test('allows explicit bounded gain for an exploratory comparison', async () => {
