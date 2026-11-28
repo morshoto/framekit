@@ -105,6 +105,9 @@ test('checks caption plan word preservation and timing without claiming rendered
   assert.equal(assessCaptionPlan(words, [{...groups[0],sequenceRange:{start:1.1,end:1.7}}], 1/30).status, 'fail');
   assert.equal(assessCaptionPlan(words, [{...groups[0],words:[{wordIndex:0,text:'changed'},{wordIndex:1,text:'there'}]}], 1/30).status, 'fail');
   assert.equal(assessCaptionPlan(words, [{...groups[0],lines:['Hello']}], 1/30).status, 'fail');
+  const reordered = assessCaptionPlan(words, [{...groups[0], lines:['there Hello'], words:[{wordIndex:1,text:'there'},{wordIndex:0,text:'Hello'}]}], 1/30);
+  assert.equal(reordered.status, 'fail');
+  assert.equal(reordered.orderFailures, 1);
   assert.equal(assessCaptionPlan(words, null, 1/30).status, 'unavailable');
 });
 

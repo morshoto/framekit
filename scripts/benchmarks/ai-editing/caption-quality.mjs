@@ -107,7 +107,7 @@ export function assessCaptionPlan(words, groups, frameDuration) {
   if (!Array.isArray(words) || !words.length || !Array.isArray(groups)) return unavailable;
   if (!Number.isFinite(frameDuration) || frameDuration <= 0) throw new Error('Invalid frame duration');
   const counts = Array(words.length).fill(0);
-  let timingFailures = 0, textMismatches = 0, lineMismatches = 0, malformed = 0, previousEnd = 0;
+  let timingFailures = 0, textMismatches = 0, lineMismatches = 0, orderFailures = 0, malformed = 0, previousEnd = 0, previousIndex = -1;
   for (const group of groups) {
     const range = group?.sequenceRange;
     if (!range || !Number.isFinite(range.start) || !Number.isFinite(range.end) || range.start < previousEnd - 1e-9 || range.end <= range.start || !Array.isArray(group.words)) { malformed++; continue; }
@@ -117,6 +117,8 @@ export function assessCaptionPlan(words, groups, frameDuration) {
     for (const item of group.words) {
       const index = item?.wordIndex;
       if (!Number.isSafeInteger(index) || index < 0 || index >= words.length) { malformed++; continue; }
+      if (index <= previousIndex) orderFailures++;
+      previousIndex = index;
       counts[index]++;
       const word = words[index];
       if (item.text !== word.text) textMismatches++;
@@ -126,8 +128,8 @@ export function assessCaptionPlan(words, groups, frameDuration) {
   }
   const missingWords = counts.filter((count) => count === 0).length;
   const duplicateWords = counts.filter((count) => count > 1).length;
-  return {status:missingWords || duplicateWords || timingFailures || textMismatches || lineMismatches || malformed ? 'fail' : 'pass',
-    referenceWords:words.length,missingWords,duplicateWords,timingFailures,textMismatches,lineMismatches,malformed,
+  return {status:missingWords || duplicateWords || timingFailures || textMismatches || lineMismatches || orderFailures || malformed ? 'fail' : 'pass',
+    referenceWords:words.length,missingWords,duplicateWords,timingFailures,textMismatches,lineMismatches,orderFailures,malformed,
     toleranceSeconds:frameDuration,renderedTextStatus:'unavailable'};
 }
 
