@@ -4120,6 +4120,18 @@ test("approved reviewed headless cut executes once and independently reads back"
     const finalRender = payload(await client.callTool({ name: "headless.render", arguments: { projectId, sequenceId, expectedRevision: musicFinal.timeline.revision,
       parameters: { outputPath: finalPath, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } } }));
     assert.equal(finalRender.status, "passed", JSON.stringify(finalRender));
+    const replanPin = { ...finalTarget, mediaId: media.resource.id, range: { start: 0, end: 5 } };
+    const replanSpeech = payload(await client.callTool({ name: "headless.analysis.pin", arguments: { ...replanPin, kind: "speech" } })).ref;
+    const replanVad = payload(await client.callTool({ name: "headless.analysis.pin", arguments: { ...replanPin, kind: "vad" } })).ref;
+    const replanInput = { ...musicInput, revision: musicFinal.timeline.revision, speechRef: replanSpeech, vadRef: replanVad };
+    const replan = payload(await client.callTool({ name: "headless.decision.plan", arguments: replanInput }));
+    assert.equal(replan.status, "available", replan.reason);
+    for (const name of ["headless.decision.preview-captions", "headless.decision.approved-preview-captions"]) {
+      const overlap = await client.callTool({ name, arguments: { ...replanInput, planDigest: replan.plan.planDigest } });
+      assert.equal(overlap.isError, true, `${name} must not append titles over existing captions`);
+      assert.match(toolErrorText(overlap), /CAPTION_PREVIEW_OVERLAP/);
+    }
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, musicFinal.timeline);
     const chain = payload(await client.callTool({ name: "headless.evidence.inspect", arguments: { ...finalTarget, sessionId: continuedEvidence.sessionId, renderId: finalRender.renderId } }));
     assert.equal(chain.status, "observed", JSON.stringify(chain));
     assert.equal(chain.steps.length, 4);
