@@ -48,3 +48,21 @@ test('retries GitHub GraphQL rate limit errors on HTTP 200', async () => {
  assert.deepEqual(await request('https://api.github.com/graphql', {}, { graphql: true, readOnly: true }), { ok: true });
  assert.equal(calls, 2);
 });
+
+test('deadline aborts an in-flight read without retrying', async () => {
+ let calls = 0;
+ let signal;
+ const request = createGitHubRequestPolicy({ budgetMs: 30, log: () => {}, fetchImpl: async (_url, options) => {
+  calls++;
+  signal = options.signal;
+  return new Promise(() => {});
+ } });
+ await assert.rejects(request('https://api.github.com/test', {}, { readOnly: true }), /deadline/);
+ assert.equal(calls, 1);
+ assert.equal(signal.aborted, true);
+});
+
+test('deadline also bounds reading the response body', async () => {
+ const request = createGitHubRequestPolicy({ budgetMs: 30, log: () => {}, fetchImpl: async () => ({ status: 200, ok: true, json: () => new Promise(() => {}) }) });
+ await assert.rejects(request('https://api.github.com/test', {}, { readOnly: true }), /deadline/);
+});
