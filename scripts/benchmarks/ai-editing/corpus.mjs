@@ -1,6 +1,18 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { join, resolve, sep } from 'node:path';
+
+/** Keep PATH command names intact; resolve explicit relative or absolute paths. */
+export function resolveProbeCommand(command) {
+  if (typeof command !== 'string' || !command.trim()) throw new Error('Invalid probe command');
+  return command.includes(sep) ? resolve(command) : command;
+}
+
+/** Isolate disposable headless runs from inherited native-provider selection. */
+export function headlessProbeEnvironment(environment, output) {
+  return {...environment,FRAMEKIT_EDITOR:'final-cut-live',FRAMEKIT_AUTO_CONNECT:'0',FRAMEKIT_FINAL_CUT_HEADLESS:'1',FRAMEKIT_FINAL_CUT_NATIVE_WRITES:'0',FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER:'',FRAMEKIT_FINAL_CUT_SOCKET:join(output,'missing.sock'),FRAMEKIT_STATE_DIR:join(output,'state')};
+}
 
 export async function loadCorpus() {
   return JSON.parse(await readFile(new URL('./corpus.json', import.meta.url), 'utf8'));
