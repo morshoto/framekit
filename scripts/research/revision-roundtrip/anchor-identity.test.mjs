@@ -21,11 +21,15 @@ test('embedded explicit ID survives an independent source-range edit and same-na
 
 test('compares anchored child timing in parent time, rejecting a shifted title and audio', async () => {
   const { base, external } = await fixtures();
-  const corrected = external.replace('lane="-1" offset="1s"', 'lane="-1" offset="2s"')
-    .replace('lane="2" offset="1s"', 'lane="2" offset="2s"');
-  assert.notEqual(corrected, external);
-  assert.equal(findAnchoredTarget(base, corrected, 'opening-v1', expected).id, 'opening-v1');
-  assert.throws(() => findAnchoredTarget(base, external, 'opening-v1', expected), /structure|timing/);
+  const shifted = external.replace('lane="-1" offset="2s"', 'lane="-1" offset="1s"')
+    .replace('lane="2" offset="2s"', 'lane="2" offset="1s"');
+  assert.notEqual(shifted, external);
+  assert.equal(findAnchoredTarget(base, external, 'opening-v1', expected).id, 'opening-v1');
+  assert.throws(() => findAnchoredTarget(base, shifted, 'opening-v1', expected), /structure|timing/);
+  assert.throws(() => findAnchoredTarget(base, external.replace('lane="-1" offset="2s"', 'lane="-1" offset="1s"'), 'opening-v1', expected), /structure|timing/);
+  assert.throws(() => findAnchoredTarget(base, external.replace('lane="2" offset="2s"', 'lane="2" offset="1s"'), 'opening-v1', expected), /structure|timing/);
+  const equivalent = external.replace('lane="-1" offset="2s"', 'lane="-1" offset="4/2s"');
+  assert.equal(findAnchoredTarget(base, equivalent, 'opening-v1', expected).id, 'opening-v1');
 });
 
 test('rejects copied, missing and changed anchors and source declarations', async () => {

@@ -16,7 +16,7 @@ async function input() {
   return { baseline, external, baselineDigest: hash(baseline), externalDigest: hash(external), projectUid: 'project-framekit-8b68711b3f', sourceDigests, targetIndex: 0, name: 'Approved name' };
 }
 
-test('independent cut plus rename preserves editable title and signed audio lane in revision B', async () => {
+test('independent cut plus rename retains title XML and signed audio lane in revision B', async () => {
   const result = createRevisionB(await input());
   assert.equal(result.digest, hash(result.xml));
   assert.equal(XMLValidator.validate(result.xml.toString()), true);

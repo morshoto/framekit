@@ -10,6 +10,15 @@ function canonicalTime(value, positive = false) {
   while (b !== 0n) [a, b] = [b, a % b];
   return `${numerator / a}/${denominator / a}`;
 }
+function relativeTime(offset, start) {
+  const [on, od] = canonicalTime(offset).split('/').map(BigInt);
+  const [sn, sd] = canonicalTime(start).split('/').map(BigInt);
+  const n = on * sd - sn * od;
+  const d = od * sd;
+  let a = n < 0n ? -n : n, b = d;
+  while (b !== 0n) [a, b] = [b, a % b];
+  return `${n / a}/${d / a}`;
+}
 const array = value => value === undefined ? [] : Array.isArray(value) ? value : [value];
 const one = (value, kind) => {
   const entries = array(value);
@@ -45,6 +54,13 @@ function inspect(xml) {
     const source = assets.get(clip['@_ref']);
     if (!source) throw new Error('invalid source');
     const structure = structuredClone(clip);
+    // The fixture supports only direct audio/title anchors. Compare their
+    // placement in the parent's local timeline, not their raw offsets.
+    for (const kind of ['audio', 'title']) {
+      for (const child of array(structure[kind])) {
+        child['@_offset'] = relativeTime(child['@_offset'] ?? '0s', clip['@_start'] ?? '0s');
+      }
+    }
     delete structure['@_start'];
     delete structure['@_offset'];
     delete structure['@_duration'];
