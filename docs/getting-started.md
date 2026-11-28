@@ -163,7 +163,16 @@ the current analysis index, and brief or project changes observed during plannin
 To correct a recognized word in the caption proposal, supply
 `caption.wordCorrections` entries with the transcript `wordIndex` and replacement
 `text`. The plan keeps the original text, timing and analysis reference visible;
-the correction itself still requires review and changes the plan digest.
+the correction itself still requires review and changes the plan digest. It does
+not alter the source transcript; supply it again when regenerating a plan.
+Caption preview rejects a proposed title that overlaps an existing title on
+the same lane. To replace existing titles, pass their explicit `replaceTitleIds`
+to the caption preview. Each selected title must match exactly one proposed
+caption's lane, start and duration; its identity, timing and style are retained.
+Other overlapping titles remain protected. The plan digest binds the correction,
+while the separately reviewed preview and single-use execution token bind the
+selected replacements and exact operations. Timing changes require a separate
+edit. Titles that only touch at a boundary are allowed.
 Music capability and speech-presence inputs are caller-supplied context, not
 independent capability discovery or verified speech detection.
 

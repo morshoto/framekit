@@ -1391,6 +1391,21 @@
       "network": "none"
     },
     {
+      "path": "tests/mcp/tools/caption-conflict.test.ts",
+      "owner": "apps/mcp-server",
+      "reviewed": true,
+      "tags": [
+        "unit"
+      ],
+      "evidence": "fixture",
+      "dependsOn": ["apps/mcp-server", "packages/runtime"],
+      "requires": [],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
       "path": "tests/mcp/tools/disposable-native-mcp.test.ts",
       "owner": "adapters/final-cut/typescript",
       "tags": [

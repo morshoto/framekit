@@ -1,3 +1,4 @@
+import { prepareCaptionOperations } from "./caption-conflict.js";
 import { reviewedCutOperations, verifyReviewedCutReadback } from "./headless-decision-cut.js";
 import { HeadlessSessionEvidenceLedger } from "./headless-session-evidence.js";
 import { registerValidatedTool } from "./tools/validated-tool.js";
@@ -2685,7 +2686,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }));
 
   const decisionCaptionApprovals = new Map<string, { input: HeadlessDecisionRequest; planDigest: string; editToken: string; expiresAt: number }>();
-  const previewDecisionCaptions = async (input: HeadlessDecisionRequest, planDigest: string) => {
+  const previewDecisionCaptions = async (input: HeadlessDecisionRequest, planDigest: string, replaceTitleIds: string[] = []) => {
     const plans = options.headlessDecisionPlans;
     if (!plans) throw new Error("DECISION_PLAN_UNAVAILABLE: headless planning is not configured");
     const initial = await plans.plan(input);
@@ -2696,38 +2697,41 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     }
     const service = requireHeadlessProjects();
     const font = service.selectTitleFont(captions.map((item) => item.group.lines.join("\n")));
-    const operations = captions.map((item, index) => ({ type: "add-title" as const, title: {
+    const proposed = captions.map((item, index) => ({
       id: `decision-caption-${planDigest.slice(7, 23)}-${index}`, text: item.group.lines.join("\n"),
       startTime: item.range.startTime!, durationTime: item.range.durationTime!, lane: 1, font: structuredClone(font),
-    } }));
+    }));
+    const opened = await service.open(input.projectId);
+    const { operations, replacedTitleIds } = prepareCaptionOperations(opened.timeline.sequence.titles ?? [], proposed, replaceTitleIds);
     const preview = await service.previewEdit(input.projectId, { schemaVersion: 1, expectedRevision: input.revision, operations }, input.timelineId);
+    if (!samePreviewBase(opened.timeline, preview.before.timeline)) throw new Error("STALE_DECISION_PLAN: project changed during caption replacement preview");
     const frame = preview.before.timeline.sequence.frameDuration;
     const aligned = (time: { value: string; timescale: string }) =>
       (BigInt(time.value) * BigInt(frame.timescale)) % (BigInt(time.timescale) * BigInt(frame.value)) === 0n;
-    if (operations.some((operation) => !aligned(operation.title.startTime) || !aligned(operation.title.durationTime))) {
+    if (proposed.some((title) => !aligned(title.startTime) || !aligned(title.durationTime))) {
       throw new Error("CAPTION_PREVIEW_UNAVAILABLE: captions must align to the sequence frame grid");
     }
     const current = await plans.plan(input);
     if (current.status !== "available" || current.plan.planDigest !== planDigest) throw new Error("STALE_DECISION_PLAN: inputs changed during preview");
     const after = await service.open(input.projectId);
     if (!samePreviewBase(after.timeline, preview.before.timeline)) throw new Error("STALE_DECISION_PLAN: project changed during preview");
-    return { scope: "headless-preview", planDigest, preview, notice: "Basic text only; emphasis is a review suggestion. This is not approval or native title proof." };
+    return { scope: "headless-preview", planDigest, preview, replacedTitleIds, notice: "Basic text only; replacements preserve selected title timing and style. This is not approval or native title proof." };
   };
   registerValidatedTool(server, "headless.decision.preview-captions", {
     description: "Preview reviewed basic captions in a Framekit-owned headless timeline without executing edits.",
-    inputSchema: { ...decisionPlanSchema, planDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/) },
-  }, async ({ planDigest, ...input }) => sessionResult(() => previewDecisionCaptions(input, planDigest)));
+    inputSchema: { ...decisionPlanSchema, planDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/), replaceTitleIds: z.array(z.string().min(1)).max(500).optional() },
+  }, async ({ planDigest, replaceTitleIds, ...input }) => sessionResult(() => previewDecisionCaptions(input, planDigest, replaceTitleIds)));
   registerValidatedTool(server, "headless.decision.approved-preview-captions", {
     description: "Prepare a single-use headless caption preview bound to the reviewed decision plan.",
-    inputSchema: { ...decisionPlanSchema, planDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/) },
-  }, async ({ planDigest, ...input }) => sessionResult(async () => {
-    const reviewed = await previewDecisionCaptions(input, planDigest);
+    inputSchema: { ...decisionPlanSchema, planDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/), replaceTitleIds: z.array(z.string().min(1)).max(500).optional() },
+  }, async ({ planDigest, replaceTitleIds, ...input }) => sessionResult(async () => {
+    const reviewed = await previewDecisionCaptions(input, planDigest, replaceTitleIds);
     const approved = await requireHeadlessProjects().previewApprovedEdit(input.projectId, {
       schemaVersion: 1, expectedRevision: input.revision, operations: reviewed.preview.command.operations,
     }, input.timelineId);
     if (!samePreviewBase(approved.before.timeline, reviewed.preview.before.timeline)
       || timelineIrDigest(approved.after.timeline) !== timelineIrDigest(reviewed.preview.after.timeline)) throw new Error("STALE_DECISION_PLAN: approved preview differs from the reviewed proposal");
-    await previewDecisionCaptions(input, planDigest);
+    await previewDecisionCaptions(input, planDigest, replaceTitleIds);
     const now = Date.now();
     for (const [token, entry] of decisionCaptionApprovals) if (entry.expiresAt <= now) decisionCaptionApprovals.delete(token);
     while (decisionCaptionApprovals.size >= 256) decisionCaptionApprovals.delete(decisionCaptionApprovals.keys().next().value!);
