@@ -117,3 +117,14 @@ test('editorial downloader rejects changed bytes before writing audio', async ()
     await assert.rejects((await import('node:fs/promises')).access(join(output,item.filename)), /ENOENT/);
   } finally { await rm(parent, {recursive:true,force:true}); }
 });
+
+test('editorial downloader accepts new nested output but rejects an existing directory', async () => {
+  const { downloadEditorialSubset } = await import('../../../scripts/benchmarks/ai-editing/editorial-subset.mjs');
+  const parent = await mkdtemp(join(tmpdir(), 'framekit-editorial-nested-'));
+  const output = join(parent, 'nested', 'new');
+  const failFetch = async () => ({ok:false,status:503});
+  try {
+    await assert.rejects(downloadEditorialSubset(output, failFetch), /request failed: 503/);
+    await assert.rejects(downloadEditorialSubset(output, failFetch), /EEXIST/);
+  } finally { await rm(parent, {recursive:true,force:true}); }
+});
