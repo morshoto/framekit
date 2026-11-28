@@ -909,3 +909,34 @@ test("headless execution preserves committed Undo data across verifier mutation"
     assert.equal(uncloneable.edit.undoId, "recoverable");
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
+
+test("optional filler observations bind speech and remain unavailable for execution", async () => {
+  const f = await fixture();
+  try {
+    const speech = { ...f.record.speech, words: [
+      { text: "Hello.", start: 1, end: 2, confidence: 0.98 },
+      { text: "um,", start: 3, end: 3.3, confidence: 0.99 },
+      { text: "uh,", start: 4, end: 4.3, confidence: 0.55 },
+      { text: "Again", start: 5, end: 6, confidence: 0.96 },
+    ], protectedSegments: [{ kind: "speech" as const, start: 3.9, end: 4.4 }] };
+    await f.index.save({ ...f.record, speech });
+    const speechRef = await pinAnalysisEvidence(f.index, f.artifacts, f.request.speechContext, verifyLocalMediaSource);
+    const request = { ...f.request, speechRef, vadRef: undefined, vadContext: undefined };
+    const original = structuredClone(request.snapshot);
+    const normal = await createEditDecisionPlan(request, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    const observed = await createEditDecisionPlan({ ...request, includeFillerObservations: true }, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(normal.status, "available"); assert.equal(observed.status, "available");
+    if (normal.status !== "available" || observed.status !== "available") return;
+    assert.equal(normal.plan.decisions.some((item) => item.kind === "filler-observation"), false);
+    const fillers = observed.plan.decisions.filter((item) => item.kind === "filler-observation");
+    assert.equal(fillers.length, 2);
+    assert.ok(fillers.every((item) => item.support === "unavailable" && item.reviewRequired === true));
+    assert.deepEqual(fillers.map((item) => item.word.text), ["um,", "uh,"]);
+    assert.ok(fillers.every((item) => item.analysisRef.artifactDigest === speechRef.artifactDigest));
+    assert.ok(observed.plan.warnings.some((warning) => /not.*(safe|remov)/i.test(warning)));
+    assert.notEqual(normal.plan.planDigest, observed.plan.planDigest);
+    assert.deepEqual(request.snapshot, original);
+    await writeFile(f.path, "changed source");
+    assert.notEqual((await createEditDecisionPlan({ ...request, includeFillerObservations: true }, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "available");
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
