@@ -38,7 +38,7 @@ test('characterizes Cocoa scripting in an uninstalled test app', { skip: process
       t.diagnostic('inconclusive: test-app ping timed out before make');
       return;
     }
-    assert.equal(ping.stdout.trim(), 'pong:absent');
+    assert.equal(ping.stdout.trim(), 'pong:loaded:MockMakeCommand');
     let make;
     try { make = await run(binary, ['send', String(child.pid), 'make'], { timeout: 5000 }); }
     catch (error) {
@@ -46,9 +46,9 @@ test('characterizes Cocoa scripting in an uninstalled test app', { skip: process
       t.diagnostic('inconclusive: make timed out');
       return;
     }
-    assert.equal(make.stdout.trim(), 'make-rejected:-1708');
-    assert.doesNotMatch(stderr, /MOCK MAKE COMMAND INVOKED/);
-    t.diagnostic('test suite absent before make; direct-launch app returned -1708 without invoking its mock command');
+    assert.equal(make.stdout.trim(), 'make:asset-1:get:Synthetic');
+    assert.match(stderr, /MOCK MAKE COMMAND INVOKED/);
+    t.diagnostic('SDEF-backed Cocoa make and get resolved the test asset');
   } finally {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
     await exited;
