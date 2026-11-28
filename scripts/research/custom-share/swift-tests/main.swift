@@ -85,3 +85,7 @@ if registry.makeSpecifier(name: "Unbound", containerDescription: incomplete) != 
     fputs("unbound desired class must be rejected\n", stderr)
     exit(1)
 }
+let makeDescription = NSScriptCommandDescription(suiteName: "Research Share", commandName: "make", dictionary: ["AppleEventClassCode": "core", "AppleEventCode": "crel"])!
+let untrustedMake = ResearchMakeCommand(commandDescription: makeDescription)
+require(untrustedMake.performDefaultImplementation() == nil, "unauthenticated make returned an asset")
+require(untrustedMake.scriptErrorNumber == Int(errAEEventNotHandled), "unauthenticated make not rejected")
