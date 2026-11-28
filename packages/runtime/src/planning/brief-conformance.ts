@@ -1,8 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 import type { ContextRevision } from "../domain/primitives.js";
-import type { FramekitRenderAndVerifyResult, FramekitRenderArtifactVerifier } from "../render/render-and-verify.js";
+import type { FramekitRenderAndVerifyResult, FramekitRenderArtifactVerifier, FramekitRenderVerificationCheck } from "../render/render-and-verify.js";
 import { createFramekitRenderResult, type FramekitRenderPlan } from "../render/render-contract.js";
-import type { FramekitRenderVerificationCheck } from "../render/render-and-verify.js";
 import { parseRational } from "../timeline/rational-time.js";
 import { assertBriefBinding } from "./creative-brief.js";
 import type { AcceptedCreativeBrief, CreativeBrief } from "./creative-brief.js";
