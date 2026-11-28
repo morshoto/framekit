@@ -102,3 +102,12 @@ test('selects only pinned recognition proxy variants', async () => {
   assert.equal(proxyVariant(config, 'quiet').mixedSha256, 'c'.repeat(64));
   assert.throws(() => proxyVariant(config, 'unknown'), /variant/i);
 });
+
+test('recognition proxy accepts only explicitly configured models', async () => {
+  const { proxyModel } = await import('../../../scripts/benchmarks/ai-editing/speech-consistency.mjs');
+  const config = {model:'tiny',secondaryModel:'large'};
+  assert.equal(proxyModel(config, undefined),'tiny');
+  assert.equal(proxyModel(config, 'secondary'),'large');
+  assert.throws(() => proxyModel(config, 'other'), /model/i);
+  assert.throws(() => proxyModel({model:'tiny'}, 'secondary'), /model/i);
+});
