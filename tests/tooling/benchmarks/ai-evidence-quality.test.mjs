@@ -69,3 +69,9 @@ test('rejects secondary words with invalid confidence or outside observed covera
   assert.equal(compareProviderCuts([candidate], digest, badConfidence).status, 'unavailable');
   assert.equal(compareProviderCuts([candidate], digest, outsideCoverage).status, 'unavailable');
 });
+
+test('does not misreport unrelated probe errors as partial coverage rejection', async () => {
+  const { classifyPartialRejection } = await import('../../../scripts/benchmarks/ai-editing/evidence-probe.mjs');
+  assert.equal(classifyPartialRejection(new Error('ANALYSIS_INVALID: speech coverage is incomplete or not provider-reported')), 'rejected');
+  assert.throws(() => classifyPartialRejection(new Error('disk unavailable')), /disk unavailable/);
+});
