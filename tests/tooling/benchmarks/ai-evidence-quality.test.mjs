@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { compareProviderCuts } from '../../../scripts/benchmarks/ai-editing/evidence-quality.mjs';
@@ -56,13 +57,13 @@ test('production preview comparison fixes transformed input and candidate', asyn
 test('preview disagreement runner rejects missing source before invoking a model', async () => {
   const { execFileSync } = await import('node:child_process');
   const runner = new URL('../../../scripts/benchmarks/ai-editing/run-preview-disagreement.mjs', import.meta.url);
-  assert.throws(()=>execFileSync(process.execPath,[runner.pathname,'/missing/source','python'],{stdio:'pipe'}),/ENOENT/);
+  assert.throws(()=>execFileSync(process.execPath,[fileURLToPath(runner),'/missing/source','python'],{stdio:'pipe'}),/ENOENT/);
 });
 
 test('provider runner verifies source before invoking a model', async () => {
   const { execFileSync } = await import('node:child_process');
   const runner = new URL('../../../scripts/benchmarks/ai-editing/run-disagreement.mjs', import.meta.url);
-  assert.throws(() => execFileSync(process.execPath, [runner.pathname, '/missing/source', 'python'], {stdio:'pipe'}), /ENOENT/);
+  assert.throws(() => execFileSync(process.execPath, [fileURLToPath(runner), '/missing/source', 'python'], {stdio:'pipe'}), /ENOENT/);
 });
 
 test('production evidence probe accepts only the expected typed rejection', async () => {
