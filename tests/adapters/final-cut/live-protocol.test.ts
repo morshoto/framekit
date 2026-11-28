@@ -102,7 +102,8 @@ test("Final Cut live transport retries bounded read-only requests after a transi
 
   await new Promise<void>((resolve) => server.listen(socketPath, resolve));
   try {
-    const response = await new UnixSocketFinalCutLiveTransport(socketPath, 50).request({
+    // The first connection closes explicitly; allow the normal read timeout for the retry.
+    const response = await new UnixSocketFinalCutLiveTransport(socketPath).request({
       version: FINAL_CUT_LIVE_PROTOCOL_VERSION,
       id: "request-retry",
       method: "state",
