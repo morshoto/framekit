@@ -33,6 +33,6 @@ jobs:
                   node-version: '24.22.3'
             - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
             - name: Reconcile repository label definitions
-              run: pnpm dlx --yes @azu/github-label-setup@5.2.0 --token "$GITHUB_TOKEN" --labels .github/labels/labels.json
+              run: pnpm dlx --yes @azu/github-label-setup --token "$GITHUB_TOKEN" --labels .github/labels/labels.json
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

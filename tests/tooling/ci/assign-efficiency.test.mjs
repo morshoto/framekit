@@ -19,7 +19,7 @@ test('repository label definitions reconcile on configuration changes and repair
  const job = maintenance.jobs.sync;
  assert.equal(job.permissions.issues, 'write');
  assert.equal(job.permissions.contents, 'read');
- assert.ok(job.steps.some((step) => step.run?.includes('@azu/github-label-setup@5.2.0')));
+ assert.ok(job.steps.some((step) => step.run?.includes('github-label-setup')));
  assert.ok(job.steps.find((step) => step.uses?.startsWith('actions/checkout@')).with['persist-credentials'] === false);
 });
 

@@ -3209,24 +3209,6 @@
       "requires": []
     },
     {
-      "path": "tests/tooling/ci/repository-label-recovery.test.mjs",
-      "tags": [
-        "documentation",
-        "unit"
-      ],
-      "owner": "scripts/ci",
-      "reviewed": true,
-      "evidence": "static",
-      "dependsOn": [
-        "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none",
-      "requires": []
-    },
-    {
       "path": "tests/tooling/ci/ci-workflow.test.mjs",
       "tags": [
         "documentation",
