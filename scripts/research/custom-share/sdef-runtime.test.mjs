@@ -62,6 +62,8 @@ async function exercise(t, writableName = false) {
     assert.equal(make.stdout.trim(), 'make:asset-1:get:Synthetic:location:reco:metadata:verified:unknown-rejected:open:asset-1:open-unknown-rejected');
     assert.match(stderr, /MOCK MAKE COMMAND INVOKED/);
     assert.match(stderr, /MOCK OPEN HANDLER INVOKED/);
+    assert.match(stderr, /MOCK OPEN REGISTRATION before-reregister status=/);
+    t.diagnostic(stderr.split('\n').filter(line => line.includes('MOCK OPEN REGISTRATION')).join(' | '));
     const countBefore = stderr.split('MOCK MAKE COMMAND INVOKED').length - 1;
     const withProperties = await run(binary, ['send', String(child.pid), 'make-properties'], { timeout: 5000 });
     assert.equal(withProperties.stdout.trim(), 'properties:asset-2:get:Named:metadata:Incoming:options:verified');

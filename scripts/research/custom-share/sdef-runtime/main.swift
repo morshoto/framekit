@@ -69,8 +69,12 @@ extension NSApplication {
     @objc dynamic var assets: [MockAsset] { MockStore.assets }
     @objc(valueInAssetsWithUniqueID:) func asset(withID id: String) -> MockAsset? {
         if let receiver = Receiver.active {
-            NSAppleEventManager.shared().setEventHandler(receiver, andSelector: #selector(Receiver.ping(_:withReplyEvent:)),
-                forEventClass: AEEventClass(kCoreEventClass), andEventID: AEEventID(kAEOpenDocuments))
+            Receiver.reportRegistration("before-reregister")
+            if ProcessInfo.processInfo.environment["FRAMEKIT_TEST_NO_REREGISTER"] != "1" {
+                NSAppleEventManager.shared().setEventHandler(receiver, andSelector: #selector(Receiver.ping(_:withReplyEvent:)),
+                    forEventClass: AEEventClass(kCoreEventClass), andEventID: AEEventID(kAEOpenDocuments))
+            }
+            Receiver.reportRegistration("after-lookup")
         }
         let matches = MockStore.assets.filter { $0.uniqueID == id }
         return matches.count == 1 ? matches[0] : nil
@@ -100,6 +104,17 @@ final class MockMakeCommand: NSCreateCommand {
 }
 final class Receiver: NSObject {
     static var active: Receiver?
+    static var initialHandler: UInt?
+    static var initialReference: UnsafeMutableRawPointer?
+    static func reportRegistration(_ stage: String) {
+        var handler: AEEventHandlerUPP?
+        var reference: UnsafeMutableRawPointer?
+        let status = AEGetEventHandler(AEEventClass(kCoreEventClass), AEEventID(kAEOpenDocuments), &handler, &reference, false)
+        let address = unsafeBitCast(handler, to: UInt.self)
+        if stage == "initial" { initialHandler = address; initialReference = reference }
+        let same = status == noErr && address == initialHandler && reference == initialReference
+        fputs("MOCK OPEN REGISTRATION \(stage) status=\(status) initial=\(same)\n", stderr)
+    }
     @objc func ping(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {
         if let list = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject)), list.descriptorType == DescType(typeAEList) {
             fputs("MOCK OPEN HANDLER INVOKED\n", stderr)
@@ -186,6 +201,7 @@ if args.count == 2 && args[1] == "conversion-control" {
     DispatchQueue.main.async {
         NSAppleEventManager.shared().setEventHandler(receiver, andSelector: #selector(Receiver.ping(_:withReplyEvent:)),
             forEventClass: AEEventClass(kCoreEventClass), andEventID: AEEventID(kAEOpenDocuments))
+        Receiver.reportRegistration("initial")
         print("ready"); fflush(stdout)
     }
     withExtendedLifetime(receiver) { app.run() }
