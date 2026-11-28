@@ -84,3 +84,26 @@ test('a malformed or target-tampered journal cannot accept an output', async t =
   await writeFile(record, JSON.stringify({ ...a, directory: root }));
   await assert.rejects(receiver.complete(a.id, [join(root, 'Example.fcpxml')]), /invalid receipt/);
 });
+
+test('mock requires each requested output kind before recording observation', async t => {
+  const root = await fixture(t);
+  const receiver = await createReceiver(root);
+  const asset = await receiver.create('Example', ['xml', 'media']);
+  const xml = join(asset.directory, 'Example.fcpxml');
+  const media = join(asset.directory, 'Example.mov');
+  await writeFile(xml, '<fcpxml/>');
+  await writeFile(media, 'synthetic media');
+  await assert.rejects(receiver.complete(asset.id, [xml]), /missing requested media/);
+  assert.equal((await receiver.get(asset.id)).state, 'pending');
+  const receipt = await receiver.complete(asset.id, [xml, media]);
+  assert.equal(receipt.state, 'observed');
+  assert.deepEqual(receipt.requestedKinds, ['xml', 'media']);
+  assert.equal(receipt.targetVerified, false);
+});
+
+test('mock rejects malformed requested output kind combinations', async t => {
+  const receiver = await createReceiver(await fixture(t));
+  await assert.rejects(receiver.create('Example', []), /requested kinds/);
+  await assert.rejects(receiver.create('Example', ['media', 'media']), /requested kinds/);
+  await assert.rejects(receiver.create('Example', ['archive']), /requested kinds/);
+});
