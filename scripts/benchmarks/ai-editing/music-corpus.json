@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "music": {
+    "id": "soft-corporate",
+    "url": "https://upload.wikimedia.org/wikipedia/commons/5/5f/Soft_Corporate_by_MusicLFiles.ogg",
+    "descriptionUrl": "https://commons.wikimedia.org/wiki/File:Soft_Corporate_by_MusicLFiles.ogg",
+    "sha256": "a6b34c5428412b88d1065843255956ac44cb965ae48f2d4cf49bb78bd524e668",
+    "credit": "Soft Corporate by MusicLFiles",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "speech": {"corpusAsset": "EN2002a", "sourceSeconds": [60, 70]},
+  "scenario": {
+    "sequenceDurationSeconds": 10,
+    "frameRate": 30,
+    "placementSeconds": [2, 8],
+    "musicSourceSeconds": [0, 6],
+    "gainDb": -24,
+    "measurementWindowsSeconds": [[0.5, 1.5], [3, 7], [8.5, 9.5]]
+  },
+  "tolerances": {"placementFrames": 1, "gainDb": 1},
+  "intelligibility": "requires independent listening",
+  "limitations": "An amplitude ratio or absence of clipping alone does not establish dialogue intelligibility or creative suitability. This exploratory mix is not native acceptance."
+}
