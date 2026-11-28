@@ -8,13 +8,18 @@ on:
     issues:
         types: [opened, reopened, closed, labeled, unlabeled, milestoned, demilestoned]
     workflow_dispatch:
+        inputs:
+            pr_number:
+                description: 'Repair milestone for this same-repository PR; leave empty for project backfill'
+                required: false
+                type: string
     schedule:
         - cron: "17 * * * *"
 
 jobs:
     warn-future-blockers:
         if: >-
-            github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+            github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.pr_number == '') ||
             (github.event_name == 'issues' && contains(fromJson('["opened", "reopened", "milestoned", "demilestoned"]'), github.event.action))
         permissions:
             contents: read
@@ -34,7 +39,6 @@ jobs:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     assign-label:
-        needs: sync-labels
         if: ${{ github.event_name == 'pull_request' }}
         permissions:
             contents: read
@@ -43,7 +47,10 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-            - name: Apply labels from branch
+              with:
+                  ref: ${{ github.event.repository.default_branch }}
+                  persist-credentials: false
+            - name: Apply branch-name labels
               uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13 # v7
               with:
                   repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -54,25 +61,9 @@ jobs:
                   repo-token: ${{ secrets.GITHUB_TOKEN }}
                   configuration-path: .github/labels/labeling-files.yaml
 
-    sync-labels:
-        if: ${{ github.event_name == 'pull_request' || (github.event_name == 'issues' && github.event.action == 'opened') }}
-        permissions:
-            issues: write
-            contents: read
-            pages: write
-            id-token: write
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-            - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-              with:
-                  node-version: '24.22.3'
-            - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
-            - name: Run github-label-setup
-              run: pnpm dlx --yes @azu/github-label-setup --token ${{ secrets.GITHUB_TOKEN }} --labels .github/labels/labels.json
-
     sync-pull-request-milestone:
         if: >-
+            (github.event_name == 'workflow_dispatch' && github.event.inputs.pr_number != '') ||
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
             (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository)
         permissions:
@@ -83,7 +74,7 @@ jobs:
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
               with:
-                  ref: ${{ github.sha }}
+                  ref: ${{ github.event.repository.default_branch }}
                   persist-credentials: false
             - name: Sync linked issue milestone
               run: node scripts/sync-pr-milestone.mjs
@@ -94,7 +85,13 @@ jobs:
                   GITHUB_API_URL: ${{ github.api_url }}
 
     sync-project-status:
-        if: ${{ github.event_name == 'issues' || github.event_name == 'workflow_dispatch' }}
+        if: >-
+            (github.event_name == 'workflow_dispatch' && github.event.inputs.pr_number == '') ||
+            (github.event_name == 'issues' && (
+              contains(fromJSON('["opened","reopened","closed","milestoned","demilestoned"]'), github.event.action) ||
+              (contains(fromJSON('["labeled","unlabeled"]'), github.event.action) &&
+               contains(fromJSON('["Status: Backlog","Status: In progress","Status: In review","Status: Pending","Status: Done"]'), github.event.label.name))
+            ))
         permissions:
             contents: read
         concurrency:
@@ -134,7 +131,7 @@ jobs:
                   GITHUB_REPOSITORY: ${{ github.repository }}
 
     assign-author:
-        if: ${{ (github.event_name == 'pull_request' || (github.event_name == 'issues' && github.event.action == 'opened')) && ! contains(fromJson('["renovate[bot]", "dependabot[bot]"]'), github.actor) }}
+        if: ${{ ((github.event_name == 'pull_request' && (github.event.action == 'opened' || github.event.action == 'reopened')) || (github.event_name == 'issues' && github.event.action == 'opened')) && ! contains(fromJson('["renovate[bot]", "dependabot[bot]"]'), github.actor) }}
         permissions:
             issues: write
             pull-requests: write

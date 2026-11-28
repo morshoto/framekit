@@ -1,0 +1,38 @@
+name: Repository labels
+
+on:
+    push:
+        branches: [main]
+        paths: [.github/labels/labels.json]
+    workflow_dispatch:
+    schedule:
+        - cron: '31 */6 * * *'
+
+permissions:
+    contents: read
+    issues: write
+
+concurrency:
+    group: repository-labels
+    cancel-in-progress: false
+
+jobs:
+    sync:
+        permissions:
+            contents: read
+            issues: write
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  ref: ${{ github.event.repository.default_branch }}
+                  persist-credentials: false
+            - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+              with:
+                  node-version: '24.22.3'
+            - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
+            - name: Reconcile repository label definitions
+              run: pnpm dlx --yes @azu/github-label-setup --token "$GITHUB_TOKEN" --labels .github/labels/labels.json
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

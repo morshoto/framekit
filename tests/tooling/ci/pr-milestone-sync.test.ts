@@ -114,6 +114,7 @@ test('updates a PR only after GitHub confirms the issue cross-reference', async 
 
 test('retries an initially empty timeline until GitHub publishes the cross-reference', async () => {
 	let timelineReads = 0;
+	let appliedMilestone: number | null = null;
 	const sleeps: number[] = [];
 	const fetchImpl = async (input: RequestInfo | URL, init: RequestInit = {}) => {
 		const url = String(input);
@@ -131,7 +132,10 @@ test('retries an initially empty timeline until GitHub publishes the cross-refer
 				source: { issue: { number: 22, pull_request: { url: 'https://api.github.com/repos/acme/framekit/pulls/22' } } },
 			}]);
 		}
-		if (url.endsWith('/issues/22') && method === 'PATCH') return jsonResponse({ number: 22, milestone: { number: 21 } });
+		if (url.endsWith('/issues/22') && method === 'PATCH') {
+			appliedMilestone = JSON.parse(String(init.body)).milestone;
+			return jsonResponse({ number: 22, milestone: { number: appliedMilestone } });
+		}
 		throw new Error(`Unexpected request: ${method} ${url}`);
 	};
 
@@ -148,6 +152,7 @@ test('retries an initially empty timeline until GitHub publishes the cross-refer
 
 	assert.deepEqual(result, { action: 'updated', milestoneNumber: 21 });
 	assert.equal(timelineReads, 2);
+	assert.equal(appliedMilestone, 21);
 	assert.deepEqual(sleeps, [250]);
 });
 
@@ -188,7 +193,7 @@ test('rechecks same-repository PR body edits with write permission for milestone
 	assert.doesNotMatch(activeWorkflow, /^[ \t]+pull_request_target:/m);
 	assert.match(activeWorkflow, /sync-pull-request-milestone:/);
 	assert.match(activeWorkflow, /head\.repo\.full_name == github\.repository/);
-	assert.match(activeWorkflow, /ref:\s*\$\{\{\s*github\.sha\s*\}\}/);
+	assert.match(activeWorkflow, /ref:\s*\$\{\{\s*github\.event\.repository\.default_branch\s*\}\}/);
 	assert.match(activeWorkflow, /pull-requests:\s*write/);
 });
 
