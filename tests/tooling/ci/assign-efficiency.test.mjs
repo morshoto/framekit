@@ -107,3 +107,30 @@ test('a later PR event repairs a milestone after an interrupted timeline read', 
  assert.equal(milestone, 21);
  assert.equal(writes, 1);
 });
+
+test('manual milestone repair uses current PR state after a missed event', async () => {
+ const { repairPullRequestMilestone } = await import('../../../scripts/sync-pr-milestone.mjs');
+ const writes = [];
+ const fetchImpl = async (input, init = {}) => {
+  const url = String(input);
+  if (url.endsWith('/pulls/22')) return new Response(JSON.stringify({ number: 22, state: 'open', body: 'Refs #123', head: { repo: { full_name: 'acme/framekit' } } }));
+  if (url.endsWith('/issues/22') && init.method === 'PATCH') { writes.push(JSON.parse(init.body)); return new Response('{}'); }
+  if (url.endsWith('/issues/22')) return new Response(JSON.stringify({ pull_request: {}, milestone: null }));
+  if (url.endsWith('/issues/123')) return new Response(JSON.stringify({ milestone: { number: 21 } }));
+  if (url.includes('/timeline?')) return new Response(JSON.stringify([{ event: 'cross-referenced', source: { issue: { number: 22, pull_request: {} } } }]));
+  throw new Error(`unexpected ${url}`);
+ };
+ assert.deepEqual(await repairPullRequestMilestone({ repository: 'acme/framekit', pullRequestNumber: 22, token: 'fixture', fetchImpl }), { action: 'updated', milestoneNumber: 21 });
+ assert.deepEqual(writes, [{ milestone: 21 }]);
+});
+
+test('manual milestone repair does not mutate closed, missing or fork PRs', async () => {
+ const { repairPullRequestMilestone } = await import('../../../scripts/sync-pr-milestone.mjs');
+ for (const pr of [null, { state: 'closed', head: { repo: { full_name: 'acme/framekit' } } }, { state: 'open', head: { repo: { full_name: 'other/fork' } } }]) {
+  let calls = 0;
+  const fetchImpl = async () => { calls++; return pr ? new Response(JSON.stringify(pr)) : new Response('', { status: 404 }); };
+  const result = await repairPullRequestMilestone({ repository: 'acme/framekit', pullRequestNumber: 22, token: 'fixture', fetchImpl });
+  assert.equal(result.action, 'skip');
+  assert.equal(calls, 1);
+ }
+});
