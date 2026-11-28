@@ -168,6 +168,9 @@ test('human timing reports malformed provider output without hiding incomplete c
   assert.equal(assessHumanBackendResponse(JSON.stringify({...valid,words:[{text:'target',start:2,end:1,confidence:0.9}]}),reference,0.2).assessment.status,'backend-error');
   assert.equal(assessHumanBackendResponse(JSON.stringify({...valid,observedRange:{start:0,end:1.2}}),reference,0.2).assessment.status,'coverage-unavailable');
   assert.equal(assessHumanBackendResponse(JSON.stringify(valid),reference,0.2).assessment.status,'within-tolerance');
+  const mismatch=assessHumanBackendResponse(JSON.stringify({...valid,words:[{text:'other',start:1,end:1.4,confidence:0.9}]}),reference,0.2);
+  assert.equal(mismatch.assessment.status,'missing');
+  assert.deepEqual(mismatch.diagnosticOverlaps,[{text:'other',start:1,end:1.4,confidence:0.9}]);
 });
 
 test('human timing runner verifies the parquet before running an extractor', async () => {

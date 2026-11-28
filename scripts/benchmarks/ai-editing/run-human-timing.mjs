@@ -29,14 +29,14 @@ try {
     const media={mediaId:sample.id,source:join(audioDirectory,sample.file),sourceDigest:sample.audioSha256,mediaKind:'audio',duration:sample.duration};
     const revision={id:sample.id,sequence:1,timestamp:'2026-01-01T00:00:00.000Z'};
     const child=spawnSync(python,['apps/mcp-server/runtime/whisper-speech-backend.py'],{cwd:root,env:process.env,input:JSON.stringify({media,revision,range:{start:0,end:sample.duration}}),encoding:'utf8',maxBuffer:8*1024*1024});
-    let assessment, provider=null, outputSha256=null;
+    let assessment, provider=null, outputSha256=null, diagnosticOverlaps;
     if(child.error || child.status!==0) assessment={status:'backend-error'};
     else {
       outputSha256=createHash('sha256').update(child.stdout).digest('hex');
-      ({assessment,provider}=assessHumanBackendResponse(child.stdout,{text:sample.target,start:sample.start,end:sample.end},config.toleranceSeconds));
+      ({assessment,provider,diagnosticOverlaps}=assessHumanBackendResponse(child.stdout,{text:sample.target,start:sample.start,end:sample.end},config.toleranceSeconds));
     }
-    rows.push({id:sample.id,audioSha256:sample.audioSha256,duration:sample.duration,target:sample.target,humanRange:{start:sample.start,end:sample.end},provider,outputSha256,...assessment});
+    rows.push({id:sample.id,audioSha256:sample.audioSha256,duration:sample.duration,target:sample.target,humanRange:{start:sample.start,end:sample.end},provider,outputSha256,...assessment,...(assessment.status!=='within-tolerance' && diagnosticOverlaps ? {diagnosticOverlaps} : {})});
   }
-  const report={gitHead:execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),datasetRevision:config.revision,parquetSha256:config.parquetSha256,pythonVersion:extraction.pythonVersion,pyarrowVersion:extraction.pyarrowVersion,declaredBackend:process.env.FRAMEKIT_WHISPER_BACKEND ?? null,declaredVadSha256:process.env.FRAMEKIT_SILERO_VAD_SHA256 ?? null,model:config.model,toleranceSeconds:config.toleranceSeconds,minimumWithinFraction:config.minimumWithinFraction,summary:summarizeHumanTargets(rows,config.minimumWithinFraction),rows,limitation:config.limitation+' Model declarations do not authenticate loaded bytes; no native operation or subjective listening was performed.'};
+  const report={gitHead:execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),datasetRevision:config.revision,parquetSha256:config.parquetSha256,pythonVersion:extraction.pythonVersion,pyarrowVersion:extraction.pyarrowVersion,declaredBackend:process.env.FRAMEKIT_WHISPER_BACKEND ?? null,declaredVadSha256:process.env.FRAMEKIT_SILERO_VAD_SHA256 ?? null,model:config.model,toleranceSeconds:config.toleranceSeconds,minimumWithinFraction:config.minimumWithinFraction,summary:summarizeHumanTargets(rows,config.minimumWithinFraction),rows,diagnosticDesignation:'Post hoc overlapping model words for non-passing targets; not used in scoring.',limitation:config.limitation+' Model declarations do not authenticate loaded bytes; no native operation or subjective listening was performed.'};
   process.stdout.write(`${JSON.stringify(report,null,2)}\n`);
 } finally { await rm(temporary,{recursive:true,force:true}); }

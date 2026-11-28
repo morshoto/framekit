@@ -38,7 +38,12 @@ export function assessHumanBackendResponse(stdout, reference, tolerance) {
   if (!provider || !['id','provider','version'].every((key)=>typeof provider[key]==='string' && provider[key].trim()) || !Array.isArray(response.words)) return {assessment:{status:'backend-error'},provider:null};
   const observed=response.observedRange;
   if (!observed || !Number.isFinite(observed.start) || !Number.isFinite(observed.end) || observed.start<0 || observed.end<=observed.start || observed.start>reference.start || observed.end<reference.end) return {assessment:{status:'coverage-unavailable'},provider};
-  try { return {assessment:assessHumanTarget(reference,response.words,tolerance),provider}; }
+  try {
+    const assessment=assessHumanTarget(reference,response.words,tolerance);
+    const diagnosticOverlaps=response.words.filter((word)=>word.start<reference.end && word.end>reference.start)
+      .map(({text,start,end,confidence})=>({text,start,end,confidence}));
+    return {assessment,provider,diagnosticOverlaps};
+  }
   catch (error) { if (error instanceof Error && error.message==='Invalid recognized word') return {assessment:{status:'backend-error'},provider}; throw error; }
 }
 
