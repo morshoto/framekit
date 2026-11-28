@@ -137,3 +137,9 @@ test('caption probe binds and checks recognized words without asserting speech t
     assert.equal(result.transcriptionAccuracy,'unavailable');
   } finally { await rm(directory,{recursive:true,force:true}); }
 });
+
+test('talking-head runner verifies source identity before inference', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const runner = new URL('../../../scripts/benchmarks/ai-editing/run-talking-head.mjs',import.meta.url);
+  assert.throws(() => execFileSync(process.execPath,['--import','tsx',runner.pathname,'/missing/video','python'],{stdio:'pipe'}), /ENOENT/);
+});
