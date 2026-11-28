@@ -52,6 +52,18 @@ test("known words produce read-only frame-mapped caption groups and traceable em
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
+test("high confidence does not remove the transcription and timing review warning", async () => {
+  const f = await fixture([{text:"Hello",start:1,end:1.4,confidence:0.99}]);
+  try {
+    const result=await planCaptionGroups(f.request,f.ref,f.current,f.artifacts,verifyLocalMediaSource);
+    assert.equal(result.status,"available");
+    if(result.status!=="available") return;
+    assert.ok(result.plan.warnings.some((warning)=>/confidence does not verify.*text.*timing/i.test(warning)));
+    assert.equal(result.plan.warnings.some((warning)=>/low-confidence/i.test(warning)),false);
+    assert.equal(result.plan.reviewRequired,true);
+  } finally { await rm(f.dir,{recursive:true,force:true}); }
+});
+
 test("caption planning cannot swap pinned evidence during source verification", async () => {
   const f = await fixture();
   try {
