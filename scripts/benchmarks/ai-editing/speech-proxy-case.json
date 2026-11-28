@@ -6,5 +6,7 @@
   "minimumExploratoryRetention": 0.9,
   "limitation": "ASR consistency is not a measurement of human intelligibility; common errors, hallucinations and unrecognized baseline words are not detected. Subjective listening remains unavailable.",
   "followUpMixedSha256": "32a78a7b66c1daf2235c4a3e7fc3e51c01ff018fe02ee65509978dd0a74d760a",
-  "followUpDesignation": "Post hoc exploratory -36 dB comparison, not independent validation."
+  "followUpDesignation": "Post hoc exploratory -36 dB comparison, not independent validation.",
+  "secondaryModel": "mlx-community/whisper-large-v3-turbo",
+  "secondaryDesignation": "Post hoc corroborating model on the same previously inspected renders; not an independent listening judgment."
 }
