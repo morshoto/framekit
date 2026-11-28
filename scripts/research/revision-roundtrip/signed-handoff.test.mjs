@@ -83,3 +83,11 @@ test('a fresh process verifies the signed revision with a pinned public key', as
   await writeFile(publicPath, other.publicKey.export({ type: 'spki', format: 'pem' }));
   await assert.rejects(run(process.execPath, [child, envelopePath, publicPath, pin]), /key pin/);
 });
+
+test('signed edited bytes do not bypass referenced title effect comparison', async () => {
+  const input = await fixture();
+  const external = Buffer.from(input.external.toString().replace('Basic Title.moti', 'Different Title.moti'));
+  assert.notDeepEqual(external, input.external);
+  const envelope = signFixtureClaim({ ...input.claim, externalDigest: hash(external) }, input.privateKey);
+  assert.throws(() => createSignedRevisionB({ ...input, external, envelope }), /title effect changed/);
+});

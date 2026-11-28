@@ -105,3 +105,14 @@ test('rejects unverified or missing FCPXML versions in either revision', async (
     assert.throws(() => findAnchoredTarget(base, change(external), 'opening-v1', expected), /unsupported FCPXML version/);
   }
 });
+
+test('rejects changed or ambiguous referenced title effect resources', async () => {
+  const { base, external } = await fixtures();
+  const changed = external.replace('Basic Title.moti', 'Different Title.moti');
+  assert.notEqual(changed, external);
+  assert.throws(() => findAnchoredTarget(base, changed, 'opening-v1', expected), /title effect/);
+  const duplicate = external.replace('</resources>', '<effect id="title-effect" name="Other" uid="other"/></resources>');
+  assert.throws(() => findAnchoredTarget(base, duplicate, 'opening-v1', expected), /title effect/);
+  const missing = external.replace(/<effect id="title-effect"[^>]*\/>/, '');
+  assert.throws(() => findAnchoredTarget(base, missing, 'opening-v1', expected), /title effect/);
+});

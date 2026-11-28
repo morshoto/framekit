@@ -66,6 +66,12 @@ function inspect(xml) {
   const anchors = new Map();
   for (const clip of array(spine['asset-clip'])) {
     checkSupportedChildren(clip, 'asset-clip');
+    const titleEffects = array(clip.title).map(title => {
+      const ref = title['@_ref'];
+      const effects = array(resources.effect).filter(effect => effect?.['@_id'] === ref);
+      if (typeof ref !== 'string' || !ref || effects.length !== 1) throw new Error('invalid title effect');
+      return JSON.stringify(effects[0]);
+    });
     if (!clip.metadata || typeof clip.metadata !== 'object') throw new Error('missing anchor');
     const entries = array(one(clip.metadata, 'metadata').md).filter(item => item['@_key'] === 'com.framekit.id');
     if (entries.length === 0) throw new Error('missing anchor');
@@ -86,7 +92,7 @@ function inspect(xml) {
     delete structure['@_start'];
     delete structure['@_offset'];
     delete structure['@_duration'];
-    anchors.set(id, { id, source, name: clip['@_name'], sourceStart: clip['@_start'], duration: clip['@_duration'], structure: JSON.stringify(structure) });
+    anchors.set(id, { id, source, name: clip['@_name'], sourceStart: clip['@_start'], duration: clip['@_duration'], structure: JSON.stringify(structure), titleEffects });
   }
   return { uid, anchors };
 }
@@ -109,5 +115,6 @@ export function findAnchoredTarget(base, external, targetId, manifest) {
   if ([...before.anchors.values()].filter(item => sameInterval(item, a)).length !== 1
       || [...after.anchors.values()].filter(item => sameInterval(item, b)).length !== 1) throw new Error('ambiguous source interval');
   if (a.structure !== b.structure) throw new Error('target structure changed');
+  if (JSON.stringify(a.titleEffects) !== JSON.stringify(b.titleEffects)) throw new Error('title effect changed');
   return b;
 }
