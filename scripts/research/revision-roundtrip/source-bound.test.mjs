@@ -29,6 +29,15 @@ test('binds signed synthetic source bytes to both XML references', async t => {
     sourceStart: '2s', duration: '1s', name: 'Synthetic rename' };
   const options = { baseline, external, sourcePaths, envelope: signFixtureClaim(claim, pair.privateKey), trustedKey: pair.publicKey,
     expectedProject: claim.projectUid, expectedTarget: claim.targetId };
+  const unsigned = { ...options.envelope, signature: Buffer.alloc(64).toString('base64') };
+  const absentPath = join(dir, 'missing.bin');
+  const absentUrl = pathToFileURL(absentPath).href;
+  const missingA = Buffer.from(baseline.toString().replace(pathToFileURL(sourcePaths.a).href, absentUrl));
+  const missingB = Buffer.from(external.toString().replace(pathToFileURL(sourcePaths.a).href, absentUrl));
+  await assert.rejects(createSourceBoundRevisionB({ ...options, baseline: missingA, external: missingB,
+    sourcePaths: { ...sourcePaths, a: absentPath }, envelope: unsigned }), /signature/);
+  await assert.rejects(createSourceBoundRevisionB({ ...options, baseline: missingA, external: missingB,
+    sourcePaths: { ...sourcePaths, a: absentPath } }), /stale/);
   const result = await createSourceBoundRevisionB(options);
   assert.match(result.xml.toString(), /Synthetic rename/);
   const output = join(dir, 'b.fcpxml');
@@ -37,7 +46,8 @@ test('binds signed synthetic source bytes to both XML references', async t => {
   const verified = await promisify(execFile)('python3', [verifier, output, 'Synthetic rename']);
   assert.match(verified.stdout, /manifest verified/);
   const alteredExternal = Buffer.from(external.toString().replace(pathToFileURL(sourcePaths.a).href, pathToFileURL(sourcePaths.m).href));
-  await assert.rejects(createSourceBoundRevisionB({ ...options, external: alteredExternal }), /source reference/);
+  const alteredEnvelope = signFixtureClaim({ ...claim, externalDigest: hash(alteredExternal) }, pair.privateKey);
+  await assert.rejects(createSourceBoundRevisionB({ ...options, external: alteredExternal, envelope: alteredEnvelope }), /source reference/);
   await writeFile(sourcePaths.a, 'changed bytes');
   await assert.rejects(createSourceBoundRevisionB(options), /stale/);
   await writeFile(sourcePaths.a, sourceBytes.a);

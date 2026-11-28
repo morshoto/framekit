@@ -5,7 +5,7 @@ import { open } from 'node:fs/promises';
 import { isAbsolute } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
-import { createSignedRevisionB } from './signed-handoff.mjs';
+import { createSignedRevisionB, verifyFixtureClaim } from './signed-handoff.mjs';
 
 function references(bytes) {
   const xml = bytes.toString('utf8');
@@ -29,6 +29,7 @@ export async function createSourceBoundRevisionB(options) {
   const { baseline, external, sourcePaths } = options;
   if (!Buffer.isBuffer(baseline) || !Buffer.isBuffer(external) || !sourcePaths
       || Object.keys(sourcePaths).sort().join(',') !== 'a,m') throw new Error('invalid source paths');
+  verifyFixtureClaim(options);
   const before = references(baseline), after = references(external);
   const sourceBytes = {};
   for (const id of ['a', 'm']) {

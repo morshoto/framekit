@@ -28,7 +28,7 @@ export function signFixtureClaim(claim, privateKey) {
   return { payload, signature: sign(null, Buffer.from(payload), privateKey).toString('base64') };
 }
 
-export function createSignedRevisionB({ baseline, external, sourceBytes, envelope, trustedKey, expectedProject, expectedTarget }) {
+export function verifyFixtureClaim({ baseline, external, envelope, trustedKey, expectedProject, expectedTarget }) {
   if (!envelope || typeof envelope.payload !== 'string' || envelope.payload.length > 4096
       || typeof envelope.signature !== 'string' || trustedKey?.type !== 'public' || trustedKey?.asymmetricKeyType !== 'ed25519') throw new Error('invalid signature');
   const signature = Buffer.from(envelope.signature, 'base64');
@@ -38,6 +38,14 @@ export function createSignedRevisionB({ baseline, external, sourceBytes, envelop
   try { claim = JSON.parse(envelope.payload); } catch { throw new Error('invalid signed claim'); }
   if (canonical(claim) !== envelope.payload) throw new Error('invalid canonical claim');
   if (claim.projectUid !== expectedProject || claim.targetId !== expectedTarget) throw new Error('target mismatch');
+  bindRevision(baseline, claim.baselineDigest);
+  bindRevision(external, claim.externalDigest);
+  return claim;
+}
+
+export function createSignedRevisionB(options) {
+  const { baseline, external, sourceBytes } = options;
+  const claim = verifyFixtureClaim(options);
   if (!sourceBytes || typeof sourceBytes !== 'object' || !Buffer.isBuffer(sourceBytes.a) || !Buffer.isBuffer(sourceBytes.m)
       || sourceBytes.a.length > 16 * 1024 * 1024 || sourceBytes.m.length > 16 * 1024 * 1024) throw new Error('invalid source bytes');
   bindRevision(sourceBytes.a, claim.sourceDigests.a);
