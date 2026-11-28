@@ -44,6 +44,20 @@ test('digest-bound explicit split selection preserves Uncut output structure', {
   }
   writeFileSync(manifest, JSON.stringify({ ...selection, digest: createHash('sha256').update(aliased).digest('hex') }));
   assert.notEqual(run('python3', [script, aliasPath, manifest, join(dir, 'alias-b.fcpxml')]).status, 0, 'same-source aliases must not hide ambiguity');
+  for (const source of [
+    'file:///synthetic/%69nterview.mov',
+    'file://localhost/synthetic/interview.mov',
+    'file:///synthetic/dir/../interview.mov',
+    'file:///SYNTHETIC/INTERVIEW.MOV',
+    'file:///synthetic/%zzinterview.mov',
+  ]) {
+    const variant = aliased.replace(/(<asset id="r5"[^\n]*src=")file:\/\/\/synthetic\/interview.mov/, `$1${source}`);
+    assert.notEqual(variant, aliased);
+    const variantPath = join(dir, 'variant.fcpxml');
+    writeFileSync(variantPath, variant);
+    writeFileSync(manifest, JSON.stringify({ ...selection, digest: createHash('sha256').update(variant).digest('hex') }));
+    assert.notEqual(run('python3', [script, variantPath, manifest, join(dir, 'variant-b.fcpxml')]).status, 0, `unsafe URL must be rejected: ${source}`);
+  }
   writeFileSync(manifest, JSON.stringify({ ...selection, digest: '0'.repeat(64) }));
   assert.notEqual(run('python3', [script, a, manifest, join(dir, 'stale.fcpxml')]).status, 0);
   writeFileSync(manifest, JSON.stringify({ ...selection, ordinal: 0 }));

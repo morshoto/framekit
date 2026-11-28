@@ -1,6 +1,10 @@
 """Fixture-only explicit mapping, not a production identity or approval mechanism."""
 import hashlib
 import json
+import posixpath
+import re
+import unicodedata
+from urllib.parse import unquote, urlsplit
 from fractions import Fraction
 import sys
 import xml.etree.ElementTree as ET
@@ -34,8 +38,17 @@ def original_source(ref):
     assert src
     return src
 assert original_source(clip.get('ref')) == selection['source']
-# Identical source URLs under different resource IDs cannot establish uniqueness.
-assert sum(original_source(a.get('id')) == selection['source'] for a in assets) == 1
+# Compare conservative lexical file URL aliases without touching the filesystem.
+def source_key(url):
+    assert not re.search(r'%(?![0-9a-fA-F]{2})', url)
+    parts = urlsplit(url)
+    assert parts.scheme.lower() == 'file' and parts.netloc.lower() in ('', 'localhost')
+    assert not parts.query and not parts.fragment
+    path = unquote(parts.path, encoding='utf-8', errors='strict')
+    assert path.startswith('/') and '\x00' not in path
+    return unicodedata.normalize('NFD', posixpath.normpath(path)).casefold()
+selected_source = source_key(selection['source'])
+assert sum(source_key(original_source(a.get('id'))) == selected_source for a in assets) == 1
 # Refuse an indistinguishable same-source/range candidate even with an ordinal.
 def seconds(value):
     assert isinstance(value, str) and value.endswith('s')
