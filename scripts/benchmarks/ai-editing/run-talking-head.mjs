@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { loadCorpus, verifyAsset } from './corpus.mjs';
 import { probeCaptionPlan } from './caption-plan-probe.mjs';
 import { renderCaptionProbe } from './caption-render-probe.mjs';
+import { captionSampleMetadata } from './caption-quality.mjs';
 
 const [file,python,outputDirectory] = process.argv.slice(2);
 if (!file || !python) throw new Error('Expected interview video and Python');
@@ -37,10 +38,10 @@ try {
   if (outputDirectory && groups) {
     await mkdir(outputDirectory);
     rendered = await renderCaptionProbe(sample,sampleDigest,30,groups,outputDirectory);
-    const midpoint = (groups[0].sequenceRange.start + groups[0].sequenceRange.end) / 2;
+    const metadata = captionSampleMetadata(groups[0]);
     const sampleImage = join(outputDirectory,'caption-sample.png');
-    execFileSync('ffmpeg',['-v','error','-ss',String(midpoint),'-i',join(outputDirectory,'caption-output.mp4'),'-frames:v','1',sampleImage]);
-    visualSample = {midpointSeconds:midpoint,sha256:hash(await readFile(sampleImage))};
+    execFileSync('ffmpeg',['-v','error','-ss',String(metadata.midpointSeconds),'-i',join(outputDirectory,'caption-output.mp4'),'-frames:v','1',sampleImage]);
+    visualSample = {...metadata,sha256:hash(await readFile(sampleImage))};
   }
   const report = {gitHead:execFileSync('git',['rev-parse','HEAD'],{cwd:repository,encoding:'utf8'}).trim(),sourceSha256:asset.sha256,
     sourceWindowSeconds:asset.windowSeconds,derivedSha256:sampleDigest,backendOutputSha256:hash(child.stdout),declaredModel:model,provider:output.provider,plan,...(rendered ? {rendered,visualSample} : {}),

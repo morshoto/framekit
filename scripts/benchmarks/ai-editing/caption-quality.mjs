@@ -130,3 +130,11 @@ export function assessCaptionPlan(words, groups, frameDuration) {
     referenceWords:words.length,missingWords,duplicateWords,timingFailures,textMismatches,lineMismatches,malformed,
     toleranceSeconds:frameDuration,renderedTextStatus:'unavailable'};
 }
+
+/** Bind a visual sample to its planned text without claiming recognition accuracy. */
+export function captionSampleMetadata(group) {
+  const range = group?.sequenceRange;
+  if (!range || !Number.isFinite(range.start) || !Number.isFinite(range.end) || range.end <= range.start
+    || !Array.isArray(group.lines) || !group.lines.length || group.lines.some((line)=>typeof line !== 'string' || !line.trim())) throw new Error('Invalid caption sample');
+  return {midpointSeconds:(range.start+range.end)/2,expectedLines:[...group.lines]};
+}
