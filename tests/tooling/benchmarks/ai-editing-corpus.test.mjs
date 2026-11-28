@@ -91,3 +91,29 @@ test('headless probes preserve PATH commands and isolate native-provider setting
   assert.equal(env.FRAMEKIT_STATE_DIR,join('/tmp/probe','state'));
   assert.equal(input.FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER,'native');
 });
+
+test('editorial subset validates pinned revision and row before accepting audio', async () => {
+  const { editorialAssetUrl } = await import('../../../scripts/benchmarks/ai-editing/editorial-subset.mjs');
+  const item = { dataset: 'example/speech', revision: 'a'.repeat(40), config: 'default', split: 'train', row: 3, sha256: 'b'.repeat(64), filename: 'sample.wav' };
+  const url = `https://datasets-server.huggingface.co/cached-assets/example/speech/--/${item.revision}/--/default/train/3/audio/audio.wav?signature=example`;
+  assert.equal(editorialAssetUrl({ rows: [{ row_idx: 3, row: { audio: [{ src: url }] } }] }, item), url);
+  assert.throws(() => editorialAssetUrl({ rows: [{ row_idx: 4, row: { audio: [{ src: url }] } }] }, item), /row/i);
+  assert.throws(() => editorialAssetUrl({ rows: [{ row_idx: 3, row: { audio: [{ src: url.replace(item.revision, 'c'.repeat(40)) }] } }] }, item), /revision/i);
+  assert.throws(() => editorialAssetUrl({ rows: [{ row_idx: 3, row: { audio: [{ src: url.replace('datasets-server.huggingface.co', 'example.com') }] } }] }, item), /host/i);
+});
+
+test('editorial downloader rejects changed bytes before writing audio', async () => {
+  const { downloadEditorialSubset } = await import('../../../scripts/benchmarks/ai-editing/editorial-subset.mjs');
+  const manifest = JSON.parse(await (await import('node:fs/promises')).readFile(new URL('../../../scripts/benchmarks/ai-editing/editorial-subset.json', import.meta.url), 'utf8'));
+  const item = manifest.items[0];
+  const parent = await mkdtemp(join(tmpdir(), 'framekit-editorial-'));
+  const output = join(parent, 'new');
+  const asset = `https://datasets-server.huggingface.co/cached-assets/${item.dataset}/--/${item.revision}/--/${item.config}/${item.split}/${item.row}/audio/audio.wav`;
+  const fakeFetch = async (url) => url.includes('/rows?')
+    ? {ok:true,json:async()=>({rows:[{row_idx:item.row,row:{audio:[{src:asset}]}}]})}
+    : {ok:true,arrayBuffer:async()=>Buffer.from('changed audio')};
+  try {
+    await assert.rejects(downloadEditorialSubset(output, fakeFetch), /digest mismatch/i);
+    await assert.rejects((await import('node:fs/promises')).access(join(output,item.filename)), /ENOENT/);
+  } finally { await rm(parent, {recursive:true,force:true}); }
+});
