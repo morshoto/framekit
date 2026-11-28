@@ -58,6 +58,7 @@ test('real-evidence probe detects changed bytes, provider, revision and incomple
     const provider = {id:'speech',provider:'command',version:'v1',model:'example',configurationDigest:'config'};
     const payload = {words:[{text:'hello',start:1,end:2,confidence:0.9}],vadSegments:[{kind:'speech',start:1,end:2}],requestedRange:{start:0,end:10},observedRange:{start:0,end:10}};
     const result = await exerciseEvidence(media, revision, provider, payload);
+    assert.match(result.artifactDigestScope, /disposable source path/i);
     assert.deepEqual(result.statuses, {original:'verified', staleProvider:'invalid', staleRevision:'invalid', missingArtifact:'unavailable', tamperedArtifact:'invalid', changedSource:'invalid', partialCoverage:'rejected'});
     assert.deepEqual(await readFile(path), bytes);
   } finally { await rm(directory,{recursive:true,force:true}); }
