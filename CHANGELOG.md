@@ -1,5 +1,32 @@
 # Changelog
 
+## [v0.3.0](https://github.com/morshoto/framekit/compare/v0.2.6...v0.3.0) - 2026-11-28
+
+### New Features
+- feat: generate localized social cards by @morshoto in https://github.com/morshoto/framekit/pull/854
+- fix: enable packaged headless media analysis by @morshoto in https://github.com/morshoto/framekit/pull/867
+- feat: define reviewable creative briefs by @morshoto in https://github.com/morshoto/framekit/pull/872
+- feat: pin analysis evidence artifacts by @morshoto in https://github.com/morshoto/framekit/pull/873
+- feat: rank reviewable speech cut candidates by @morshoto in https://github.com/morshoto/framekit/pull/874
+- feat: plan evidence bound caption groups by @morshoto in https://github.com/morshoto/framekit/pull/876
+- feat: plan reviewable music placement by @morshoto in https://github.com/morshoto/framekit/pull/875
+- feat: assemble evidence bound edit plans by @morshoto in https://github.com/morshoto/framekit/pull/877
+- feat: assess supplied brief artifact observations by @morshoto in https://github.com/morshoto/framekit/pull/880
+- feat: prepare evidence-bound native cut proposals by @morshoto in https://github.com/morshoto/framekit/pull/879
+- feat: extract headless native QA foundation by @morshoto in https://github.com/morshoto/framekit/pull/890
+### Bug Fixes
+- fix: validate source analysis reuse and provenance by @morshoto in https://github.com/morshoto/framekit/pull/740
+- fix: verify decoded render frame counts by @morshoto in https://github.com/morshoto/framekit/pull/878
+- fix: harden project status API requests by @morshoto in https://github.com/morshoto/framekit/pull/917
+### Documentation
+- docs: publish the Japanese documentation by @morshoto in https://github.com/morshoto/framekit/pull/849
+- test: simulate native dispatch failures by @morshoto in https://github.com/morshoto/framekit/pull/855
+- docs: add symptom-based troubleshooting by @morshoto in https://github.com/morshoto/framekit/pull/852
+- docs: introduce a first video walkthrough by @morshoto in https://github.com/morshoto/framekit/pull/850
+- test: add headless provider preflight by @morshoto in https://github.com/morshoto/framekit/pull/881
+### Other changes
+- fix: isolate git environment in test runs by @morshoto in https://github.com/morshoto/framekit/pull/882
+
 ## [v0.2.6](https://github.com/morshoto/framekit/compare/v0.2.5...v0.2.6) - 2026-11-22
 
 ### New Features
