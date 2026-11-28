@@ -100,3 +100,30 @@ export function safeWholeSecondDuration(duration) {
   if (!Number.isFinite(duration) || duration < 1) throw new Error('Invalid source duration');
   return Math.floor(duration);
 }
+
+/** Check coverage against recognized words; this does not verify transcript or rendered pixels. */
+export function assessCaptionPlan(words, groups, frameDuration) {
+  const unavailable = {status:'unavailable',renderedTextStatus:'unavailable'};
+  if (!Array.isArray(words) || !words.length || !Array.isArray(groups)) return unavailable;
+  if (!Number.isFinite(frameDuration) || frameDuration <= 0) throw new Error('Invalid frame duration');
+  const counts = Array(words.length).fill(0);
+  let timingFailures = 0, malformed = 0, previousEnd = 0;
+  for (const group of groups) {
+    const range = group?.sequenceRange;
+    if (!range || !Number.isFinite(range.start) || !Number.isFinite(range.end) || range.start < previousEnd - 1e-9 || range.end <= range.start || !Array.isArray(group.words)) { malformed++; continue; }
+    previousEnd = range.end;
+    for (const item of group.words) {
+      const index = item?.wordIndex;
+      if (!Number.isSafeInteger(index) || index < 0 || index >= words.length) { malformed++; continue; }
+      counts[index]++;
+      const word = words[index];
+      if (!Number.isFinite(word.start) || !Number.isFinite(word.end) || word.end <= word.start) { malformed++; continue; }
+      if (range.start > word.start + frameDuration + 1e-9 || range.end < word.end - frameDuration - 1e-9) timingFailures++;
+    }
+  }
+  const missingWords = counts.filter((count) => count === 0).length;
+  const duplicateWords = counts.filter((count) => count > 1).length;
+  return {status:missingWords || duplicateWords || timingFailures || malformed ? 'fail' : 'pass',
+    referenceWords:words.length,missingWords,duplicateWords,timingFailures,malformed,
+    toleranceSeconds:frameDuration,renderedTextStatus:'unavailable'};
+}
