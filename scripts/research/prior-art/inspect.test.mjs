@@ -41,3 +41,13 @@ test('surfaces selected-item original-media and fallback anchors independently',
   assert.equal(report.anchors.currentRepresentation, true);
   assert.equal(report.runtimeVerified, false);
 });
+
+test('flags bounded enumeration, swizzle scheduling and transient handles as source anchors', () => {
+  const server = 'timeline.getDetailedState\nSpliceKit_installEffectDragSwizzlesNow();\nNSInteger limit = [params[@"limit"] integerValue] ?: 200;\nstatic NSMutableDictionary<NSString *, id> *sHandleMap';
+  const report = inspectSources({ ...sources, server });
+  assert.equal(report.anchors.detailedState, true);
+  assert.equal(report.anchors.swizzleInstaller, true);
+  assert.equal(report.anchors.defaultLimit, true);
+  assert.equal(report.anchors.handleMap, true);
+  assert.equal(report.recoveryVerified, false);
+});
