@@ -65,3 +65,13 @@ test('runner rejects unknown recordings and out-of-corpus windows before invokin
   assert.throws(() => invoke('EN2002a', '600'), /outside corpus/i);
   assert.throws(() => invoke('EN2002a', '0.1'), /60-second/i);
 });
+test('production cut screening requires reviewable read-only previews', async () => {
+  const { summarizeProductionCutPreviews } = await import('../../../scripts/benchmarks/ai-editing/corpus.mjs');
+  const cut={index:0,candidate:{sourceRange:{start:1,end:2},reviewRequired:true,confidence:0.5,evidence:['speech']}};
+  assert.equal(summarizeProductionCutPreviews([],[],60).status,'unavailable');
+  assert.throws(()=>summarizeProductionCutPreviews([cut],[{index:0,scope:'approved'}],60),/preview/i);
+  assert.throws(()=>summarizeProductionCutPreviews([{...cut,candidate:{...cut.candidate,reviewRequired:false}}],[{index:0,scope:'headless-preview'}],60),/review/i);
+  const result=summarizeProductionCutPreviews([cut],[{index:0,scope:'headless-preview'}],60);
+  assert.deepEqual(result.candidates[0].sourceRange,{start:61,end:62});
+  assert.equal(result.speechSafety,'unverified');
+});
