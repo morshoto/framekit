@@ -21,6 +21,10 @@ test('research bundle describes a fail-closed scripting endpoint', { skip: proce
   assert.equal(scripting.stdout.trim(), 'ShareResearch.sdef');
   await run('xmllint', ['--noout', '--dtdvalid', '/System/Library/DTDs/sdef.dtd', sdef]);
   await run('xcrun', ['sdp', '-fh', '-N', 'ResearchShare', '-o', join(temporary, 'ResearchShare.h'), sdef]);
+  const definition = await readFile(sdef, 'utf8');
+  assert.match(definition, /<cocoa class="ResearchAsset"\/>/);
+  assert.match(definition, /name="metadata" code="meta"/);
+  assert.match(definition, /name="data options" code="dopt"/);
   const header = await readFile(join(temporary, 'ResearchShare.h'), 'utf8');
   assert.match(header, /ResearchShare/);
 });
