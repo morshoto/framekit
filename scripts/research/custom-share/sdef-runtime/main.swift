@@ -56,8 +56,10 @@ final class Receiver: NSObject {
     @objc func ping(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {
         let registry = NSScriptSuiteRegistry.shared()
         let loaded = registry.suiteNames.contains { $0 == "Mock Suite" || $0 == "MockSuite" }
-        let command = registry.commandDescription(withAppleEventClass: AEEventClass(0x636f7265), andAppleEventCode: AEEventID(0x6372656c))?.commandClassName ?? "none"
-        reply.setParam(NSAppleEventDescriptor(string: "pong:\(loaded ? "loaded" : "absent"):\(command)"), forKeyword: AEKeyword(keyDirectObject))
+        let commandDescription = registry.commandDescription(withAppleEventClass: AEEventClass(0x636f7265), andAppleEventCode: AEEventID(0x6372656c))
+        let command = commandDescription?.commandClassName ?? "none"
+        let propertyCode = commandDescription?.appleEventCodeForArgument(withName: "KeyDictionary") ?? 0
+        reply.setParam(NSAppleEventDescriptor(string: "pong:\(loaded ? "loaded" : "absent"):\(command):\(propertyCode)"), forKeyword: AEKeyword(keyDirectObject))
     }
 }
 let args = CommandLine.arguments

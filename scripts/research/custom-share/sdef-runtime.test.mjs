@@ -39,7 +39,7 @@ test('characterizes Cocoa scripting in an uninstalled test app', { skip: process
       t.diagnostic('inconclusive: test-app ping timed out before make');
       return;
     }
-    assert.equal(ping.stdout.trim(), 'pong:loaded:MockMakeCommand');
+    assert.equal(ping.stdout.trim(), `pong:loaded:MockMakeCommand:${Buffer.from('prdt').readUInt32BE()}`);
     let make;
     try { make = await run(binary, ['send', String(child.pid), 'make'], { timeout: 5000 }); }
     catch (error) {
