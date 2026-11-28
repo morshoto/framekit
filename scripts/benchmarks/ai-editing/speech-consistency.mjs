@@ -24,3 +24,11 @@ export function proxyVariant(config, variant) {
   if (!/^[a-f0-9]{64}$/.test(mixedSha256) || !/^[a-f0-9]{64}$/.test(config.baselineSha256)) throw new Error('Invalid proxy variant digest');
   return {baselineSha256:config.baselineSha256,mixedSha256};
 }
+
+/** Select a predeclared recognition model rather than inferring one from results. */
+export function proxyModel(config, variant) {
+  if (variant !== undefined && variant !== 'secondary') throw new Error('Unknown proxy model');
+  const model = variant === 'secondary' ? config.secondaryModel : config.model;
+  if (typeof model !== 'string' || !model.trim()) throw new Error('Missing proxy model');
+  return model;
+}
