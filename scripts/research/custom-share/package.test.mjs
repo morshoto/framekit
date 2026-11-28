@@ -24,3 +24,14 @@ test('research bundle describes a fail-closed scripting endpoint', { skip: proce
   const header = await readFile(join(temporary, 'ResearchShare.h'), 'utf8');
   assert.match(header, /ResearchShare/);
 });
+
+test('builds a temporary uninstalled bundle without launching it', { skip: process.platform !== 'darwin' }, async t => {
+  const temporary = await mkdtemp(join(tmpdir(), 'framekit-share-build-'));
+  t.after(() => rm(temporary, { recursive: true, force: true }));
+  const bundle = join(temporary, 'ShareResearch.app');
+  await run(process.execPath, [new URL('./build-bundle.mjs', import.meta.url).pathname, bundle]);
+  const { stat } = await import('node:fs/promises');
+  assert.ok((await stat(join(bundle, 'Contents', 'MacOS', 'ShareResearch'))).isFile());
+  assert.ok((await stat(join(bundle, 'Contents', 'Resources', 'ShareResearch.sdef'))).isFile());
+  await assert.rejects(run(process.execPath, [new URL('./build-bundle.mjs', import.meta.url).pathname, bundle]));
+});
