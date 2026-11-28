@@ -14,7 +14,7 @@ async function exercise(t, errorCode, useFile = false) {
   const dir = await mkdtemp(join(tmpdir(), 'framekit-share-ipc-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const binary = join(dir, 'share-ipc');
-  await run('xcrun', ['swiftc', join(here, 'SwiftReceiver.swift'), join(here, 'ipc/main.swift'), '-o', binary]);
+  await run('xcrun', ['swiftc', join(here, 'SwiftReceiver.swift'), join(here, 'ipc/main.swift'), '-lbsm', '-o', binary]);
   const control = errorCode === -1701 ? ['-1701'] : [];
   if (useFile) await Promise.all([0, 1, 2].map(i => writeFile(join(dir, `mock-${i}.fcpxml`), '<fcpxml/>')));
   const sendArgs = (pid, id) => useFile ? ['send-file', String(pid), `mock-${id}`, join(dir, `mock-${id}.fcpxml`)] : ['send', String(pid), `mock-${id}`, ...control];

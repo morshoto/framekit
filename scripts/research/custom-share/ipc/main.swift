@@ -13,8 +13,15 @@ if (arguments.count == 2 || (arguments.count == 3 && arguments[2] == "-1701")) &
         let direct = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))
         let value = direct?.stringValue ?? direct?.atIndex(1)?.fileURLValue?.deletingPathExtension().lastPathComponent ?? "unidentified"
         let sender = event.attributeDescriptor(forKeyword: AEKeyword(keySenderPIDAttr))?.int32Value ?? -1
-        let auditLength = event.attributeDescriptor(forKeyword: AEKeyword(keySenderAuditTokenAttr))?.data.count ?? 0
-        print("handled:\(value):\(event.returnID):\(sender):\(auditLength)"); fflush(stdout)
+        let audit = event.attributeDescriptor(forKeyword: AEKeyword(keySenderAuditTokenAttr))?.data
+        let auditLength = audit?.count ?? 0
+        var token = audit_token_t()
+        var auditPID: Int32 = -1
+        if let audit, audit.count == MemoryLayout<audit_token_t>.size {
+            _ = withUnsafeMutableBytes(of: &token) { audit.copyBytes(to: $0) }
+            auditPID = audit_token_to_pid(token)
+        }
+        print("handled:\(value):\(event.returnID):\(sender):\(auditLength):\(auditPID)"); fflush(stdout)
     }
     DispatchQueue.main.async {
         receiver.register()
