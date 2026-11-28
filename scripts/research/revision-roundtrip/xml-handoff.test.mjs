@@ -46,3 +46,9 @@ test('requires pinned digests and rejects changes to source locations', async ()
   const altered = value.external.toString().replace('file:///synthetic/interview.mov', 'file:///synthetic/other.mov');
   assert.throws(() => createRevisionB({ ...value, external: Buffer.from(altered), externalDigest: hash(altered) }), /source mismatch/);
 });
+
+test('rejects a concurrent rename of the target occurrence', async () => {
+  const value = await input();
+  const changed = value.external.toString().replace('name="Opening"', 'name="Manual rename"');
+  assert.throws(() => createRevisionB({ ...value, external: Buffer.from(changed), externalDigest: hash(changed) }), /conflict/);
+});
