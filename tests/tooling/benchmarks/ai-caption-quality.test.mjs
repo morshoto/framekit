@@ -114,6 +114,8 @@ test('pins the talking-head interview and a fixed evaluation window', async () =
   assert.match(asset.sha256, /^[a-f0-9]{64}$/);
   assert.match(asset.license, /CC BY 3.0/);
   assert.deepEqual(asset.windowSeconds, [0,30]);
+  assert.deepEqual(asset.additionalWindowsSeconds, [[30,60],[60,90]]);
+  assert.match(asset.additionalWindowsDesignation, /post hoc/i);
   assert.equal(asset.referenceText, 'unavailable');
 });
 
