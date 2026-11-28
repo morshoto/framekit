@@ -98,3 +98,16 @@ final class MockAssetRegistry {
         return matches.count == 1 ? matches[0] : nil
     }
 }
+
+extension MockAssetRegistry {
+    // Constructs a Cocoa value only; no app scripting container is registered or resolved.
+    func makeSpecifier(name: String, containerDescription: NSScriptClassDescription) -> (asset: ResearchAsset, specifier: NSUniqueIDSpecifier)? {
+        let probe = NSUniqueIDSpecifier(containerClassDescription: containerDescription,
+            containerSpecifier: nil, key: "assets", uniqueID: "probe")
+        guard probe.descriptor?.forKeyword(AEKeyword(keyAEDesiredClass))?.typeCodeValue == OSType(0x61736574),
+              let asset = make(name: name) else { return nil }
+        let specifier = NSUniqueIDSpecifier(containerClassDescription: containerDescription,
+            containerSpecifier: nil, key: "assets", uniqueID: asset.uniqueID)
+        return (asset, specifier)
+    }
+}

@@ -77,6 +77,8 @@ require(registry.makeSpecifier(name: "../escape", containerDescription: descript
 require(made.specifier.descriptor?.descriptorType == DescType(typeObjectSpecifier), "object specifier descriptor missing")
 let desired = made.specifier.descriptor?.forKeyword(AEKeyword(keyAEDesiredClass))
 require(desired?.typeCodeValue == OSType(0x61736574), "desired class was not asset")
+require(made.specifier.descriptor?.forKeyword(AEKeyword(keyAEKeyForm))?.typeCodeValue == OSType(formUniqueID), "wrong specifier form")
+require(made.specifier.descriptor?.forKeyword(AEKeyword(keyAEKeyData))?.stringValue == made.asset.uniqueID, "descriptor id mismatch")
 print("Specifier encodes synthetic asset class and identifier")
 let incomplete = NSScriptClassDescription(suiteName: "Research Share", className: "unbound", dictionary: ["AppleEventCode": "capp"])!
 if registry.makeSpecifier(name: "Unbound", containerDescription: incomplete) != nil {
