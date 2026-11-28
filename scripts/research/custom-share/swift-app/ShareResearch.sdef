@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE dictionary SYSTEM "file:///System/Library/DTDs/sdef.dtd">
 <dictionary>
-  <!-- Research-only syntax skeleton; no Cocoa asset or make implementation. -->
+  <!-- Research-only syntax skeleton; mock asset only, no make implementation. -->
   <suite name="Research Share" code="pvam" description="Incomplete research terminology">
     <record-type name="asset location" code="aslc">
       <property name="folder" code="asfd" type="file"/>

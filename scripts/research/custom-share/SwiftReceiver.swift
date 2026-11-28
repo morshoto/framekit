@@ -34,7 +34,7 @@ final class MockShareJournal {
 }
 
 final class ShareEventReceiver: NSObject {
-    // Optional registration for an isolated test app; never invoked by these tests.
+    // Registration is exercised only in the isolated test process.
     func register() {
         NSAppleEventManager.shared().setEventHandler(self,
             andSelector: #selector(handleOpen(_:withReplyEvent:)),
