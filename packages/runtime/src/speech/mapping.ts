@@ -136,19 +136,16 @@ function mapEvidence<T extends { start: number; end: number }, M>(
 ): Array<M extends SpeechWord ? MappedSpeechWord : MappedSpeechSegment> {
   const mapped: Array<M extends SpeechWord ? MappedSpeechWord : MappedSpeechSegment> = [];
   for (const value of evidence) {
-    const relation = relationToRange(value, occurrence.sourceRange);
+    const sourceRange = { start: value.start, end: value.end };
+    const startTime = sourceClockTime(value.start, sourceTimebase);
+    const endTime = sourceClockTime(value.end, sourceTimebase);
+    const exactRange = { ...sourceRange, startTime, durationTime: subtractRationalTimes(endTime, startTime) };
+    const relation = relationToRange(exactRange, occurrence.sourceRange);
     if (relation === "outside") continue;
     if (relation === "partial") {
       throw new Error(`AMBIGUOUS_MAPPING: ${label} crosses the occurrence source boundary`);
     }
-    const sourceRange = { start: value.start, end: value.end };
-    const startTime = sourceClockTime(value.start, sourceTimebase);
-    const endTime = sourceClockTime(value.end, sourceTimebase);
-    const sequenceRange = mapSourceRangeToSequenceRange({
-      ...sourceRange,
-      startTime,
-      durationTime: subtractRationalTimes(endTime, startTime),
-    }, occurrence);
+    const sequenceRange = mapSourceRangeToSequenceRange(exactRange, occurrence);
     const frameAlignedRange = alignRange(sequenceRange, frame);
     if (!containsRange(occurrence.sequenceRange, frameAlignedRange)) {
       throw new Error(`AMBIGUOUS_MAPPING: ${label} cannot be frame-aligned inside the occurrence`);
@@ -261,7 +258,19 @@ function validateRational(value: RationalTime, errorCode: string, label: string)
   return { value: value.value, timescale: value.timescale };
 }
 
-function relationToRange(value: { start: number; end: number }, range: TimeRange): "inside" | "outside" | "partial" {
+function relationToRange(value: TimeRange, range: TimeRange): "inside" | "outside" | "partial" {
+  if (value.startTime && value.durationTime && range.startTime && range.durationTime) {
+    const compare = (left: RationalTime, right: RationalTime) => {
+      const a = parseRational(left, "ANALYSIS_INVALID"); const b = parseRational(right, "ANALYSIS_INVALID");
+      const difference = a.value * b.timescale - b.value * a.timescale;
+      return difference < 0n ? -1 : difference > 0n ? 1 : 0;
+    };
+    const valueEnd = addRationalTimes(value.startTime, value.durationTime);
+    const rangeEnd = addRationalTimes(range.startTime, range.durationTime);
+    if (compare(valueEnd, range.startTime) <= 0 || compare(value.startTime, rangeEnd) >= 0) return "outside";
+    if (compare(value.startTime, range.startTime) >= 0 && compare(valueEnd, rangeEnd) <= 0) return "inside";
+    return "partial";
+  }
   if (value.end <= range.start || value.start >= range.end) return "outside";
   if (value.start >= range.start && value.end <= range.end) return "inside";
   return "partial";
