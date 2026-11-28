@@ -1,3 +1,4 @@
+import { captionTitlesConflict } from "./caption-conflict.js";
 import { reviewedCutOperations, verifyReviewedCutReadback } from "./headless-decision-cut.js";
 import { HeadlessSessionEvidenceLedger } from "./headless-session-evidence.js";
 import { registerValidatedTool } from "./tools/validated-tool.js";
@@ -2701,6 +2702,9 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       startTime: item.range.startTime!, durationTime: item.range.durationTime!, lane: 1, font: structuredClone(font),
     } }));
     const preview = await service.previewEdit(input.projectId, { schemaVersion: 1, expectedRevision: input.revision, operations }, input.timelineId);
+    if (captionTitlesConflict(preview.before.timeline.sequence.titles ?? [], operations.map((operation) => operation.title))) {
+      throw new Error("CAPTION_PREVIEW_OVERLAP: proposed captions overlap an existing title on the same lane; review and separately remove or replace it before retrying");
+    }
     const frame = preview.before.timeline.sequence.frameDuration;
     const aligned = (time: { value: string; timescale: string }) =>
       (BigInt(time.value) * BigInt(frame.timescale)) % (BigInt(time.timescale) * BigInt(frame.value)) === 0n;

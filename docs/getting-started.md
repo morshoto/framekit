@@ -164,6 +164,9 @@ To correct a recognized word in the caption proposal, supply
 `caption.wordCorrections` entries with the transcript `wordIndex` and replacement
 `text`. The plan keeps the original text, timing and analysis reference visible;
 the correction itself still requires review and changes the plan digest.
+Caption preview rejects a proposed title that overlaps an existing title on
+the same lane. Review the existing title and separately approve its removal or
+replacement before retrying; titles that only touch at a boundary are allowed.
 Music capability and speech-presence inputs are caller-supplied context, not
 independent capability discovery or verified speech detection.
 
