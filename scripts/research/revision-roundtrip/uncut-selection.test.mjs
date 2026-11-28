@@ -33,6 +33,17 @@ test('digest-bound explicit split selection preserves Uncut output structure', {
   writeFileSync(ambiguousPath, ambiguous);
   writeFileSync(manifest, JSON.stringify({ ...selection, digest: createHash('sha256').update(ambiguous).digest('hex') }));
   assert.notEqual(run('python3', [script, ambiguousPath, manifest, join(dir, 'ambiguous-b.fcpxml')]).status, 0);
+  const aliased = ambiguous.replace(/(<asset id="r3"[^\n]*<\/asset>)/, (asset) => `${asset}\n${asset.replace('id="r3"', 'id="r5"')}`)
+    .replace('<asset-clip ref="r3" name="Opening"', '<asset-clip ref="r5" name="Opening"');
+  assert.notEqual(aliased, ambiguous);
+  const aliasPath = join(dir, 'alias.fcpxml');
+  writeFileSync(aliasPath, aliased);
+  if (process.env.FRAMEKIT_UNCUT_DTD) {
+    const validAlias = run('xmllint', ['--noout', '--dtdvalid', process.env.FRAMEKIT_UNCUT_DTD, aliasPath]);
+    assert.equal(validAlias.status, 0, validAlias.stderr);
+  }
+  writeFileSync(manifest, JSON.stringify({ ...selection, digest: createHash('sha256').update(aliased).digest('hex') }));
+  assert.notEqual(run('python3', [script, aliasPath, manifest, join(dir, 'alias-b.fcpxml')]).status, 0, 'same-source aliases must not hide ambiguity');
   writeFileSync(manifest, JSON.stringify({ ...selection, digest: '0'.repeat(64) }));
   assert.notEqual(run('python3', [script, a, manifest, join(dir, 'stale.fcpxml')]).status, 0);
   writeFileSync(manifest, JSON.stringify({ ...selection, ordinal: 0 }));

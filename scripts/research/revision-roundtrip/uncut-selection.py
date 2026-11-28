@@ -19,8 +19,23 @@ assert selection['ordinal'] == 1 and selection['rename'] == 'Selected split'
 clip = spine[selection['ordinal']]
 assert clip.get('name') == 'Opening'
 assert clip.get('start') == selection['start'] and clip.get('duration') == selection['duration']
-asset = root.find(f"./resources/asset[@id='{clip.get('ref')}']/media-rep")
-assert asset is not None and asset.get('kind') == 'original-media' and asset.get('src') == selection['source']
+resources = root.find('./resources')
+assert resources is not None
+assets = resources.findall('asset')
+ids = [a.get('id') for a in assets]
+assert all(ids) and len(ids) == len(set(ids))
+by_id = dict(zip(ids, assets))
+def original_source(ref):
+    asset = by_id.get(ref)
+    assert asset is not None
+    representations = asset.findall('media-rep')
+    assert len(representations) == 1 and representations[0].get('kind') == 'original-media'
+    src = representations[0].get('src')
+    assert src
+    return src
+assert original_source(clip.get('ref')) == selection['source']
+# Identical source URLs under different resource IDs cannot establish uniqueness.
+assert sum(original_source(a.get('id')) == selection['source'] for a in assets) == 1
 # Refuse an indistinguishable same-source/range candidate even with an ordinal.
 def seconds(value):
     assert isinstance(value, str) and value.endswith('s')
