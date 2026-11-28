@@ -12,7 +12,9 @@ if (arguments.count == 2 || (arguments.count == 3 && arguments[2] == "-1701")) &
     receiver.onRejectedOpen = { event in
         let direct = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))
         let value = direct?.stringValue ?? direct?.atIndex(1)?.fileURLValue?.deletingPathExtension().lastPathComponent ?? "unidentified"
-        print("handled:\(value):\(event.returnID)"); fflush(stdout)
+        let sender = event.attributeDescriptor(forKeyword: AEKeyword(keySenderPIDAttr))?.int32Value ?? -1
+        let auditLength = event.attributeDescriptor(forKeyword: AEKeyword(keySenderAuditTokenAttr))?.data.count ?? 0
+        print("handled:\(value):\(event.returnID):\(sender):\(auditLength)"); fflush(stdout)
     }
     DispatchQueue.main.async {
         receiver.register()
