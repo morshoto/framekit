@@ -2314,6 +2314,27 @@ test("production stdio MCP persists and reopens the headless project and render 
     const reopenedRender = payload(await client.callTool({ name: "headless.render.inspect", arguments: { renderId: render.renderId } }));
     assert.equal(reopenedRender.status, "passed");
     assert.equal(reopenedRender.outcome.render.projectRevision.id, finished.after.timeline.revision.id);
+    const gapped = payload(await client.callTool({ name: "headless.edit.execute", arguments: {
+      projectId: "mcp-headless-project", sequenceId: "mcp-headless-sequence", expectedRevision: finished.after.timeline.revision,
+      operations: [
+        { type: "remove-transition", transitionId: "transition-red-blue" },
+        { type: "trim-occurrence", occurrenceId: "occurrence-red", durationTime: { value: "1", timescale: "2" } },
+      ],
+    } }));
+    const missingOutput = join(directory, "unsupported-gap.mp4");
+    const unavailable = await client.callTool({ name: "headless.render", arguments: {
+      projectId: "mcp-headless-project", sequenceId: "mcp-headless-sequence", expectedRevision: gapped.after.timeline.revision,
+      parameters: { outputPath: missingOutput, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } },
+    } });
+    assert.equal(unavailable.isError, true, "an unavailable render is a tool-level error");
+    const unavailableRecord = JSON.parse(toolErrorText(unavailable));
+    assert.equal(unavailableRecord.status, "unavailable");
+    assert.equal(unavailableRecord.outcome.error.code, "HEADLESS_RENDER_UNSUPPORTED");
+    assert.equal(existsSync(missingOutput), false);
+    const storedUnavailable = payload(await client.callTool({ name: "headless.render.inspect", arguments: { renderId: unavailableRecord.renderId } }));
+    assert.equal(storedUnavailable.status, "unavailable");
+    assert.equal(storedUnavailable.outcome.error.code, "HEADLESS_RENDER_UNSUPPORTED");
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId: "mcp-headless-project" } })).timeline, gapped.after.timeline);
   } finally {
     await client?.close();
     await transport?.close();
