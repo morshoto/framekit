@@ -265,6 +265,8 @@ export type VadCoverageSpan =
   | { start: number; end: number; status: "unavailable"; reason: string };
 
 export interface SpeechAnalysis {
+  /** Whether observed coverage was declared by the analyzer or inferred by the runtime. */
+  coverageProvenance?: "provider" | "inferred";
   /** Provenance fields are optional for backwards-compatible provider ports. */
   schemaVersion?: typeof SPEECH_ANALYSIS_SCHEMA_VERSION;
   mediaId?: string;
@@ -306,6 +308,8 @@ export interface AudioSignalFormat {
 }
 
 export interface AudioAnalysis {
+  /** Whether measured coverage was declared by the analyzer or inferred by the runtime. */
+  coverageProvenance?: "provider" | "inferred";
   /** Declared source reference clock; absent means unavailable, never inferred. */
   sourceTimebase?: RationalTime;
   /** Format of the measured signal, interpreted with signalScope. */
@@ -475,6 +479,8 @@ export interface AnalysisInput {
 
 export interface SpeechAnalyzer {
   analyze(input: AnalysisInput, range?: TimeRange): Promise<SpeechAnalysis>;
+  /** Recheck any explicitly bound provider assets; absence does not prove model identity. */
+  verifyProviderIdentity?(): Promise<void>;
   /** Revalidate physical source content before reusing persisted evidence. */
   validateSource?(input: AnalysisInput): Promise<void>;
   readonly descriptor?: AnalyzerDescriptor;

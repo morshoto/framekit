@@ -3087,6 +3087,10 @@
   },
   "recordedAtCommit": "37a92fa1",
   "addedTestNames": {
+    "tests/integration/headless-session-mcp.test.ts": [
+      "\"analysis pin rejects a configured provider changed while publishing evidence\"",
+      "\"analysis pin rejects index changes while publishing evidence\""
+    ],
     "tests/integration/mcp.test.ts": [
       "\"MCP preserves omitted opaque input behavior across SDK migration\"",
       "\"all tools with required root inputs reject empty arguments\"",
@@ -3237,6 +3241,8 @@
       "\"command speech identity changes with effective model configuration\"",
       "\"command audio identity distinguishes executable and provider version\"",
       "\"command provider executes the environment bound to its analysis identity\"",
+      "\"configured speech model asset is checked before and after provider execution\"",
+      "\"command speech analyzer preserves explicit coverage provenance\"",
       "`persisted ${kind} cache rechecks source bytes after restart`",
       "\"command audio rejects invalid or mismatched occurrence signal provenance\"",
       "\"command audio bounds source verification before and after the provider\""

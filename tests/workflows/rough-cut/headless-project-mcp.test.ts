@@ -1283,6 +1283,11 @@ test("headless project media can be understood and planned without a Final Cut c
   const sourcePath = join(directory, "source.mp4");
   const stateDirectory = join(directory, "state");
   const speechAnalyzer = await makeHeadlessSpeechAnalyzer(directory);
+  const modelAssetPath = join(directory, "model.bin");
+  const modelAssetBytes = Buffer.from("pinned model bytes"); await writeFile(modelAssetPath, modelAssetBytes);
+  const modelAssetSha256 = createHash("sha256").update(modelAssetBytes).digest("hex");
+  const vadAssetPath = join(directory, "vad.bin"); const vadAssetBytes = Buffer.from("pinned vad bytes"); await writeFile(vadAssetPath, vadAssetBytes);
+  const vadAssetSha256 = createHash("sha256").update(vadAssetBytes).digest("hex");
   const audioAnalyzer = await makeFixedAnalyzer(directory, "audio", JSON.stringify({
     integratedLufs: -18,
     truePeakDb: -3,
@@ -1299,6 +1304,11 @@ test("headless project media can be understood and planned without a Final Cut c
     FRAMEKIT_STATE_DIR: stateDirectory,
     FRAMEKIT_SPEECH_ANALYZER: speechAnalyzer,
     FRAMEKIT_SPEECH_ANALYZER_VERSION: "test-vad@1",
+    FRAMEKIT_SPEECH_ANALYZER_MODEL_ID: "fixture-model",
+    FRAMEKIT_SPEECH_MODEL_ASSET_PATH: modelAssetPath,
+    FRAMEKIT_SPEECH_MODEL_ASSET_SHA256: modelAssetSha256,
+    FRAMEKIT_SILERO_VAD_MODEL: vadAssetPath,
+    FRAMEKIT_SILERO_VAD_SHA256: vadAssetSha256,
     FRAMEKIT_SPEECH_REQUIRE_VAD: "1",
     FRAMEKIT_AUDIO_ANALYZER: audioAnalyzer,
   };
@@ -1351,6 +1361,39 @@ test("headless project media can be understood and planned without a Final Cut c
     assert.equal(understanding.sourceIdentity.sourceDigest, registered.resource.sourceDigest);
     assert.equal(understanding.speech.capability, "transcription-plus-vad");
     assert.equal(understanding.audio.integratedLufs, -18);
+    const pinArgs = { projectId, sequenceId: created.timeline.sequence.id, expectedRevision: registered.project.timeline.revision,
+      mediaId: registered.resource.id, kind: "vad", range: { start: 0, end: 2 } };
+    const pinned = payload(await client.callTool({ name: "headless.analysis.pin", arguments: pinArgs }));
+    assert.equal(pinned.ref.kind, "vad");
+    assert.equal(pinned.ref.provider.model, "fixture-model");
+    assert.equal(pinned.ref.source.sourceDigest, registered.resource.sourceDigest);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.analysis.pin", arguments: pinArgs })).ref, pinned.ref);
+    await writeFile(modelAssetPath, "changed model bytes");
+    const changedModel = await client.callTool({ name: "headless.analysis.pin", arguments: pinArgs });
+    assert.equal(changedModel.isError, true); assert.match(toolErrorText(changedModel), /ANALYZER_MODEL_CHANGED/);
+    await writeFile(modelAssetPath, modelAssetBytes);
+    await writeFile(vadAssetPath, "changed vad bytes");
+    const changedVad = await client.callTool({ name: "headless.analysis.pin", arguments: pinArgs });
+    assert.equal(changedVad.isError, true); assert.match(toolErrorText(changedVad), /ANALYZER_MODEL_CHANGED/);
+    await writeFile(vadAssetPath, vadAssetBytes);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.analysis.pin", arguments: pinArgs })).ref, pinned.ref);
+    const changedProvider = await connectProductionClient(here, { ...environment, FRAMEKIT_SPEECH_ANALYZER_MODEL_ID: "different-model" });
+    try {
+      const rejected = await changedProvider.client.callTool({ name: "headless.analysis.pin", arguments: pinArgs });
+      assert.equal(rejected.isError, true);
+      assert.match(toolErrorText(rejected), /ANALYSIS.*(PROVIDER|STALE)/);
+    } finally { await changedProvider.client.close(); await changedProvider.transport.close(); }
+    const missingProvider = await connectProductionClient(here, { ...environment, FRAMEKIT_SPEECH_ANALYZER: "" });
+    try {
+      const rejected = await missingProvider.client.callTool({ name: "headless.analysis.pin", arguments: pinArgs });
+      assert.equal(rejected.isError, true);
+      assert.match(toolErrorText(rejected), /ANALYSIS.*(PROVIDER|STALE)/);
+    } finally { await missingProvider.client.close(); await missingProvider.transport.close(); }
+
+
+    const stale = await client.callTool({ name: "headless.analysis.pin", arguments: { ...pinArgs, expectedRevision: { ...pinArgs.expectedRevision, sequence: 999 } } });
+    assert.equal(stale.isError, true);
+
     assert.ok(understanding.analysis.every((status: any) => status.status === "analyzed" || status.status === "unavailable"));
 
     const directSpeech = payload(await client.callTool({ name: "speech.analyze", arguments: {
@@ -1410,6 +1453,9 @@ test("headless project media can be understood and planned without a Final Cut c
     const projects = payload(await client.callTool({ name: "headless.project.list", arguments: {} }));
     assert.ok(projects.some((project: any) => project.projectId === projectId));
     await writeFile(sourcePath, "replaced source");
+    const changedPin = await client.callTool({ name: "headless.analysis.pin", arguments: pinArgs });
+    assert.equal(changedPin.isError, true);
+    assert.match(toolErrorText(changedPin), /MEDIA_CHANGED/);
     for (const name of ["speech.analyze", "audio.analyze"]) {
       const changed = await client.callTool({ name, arguments: { projectId, mediaId: registered.resource.id } });
       assert.equal(changed.isError, true);
