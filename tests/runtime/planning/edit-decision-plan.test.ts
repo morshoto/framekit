@@ -523,6 +523,84 @@ test("planning rechecks brief after the final evidence reads", async () => {
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
+test("brief conformance requires a verified artifact bound to the approved target and revision", async () => {
+  const { assessBriefArtifact } = await import("../../../packages/runtime/src/planning/brief-conformance.js");
+  const f = await fixture();
+  try {
+    const planned = await createEditDecisionPlan(f.request, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(planned.status, "available"); if (planned.status !== "available") return;
+    const finalRevision = { ...f.request.revision, id: "r2", sequence: 2 };
+    const execution = { status: "verified" as const, planDigest: planned.plan.planDigest, baseRevision: f.request.revision, finalRevision };
+    const artifact = { status: "passed" as const, target: { projectId: "p", sequenceId: "t" }, revision: finalRevision,
+      fileDigest: `sha256:${"a".repeat(64)}`, durationSeconds: 6, width: 1080, height: 1920 };
+    const result = assessBriefArtifact(f.request.brief, f.request.accepted, planned.plan, execution, artifact);
+    assert.equal(result.status, "incomplete");
+    assert.equal(result.checks.find((check) => check.name === "duration")?.status, "passed");
+    assert.equal(result.checks.find((check) => check.name === "aspect-ratio")?.status, "passed");
+    assert.equal(result.checks.find((check) => check.name === "duration")?.nextStep, undefined);
+    for (const name of ["source-coverage", "music", "captions"] as const) {
+      assert.ok(result.checks.find((check) => check.name === name)?.nextStep);
+    }
+    assert.equal(result.nativeAcceptance, "unavailable");
+    assert.equal(result.binding?.artifactDigest, artifact.fileDigest);
+    assert.equal(assessBriefArtifact(f.request.brief, f.request.accepted, planned.plan, execution, { ...artifact, fileDigest: "a".repeat(64) }).checks[0]?.status, "passed");
+    for (const alteredExecution of [
+      { ...execution, status: "unavailable" as const },
+      { ...execution, planDigest: "other" },
+      { ...execution, baseRevision: { ...execution.baseRevision, id: "other" } },
+    ]) {
+      assert.equal(assessBriefArtifact(f.request.brief, f.request.accepted, planned.plan, alteredExecution, artifact).checks[0]?.status, "unavailable");
+      assert.ok(assessBriefArtifact(f.request.brief, f.request.accepted, planned.plan, alteredExecution, artifact).checks[0]?.nextStep);
+    }
+    for (const invalidRevision of [null, { ...finalRevision, id: "" }, { ...finalRevision, sequence: -1 }, { ...finalRevision, timestamp: "" }]) {
+      const rejected = assessBriefArtifact(f.request.brief, f.request.accepted, planned.plan,
+        { ...execution, finalRevision: invalidRevision as any }, { ...artifact, revision: invalidRevision as any });
+      assert.equal(rejected.checks.find((check) => check.name === "duration")?.status, "unavailable");
+      assert.equal(rejected.binding, undefined);
+    }
+    const changedSource = structuredClone(planned.plan);
+    changedSource.source.mediaId = "other-source";
+    const changedDecision = structuredClone(planned.plan);
+    changedDecision.decisions[0]!.rationale = "changed after approval";
+    for (const changedPlan of [changedSource, changedDecision]) {
+      const rejected = assessBriefArtifact(f.request.brief, f.request.accepted, changedPlan, execution, artifact);
+      assert.equal(rejected.checks.find((check) => check.name === "duration")?.status, "unavailable");
+      assert.equal(rejected.binding, undefined);
+    }
+    const withoutSourceDigest = structuredClone(planned.plan);
+    delete withoutSourceDigest.source.sourceDigest;
+    const withoutOccurrence = { ...structuredClone(planned.plan), occurrenceId: "" };
+    for (const malformed of [withoutSourceDigest, withoutOccurrence]) {
+      const { planDigest: _old, ...content } = malformed;
+      const encoded = JSON.stringify(content, (_key, item: unknown) => item && typeof item === "object" && !Array.isArray(item)
+        ? Object.fromEntries(Object.entries(item).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)) : item);
+      const resigned = { ...content, planDigest: `sha256:${createHash("sha256").update(encoded).digest("hex")}` };
+      const rejected = assessBriefArtifact(f.request.brief, f.request.accepted, resigned, { ...execution, planDigest: resigned.planDigest }, artifact);
+      assert.equal(rejected.checks.find((check) => check.name === "duration")?.status, "unavailable");
+    }
+    const malformedPlan = { ...planned.plan, planDigest: "not-a-digest" };
+    assert.equal(assessBriefArtifact(f.request.brief, f.request.accepted, malformedPlan,
+      { ...execution, planDigest: malformedPlan.planDigest }, artifact).checks[0]?.status, "unavailable");
+    const revisedBrief = { ...f.request.brief, theme: "changed" };
+    assert.equal(assessBriefArtifact(revisedBrief, f.request.accepted, planned.plan, execution, artifact).checks[0]?.status, "unavailable");
+    for (const changed of [
+      { ...artifact, target: { ...artifact.target, sequenceId: "wrong" } },
+      { ...artifact, revision: { ...artifact.revision, sequence: 999 } },
+      { ...artifact, status: "failed" as const },
+      { ...artifact, fileDigest: "" },
+    ]) {
+      const rejected = assessBriefArtifact(f.request.brief, f.request.accepted, planned.plan, execution, changed);
+      assert.equal(rejected.checks.find((check) => check.name === "duration")?.status, "unavailable");
+      assert.equal(rejected.nativeAcceptance, "unavailable");
+    }
+    const failed = assessBriefArtifact(f.request.brief, f.request.accepted, planned.plan, execution, { ...artifact, durationSeconds: 20, width: 1920, height: 1080 });
+    assert.equal(failed.checks.find((check) => check.name === "duration")?.status, "failed");
+    assert.equal(failed.checks.find((check) => check.name === "aspect-ratio")?.status, "failed");
+    assert.match(failed.checks.find((check) => check.name === "duration")?.nextStep ?? "", /review/i);
+    assert.match(failed.checks.find((check) => check.name === "aspect-ratio")?.nextStep ?? "", /review/i);
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
 test("headless execution retains reviewed evidence when caller mutates its request", async () => {
   const f = await fixture();
   try {
