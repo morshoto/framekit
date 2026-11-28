@@ -27,12 +27,18 @@ if (arguments.count == 2 || (arguments.count == 3 && arguments[2] == "-1701")) &
         var lookupStatus: OSStatus = errSecParam
         var pathMatches = false
         var validityStatus: OSStatus = errSecParam
+        var anchorStatus: OSStatus = errSecParam
+        var requirement: SecRequirement?
+        let requirementStatus = SecRequirementCreateWithString("anchor apple" as CFString, SecCSFlags(), &requirement)
         if let audit, audit.count == MemoryLayout<audit_token_t>.size {
             var code: SecCode?
             let attributes = [kSecGuestAttributeAudit as String: audit as CFData] as CFDictionary
             lookupStatus = SecCodeCopyGuestWithAttributes(nil, attributes, SecCSFlags(), &code)
             if lookupStatus == errSecSuccess, let code {
                 validityStatus = SecCodeCheckValidity(code, SecCSFlags(), nil)
+                if requirementStatus == errSecSuccess, let requirement {
+                    anchorStatus = SecCodeCheckValidity(code, SecCSFlags(), requirement)
+                }
                 var staticCode: SecStaticCode?
                 if SecCodeCopyStaticCode(code, SecCSFlags(), &staticCode) == errSecSuccess, let staticCode {
                     var codeURL: CFURL?
@@ -44,7 +50,7 @@ if (arguments.count == 2 || (arguments.count == 3 && arguments[2] == "-1701")) &
                 }
             }
         }
-        print("handled:\(value):\(event.returnID):\(sender):\(auditLength):\(auditPID):\(auditType):\(lookupStatus):\(pathMatches ? 1 : 0):\(validityStatus)"); fflush(stdout)
+        print("handled:\(value):\(event.returnID):\(sender):\(auditLength):\(auditPID):\(auditType):\(lookupStatus):\(pathMatches ? 1 : 0):\(validityStatus):\(requirementStatus):\(anchorStatus)"); fflush(stdout)
     }
     DispatchQueue.main.async {
         receiver.register()
