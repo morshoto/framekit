@@ -9,16 +9,49 @@
     "license": "CC BY 4.0",
     "licenseUrl": "https://creativecommons.org/licenses/by/4.0/"
   },
-  "speech": {"corpusAsset": "EN2002a", "sourceSeconds": [60, 70]},
+  "speech": {
+    "corpusAsset": "EN2002a",
+    "sourceSeconds": [
+      60,
+      70
+    ]
+  },
   "scenario": {
     "sequenceDurationSeconds": 10,
     "frameRate": 30,
-    "placementSeconds": [2, 8],
-    "musicSourceSeconds": [0, 6],
+    "placementSeconds": [
+      2,
+      8
+    ],
+    "musicSourceSeconds": [
+      0,
+      6
+    ],
     "gainDb": -24,
-    "measurementWindowsSeconds": [[0.5, 1.5], [3, 7], [8.5, 9.5]]
+    "measurementWindowsSeconds": [
+      [
+        0.5,
+        1.5
+      ],
+      [
+        3,
+        7
+      ],
+      [
+        8.5,
+        9.5
+      ]
+    ]
   },
-  "tolerances": {"placementFrames": 1, "gainDb": 1},
+  "tolerances": {
+    "placementFrames": 1,
+    "gainDb": 1
+  },
   "intelligibility": "requires independent listening",
-  "limitations": "An amplitude ratio or absence of clipping alone does not establish dialogue intelligibility or creative suitability. This exploratory mix is not native acceptance."
+  "limitations": "An amplitude ratio or absence of clipping alone does not establish dialogue intelligibility or creative suitability. This exploratory mix is not native acceptance.",
+  "followUp": {
+    "gainDb": -36,
+    "designation": "Post hoc exploratory comparison after the -24 dB run; not an independent validation.",
+    "measurements": "Use the same source, windows, renderer and recognition model; retain human intelligibility as unavailable."
+  }
 }
