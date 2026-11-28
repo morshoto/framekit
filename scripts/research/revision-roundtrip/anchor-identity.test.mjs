@@ -25,3 +25,13 @@ test('rejects copied, missing and changed anchors and source declarations', asyn
   assert.throws(() => findAnchoredTarget(base, external.replace('file:///synthetic/interview.mov', 'file:///synthetic/other.mov'), 'opening-v1'), /source/);
   assert.throws(() => findAnchoredTarget(base, external.replace('name="Opening" offset="0s"', 'name="Manual rename" offset="0s"'), 'opening-v1'), /conflict/);
 });
+
+test('requires an independent target-range manifest and rejects swapped IDs', async () => {
+  const { base, external } = await fixtures();
+  const manifest = { sourceStart: '2s', duration: '1s' };
+  assert.throws(() => findAnchoredTarget(base, external, 'opening-v1'), /manifest/);
+  assert.equal(findAnchoredTarget(base, external, 'opening-v1', manifest).id, 'opening-v1');
+  const swapped = external.replace('value="opening-v1"', 'value="temporary-v1"')
+    .replace('value="inserted-v1"', 'value="opening-v1"').replace('value="temporary-v1"', 'value="inserted-v1"');
+  assert.throws(() => findAnchoredTarget(base, swapped, 'opening-v1', manifest), /manifest/);
+});
