@@ -2,6 +2,16 @@ import Foundation
 import AppKit
 import Carbon
 
+// Local test fixture only: never registered as an app scripting container.
+@objc final class ResearchTestContainer: NSObject {
+    @objc dynamic var assets: [ResearchAsset]
+    init(_ assets: [ResearchAsset]) { self.assets = assets }
+    @objc(valueInAssetsWithUniqueID:) func asset(withID id: String) -> ResearchAsset? {
+        let matches = assets.filter { $0.uniqueID == id }
+        return matches.count == 1 ? matches[0] : nil
+    }
+}
+
 func require(_ condition: @autoclosure () -> Bool, _ message: String) {
     if !condition() { fatalError(message) }
 }
@@ -84,6 +94,9 @@ NSClassDescription.register(description, for: ResearchTestContainer.self)
 let firstSpecifier = NSUniqueIDSpecifier(containerClassDescription: description, containerSpecifier: nil, key: "assets", uniqueID: firstAsset.uniqueID)
 let resolved = firstSpecifier.objectsByEvaluating(withContainers: testContainer) as? ResearchAsset
 require(resolved === firstAsset, "specifier did not resolve the exact test asset")
+let secondSpecifier = NSUniqueIDSpecifier(containerClassDescription: description, containerSpecifier: nil, key: "assets", uniqueID: secondAsset.uniqueID)
+require(secondSpecifier.objectsByEvaluating(withContainers: testContainer) as? ResearchAsset === secondAsset, "same-name asset misresolved")
+require(resolved?.value(forKey: "locationInfo") is NSDictionary, "resolved asset properties unavailable")
 let unknownSpecifier = NSUniqueIDSpecifier(containerClassDescription: description, containerSpecifier: nil, key: "assets", uniqueID: "missing")
 require(unknownSpecifier.objectsByEvaluating(withContainers: testContainer) == nil, "unknown id resolved")
 let duplicateContainer = ResearchTestContainer([firstAsset, firstAsset])
