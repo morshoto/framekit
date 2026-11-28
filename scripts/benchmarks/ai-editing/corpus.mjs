@@ -14,6 +14,18 @@ export async function verifyAsset(path, expectedDigest) {
   return actual;
 }
 
+/** Report review-only previews without treating them as speech-safety proof. */
+export function summarizeProductionCutPreviews(cuts, previews, sourceOffset) {
+  if (!Array.isArray(cuts) || !Array.isArray(previews) || !Number.isFinite(sourceOffset) || sourceOffset < 0 || cuts.length !== previews.length) throw new Error('Invalid cut preview');
+  const candidates=cuts.map((cut,i)=>{
+    const range=cut.candidate?.sourceRange;
+    if (!range || !Number.isFinite(range.start) || !Number.isFinite(range.end) || range.start < 0 || range.end <= range.start || cut.candidate.reviewRequired !== true) throw new Error('Invalid review candidate');
+    if (previews[i]?.index !== cut.index || previews[i]?.scope !== 'headless-preview') throw new Error('Invalid headless preview');
+    return {sourceRange:{start:range.start+sourceOffset,end:range.end+sourceOffset},confidence:cut.candidate.confidence,evidence:cut.candidate.evidence,reviewRequired:true};
+  });
+  return {status:candidates.length ? 'screened' : 'unavailable',candidates,speechSafety:'unverified'};
+}
+
 export async function parseAmiWords(xml, speaker) {
   const { XMLParser } = await import('fast-xml-parser');
   const parsed = new XMLParser({ ignoreAttributes: false, parseTagValue: false }).parse(xml);
