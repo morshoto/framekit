@@ -58,6 +58,9 @@ export async function createReceiver(directory) {
       if (receipt.state === 'cancelled') throw new Error('cancelled locally');
       if (receipt.state !== 'pending') throw new Error('already completed');
       if (!Array.isArray(paths) || paths.length === 0) throw new Error('empty output');
+      const directoryInfo = await lstat(receipt.directory);
+      if (!directoryInfo.isDirectory() || directoryInfo.isSymbolicLink()
+          || await realpath(receipt.directory) !== receipt.directory) throw new Error('invalid asset directory');
       const unique = new Set();
       const files = [];
       for (const path of paths) {
