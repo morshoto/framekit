@@ -39,3 +39,14 @@ test('write-capable PR jobs run checked-out code and configuration from the defa
   assert.equal(checkout.with['persist-credentials'], false, name);
  }
 });
+
+test('author assignment runs only for events supported by the pinned action', () => {
+ const condition = readWorkflow('assign').jobs['assign-author'].if;
+ assert.match(condition, /github\.event\.action == 'opened'/);
+ assert.match(condition, /github\.event\.action == 'reopened'/);
+ assert.ok(condition.includes("github.event_name == 'pull_request'"));
+ assert.ok(condition.includes("github.event_name == 'issues'"));
+ for (const bot of ['renovate[bot]', 'dependabot[bot]']) assert.ok(condition.includes(bot));
+ assert.equal(condition.includes('synchronize'), false);
+ assert.equal(condition.includes('edited'), false);
+});
