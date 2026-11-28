@@ -70,7 +70,15 @@ final class MockAsset: NSObject {
          "basename": name, "hasDescription": true, "hasMedia": false]
     }
 }
-enum MockStore { static var assets: [MockAsset] = [] }
+enum MockStore {
+    static var assets: [MockAsset] = []
+    static var completed: Set<String> = []
+    static let completionLock = NSLock()
+    static func claimCompletion(_ id: String) -> Bool {
+        completionLock.lock(); defer { completionLock.unlock() }
+        return completed.insert(id).inserted
+    }
+}
 extension NSApplication {
     @objc dynamic var assets: [MockAsset] { MockStore.assets }
     @objc(valueInAssetsWithUniqueID:) func asset(withID id: String) -> MockAsset? {
@@ -135,6 +143,9 @@ final class Receiver: NSObject {
             let expected = "979b046eafb48ab6dee711d09591a6bdef92f0b1da8780d5ecab43d760608a0a"
             guard (try? inspectOutput(directory: URL(fileURLWithPath: testShareDirectory, isDirectory: true),
                     name: "\(matches[0].name).fcpxml", expectedDigest: expected)) != nil else {
+                reply.setParam(NSAppleEventDescriptor(int32: Int32(errAEEventNotHandled)), forKeyword: AEKeyword(keyErrorNumber)); return
+            }
+            guard MockStore.claimCompletion(matches[0].uniqueID) else {
                 reply.setParam(NSAppleEventDescriptor(int32: Int32(errAEEventNotHandled)), forKeyword: AEKeyword(keyErrorNumber)); return
             }
             reply.setParam(descriptor, forKeyword: AEKeyword(keyDirectObject)); return
@@ -254,25 +265,29 @@ if args.count == 2 && args[1] == "conversion-control" {
         print("ready"); fflush(stdout)
     }
     withExtendedLifetime((receiver, delegate, fileDelegate)) { app.run() }
-} else if args.count == 4 && args[1] == "send", let target = Int32(args[2]), target > 0, ["ping", "make", "make-properties", "open-only"].contains(args[3]) {
+} else if args.count == 4 && args[1] == "send", let target = Int32(args[2]), target > 0, ["ping", "make", "make-properties", "open-only", "open-named"].contains(args[3]) {
     var path = [CChar](repeating: 0, count: 4096)
     let length = proc_pidpath(target, &path, UInt32(path.count))
     let own = URL(fileURLWithPath: args[0]).resolvingSymlinksInPath().path
     let targetPath = URL(fileURLWithPath: String(cString: path)).resolvingSymlinksInPath().path
     guard length > 0, own == targetPath, target != getpid() else { fputs("target is not the test executable\n", stderr); exit(2) }
-    if args[3] == "open-only" {
+    if args[3] == "open-only" || args[3] == "open-named" {
         let event = NSAppleEventDescriptor(eventClass: AEEventClass(kCoreEventClass), eventID: AEEventID(kAEOpenDocuments),
             targetDescriptor: NSAppleEventDescriptor(processIdentifier: target), returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
         let files = NSAppleEventDescriptor.list()
-        files.insert(NSAppleEventDescriptor(fileURL: URL(fileURLWithPath: testSharePath("Synthetic"))), at: 1)
+        files.insert(NSAppleEventDescriptor(fileURL: URL(fileURLWithPath: testSharePath(args[3] == "open-named" ? "Named" : "Synthetic"))), at: 1)
         event.setParam(files, forKeyword: AEKeyword(keyDirectObject))
         var rejected = false
         do {
             let reply = try event.sendEvent(options: [.waitForReply, .neverInteract], timeout: 3)
             rejected = reply.paramDescriptor(forKeyword: AEKeyword(keyErrorNumber))?.int32Value == Int32(errAEEventNotHandled)
+            if args[3] == "open-named", let result = reply.paramDescriptor(forKeyword: AEKeyword(keyDirectObject)),
+               result.descriptorType == DescType(typeObjectSpecifier), result.forKeyword(AEKeyword(keyAEKeyData))?.stringValue == "asset-2" {
+                print("open-named:accepted"); exit(0)
+            }
         } catch { rejected = (error as NSError).code == Int(errAEEventNotHandled) }
         guard rejected else { fputs("changed output was not rejected\n", stderr); exit(1) }
-        print("changed-output-rejected"); exit(0)
+        print(args[3] == "open-named" ? "open-named:rejected" : "changed-output-rejected"); exit(0)
     }
     let make = args[3] != "ping"
     let event = NSAppleEventDescriptor(eventClass: make ? AEEventClass(0x636f7265) : AEEventClass(kCoreEventClass), eventID: make ? AEEventID(0x6372656c) : AEEventID(0x666b7069),

@@ -90,6 +90,12 @@ async function exercise(t, writableName = false, useDelegate = false, fileDelega
     assert.equal(withProperties.stdout.trim(), 'properties:asset-2:get:Named:metadata:Incoming:options:verified');
     assert.equal(stderr.split('MOCK MAKE COMMAND INVOKED').length - 1, countBefore + 1);
     assert.match(stderr, /MOCK USER RECORD DECODER INVOKED/);
+    if (!useDelegate) {
+      await writeFile(join(shareDir, 'Named.fcpxml'), '<fcpxml/>', { flag: 'wx' });
+      const replies = await Promise.all([1, 2].map(() => run(binary, ['send', String(child.pid), 'open-named'], { timeout: 5000, env: testEnv })));
+      assert.deepEqual(replies.map(reply => reply.stdout.trim()).sort(), ['open-named:accepted', 'open-named:rejected']);
+      t.diagnostic('two test-owned senders: one accepted, one duplicate rejected');
+    }
     t.diagnostic(`SDEF-backed Cocoa make/get accepted ${writableName ? 'writable' : 'read-only'} name properties`);
   } finally {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
