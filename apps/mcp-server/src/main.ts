@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 import {
   createCommandAnalyzers,
+  selectAnalyzerEnvironment,
   createFinalCutLiveAdapter,
   FcpxmlDocumentAdapter,
   FinalCutAssetRegistry,
@@ -215,6 +216,8 @@ const analyzers = liveMode
       speechVadModelAssetSha256: process.env.FRAMEKIT_SILERO_VAD_MODEL?.trim() && process.env.FRAMEKIT_SILERO_VAD_SHA256?.trim()
         ? process.env.FRAMEKIT_SILERO_VAD_SHA256.trim().toLowerCase() : undefined,
       speechRequireVad: process.env.FRAMEKIT_SPEECH_REQUIRE_VAD === "1",
+      ...(process.env.FRAMEKIT_SPEECH_ENV_ALLOWLIST !== undefined
+        ? { speechEnvironment: selectAnalyzerEnvironment(process.env.FRAMEKIT_SPEECH_ENV_ALLOWLIST, process.env) } : {}),
       audioCommand: process.env.FRAMEKIT_AUDIO_ANALYZER,
       audioProviderVersion: process.env.FRAMEKIT_AUDIO_ANALYZER_VERSION,
       visualCommand: process.env.FRAMEKIT_VISUAL_ANALYZER,

@@ -517,6 +517,19 @@ With optional VAD, detector failure leaves transcription available and reports
 `vadUnavailableReason` without activity segments. `FRAMEKIT_SPEECH_REQUIRE_VAD=1`
 instead rejects a combined result if VAD is unavailable. Successful results
 retain request/source/revision/provider provenance and a 1/16000 analysis clock.
+For a reproducible speech provider environment across MCP restarts, optionally set
+`FRAMEKIT_SPEECH_ENV_ALLOWLIST` to comma-separated variable names. The speech
+command receives **only** those variables, and every named variable must be set;
+its complete selected environment remains bound to the analyzer identity. Include
+all variables the chosen provider needs, such as `PATH`, `HOME`,
+`FRAMEKIT_SPEECH_BACKEND`, `FRAMEKIT_WHISPER_BACKEND`, `FRAMEKIT_WHISPER_MODEL`,
+`FRAMEKIT_SPEECH_ANALYZER_VERSION`, and, when used, the Silero model, digest and
+`FRAMEKIT_SPEECH_REQUIRE_VAD`. Include offline or language settings when needed.
+Omitting this option preserves the default of capturing the full inherited
+environment; changing either mode or a selected value invalidates old evidence.
+This setting applies only to the speech command, not other analyzers. It does
+not sandbox the command or prove which files it reads.
+
 The Whisper transcription clock remains 1/16000 when optional VAD is unavailable;
 it describes the decoded analysis signal, not the original media's sample rate.
 After partial reanalysis, `vadCoverage` retains available segments and

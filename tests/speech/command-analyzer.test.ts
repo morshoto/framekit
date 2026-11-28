@@ -505,3 +505,23 @@ test("an explicitly selected analyzer environment binds only variables passed to
   assert.throws(() => selectAnalyzerEnvironment("PATH,BAD-NAME", { PATH: "/usr/bin" }), /ANALYZER_SETUP_REQUIRED/);
   assert.throws(() => selectAnalyzerEnvironment("", {}), /ANALYZER_SETUP_REQUIRED/);
 });
+
+test("factory runs the analyzer with only the explicitly selected environment", async (t) => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-selected-provider-env-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const media = join(directory, "source.wav");
+  const command = join(directory, "speech.mjs");
+  await writeFile(media, "media");
+  await writeFile(command, [
+    "#!/usr/bin/env node",
+    "for await (const chunk of process.stdin) {}",
+    'const text = `${process.env.MODEL_SETTING}:${process.env.UNSELECTED_SECRET ?? "absent"}`;',
+    'process.stdout.write(JSON.stringify({words:[{text,start:0,end:1,confidence:1}]}));',
+  ].join("\n"));
+  await chmod(command, 0o755);
+  const environment = selectAnalyzerEnvironment("PATH,MODEL_SETTING", { PATH: process.env.PATH, MODEL_SETTING: "alpha", UNSELECTED_SECRET: "private" });
+  const analyzer = createCommandAnalyzers({ speechCommand: command, speechEnvironment: environment }).speechAnalyzer!;
+  const result = await analyzer.analyze(createInput(media));
+  assert.equal(result.words[0]?.text, "alpha:absent");
+  assert.deepEqual(result.provider, analyzer.descriptor);
+});
