@@ -932,6 +932,8 @@ test("optional filler observations bind speech and remain unavailable for execut
     assert.equal(fillers.length, 2);
     assert.ok(fillers.every((item) => item.support === "unavailable" && item.reviewRequired === true));
     assert.deepEqual(fillers.map((item) => item.word.text), ["um,", "uh,"]);
+    assert.deepEqual(fillers.map((item) => item.confidenceStatus), ["meets-threshold", "below-threshold"]);
+    assert.deepEqual(fillers.map((item) => item.protection), ["not-evaluated", "overlaps-protected"]);
     assert.ok(fillers.every((item) => item.analysisRef.artifactDigest === speechRef.artifactDigest));
     assert.ok(observed.plan.warnings.some((warning) => /not.*(safe|remov)/i.test(warning)));
     assert.notEqual(normal.plan.planDigest, observed.plan.planDigest);
