@@ -21,6 +21,10 @@ test('independent XML exposes negative audio lane round-trip boundary', async ()
   assert.equal(ir.sequence.occurrences[0]?.mediaId, 'a');
   assert.equal(ir.sequence.occurrences[1]?.mediaId, 'm');
   assert.equal(ir.sequence.occurrences[1]?.track, -1);
+  // The XML nests the audio under Opening, but neither imported IR record
+  // retains that parent relationship. A lane remap alone cannot restore it.
+  assert.equal(ir.sequence.occurrences[1]?.attachedTo, undefined);
+  assert.equal(ir.sequence.storyElements.find(item => item.kind === 'audio')?.attachedTo, undefined);
   assert.equal(timelineIrDigest(ir), 'd97454a4cc07b85ff5e57c0e4fc24013706da40d0f33179aba5f65884019c778');
   assert.throws(() => compileTimelineIrToFcpxml(ir, { target }), /track must be a non-negative integer/);
 });
