@@ -17,6 +17,8 @@ The two XML handoff paths now reject explicitly declared `proxy-media` represent
 
 The source XML in the existing independent fixtures uses FCPXML 1.11. They were originally checked with the installed DTD; syntactic/DTD validation is not evidence of correct import, editability, playback, identity, or native Undo. See issue #903 for pinned candidate, toolchain, hashes, negative controls and complete evidence limits.
 
+Both offline handoff paths now require an explicit root version of `1.11` in each input. Previously, changing the version to `1.15` while recomputing the digest was accepted without any 1.15 validation. The restriction is a boundary of this fixture experiment, not a conclusion that 1.15 is incompatible. It does not validate all 1.11 attributes or replace DTD validation; support for another version requires its own schema and semantic investigation.
+
 Reproduce the bounded synthetic XML handoff (choose a fresh output path):
 
 ```sh

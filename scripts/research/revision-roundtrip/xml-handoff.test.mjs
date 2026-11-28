@@ -90,3 +90,12 @@ test('range handoff rejects proxy representation under the same URL', async () =
   const changedBase = proxy(value.baseline);
   assert.throws(() => createRevisionB({ ...value, baseline: Buffer.from(changedBase), baselineDigest: hash(changedBase) }), /proxy|representation/);
 });
+
+test('range-based handoff rejects unverified FCPXML versions even with valid digests', async () => {
+  const value = await input();
+  for (const side of ['baseline', 'external']) {
+    const bytes = Buffer.from(value[side].toString().replace('version="1.11"', 'version="1.15"'));
+    assert.notDeepEqual(bytes, value[side]);
+    assert.throws(() => createRevisionB({ ...value, [side]: bytes, [`${side}Digest`]: hash(bytes) }), /unsupported FCPXML version/);
+  }
+});

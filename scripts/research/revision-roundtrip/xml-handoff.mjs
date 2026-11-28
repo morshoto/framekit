@@ -18,6 +18,7 @@ function parse(bytes, projectUid, sourceDigests) {
   if (/<!DOCTYPE|<!ENTITY/i.test(xml) || XMLValidator.validate(xml) !== true) throw new Error('invalid xml');
   const document = new XMLParser(parserOptions).parse(xml);
   const root = only(document, 'fcpxml');
+  if (root[':@']?.['@_version'] !== '1.11') throw new Error('unsupported FCPXML version');
   const resources = only(root.fcpxml, 'resources');
   const library = only(root.fcpxml, 'library');
   const event = only(library.library, 'event');

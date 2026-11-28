@@ -45,6 +45,7 @@ function checkSupportedChildren(node, kind) {
 function inspect(xml) {
   if (typeof xml !== 'string' || /<!DOCTYPE|<!ENTITY/i.test(xml) || XMLValidator.validate(xml) !== true) throw new Error('invalid XML');
   const root = one(new XMLParser({ ignoreAttributes: false }).parse(xml).fcpxml, 'root');
+  if (root['@_version'] !== '1.11') throw new Error('unsupported FCPXML version');
   const resources = one(root.resources, 'resources');
   const project = one(one(one(root.library, 'library').event, 'event').project, 'project');
   const uid = project['@_uid'];

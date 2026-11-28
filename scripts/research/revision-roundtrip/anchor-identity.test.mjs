@@ -95,3 +95,13 @@ test('rejects proxy representations even if source URL and ranges match', async 
   const defaultOriginal = external.replace('kind="original-media" ', '');
   assert.equal(findAnchoredTarget(base, defaultOriginal, 'opening-v1', expected).id, 'opening-v1');
 });
+
+test('rejects unverified or missing FCPXML versions in either revision', async () => {
+  const { base, external } = await fixtures();
+  for (const version of ['1.15', '1.10', '']) {
+    const change = xml => xml.replace('version="1.11"', version ? `version="${version}"` : '');
+    assert.notEqual(change(base), base);
+    assert.throws(() => findAnchoredTarget(change(base), external, 'opening-v1', expected), /unsupported FCPXML version/);
+    assert.throws(() => findAnchoredTarget(base, change(external), 'opening-v1', expected), /unsupported FCPXML version/);
+  }
+});
