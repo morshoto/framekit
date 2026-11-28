@@ -283,6 +283,34 @@ test("FFmpeg renders a supported mixed-script title without tofu", async () => {
   }
 });
 
+test("basic titles retain contrast over bright and dark footage", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-basic-title-contrast-"));
+  try {
+    for (const color of ["white", "black"]) {
+      const media = join(directory, `${color}.mp4`);
+      await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-f", "lavfi", "-i", `color=${color}:s=320x180:r=30:d=2`,
+        "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono", "-t", "2", "-c:v", "libx264", "-threads", "1", "-c:a", "aac", media]);
+      const source = await timeline(media, media);
+      source.sequence.transitions = [];
+      source.sequence.titles = [{ id: "caption", text: "READABLE WORDS", startTime: { value: "1", timescale: "4" }, durationTime: { value: "1", timescale: "2" }, lane: 1 }];
+      const output = join(directory, `${color}-title.mp4`);
+      const renderer = new FfmpegTimelineRenderer();
+      const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(output) });
+      await renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request)));
+      const active = await frameAt(output, 0.4, directory, `${color}-active`);
+      const inactive = await frameAt(output, 0.8, directory, `${color}-inactive`);
+      let visible = 0; let outside = 0;
+      for (let y = 55; y < 95; y++) for (let x = 60; x < 260; x++) {
+        const a = ppmPixel(active, x, y); const b = ppmPixel(inactive, x, y);
+        if (color === "white" ? Math.max(a.r, a.g, a.b) < 120 : Math.min(a.r, a.g, a.b) > 180) visible++;
+        if (color === "white" ? Math.max(b.r, b.g, b.b) < 120 : Math.min(b.r, b.g, b.b) > 180) outside++;
+      }
+      assert.ok(visible > 25, `${color} footage must show contrasting title pixels: ${visible}`);
+      assert.equal(outside, 0, "title contrast must disappear outside its interval");
+    }
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("basic 720p title fits the observed Final Cut bounds", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-title-720-parity-"));
   try {
