@@ -2,7 +2,10 @@
 // Single-process sequential use only; receipts do not authenticate sender or target.
 import { randomUUID, createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile, rename, lstat, realpath } from 'node:fs/promises';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, extname, join, resolve } from 'node:path';
+
+const validKinds = kinds => Array.isArray(kinds) && kinds.length > 0
+  && new Set(kinds).size === kinds.length && kinds.every(kind => kind === 'xml' || kind === 'media');
 
 export async function createReceiver(directory) {
   await mkdir(directory, { recursive: true });
@@ -17,7 +20,7 @@ export async function createReceiver(directory) {
       if (!receipt || receipt.id !== id || receipt.directory !== join(root, id)
           || typeof receipt.name !== 'string' || !/^[\w -]+$/.test(receipt.name)
           || !['pending', 'observed', 'cancelled'].includes(receipt.state)
-          || receipt.targetVerified !== false) throw new Error('invalid receipt');
+          || receipt.targetVerified !== false || !validKinds(receipt.requestedKinds)) throw new Error('invalid receipt');
       return receipt;
     }
     catch (error) {
@@ -32,12 +35,13 @@ export async function createReceiver(directory) {
     await rename(temp, path);
   };
   return {
-    async create(name) {
+    async create(name, requestedKinds = ['xml']) {
+      if (!validKinds(requestedKinds)) throw new Error('invalid requested kinds');
       if (typeof name !== 'string' || !/^[\w -]+$/.test(name) || !name.trim()) throw new Error('invalid name');
       const id = randomUUID();
       const assetDirectory = join(root, id);
       await mkdir(assetDirectory);
-      const receipt = { id, name, directory: assetDirectory, state: 'pending', targetVerified: false };
+      const receipt = { id, name, directory: assetDirectory, state: 'pending', targetVerified: false, requestedKinds: [...requestedKinds] };
       await save(receipt);
       return receipt;
     },
@@ -69,6 +73,10 @@ export async function createReceiver(directory) {
         const bytes = await readFile(absolute);
         files.push({ name, size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') });
       }
+      // Extension checks are a mock-specific filter, not verification of media or XML bytes.
+      const extensions = new Set(files.map(file => extname(file.name).toLowerCase()));
+      if (receipt.requestedKinds.includes('xml') && !extensions.has('.fcpxml')) throw new Error('missing requested xml');
+      if (receipt.requestedKinds.includes('media') && !['.mov', '.mp4', '.m4v'].some(ext => extensions.has(ext))) throw new Error('missing requested media');
       const completed = { ...receipt, state: 'observed', files };
       await save(completed);
       return completed;
