@@ -41,3 +41,24 @@ test('provider runner verifies source before invoking a model', async () => {
   const runner = new URL('../../../scripts/benchmarks/ai-editing/run-disagreement.mjs', import.meta.url);
   assert.throws(() => execFileSync(process.execPath, [runner.pathname, '/missing/source', 'python'], {stdio:'pipe'}), /ENOENT/);
 });
+
+test('real-evidence probe detects changed bytes, provider, revision and incomplete coverage', async () => {
+  const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const { createHash } = await import('node:crypto');
+  const { exerciseEvidence } = await import('../../../scripts/benchmarks/ai-editing/evidence-probe.mjs');
+  const directory = await mkdtemp(join(tmpdir(), 'framekit-evidence-quality-'));
+  try {
+    const path = join(directory, 'source.wav');
+    const bytes = Buffer.from('test audio');
+    await writeFile(path, bytes);
+    const media = {mediaId:'source', source:path, sourceDigest:createHash('sha256').update(bytes).digest('hex'), mediaKind:'audio', duration:10};
+    const revision = {id:'r1',sequence:1,timestamp:'2026-01-01T00:00:00.000Z'};
+    const provider = {id:'speech',provider:'command',version:'v1',model:'example',configurationDigest:'config'};
+    const payload = {words:[{text:'hello',start:1,end:2,confidence:0.9}],vadSegments:[{kind:'speech',start:1,end:2}],requestedRange:{start:0,end:10},observedRange:{start:0,end:10}};
+    const result = await exerciseEvidence(media, revision, provider, payload);
+    assert.deepEqual(result.statuses, {original:'verified', staleProvider:'invalid', staleRevision:'invalid', missingArtifact:'unavailable', tamperedArtifact:'invalid', changedSource:'invalid', partialCoverage:'rejected'});
+    assert.deepEqual(await readFile(path), bytes);
+  } finally { await rm(directory,{recursive:true,force:true}); }
+});
