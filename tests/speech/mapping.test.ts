@@ -226,6 +226,18 @@ test("source range translation rejects conflicting exact evidence coordinates", 
   );
 });
 
+test("speech mapping treats exact occurrence endpoints as half-open", () => {
+  const target: SpeechOccurrence = { occurrenceId: "split", mediaId: "media-1", revision,
+    sourceRange: { start: 19.3, end: 19.3 + 27.1, startTime: { value: "193", timescale: "10" }, durationTime: { value: "271", timescale: "10" } },
+    sequenceRange: { start: 18.9, end: 46, startTime: { value: "189", timescale: "10" }, durationTime: { value: "271", timescale: "10" } } };
+  const speech: RevisionBoundSpeechAnalysis = { ...analysis, sourceTimebase: { value: "1", timescale: "16000" }, capability: "transcription-only", vadSegments: undefined,
+    words: [{ text: "inside", start: 42.16, end: 42.58, confidence: 1 }, { text: "outside", start: 46.4, end: 46.8, confidence: 1 }] };
+  const mapped = mapSpeechAnalysisToOccurrence(speech, target, { sequenceFrameDuration: { value: "1", timescale: "30" } });
+  assert.deepEqual(mapped.words.map(({ word }) => word.text), ["inside"]);
+  assert.throws(() => mapSpeechAnalysisToOccurrence({ ...speech, words: [{ text: "crossing", start: 46.4 - 1 / 16000, end: 46.8, confidence: 1 }] }, target,
+    { sequenceFrameDuration: { value: "1", timescale: "30" } }), /AMBIGUOUS_MAPPING.*crosses/);
+});
+
 test("speech mapping retains the declared source clock at fractional frame offsets", () => {
   const frame = { value: "1001", timescale: "24000" };
   const seconds = (frames: number) => frames * 1001 / 24000;
