@@ -3958,6 +3958,14 @@ test("approved reviewed headless cut executes once and independently reads back"
       ranges: [{ start: 0.5, end: 1 }], verification: "unverified" });
     const cut = plan.plan.decisions.find((item: any) => item.kind === "cut"); assert.ok(cut);
     const args = { ...input, planDigest: plan.plan.planDigest, candidateIndex: plan.plan.decisions.indexOf(cut) };
+    const shorter = payload(await client.callTool({ name: "headless.decision.plan", arguments: { ...input, pauseMarginSeconds: 0.1 } }));
+    assert.equal(shorter.status, "available", shorter.reason);
+    const shorterCut = shorter.plan.decisions.find((item: any) => item.kind === "cut");
+    assert.ok(shorterCut && shorterCut.range.end - shorterCut.range.start > cut.range.end - cut.range.start);
+    assert.notEqual(shorter.plan.planDigest, plan.plan.planDigest);
+    assert.ok(shorter.plan.warnings.some((warning: string) => /reduced.*margin.*listen/i.test(warning)));
+    assert.equal((await client.callTool({ name: "headless.decision.approved-preview-cut", arguments: { ...args, pauseMarginSeconds: 0.1 } })).isError, true);
+    assert.equal((await client.callTool({ name: "headless.decision.plan", arguments: { ...input, pauseMarginSeconds: 0.05 } })).isError, true);
     const before = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
     const assetApproval = payload(await client.callTool({ name: "headless.decision.approved-preview-cut", arguments: args }));
     await writeFile(modelAssetPath, "changed declared model asset");

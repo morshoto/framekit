@@ -20,6 +20,8 @@ export interface NarrativeCutRequest {
   sourceRange: TimeRange;
   sequenceRange: TimeRange;
   sequenceFrameDuration: RationalTime;
+  /** Reviewed speech-boundary margin in seconds; defaults to 0.2. */
+  pauseMarginSeconds?: number;
   analysis: RevisionBoundSpeechAnalysis;
   /** Optional source-coordinate observations; visual gaps alone never propose cuts. */
   visualGaps?: TimeRange[];
@@ -77,6 +79,10 @@ function validateRequest(request: NarrativeCutRequest): number {
   if (!validRange(request.sourceRange) || !validRange(request.sequenceRange)) throw new Error("AMBIGUOUS_MAPPING: occurrence ranges are invalid");
   if (!request.sourceRange.startTime || !request.sourceRange.durationTime || !request.sequenceRange.startTime || !request.sequenceRange.durationTime) throw new Error("AMBIGUOUS_MAPPING: exact occurrence timing is required");
   if (Math.abs((request.sourceRange.end - request.sourceRange.start) - (request.sequenceRange.end - request.sequenceRange.start)) > 1e-9) throw new Error("AMBIGUOUS_MAPPING: retimed occurrences are unsupported");
+  if (request.pauseMarginSeconds !== undefined && (!Number.isFinite(request.pauseMarginSeconds)
+    || request.pauseMarginSeconds < 0.1 || request.pauseMarginSeconds > PAD_SECONDS)) {
+    throw new Error("INVALID_PAUSE_MARGIN: margin must be between 0.1 and 0.2 seconds");
+  }
   const frame = parseRational(request.sequenceFrameDuration, "ANALYSIS_INVALID");
   const seconds = Number(frame.value) / Number(frame.timescale);
   if (frame.value <= 0n || !Number.isFinite(seconds) || seconds <= 0) throw new Error("ANALYSIS_INVALID: sequence frame duration must be positive");
@@ -90,6 +96,9 @@ export function rankNarrativeCuts(request: NarrativeCutRequest): NarrativeCutPla
     projectId: request.projectId, timelineId: request.timelineId, revision: structuredClone(request.revision), source: structuredClone(request.source), candidates: [],
     warnings: ["Candidates require review and separate evidence-bound approval before any edit."],
   };
+  if (request.pauseMarginSeconds !== undefined && request.pauseMarginSeconds < PAD_SECONDS) {
+    result.warnings.push("Reduced speech margin requires careful listening before approval.");
+  }
   if (!validRange(request.analysis.requestedRange) || !validRange(request.analysis.observedRange)
     || request.analysis.observedRange.start > request.sourceRange.start || request.analysis.observedRange.end < request.sourceRange.end
     || request.analysis.requestedRange.start > request.sourceRange.start || request.analysis.requestedRange.end < request.sourceRange.end
@@ -132,7 +141,10 @@ export function rankNarrativeCuts(request: NarrativeCutRequest): NarrativeCutPla
     if (previous.word.confidence < MIN_WORD_CONFIDENCE || next.word.confidence < MIN_WORD_CONFIDENCE) { lowConfidenceBoundary = true; continue; }
     const corroboration = (range: TimeRange) => {
       const spans = vad.filter((entry) => entry.segment.kind === "speech" && overlaps(entry.sourceRange, range));
-      const minimum = Math.min(0.2, (range.end - range.start) / 2);
+      // Timestamp estimates can start before VAD detects a short word. Keep the
+      // entire transcript word and VAD span outside the cut, and downgrade
+      // partially corroborated candidates for explicit review.
+      const minimum = Math.min(0.2, Math.max(0.05, (range.end - range.start) / 4));
       if (!spans.some((entry) => Math.min(entry.sourceRange.end, range.end) - Math.max(entry.sourceRange.start, range.start) >= minimum - 1e-9)) return undefined;
       return { spans, complete: spans.some((entry) => entry.sourceRange.start <= range.start && entry.sourceRange.end >= range.end) };
     };
@@ -146,8 +158,9 @@ export function rankNarrativeCuts(request: NarrativeCutRequest): NarrativeCutPla
     const silence = vad.find((entry) => entry.segment.kind === "silence" && entry.sourceRange.start <= pause.start && entry.sourceRange.end >= pause.end);
     const speechOnlyGap = !silence && vad.every((entry) => entry.segment.kind === "speech");
     if ((!silence && !speechOnlyGap) || vad.some((entry) => entry.segment.kind !== "silence" && overlaps(entry.sourceRange, pause))) continue;
-    const rawStart = request.sequenceRange.start + (pause.start - request.sourceRange.start) + PAD_SECONDS;
-    const rawEnd = request.sequenceRange.start + (pause.end - request.sourceRange.start) - PAD_SECONDS;
+    const margin = request.pauseMarginSeconds ?? PAD_SECONDS;
+    const rawStart = request.sequenceRange.start + (pause.start - request.sourceRange.start) + margin;
+    const rawEnd = request.sequenceRange.start + (pause.end - request.sourceRange.start) - margin;
     const firstFrame = Math.ceil(rawStart / frameSeconds + 1e-8);
     const lastFrame = Math.floor(rawEnd / frameSeconds - 1e-8);
     if (!Number.isSafeInteger(firstFrame) || !Number.isSafeInteger(lastFrame) || lastFrame <= firstFrame) continue;

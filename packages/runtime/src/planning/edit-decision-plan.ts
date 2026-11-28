@@ -34,6 +34,7 @@ export interface EditDecisionPlanRequest {
   speechContext?: AnalysisEvidenceContext;
   vadContext?: AnalysisEvidenceContext;
   audioContext?: AnalysisEvidenceContext;
+  pauseMarginSeconds?: number;
   caption: Omit<CaptionPlanRequest, "snapshot" | "projectId" | "timelineId" | "revision" | "occurrenceId">;
   music: Omit<MusicPlanRequest, "snapshot" | "projectId" | "timelineId" | "revision" | "brief" | "accepted">;
 }
@@ -212,7 +213,7 @@ export async function createEditDecisionPlan(request: EditDecisionPlanRequest, a
         revision: request.revision, source: vadContext.source,
         sourceRange: { start: sourceStart, end: sourceStart + clip.duration, startTime: sourceStartTime, durationTime: clip.durationTime },
         sequenceRange: { start: clip.start, end: clip.start + clip.duration, startTime: clip.startTime, durationTime: clip.durationTime },
-        sequenceFrameDuration: snapshot.timeline.frameDuration }, request.vadRef, vadContext, artifacts, verifySource);
+        sequenceFrameDuration: snapshot.timeline.frameDuration, ...(request.pauseMarginSeconds !== undefined ? { pauseMarginSeconds: request.pauseMarginSeconds } : {}) }, request.vadRef, vadContext, artifacts, verifySource);
       if (cuts.status !== "available") return { status: "unavailable", reason: `Cut evidence: ${cuts.reason}` };
       const safe = cuts.plan.candidates.filter((candidate) => preservesRequiredCoverage(candidate, request, source));
       if (safe.length !== cuts.plan.candidates.length) cutWarnings.push("Some cut candidates were withheld because required source coverage would be lost or could not be verified.");
