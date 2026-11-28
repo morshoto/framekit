@@ -63,3 +63,32 @@ test('output collision retains uncertainty and never overwrites the existing fil
   assert.equal((await readdir(input.claimDirectory)).filter(name => name.startsWith('claim-')).length, 1);
   await assert.rejects(commitSourceBoundRenumberedRevisionB({ ...input, output: join(input.claimDirectory, 'retry.fcpxml') }), /EEXIST/);
 });
+
+test('independent processes share the source-bound renumbered claim', async t => {
+  const input = await fixture(t);
+  const dir = input.claimDirectory;
+  await Promise.all([
+    writeFile(join(dir, 'baseline.fcpxml'), input.baseline),
+    writeFile(join(dir, 'external.fcpxml'), input.external),
+    writeFile(join(dir, 'envelope.json'), JSON.stringify(input.envelope)),
+    writeFile(join(dir, 'public.pem'), input.trustedKey.export({ type: 'spki', format: 'pem' })),
+  ]);
+  const pin = hash(input.trustedKey.export({ type: 'spki', format: 'der' }));
+  const child = new URL('./source-bound-once-child.mjs', import.meta.url).pathname;
+  const run = promisify(execFile);
+  await assert.rejects(run(process.execPath, [child, dir, '0'.repeat(64)]), error => /key pin/.test(error.stderr));
+  assert.equal((await readdir(dir)).filter(name => name.startsWith('claim-')).length, 0);
+  const results = await Promise.allSettled([run(process.execPath, [child, dir, pin]), run(process.execPath, [child, dir, pin])]);
+  assert.equal(results.filter(item => item.status === 'fulfilled').length, 1);
+  assert.equal(results.filter(item => item.status === 'rejected').length, 1);
+  assert.match(results.find(item => item.status === 'rejected').reason.stderr, /EEXIST/);
+  const winner = JSON.parse(results.find(item => item.status === 'fulfilled').value.stdout);
+  const output = await readFile(input.output);
+  assert.equal(hash(output), winner.digest);
+  const claims = (await readdir(dir)).filter(name => name.startsWith('claim-'));
+  assert.equal(claims.length, 1);
+  assert.equal((await readRevision(join(dir, claims[0]), output, input.expectedProject)).digest, winner.digest);
+  assert.match((await run('python3', [new URL('./verify-anchored.py', import.meta.url).pathname, input.output, 'Synthetic rename'])).stdout, /manifest verified/);
+  if (process.env.FRAMEKIT_RESEARCH_DTD) await run('xmllint', ['--noout', '--dtdvalid', process.env.FRAMEKIT_RESEARCH_DTD, input.output]);
+  await assert.rejects(run(process.execPath, [child, dir, pin]), error => /EEXIST/.test(error.stderr));
+});
