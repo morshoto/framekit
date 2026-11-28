@@ -147,6 +147,8 @@ test('manual repair dispatch targets a PR without starting project backfill', as
  };
  assert.equal(evaluate('sync-pull-request-milestone', '22'), true);
  assert.equal(evaluate('sync-project-status', '22'), false);
+ assert.equal(evaluate('warn-future-blockers', '22'), false);
  assert.equal(evaluate('sync-pull-request-milestone', ''), false);
  assert.equal(evaluate('sync-project-status', ''), true);
+ assert.equal(evaluate('warn-future-blockers', ''), true);
 });
