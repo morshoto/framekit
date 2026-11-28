@@ -43,3 +43,9 @@ test('wraps PCM as a correctly sized mono WAV', async () => {
   assert.deepEqual(wav.subarray(44),pcm);
   assert.throws(()=>pcmWav(Buffer.from([0]),16000),/PCM/i);
 });
+
+test('cut proxy verifies source before creating output or invoking recognition', async () => {
+  const {execFileSync} = await import('node:child_process');
+  const script = new URL('../../../scripts/benchmarks/ai-editing/run-cut-proxy.mjs',import.meta.url);
+  assert.throws(()=>execFileSync(process.execPath,[script.pathname,'/missing/source','python','/missing/output'],{stdio:'pipe'}),/ENOENT/);
+});
