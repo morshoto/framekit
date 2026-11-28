@@ -93,3 +93,15 @@ test('chooses a conservative integral analysis range for rounded container durat
   assert.throws(() => safeWholeSecondDuration(0.5), /duration/i);
   assert.throws(() => safeWholeSecondDuration(NaN), /duration/i);
 });
+
+test('checks caption plan word preservation and timing without claiming rendered accuracy', async () => {
+  const { assessCaptionPlan } = await import('../../../scripts/benchmarks/ai-editing/caption-quality.mjs');
+  const words = [{text:'Hello',start:1,end:1.3},{text:'there',start:1.4,end:1.7}];
+  const groups = [{sequenceRange:{start:1,end:1.7}, words:[{wordIndex:0},{wordIndex:1}]}];
+  const result = assessCaptionPlan(words, groups, 1/30);
+  assert.equal(result.status, 'pass');
+  assert.equal(result.renderedTextStatus, 'unavailable');
+  assert.equal(assessCaptionPlan(words, [{...groups[0],words:[{wordIndex:0},{wordIndex:0}]}], 1/30).status, 'fail');
+  assert.equal(assessCaptionPlan(words, [{...groups[0],sequenceRange:{start:1.1,end:1.7}}], 1/30).status, 'fail');
+  assert.equal(assessCaptionPlan(words, null, 1/30).status, 'unavailable');
+});
