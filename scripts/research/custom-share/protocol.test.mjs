@@ -4,6 +4,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createProtocol } from './protocol.mjs';
+import { createReceiver } from './receiver.mjs';
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'share-protocol-'));
@@ -74,4 +75,19 @@ test('a partial or mismatched protocol journal stays unknown after restart', asy
   await assert.rejects(restarted.inspect(asset.id), /journal/);
   await writeFile(journal, JSON.stringify({ id: asset.id, next: 5, trace: ['make'] }));
   await assert.rejects(restarted.event(asset.id, 'open', []), /journal/);
+});
+
+
+test('receipt completed before journal advance remains ambiguous after restart', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'share-protocol-interrupted-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const protocol = await createProtocol(root);
+  const asset = await protocol.make('Example', ['xml']);
+  for (const event of ['location', 'library', 'metadata', 'options']) await protocol.event(asset.id, event);
+  const xml = join(asset.directory, 'Example.fcpxml');
+  await writeFile(xml, '<fcpxml/>');
+  await (await createReceiver(root)).complete(asset.id, [xml]);
+  const restarted = await createProtocol(root);
+  await assert.rejects(restarted.inspect(asset.id), /invalid journal/);
+  await assert.rejects(restarted.event(asset.id, 'open', [xml]), /invalid journal/);
 });
