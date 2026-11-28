@@ -4,7 +4,7 @@ import { planCaptionGroups } from '../../../packages/runtime/src/planning/captio
 import { assessCaptionPlan } from './caption-quality.mjs';
 
 /** Plan against a verified local source and provider output; this is not output or native verification. */
-export async function probeCaptionPlan(source, revision, provider, payload) {
+export async function probeCaptionPlan(source, revision, provider, payload, options = {}) {
   const range = {start:0,end:source.duration};
   const speech = bindSpeechAnalysis({...payload,mediaId:source.mediaId,sourceIdentity:source,revision,provider,
     coverageProvenance:payload.observedRange ? 'provider' : 'inferred'}, {input:{project:{revision},media:source},provider,range});
@@ -23,5 +23,5 @@ export async function probeCaptionPlan(source, revision, provider, payload) {
   const groups = result.status === 'available' ? result.plan.groups : null;
   return {planStatus:result.status,...(result.status === 'available' ? {groups:groups.length,warnings:result.plan.warnings,nativeTitleStatus:result.plan.nativeTitleStatus} : {reason:result.reason}),
     recognizedWords:speech.words.length,lowConfidenceWords:speech.words.filter((word)=>word.confidence < 0.8).length,
-    assessment:assessCaptionPlan(speech.words,groups,1/30), renderedTextStatus:'unavailable',transcriptionAccuracy:'unavailable'};
+    assessment:assessCaptionPlan(speech.words,groups,1/30), ...(options.includeGroups && groups ? {captionGroups:groups} : {}), renderedTextStatus:'unavailable',transcriptionAccuracy:'unavailable'};
 }
