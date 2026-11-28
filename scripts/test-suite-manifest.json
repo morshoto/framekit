@@ -2598,6 +2598,25 @@
       "network": "none"
     },
     {
+      "path": "tests/runtime/planning/music-planning.test.ts",
+      "owner": "packages/runtime",
+      "tags": [
+        "unit",
+        "fast-integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "packages/runtime",
+        "packages/testkit"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
       "path": "tests/runtime/projects/capabilities.test.ts",
       "owner": "adapters/final-cut/typescript",
       "tags": [
