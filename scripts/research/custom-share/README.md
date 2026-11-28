@@ -81,3 +81,9 @@ node scripts/research/custom-share/verify-static-signature.mjs '/Applications/Fi
 ```
 
 The pinned requirement is the designated requirement observed from the locally installed 10.7.1 build 410082. The static verification checks the app bytes against this pinned expression; the IPC test separately checks that test-owned senders do not satisfy it. A static match does not prove that a running sender is that app, that other versions have the same signing policy, or that an authenticated sender exported the intended target. The test receiver still rejects incoming events. No code is signed, installed, launched or changed by the verification command.
+
+The test-owned Cocoa app now also exercises a process restart after the concurrent duplicate control. The harness terminates only its own receiver, starts a fresh copy of the same uninstalled test app, recreates the same two mock asset names and generated IDs, and sends a new synthetic callback with the same URL and file bytes as the prior generation. In the observed positive run the fresh receiver accepted it: the process-local completed set did not survive restart, and the callback contained no generation discriminator. The sender is a new test-owned process; this simulates an indistinguishable stale payload and does not prove an old event remained queued or that Final Cut behaves this way. Early Apple Event timeouts are explicitly reported as inconclusive, so check the diagnostic rather than inferring that the restart path ran from a passing TAP result. This test does not make the mock receiver safe, resolve the historical reservation, or supply native fencing.
+
+```sh
+node --test --test-name-pattern='uninstalled test app' scripts/research/custom-share/sdef-runtime.test.mjs
+```

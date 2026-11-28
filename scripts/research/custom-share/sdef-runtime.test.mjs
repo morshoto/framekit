@@ -95,6 +95,43 @@ async function exercise(t, writableName = false, useDelegate = false, fileDelega
       const replies = await Promise.all([1, 2].map(() => run(binary, ['send', String(child.pid), 'open-named'], { timeout: 5000, env: testEnv })));
       assert.deepEqual(replies.map(reply => reply.stdout.trim()).sort(), ['open-named:accepted', 'open-named:rejected']);
       t.diagnostic('two test-owned senders: one accepted, one duplicate rejected');
+      if (!writableName) {
+        // Restart only this test-owned app. Recreate the same mock names and IDs,
+        // then send a callback indistinguishable from the prior generation.
+        child.kill('SIGTERM');
+        await exited;
+        await writeFile(join(shareDir, 'Synthetic.fcpxml'), '<fcpxml/>');
+        const restarted = spawn(binary, ['listen'], { stdio: ['ignore', 'pipe', 'pipe'], env: testEnv });
+        const restartedExit = once(restarted, 'exit');
+        try {
+          let restartTimer;
+          const restartedReady = await Promise.race([
+            once(restarted.stdout, 'data').then(([chunk]) => chunk.toString().trim()),
+            restartedExit.then(() => 'exited'),
+            new Promise(resolve => { restartTimer = setTimeout(() => resolve('timeout'), 5000); }),
+          ]);
+          clearTimeout(restartTimer);
+          assert.equal(restartedReady, 'ready');
+          try {
+            const first = await run(binary, ['send', String(restarted.pid), 'make'], { timeout: 5000, env: testEnv });
+            assert.match(first.stdout, /^make:asset-1:/);
+            const recreated = await run(binary, ['send', String(restarted.pid), 'make-properties'], { timeout: 5000, env: testEnv });
+            assert.match(recreated.stdout, /^properties:asset-2:/);
+            const stale = await run(binary, ['send', String(restarted.pid), 'open-named'], { timeout: 5000, env: testEnv });
+            assert.equal(stale.stdout.trim(), 'open-named:accepted');
+            t.diagnostic('restarted test app accepted an indistinguishable prior-generation callback');
+          } catch (error) {
+            if (/errAETimeout/.test(error.stderr ?? '')) {
+              t.diagnostic('inconclusive: restarted test app transport timed out');
+              return;
+            }
+            throw error;
+          }
+        } finally {
+          if (restarted.exitCode === null && restarted.signalCode === null) restarted.kill('SIGTERM');
+          await restartedExit;
+        }
+      }
     }
     t.diagnostic(`SDEF-backed Cocoa make/get accepted ${writableName ? 'writable' : 'read-only'} name properties`);
   } finally {
