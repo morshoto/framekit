@@ -50,3 +50,29 @@ test('author assignment runs only for events supported by the pinned action', ()
  assert.equal(condition.includes('synchronize'), false);
  assert.equal(condition.includes('edited'), false);
 });
+
+test('workflow conditions preserve behavior across issue and PR event fixtures', async () => {
+ const { Parser, Lexer, Evaluator, data } = await import('@actions/expressions');
+ const workflow = readWorkflow('assign');
+ const condition = (job, eventName, action, label = '', actor = 'contributor') => {
+  const source = workflow.jobs[job].if.replace(/^\s*\$\{\{|\}\}\s*$/g, '').trim();
+  const tokens = new Lexer(source).lex().tokens;
+  const expr = new Parser(tokens, ['github'], []).parse();
+  const object = (entries) => new data.Dictionary(Object.entries(entries).map(([key, value]) => ({ key, value: typeof value === 'string' ? new data.StringData(value) : object(value) })));
+  const context = object({ github: { event_name: eventName, actor, event: { action, label: { name: label } } } });
+  return new Evaluator(expr, context).evaluate().coerceString() === 'true';
+ };
+ for (const action of ['opened', 'reopened', 'closed', 'milestoned', 'demilestoned']) assert.equal(condition('sync-project-status', 'issues', action), true, action);
+ for (const action of ['labeled', 'unlabeled']) {
+  for (const label of ['Status: Backlog', 'Status: In progress', 'Status: In review', 'Status: Pending', 'Status: Done']) assert.equal(condition('sync-project-status', 'issues', action, label), true, `${action} ${label}`);
+  assert.equal(condition('sync-project-status', 'issues', action, 'Priority: High'), false);
+ }
+ assert.equal(condition('sync-project-status', 'workflow_dispatch', ''), true);
+ assert.equal(condition('sync-project-status', 'pull_request', 'opened'), false);
+ for (const action of ['opened', 'reopened']) assert.equal(condition('assign-author', 'pull_request', action), true);
+ for (const action of ['synchronize', 'edited']) assert.equal(condition('assign-author', 'pull_request', action), false);
+ assert.equal(condition('assign-author', 'pull_request', 'opened', '', 'dependabot[bot]'), false);
+ assert.equal(condition('assign-author', 'pull_request', 'opened', '', 'renovate[bot]'), false);
+ assert.equal(condition('assign-author', 'issues', 'opened'), true);
+ assert.equal(condition('assign-author', 'issues', 'reopened'), false);
+});
