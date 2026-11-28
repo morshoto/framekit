@@ -1,0 +1,52 @@
+{
+  "gitHead": "37ecce2699c28386425e77e378b9af045072f10c",
+  "sourceSha256": "b6ce59ff735c234afdd94b13744aa26f6785af746170543fd03b33160e920a6d",
+  "windowSamples": [
+    1152000,
+    1328000
+  ],
+  "removedSamples": [
+    1235200,
+    1242667
+  ],
+  "sampleRate": 16000,
+  "originalWavSha256": "40fdbc1ce9e1bf567d519d9b546d8d9b8e03046cf0f17a012e0350a643e950fc",
+  "cutWavSha256": "23d606a6149c26697707d44b438770f0e5609b6181bdca5187b2e73c608b4a6c",
+  "model": "mlx-community/whisper-tiny",
+  "providers": {
+    "original": {
+      "id": "command.speech",
+      "provider": "command",
+      "version": "mlx-whisper-0.4.3:silero-6.3"
+    },
+    "cut": {
+      "id": "command.speech",
+      "provider": "command",
+      "version": "mlx-whisper-0.4.3:silero-6.3"
+    },
+    "status": "match"
+  },
+  "declaredAnalyzerVersion": "mlx-whisper-0.4.3:silero-6.3",
+  "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+  "originalAnalysisSha256": "65237611554ef21582505cd3cc37464b790e8a7c3aa1cc674b7b5ada2e9c8a75",
+  "cutAnalysisSha256": "f965ea3ac22b61df77bcf4aab640b0301cbc6e70ac4568e61319a61fbc9b92eb",
+  "originalLowConfidenceWords": 9,
+  "cutLowConfidenceWords": 8,
+  "comparison": {
+    "baselineWords": 28,
+    "cutWords": 26,
+    "matchedWords": 26,
+    "missingWords": 2,
+    "addedWords": 0,
+    "missingTokens": [
+      "are",
+      "but"
+    ],
+    "addedTokens": [],
+    "retention": 0.9285714285714286,
+    "continuity": "unavailable"
+  },
+  "minimumExploratoryRetention": 1,
+  "meetsExploratoryTarget": false,
+  "limitation": "Word-multiset agreement is not proof of speech safety or narrative continuity; it ignores order and cannot detect words omitted by both recognitions. Independent listening and human-checked boundaries remain required. Model declarations do not authenticate loaded model bytes."
+}
