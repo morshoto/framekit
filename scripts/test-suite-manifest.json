@@ -3124,8 +3124,30 @@
         "integration"
       ],
       "evidence": "process",
-      "dependsOn": ["scripts/benchmarks", "packages/runtime", "adapters/headless"],
-      "requires": ["ffmpeg", "ffprobe"],
+      "dependsOn": [
+        "scripts/benchmarks",
+        "packages/runtime",
+        "adapters/headless"
+      ],
+      "requires": [
+        "ffmpeg",
+        "ffprobe"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
+      "path": "tests/tooling/benchmarks/ai-cut-proxy.test.mjs",
+      "owner": "scripts/benchmarks",
+      "reviewed": true,
+      "tags": [
+        "unit"
+      ],
+      "evidence": "fixture",
+      "dependsOn": ["scripts/benchmarks"],
+      "requires": [],
       "platforms": [
         "any"
       ],
