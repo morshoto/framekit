@@ -1,3 +1,4 @@
+import { createGitHubRequestPolicy } from './github-request-policy.mjs';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -136,33 +137,15 @@ export function createProjectStatusClient({
 		'X-GitHub-Api-Version': '2022-11-28',
 		'Content-Type': 'application/json',
 	};
-	const rest = async (path, { method = 'GET', body, allowNotFound = false } = {}) => {
-		const url = `${apiRoot}/repos/${repository}${path}`;
-		const response = await fetchImpl(url, {
-			method,
-			headers,
-			...(body === undefined ? {} : { body: JSON.stringify(body) }),
-		});
-		if (allowNotFound && response.status === 404) return null;
-		if (!response.ok) {
-			throw new Error(`GITHUB_API_REQUEST_FAILED: ${method} ${new URL(url).pathname} returned ${response.status}`);
-		}
-		if (response.status === 204) return null;
-		return response.json();
-	};
-	const graphql = async (query, variables) => {
-		const url = `${apiRoot}/graphql`;
-		const response = await fetchImpl(url, { method: 'POST', headers, body: JSON.stringify({ query, variables }) });
-		if (!response.ok) {
-			throw new Error(`GITHUB_GRAPHQL_REQUEST_FAILED: returned ${response.status}`);
-		}
-		const result = await response.json();
-		if (result.errors?.length) {
-			const messages = result.errors.map((error) => error.message).join('; ');
-			throw new Error(`GITHUB_GRAPHQL_REQUEST_FAILED: ${messages}`);
-		}
-		return result.data;
-	};
+	const request = createGitHubRequestPolicy({ fetchImpl });
+	const rest = (path, { method = 'GET', body, allowNotFound = false } = {}) => request(
+		`${apiRoot}/repos/${repository}${path}`,
+		{ method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) },
+		{ readOnly: method === 'GET', allowNotFound },
+	);
+	const graphql = (query, variables) => request(`${apiRoot}/graphql`, {
+		method: 'POST', headers, body: JSON.stringify({ query, variables }),
+	}, { graphql: true, readOnly: /^\s*query\b/.test(query) });
 
 	const getProject = async () => {
 		const items = [];

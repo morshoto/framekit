@@ -1,3 +1,4 @@
+import { createGitHubRequestPolicy } from './github-request-policy.mjs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createProjectStatusClient } from './sync-project-status.mjs';
@@ -63,17 +64,13 @@ export function createPullRequestStatusSource({ repository, token, apiUrl = 'htt
 	if (!/^[^/]+\/[^/]+$/.test(repository)) throw new Error('GITHUB_REPOSITORY_INVALID');
 	if (!token) throw new Error('FRAMEKIT_PROJECT_TOKEN_REQUIRED');
 	const [owner, name] = repository.split('/');
-	const graphql = async (query, variables) => {
-		const response = await fetchImpl(`${apiUrl.replace(/\/$/, '')}/graphql`, {
-			method: 'POST',
-			headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-			body: JSON.stringify({ query, variables }),
-		});
-		if (!response.ok) throw new Error(`GITHUB_GRAPHQL_REQUEST_FAILED: returned ${response.status}`);
-		const result = await response.json();
-		if (result.errors?.length) throw new Error(`GITHUB_GRAPHQL_REQUEST_FAILED: ${result.errors.map((error) => error.message).join('; ')}`);
-		return result.data;
-	};
+	const request = createGitHubRequestPolicy({ fetchImpl });
+	const graphql = (query, variables) => request(`${apiUrl.replace(/\/$/, '')}/graphql`, {
+		method: 'POST',
+		headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+		body: JSON.stringify({ query, variables }),
+	}, { graphql: true, readOnly: true });
+
 	const readContexts = async (rollup, number) => {
 		if (!rollup) return [];
 		const contexts = [...rollup.contexts.nodes];

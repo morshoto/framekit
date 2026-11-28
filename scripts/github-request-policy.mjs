@@ -32,7 +32,7 @@ export function createGitHubRequestPolicy({ fetchImpl = fetch, sleep = (ms) => n
    const canRetry = retryable && attempt < maxAttempts && now() + delay < deadline;
    const requestId = header('x-github-request-id');
    log(`GitHub request category=${category} status=${response?.status ?? 'network'} requests=${requests} retries=${attempt - 1} request_id=${/^[\w:-]{1,100}$/.test(requestId ?? '') ? requestId : 'unknown'} remaining=${/^\d+$/.test(header('x-ratelimit-remaining') ?? '') ? header('x-ratelimit-remaining') : 'unknown'} outcome=${canRetry ? 'retry' : retryable ? 'exhausted-or-deferred' : 'failed'}`);
-   if (!canRetry) throw new Error(`GITHUB_API_REQUEST_FAILED: ${category} (${retryable ? 'exhausted-or-deferred' : 'failed'})`);
+   if (!canRetry) throw new Error(`${graphql ? 'GITHUB_GRAPHQL_REQUEST_FAILED' : 'GITHUB_API_REQUEST_FAILED'}: ${category} (${retryable ? 'exhausted-or-deferred' : 'failed'})`);
    await sleep(delay);
   }
  };
