@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { createReceiver } from './receiver.mjs';
 import { inspectXml } from './verify.mjs';
 
 const digest = value => createHash('sha256').update(value).digest('hex');
@@ -42,4 +43,20 @@ test('rejects missing files, symlinks, and invalid expected digests', async t =>
   await symlink(`${path}.actual`, path);
   await assert.rejects(inspectXml(path, 'a'.repeat(64)), /symlink/);
   await assert.rejects(inspectXml(path, 'not-a-hash'), /digest/);
+});
+
+
+test('independent inspection detects changed bytes after a mock callback', async t => {
+  const path = await fixture(t);
+  const receiver = await createReceiver(dirname(path));
+  const asset = await receiver.create('Example');
+  const output = join(asset.directory, 'Example.fcpxml');
+  const expected = '<fcpxml version="1.11"><resources/></fcpxml>';
+  await writeFile(output, expected);
+  const receipt = await receiver.complete(asset.id, [output]);
+  assert.equal(receipt.files[0].sha256, digest(expected));
+  assert.equal((await inspectXml(output, digest(expected))).digestMatches, true);
+  await writeFile(output, expected.replace('1.11', '1.10'));
+  assert.equal((await inspectXml(output, digest(expected))).digestMatches, false);
+  assert.equal((await receiver.get(asset.id)).state, 'observed');
 });
