@@ -297,6 +297,7 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "headless.brief.inspect",
         "headless.brief.inspect-timeline-coverage",
         "headless.brief.inspect-render",
+        "headless.brief.preview-render-correction",
         "headless.brief.revise",
         "headless.brief.accept",
         "headless.analysis.pin",

@@ -1445,6 +1445,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { ...briefTargetSchema, renderId: z.string().min(1) },
   }, async (input) => sessionResult(() => requireHeadlessBriefs().inspectRender(input)));
 
+  registerValidatedTool(server, "headless.brief.preview-render-correction", {
+    description: "Propose review-only dimensions for an aspect-ratio mismatch on a reverified render. This may stretch footage and does not authorize a render or edit.",
+    inputSchema: { ...briefTargetSchema, renderId: z.string().min(1) },
+  }, async (input) => sessionResult(() => requireHeadlessBriefs().previewRenderCorrection(input)));
+
   registerValidatedTool(server, "headless.brief.revise", {
     description: "Revise a brief from its reviewed digest; this invalidates its previous acceptance and does not edit the timeline.",
     inputSchema: { ...briefTargetSchema, expectedDigest: z.string().min(1), brief: creativeBriefSchema },

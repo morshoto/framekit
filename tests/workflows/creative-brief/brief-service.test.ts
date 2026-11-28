@@ -87,7 +87,10 @@ test("brief render inspection binds current project and reverified artifact with
     assert.match(proposal.notice, /not.*(authorize|approval)/i);
     assert.deepEqual(current, initialProject);
     assert.deepEqual(await service.previewRenderCorrection({ ...target, renderId: "render-fixture" }), proposal);
+    observation.width = 2; observation.height = 2;
+    assert.equal((await service.previewRenderCorrection({ ...target, renderId: "render-fixture" })).status, "unavailable", "impossible even dimensions cannot produce a proposal");
     observation.durationSeconds = 45; observation.width = 1080; observation.height = 1920;
+    assert.equal((await service.previewRenderCorrection({ ...target, renderId: "render-fixture" })).status, "unavailable", "matching ratio needs no correction");
     verificationCount = 0; driftOnSecond = true;
     assert.equal((await service.inspectRender({ ...target, renderId: "render-fixture" })).status, "unavailable");
     driftOnSecond = false;
@@ -344,6 +347,9 @@ test("MCP exposes project-bound review and explicit acceptance without timeline 
     const noRender = await client.callTool({ name: "headless.brief.inspect-render", arguments: { ...target, renderId: "render-fixture" } });
     assert.notEqual(noRender.isError, true);
     assert.equal(JSON.parse((noRender.content as Array<{ text: string }>)[0]!.text).status, "unavailable");
+    const noProposal = await client.callTool({ name: "headless.brief.preview-render-correction", arguments: { ...target, renderId: "render-fixture" } });
+    assert.notEqual(noProposal.isError, true);
+    assert.equal(JSON.parse((noProposal.content as Array<{ text: string }>)[0]!.text).status, "unavailable");
     assert.deepEqual(await runtime.inspectProject(), before);
   } finally { await client.close(); await server.close(); await rm(f.dir, { recursive: true, force: true }); }
 });

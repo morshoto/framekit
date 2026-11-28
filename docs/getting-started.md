@@ -126,6 +126,10 @@ audibility, rendered output, or native acceptance of that content.
 aspect ratio to an accepted brief bound to the same project revision and
 timeline. It reports source, music and caption conformance as unavailable and
 does not authenticate the editing approval chain or establish native acceptance.
+For an aspect-ratio mismatch, `headless.brief.preview-render-correction` can
+propose smaller even output dimensions for review. It does not render or edit,
+and the sizing change can stretch or distort footage. Duration correction is
+not generated; choose and separately approve any editorial change.
 If acceptance is interrupted, the brief may report
 `BRIEF_RECONCILIATION_REQUIRED` and remains unavailable until the interrupted
 state is inspected and reconciled; do not treat it as approval for an edit.

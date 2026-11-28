@@ -34,6 +34,16 @@ export interface BriefRenderInspection {
   notice: string;
 }
 
+export interface BriefRenderCorrectionPreview {
+  status: "available" | "unavailable";
+  reviewRequired: true;
+  binding?: NonNullable<BriefRenderInspection["binding"]> & { renderId: string };
+  planDigest?: string;
+  aspectRatio?: { dimensions: { width: number; height: number }; rationale: string };
+  duration: { status: "unavailable" | "not-needed"; detail: string };
+  notice: string;
+}
+
 /** Headless brief review only; acceptance is not editor-operation authorization. */
 export class HeadlessCreativeBriefService {
   constructor(private readonly options: HeadlessCreativeBriefOptions) {}
@@ -125,6 +135,39 @@ export class HeadlessCreativeBriefService {
         binding: { projectId: input.projectId, sequenceId: input.sequenceId, revision: structuredClone(after.timeline.revision),
           briefDigest: record.accepted.digest, timelineDigest: record.projectBinding!.timelineDigest, artifactDigest: observation.fileDigest } };
     });
+  }
+
+  /** Review-only sizing proposal; no export destination or mutation is authorized. */
+  async previewRenderCorrection(input: CreativeBriefTarget & { renderId: string }): Promise<BriefRenderCorrectionPreview> {
+    input = structuredClone(input);
+    const result = await this.inspectRender(input);
+    const notice = "Review only; changing output dimensions may stretch or distort footage and reduce resolution. This does not authorize a render or edit; choose a new output path and review the result.";
+    const duration = result.checks.find((check) => check.name === "duration")?.status === "matches"
+      ? { status: "not-needed" as const, detail: "The verified duration matches the brief." }
+      : { status: "unavailable" as const, detail: "Duration correction requires a separately reviewed editorial decision; no cut or extension is proposed." };
+    const unavailable = (): BriefRenderCorrectionPreview => ({ status: "unavailable", reviewRequired: true, duration, notice });
+    const aspect = result.checks.find((check) => check.name === "aspect-ratio");
+    if (result.status !== "incomplete" || !result.binding || aspect?.status !== "does-not-match" || typeof aspect.expected !== "string"
+      || !aspect.observed || typeof aspect.observed !== "object") return unavailable();
+    const ratio = /^(\d+):(\d+)$/.exec(aspect.expected);
+    const observed = aspect.observed as { width?: number; height?: number };
+    if (!ratio || !Number.isSafeInteger(Number(ratio[1])) || !Number.isSafeInteger(Number(ratio[2]))
+      || Number(ratio[1]) <= 0 || Number(ratio[2]) <= 0 || !Number.isSafeInteger(observed.width) || !Number.isSafeInteger(observed.height)
+      || observed.width! <= 0 || observed.height! <= 0) return unavailable();
+    let numerator = BigInt(ratio[1]!); let denominator = BigInt(ratio[2]!);
+    let a = numerator; let b = denominator;
+    while (b !== 0n) [a, b] = [b, a % b];
+    numerator /= a; denominator /= a;
+    let scale = BigInt(observed.width!) / numerator;
+    const heightScale = BigInt(observed.height!) / denominator;
+    if (heightScale < scale) scale = heightScale;
+    if (numerator % 2n !== 0n || denominator % 2n !== 0n) scale -= scale % 2n;
+    if (scale <= 0n) return unavailable();
+    const dimensions = { width: Number(numerator * scale), height: Number(denominator * scale) };
+    const binding = { ...structuredClone(result.binding), renderId: input.renderId };
+    const content = { binding, dimensions, duration };
+    return { status: "available", reviewRequired: true, binding, planDigest: createHash("sha256").update(JSON.stringify(content)).digest("hex"),
+      aspectRatio: { dimensions, rationale: "Largest even dimensions with the approved ratio that fit within the previous output dimensions." }, duration, notice };
   }
 
   async revise(input: CreativeBriefTarget & { expectedDigest: string; brief: CreativeBrief }): Promise<CreativeBriefView> {
