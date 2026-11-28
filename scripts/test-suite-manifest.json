@@ -3356,6 +3356,24 @@
       "network": "none"
     },
     {
+      "path": "tests/tooling/ci/github-request-policy.test.mjs",
+      "owner": "scripts",
+      "tags": [
+        "fixture-e2e",
+        "integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "static",
+      "dependsOn": [
+        "scripts"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
       "path": "tests/tooling/ci/project-status-sync.test.ts",
       "owner": "scripts",
       "tags": [
