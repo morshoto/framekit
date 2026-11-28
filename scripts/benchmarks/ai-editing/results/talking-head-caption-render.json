@@ -1,0 +1,207 @@
+{
+  "gitHead": "3ab7a36d1453532f4af01c2ea54f1243e5baf9b1",
+  "sourceSha256": "2d1304cfebf10290acd74b1a8bdce638ce94c58f5cfa8950a288d44d8e138c5f",
+  "sourceWindowSeconds": [
+    0,
+    30
+  ],
+  "derivedSha256": "6ab7bb46733218c6f070a9560f3a32ea077c8a4285ac62a218b2d08df80b04c3",
+  "backendOutputSha256": "c9a56e8f875498936587b9d4828dd31bc4818f32d3ea306a99a20e9db9527046",
+  "declaredModel": "mlx-community/whisper-tiny",
+  "provider": {
+    "id": "command.speech",
+    "provider": "command",
+    "version": "mlx-whisper-0.4.3:silero-6.3"
+  },
+  "plan": {
+    "planStatus": "available",
+    "groups": 14,
+    "warnings": [
+      "Transcript and emphasis require human review; native editable title support is not established.",
+      "Caption group timing uses sampled frames rather than outward rounding and may start up to one frame after a word begins; review timing.",
+      "Word timing was rounded outward to the sequence frame grid.",
+      "Low-confidence transcript words require correction before use."
+    ],
+    "nativeTitleStatus": "unavailable",
+    "recognizedWords": 70,
+    "lowConfidenceWords": 13,
+    "assessment": {
+      "status": "pass",
+      "referenceWords": 70,
+      "missingWords": 0,
+      "duplicateWords": 0,
+      "timingFailures": 0,
+      "textMismatches": 0,
+      "lineMismatches": 0,
+      "malformed": 0,
+      "toleranceSeconds": 0.03333333333333333,
+      "renderedTextStatus": "unavailable"
+    },
+    "renderedTextStatus": "unavailable",
+    "transcriptionAccuracy": "unavailable"
+  },
+  "rendered": {
+    "baselineSha256": "c881f18def666999cae1eea2002d0e946ef5f24735c50f30810189d706b8795d",
+    "outputSha256": "df490b3915e97423cbfa11b4be578ba33c7aa5b5f4f60b964e61d23d144c2a83",
+    "sampledActiveFrames": 28,
+    "framesWithChangedPixels": 28,
+    "samples": [
+      {
+        "group": 0,
+        "frame": 0,
+        "changedPixels": 522
+      },
+      {
+        "group": 0,
+        "frame": 40,
+        "changedPixels": 396
+      },
+      {
+        "group": 1,
+        "frame": 41,
+        "changedPixels": 373
+      },
+      {
+        "group": 1,
+        "frame": 77,
+        "changedPixels": 373
+      },
+      {
+        "group": 2,
+        "frame": 78,
+        "changedPixels": 300
+      },
+      {
+        "group": 2,
+        "frame": 107,
+        "changedPixels": 309
+      },
+      {
+        "group": 3,
+        "frame": 108,
+        "changedPixels": 308
+      },
+      {
+        "group": 3,
+        "frame": 136,
+        "changedPixels": 385
+      },
+      {
+        "group": 4,
+        "frame": 137,
+        "changedPixels": 650
+      },
+      {
+        "group": 4,
+        "frame": 215,
+        "changedPixels": 682
+      },
+      {
+        "group": 5,
+        "frame": 216,
+        "changedPixels": 350
+      },
+      {
+        "group": 5,
+        "frame": 309,
+        "changedPixels": 355
+      },
+      {
+        "group": 6,
+        "frame": 310,
+        "changedPixels": 565
+      },
+      {
+        "group": 6,
+        "frame": 372,
+        "changedPixels": 577
+      },
+      {
+        "group": 7,
+        "frame": 373,
+        "changedPixels": 456
+      },
+      {
+        "group": 7,
+        "frame": 427,
+        "changedPixels": 468
+      },
+      {
+        "group": 8,
+        "frame": 428,
+        "changedPixels": 420
+      },
+      {
+        "group": 8,
+        "frame": 478,
+        "changedPixels": 422
+      },
+      {
+        "group": 9,
+        "frame": 479,
+        "changedPixels": 417
+      },
+      {
+        "group": 9,
+        "frame": 603,
+        "changedPixels": 340
+      },
+      {
+        "group": 10,
+        "frame": 604,
+        "changedPixels": 336
+      },
+      {
+        "group": 10,
+        "frame": 681,
+        "changedPixels": 460
+      },
+      {
+        "group": 11,
+        "frame": 682,
+        "changedPixels": 335
+      },
+      {
+        "group": 11,
+        "frame": 790,
+        "changedPixels": 334
+      },
+      {
+        "group": 12,
+        "frame": 791,
+        "changedPixels": 438
+      },
+      {
+        "group": 12,
+        "frame": 844,
+        "changedPixels": 430
+      },
+      {
+        "group": 13,
+        "frame": 845,
+        "changedPixels": 452
+      },
+      {
+        "group": 13,
+        "frame": 899,
+        "changedPixels": 452
+      }
+    ],
+    "textAccuracy": "unavailable",
+    "nativeStatus": "unavailable",
+    "limitation": "Pixel differences indicate rendered changes, not correct glyphs, readability, transcription accuracy or native output."
+  },
+  "visualSample": {
+    "midpointSeconds": 0.6833333333333333,
+    "sha256": "9f9c580381df9b7df5af3abd3fdcf57acce498b331977a88d397dfc262ee7d45"
+  },
+  "limitation": "No independently checked transcript or word boundaries. Plan coverage is relative to recognized words only; it does not verify caption rendering or native acceptance. Declared model identity does not authenticate loaded bytes.",
+  "visualReview": {
+    "reviewer": "agent visual inspection",
+    "sampleSha256": "9f9c580381df9b7df5af3abd3fdcf57acce498b331977a88d397dfc262ee7d45",
+    "outputResolution": "320x180",
+    "judgment": "fail for this sampled frame",
+    "rationale": "White centered caption crosses a bright background and faces, making parts hard to read.",
+    "scope": "One sampled frame only; no speech listening, full-output or native acceptance."
+  }
+}
