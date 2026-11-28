@@ -61,6 +61,19 @@ Timing correction: the earlier `anchored-edit.fcpxml` changed its parent clip's 
 
 The matcher now rejects non-`asset-clip` spine elements in either revision, including a DTD-valid `clip` carrying a duplicate anchor. Before this check, such an element was ignored and the target was incorrectly accepted. It also rejects unsupported asset-clip child elements, including markers, retiming and nested anchors, even when their raw XML is identical on both sides: a parent in-point change can alter their effective placement. The accepted child shape is limited to the fixture's direct audio, title text/style and metadata. This deliberately excludes valid FCPXML structures and does not establish complete validation of the accepted shape.
 
+An optional independent-tool characterization uses OpenTimelineIO 0.18.1 and the `otio-fcpx-xml-adapter` 1.0.0 release, whose [source tag](https://github.com/OpenTimelineIO/otio-fcpx-xml-adapter/tree/09e76ab1505805563e1210c6f265325b9a2ce242) matches the installed adapter source file. The probe accepts only the pinned authored `anchored-edit.fcpxml`, disables the adapter's media probing, changes one OTIO clip name, and writes a create-only temporary output. On the tested Python 3.13/macOS ARM environment, the input has three spine clips, one audio, one title and three Framekit anchors; the adapter reads four clips with four `MissingReference` values, and emits FCPXML 1.8 with four spine items, no audio, no titles and no anchors. The resulting lossy output still passed the installed 1.8 DTD; the anchored matcher rejects it. This is an observed result for this fixture and pinned adapter, not a claim about all OTIO formats, newer releases, Final Cut import, or actual playback. Its pinned reader checks the older asset-level `src`; the fixture uses 1.11 `media-rep` children.
+
+To reproduce in a disposable environment with network access:
+
+```sh
+otio_dir=$(mktemp -d -t framekit-otio)
+python3 -m venv "$otio_dir/venv"
+"$otio_dir/venv/bin/python" -m pip install 'opentimelineio==0.18.1' 'otio-fcpx-xml-adapter==1.0.0'
+FRAMEKIT_OTIO_PYTHON="$otio_dir/venv/bin/python" FRAMEKIT_OTIO_DTD='file:///Applications/Final%20Cut%20Pro.app/Contents/Frameworks/Interchange.framework/Versions/A/Resources/FCPXMLv1_8.dtd' node --test scripts/research/revision-roundtrip/otio-probe.test.mjs
+```
+
+The test skips when `FRAMEKIT_OTIO_PYTHON` is absent; DTD validation is also optional and runs only when `FRAMEKIT_OTIO_DTD` is set. The observed macOS ARM/Python 3.13 wheel SHA-256 values are `ae5677b6864bd48879f77d2b5fe141a7674664b9f43c87b3e0b6d3c49b5f62a9` (OpenTimelineIO) and `9891fcba190e1a2ebc339d2da42398ce98927dfb0055d57d8b37ea8769477f73` (adapter). The test writes only disposable files and never contacts Final Cut.
+
 ```sh
 research_dir=$(mktemp -d -t framekit-anchored)
 node scripts/research/revision-roundtrip/run-anchored-handoff.mjs "$research_dir/b.fcpxml"
