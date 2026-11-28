@@ -274,3 +274,25 @@ test("retains a VAD-observed word omitted by the transcript at a real conversati
   assert.ok(plan.candidates[0]!.sourceRange.end < 42.68, "the candidate must end before the independently timed missing word");
   assert.ok(plan.warnings.some((warning) => /uncertain.*listening/i.test(warning)));
 });
+
+test("suggests a long reviewed pause with partially aligned adjacent VAD", () => {
+  // Controlled editorial QA: the word begins before the VAD detects its speech.
+  const range = { start: 0, end: 11, startTime: { value: "0", timescale: "1" }, durationTime: { value: "11", timescale: "1" } };
+  const partial = { ...input, source: { ...source, duration: 11 }, sourceRange: range, sequenceRange: range,
+    sequenceFrameDuration: { value: "1", timescale: "30" }, analysis: { ...input.analysis,
+      sourceIdentity: { ...source, duration: 11 }, requestedRange: { start: 0, end: 11 }, observedRange: { start: 0, end: 11 },
+      words: [{ text: "happens.", start: 2.24, end: 2.76, confidence: 0.99 }, { text: "The", start: 7.2, end: 7.48, confidence: 0.98 }],
+      vadSegments: [{ kind: "speech" as const, start: 0, end: 2.942 }, { kind: "speech" as const, start: 7.394, end: 9.566 }],
+    } };
+  const plan = rankNarrativeCuts(partial);
+  assert.equal(plan.candidates.length, 1);
+  const candidate = plan.candidates[0]!;
+  assert.ok(candidate.sourceRange.start >= 3.142 && candidate.sourceRange.end <= 7.0);
+  assert.ok(candidate.confidence <= 0.5 && candidate.reviewRequired);
+  assert.ok(plan.warnings.some((warning) => /partial.*review/i.test(warning)));
+  const protectedInput = { ...partial, analysis: { ...partial.analysis, protectedSegments: [{ kind: "speech" as const, start: 4, end: 5 }] } };
+  assert.equal(rankNarrativeCuts(protectedInput).candidates.length, 0);
+  const conflicting = { ...partial, analysis: { ...partial.analysis, vadSegments: [partial.analysis.vadSegments[0]!,
+    { kind: "speech" as const, start: 4, end: 5 }, partial.analysis.vadSegments[1]!] } };
+  assert.equal(rankNarrativeCuts(conflicting).candidates.length, 0);
+});
