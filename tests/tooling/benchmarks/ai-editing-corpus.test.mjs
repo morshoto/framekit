@@ -60,7 +60,8 @@ test('compares chunk-relative proposals with source-relative reference words', a
 test('runner rejects unknown recordings and out-of-corpus windows before invoking providers', async () => {
   const { execFileSync } = await import('node:child_process');
   const runner = new URL('../../../scripts/benchmarks/ai-editing/run-ami.mjs', import.meta.url);
-  const invoke = (id, start) => execFileSync(process.execPath, ['--import', 'tsx', runner.pathname, '/missing', id, start, 'python'], {encoding: 'utf8', stdio: 'pipe'});
+  const { fileURLToPath } = await import('node:url');
+  const invoke = (id, start) => execFileSync(process.execPath, ['--import', 'tsx', fileURLToPath(runner), '/missing', id, start, 'python'], {encoding: 'utf8', stdio: 'pipe'});
   assert.throws(() => invoke('unknown', '0'), /unknown corpus audio/i);
   assert.throws(() => invoke('EN2002a', '600'), /outside corpus/i);
   assert.throws(() => invoke('EN2002a', '0.1'), /60-second/i);
@@ -74,4 +75,19 @@ test('production cut screening requires reviewable read-only previews', async ()
   const result=summarizeProductionCutPreviews([cut],[{index:0,scope:'headless-preview'}],60);
   assert.deepEqual(result.candidates[0].sourceRange,{start:61,end:62});
   assert.equal(result.speechSafety,'unverified');
+});
+
+test('headless probes preserve PATH commands and isolate native-provider settings', async () => {
+  const { resolveProbeCommand, headlessProbeEnvironment } = await import('../../../scripts/benchmarks/ai-editing/corpus.mjs');
+  const { resolve, join } = await import('node:path');
+  assert.equal(resolveProbeCommand('python3'), 'python3');
+  assert.equal(resolveProbeCommand('./venv/python'), resolve('./venv/python'));
+  assert.equal(resolveProbeCommand('/usr/bin/python3'), '/usr/bin/python3');
+  const input={FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER:'native',FRAMEKIT_FINAL_CUT_NATIVE_WRITES:'1',PATH:'/bin'};
+  const env=headlessProbeEnvironment(input,'/tmp/probe');
+  assert.equal(env.FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER,'');
+  assert.equal(env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES,'0');
+  assert.equal(env.FRAMEKIT_FINAL_CUT_HEADLESS,'1');
+  assert.equal(env.FRAMEKIT_STATE_DIR,join('/tmp/probe','state'));
+  assert.equal(input.FRAMEKIT_FINAL_CUT_CANONICAL_PROVIDER,'native');
 });
