@@ -71,6 +71,41 @@ test('missing reference targets are skipped without hiding real API failures', a
 	await assert.rejects(client.readIssue(999), /GITHUB_API_REQUEST_FAILED/);
 });
 
+test('project reads retry transient gateway failures but do not retry writes or permanent errors', async () => {
+	let calls = 0;
+	const client = createProjectStatusClient({
+		repository: 'morshoto/framekit', token: 'fixture', sleep: async () => {},
+		fetchImpl: async () => ++calls === 1 ? new Response('', { status: 502 }) : Response.json({ number: 1 }),
+	});
+	assert.equal((await client.readIssue(1)).number, 1);
+	assert.equal(calls, 2);
+	for (const status of [403, 503]) {
+		calls = 0;
+		const failing = createProjectStatusClient({
+			repository: 'morshoto/framekit', token: 'fixture', sleep: async () => {},
+			fetchImpl: async () => { calls++; return new Response('', { status }); },
+		});
+		await assert.rejects(failing.readIssue(1), new RegExp(`returned ${status}`));
+		assert.equal(calls, status === 503 ? 3 : 1);
+		calls = 0;
+		await assert.rejects(failing.setIssueStatusLabel({ number: 1, labels: [] }, 'Pending'));
+		assert.equal(calls, 1);
+	}
+});
+
+test('project GraphQL queries retry gateway failures without retrying mutations', async () => {
+	let calls = 0;
+	const client = createProjectStatusClient({
+		repository: 'morshoto/framekit', token: 'fixture', sleep: async () => {},
+		fetchImpl: async () => { calls++; return new Response('', { status: 504 }); },
+	});
+	await assert.rejects(client.getProject(), /returned 504/);
+	assert.equal(calls, 3);
+	calls = 0;
+	await assert.rejects(client.setProjectStatus({ id: 'p', statusField: { id: 's', name: 'Status' }, options: new Map([['Pending', 'o']]), items: [] }, 'i', 'Pending', 'Backlog'), /returned 504/);
+	assert.equal(calls, 1);
+});
+
 test('PR source paginates links/checks, uses current heads and test-merge results, and skips closed PRs', async () => {
 	const pageInfo = (endCursor: string | null = null) => ({ hasNextPage: endCursor !== null, endCursor });
 	const calls: Array<Record<string, unknown>> = [];

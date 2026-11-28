@@ -124,6 +124,7 @@ export function createProjectStatusClient({
 	projectNumber = 3,
 	apiUrl = 'https://api.github.com',
 	fetchImpl = fetch,
+	sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 }) {
 	if (!/^[^/]+\/[^/]+$/.test(repository)) throw new Error('GITHUB_REPOSITORY_INVALID');
 	if (!token) throw new Error('FRAMEKIT_PROJECT_TOKEN_REQUIRED');
@@ -136,13 +137,21 @@ export function createProjectStatusClient({
 		'X-GitHub-Api-Version': '2022-11-28',
 		'Content-Type': 'application/json',
 	};
+	// Only retry reads: a failed mutation may already have been applied by GitHub.
+	const request = async (url, options, retryRead) => {
+		for (let attempt = 0; ; attempt += 1) {
+			const response = await fetchImpl(url, options);
+			if (!retryRead || ![502, 503, 504].includes(response.status) || attempt >= 2) return response;
+			await sleep(1000 * 2 ** attempt);
+		}
+	};
 	const rest = async (path, { method = 'GET', body, allowNotFound = false } = {}) => {
 		const url = `${apiRoot}/repos/${repository}${path}`;
-		const response = await fetchImpl(url, {
+		const response = await request(url, {
 			method,
 			headers,
 			...(body === undefined ? {} : { body: JSON.stringify(body) }),
-		});
+		}, method === 'GET');
 		if (allowNotFound && response.status === 404) return null;
 		if (!response.ok) {
 			throw new Error(`GITHUB_API_REQUEST_FAILED: ${method} ${new URL(url).pathname} returned ${response.status}`);
@@ -152,7 +161,7 @@ export function createProjectStatusClient({
 	};
 	const graphql = async (query, variables) => {
 		const url = `${apiRoot}/graphql`;
-		const response = await fetchImpl(url, { method: 'POST', headers, body: JSON.stringify({ query, variables }) });
+		const response = await request(url, { method: 'POST', headers, body: JSON.stringify({ query, variables }) }, /^\s*query\b/.test(query));
 		if (!response.ok) {
 			throw new Error(`GITHUB_GRAPHQL_REQUEST_FAILED: returned ${response.status}`);
 		}
