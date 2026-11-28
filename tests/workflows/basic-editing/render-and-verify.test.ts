@@ -100,6 +100,17 @@ test("render-and-verify returns verified provenance and independent artifact met
     const missingCheck = structuredClone(outcome);
     missingCheck.verification!.checks = missingCheck.verification!.checks.filter((check) => check.name !== "output-stability");
     assert.equal(await reverifyBriefArtifactObservation(missingCheck, verifier), undefined);
+    const missingFrameCount = structuredClone(outcome);
+    missingFrameCount.verification!.checks = missingFrameCount.verification!.checks.filter((check) => check.name !== "frame-count");
+    assert.equal(await reverifyBriefArtifactObservation(missingFrameCount, verifier), undefined,
+      "a render without the original decoded frame-count evidence cannot support conformance");
+    const noFrameCountVerifier = { verify: async () => structuredClone(missingFrameCount.verification!) };
+    assert.equal(await reverifyBriefArtifactObservation(outcome, noFrameCountVerifier), undefined,
+      "reverification must also supply the decoded frame-count check");
+    const duplicateFrameCount = structuredClone(outcome);
+    duplicateFrameCount.verification!.checks.push(structuredClone(duplicateFrameCount.verification!.checks.find((check) => check.name === "frame-count")!));
+    assert.equal(await reverifyBriefArtifactObservation(duplicateFrameCount, verifier), undefined,
+      "ambiguous duplicate decoded frame-count checks cannot support conformance");
     const changedArtifact = structuredClone(outcome);
     changedArtifact.verification!.artifact!.fileDigest = "f".repeat(64);
     assert.equal(await reverifyBriefArtifactObservation(changedArtifact, verifier), undefined);
