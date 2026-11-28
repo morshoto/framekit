@@ -421,6 +421,7 @@ test("render inspection binds source coverage gaps to the verified timeline with
       const result = await service.inspectRender({ ...target, renderId: "render-fixture" });
       assert.equal(result.timelineCoverage?.checks[0]?.status, expected);
       assert.equal(result.timelineCoverage?.checks[0]?.sourceDigest, digest);
+      if (expected === "missing") assert.match(result.timelineCoverage?.checks[0]?.nextStep ?? "", /review/i);
       assert.equal(result.binding?.artifactDigest, observation.fileDigest);
       assert.equal(result.checks.find((check) => check.name === "source-coverage")?.status, "unavailable");
       assert.match(result.timelineCoverage?.notice ?? "", /not.*(render|output)/i);

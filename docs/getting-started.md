@@ -126,6 +126,10 @@ audibility, rendered output, or native acceptance of that content.
 aspect ratio to an accepted brief bound to the same project revision and
 timeline. It reports source, music and caption conformance as unavailable and
 does not authenticate the editing approval chain or establish native acceptance.
+When the artifact is bound and reverified, the response also includes per-source
+`timelineCoverage` for that exact render plan. A `missing` range identifies a
+timeline gap for review; `present` only means the source range is placed in the
+timeline and does not establish what is visible or audible in the output.
 For same-process headless tracking, `headless.evidence.begin` starts at an
 explicitly confirmed, accepted brief and current revision; previous project
 history is outside its scope. After separately approving edits and rendering,
