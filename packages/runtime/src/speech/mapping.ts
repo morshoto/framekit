@@ -136,6 +136,9 @@ function mapEvidence<T extends { start: number; end: number }, M>(
 ): Array<M extends SpeechWord ? MappedSpeechWord : MappedSpeechSegment> {
   const mapped: Array<M extends SpeechWord ? MappedSpeechWord : MappedSpeechSegment> = [];
   for (const value of evidence) {
+    // Preserve the existing treatment of unrelated evidence; only values near
+    // an occurrence need clock conversion to decide an exact boundary.
+    if (value.end < occurrence.sourceRange.start - 1e-9 || value.start > occurrence.sourceRange.end + 1e-9) continue;
     const sourceRange = { start: value.start, end: value.end };
     const startTime = sourceClockTime(value.start, sourceTimebase);
     const endTime = sourceClockTime(value.end, sourceTimebase);
