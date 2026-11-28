@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { FcpxmlDocumentAdapter, compileTimelineIrToFcpxml } from '@framekit/final-cut/fcpxml';
-import { createTimelineIrFromProjectSnapshot, timelineIrDigest } from '@framekit/runtime';
+import { createTimelineIrFromProjectSnapshot, reconcileTimelineIr, timelineIrDigest } from '@framekit/runtime';
 
 const fixture = 'scripts/research/revision-roundtrip/independent.fcpxml';
 const target = { provider: 'final-cut' as const, libraryUid: 'library', eventUid: 'event', projectUid: 'project', sequenceUid: 'sequence' };
@@ -40,4 +40,24 @@ test('independent insertion changes positional occurrence identifiers', async ()
   assert.deepEqual(beforeClip.sourceStartTime, afterClip.sourceStartTime);
   assert.notEqual(beforeClip.id, afterClip.id);
   assert.notEqual(timelineIrDigest(before), timelineIrDigest(after));
+});
+
+
+test('reconciliation reports a conflict when a structurally shifted clip was also renamed', async () => {
+  const original = (await readFile(fixture, 'utf8')).replace(/<audio ref="m"[^>]*\/>/, '');
+  const shifted = original.replace('<spine>', '<spine><gap name="Manual gap" offset="0s" duration="1s"/>')
+    .replace('name="Opening" offset="0s"', 'name="Opening" offset="1s"')
+    .replace('duration="3s"><spine>', 'duration="4s"><spine>');
+  const parse = (value: string) => createTimelineIrFromProjectSnapshot(
+    FcpxmlDocumentAdapter.readProjectFromContent('/synthetic/independent.fcpxml', value),
+  );
+  const base = parse(original);
+  const ours = structuredClone(base);
+  ours.sequence.occurrences[0]!.name = 'Agent rename';
+  const theirs = parse(shifted);
+  theirs.revision = { id: 'synthetic-external', sequence: 1, timestamp: '2026-01-01T00:00:00.000Z' };
+  const result = reconcileTimelineIr({ base, ours, theirs });
+  assert.equal(result.status, 'conflicted');
+  assert.equal(result.merged, undefined);
+  assert.ok(result.conflicts.some(conflict => conflict.kind === 'delete-modify-conflict'));
 });
