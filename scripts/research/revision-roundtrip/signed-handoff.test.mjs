@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { signFixtureClaim, createSignedRevisionB } from './signed-handoff.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -59,4 +63,23 @@ test('rejects media bytes that differ from signed source digests', async () => {
   assert.match(createSignedRevisionB(signed).digest, /^[a-f0-9]{64}$/);
   assert.throws(() => createSignedRevisionB({ ...signed, sourceBytes: { ...sourceBytes, m: Buffer.from('changed') } }), /stale/);
   assert.throws(() => createSignedRevisionB({ ...signed, sourceBytes: undefined }), /source/);
+});
+
+
+test('a fresh process verifies the signed revision with a pinned public key', async t => {
+  const input = await fixture();
+  const directory = await mkdtemp(join(tmpdir(), 'framekit-signature-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const envelopePath = join(directory, 'claim.json');
+  const publicPath = join(directory, 'key.pem');
+  await writeFile(envelopePath, JSON.stringify(input.envelope));
+  await writeFile(publicPath, input.trustedKey.export({ type: 'spki', format: 'pem' }));
+  const pin = hash(input.trustedKey.export({ type: 'spki', format: 'der' }));
+  const child = new URL('./verify-signed-child.mjs', import.meta.url).pathname;
+  const run = promisify(execFile);
+  const result = await run(process.execPath, [child, envelopePath, publicPath, pin]);
+  assert.equal(JSON.parse(result.stdout).digest, createSignedRevisionB(input).digest);
+  const other = generateKeyPairSync('ed25519');
+  await writeFile(publicPath, other.publicKey.export({ type: 'spki', format: 'pem' }));
+  await assert.rejects(run(process.execPath, [child, envelopePath, publicPath, pin]), /key pin/);
 });
