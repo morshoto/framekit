@@ -107,6 +107,24 @@ test('creates nested output directories without accepting an existing output', a
   }
 });
 
+test('approved music probe verifies both inputs before creating output', async () => {
+  const { mkdtemp, writeFile, stat, rm } = await import('node:fs/promises');
+  const { createHash } = await import('node:crypto');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { prepareApprovedMusicOutput } = await import('../../../scripts/benchmarks/ai-editing/music-approved-preflight.mjs');
+  const root = await mkdtemp(join(tmpdir(), 'framekit-music-preflight-'));
+  try {
+    const speech=join(root,'speech'), music=join(root,'music'), output=join(root,'output');
+    await writeFile(speech,'speech'); await writeFile(music,'music');
+    const sha=(s)=>createHash('sha256').update(s).digest('hex');
+    await assert.rejects(prepareApprovedMusicOutput(speech,music,output,sha('speech'),'0'.repeat(64)), /digest mismatch/i);
+    await assert.rejects(stat(output), {code:'ENOENT'});
+    await prepareApprovedMusicOutput(speech,music,output,sha('speech'),sha('music'));
+    await assert.rejects(prepareApprovedMusicOutput(speech,music,output,sha('speech'),sha('music')), {code:'EEXIST'});
+  } finally { await rm(root, {recursive:true, force:true}); }
+});
+
 test('labels the quieter gain comparison as exploratory and post hoc', async () => {
   const { readFile } = await import('node:fs/promises');
   const config = JSON.parse(await readFile(new URL('../../../scripts/benchmarks/ai-editing/music-corpus.json', import.meta.url)));
