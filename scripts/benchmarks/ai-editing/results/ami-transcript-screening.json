@@ -1,12 +1,11 @@
 {
-  "description": "Exploratory transcription screening; automatic word alignment and cross-speaker overlap limit interpretation. No word-boundary accuracy or caption-render accuracy is claimed.",
+  "description": "Exploratory transcript and word-boundary disagreement screening; AMI reference timings are automatic and cross-speaker overlap makes matching ambiguous. No independently verified timing or caption-render accuracy is claimed.",
   "environment": {
     "mlxWhisperVersion": "0.4.3",
     "sileroVadVersion": "6.3",
     "observedLocalWhisperSnapshot": "78c52ab98ca87f570bc57ad852e15ef7060f9f76",
     "snapshotLimitation": "Cache reference observed locally; backend model bytes were not independently authenticated."
   },
-  "headNote": "The run spans c48ffcc3 and 8bd3f4d8; the intervening commit only registers the test in the suite inventory.",
   "windows": [
     {
       "corpusVersion": 1,
@@ -18,7 +17,7 @@
       "sourceSha256": "a15017d0d3c871866971ee178052a0ce3a7e44d6fbf89fc23dcab326511b65f5",
       "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
       "decodedSha256": "4dff2396b7a00fccf3ad2ba505dc34ff637d26d70fa2d8e3c52ac97400f1e140",
-      "backendOutputSha256": "f8d73952a91cfa1ce6d4896e949be9ed4ac56bf0c1ccf2bd8162cc339ae6c804",
+      "backendOutputSha256": "da790274b640a88fe9231502c2ceb4658ec39ec42b88dbc6adf330faed355b9a",
       "provider": {
         "id": "command.speech",
         "provider": "command",
@@ -27,7 +26,7 @@
       "declaredBackend": "mlx-whisper",
       "declaredModel": "mlx-community/whisper-tiny",
       "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
-      "gitHead": "c48ffcc3b9d5d949dba43f462dfb7c2daccfea32",
+      "gitHead": "ba192e2319bce74528b946fc1efa027ae68c75a1",
       "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
       "recognizedWords": 105,
       "transcriptScreening": {
@@ -38,6 +37,16 @@
         "referenceWords": 152,
         "hypothesisWords": 105,
         "wordErrorRate": 0.5921052631578947,
+        "timingScreening": {
+          "referenceWords": 152,
+          "hypothesisWords": 105,
+          "matchedWords": 65,
+          "withinTolerance": 40,
+          "toleranceSeconds": 0.2,
+          "status": "unavailable",
+          "limitation": "Word matches and reference timestamps are automatic; omissions and ambiguous matches are not timing successes."
+        },
+        "timingHypothesesExcluded": 0,
         "referenceBoundaryWordsExcluded": 1,
         "overlappingReferencePairs": 73,
         "lowConfidenceWords": 47,
@@ -67,7 +76,7 @@
       "sourceSha256": "a15017d0d3c871866971ee178052a0ce3a7e44d6fbf89fc23dcab326511b65f5",
       "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
       "decodedSha256": "7983ac7bc43b3c2856d30853f34611a1f937c4388d678db866ec95c7e69de2af",
-      "backendOutputSha256": "743d35aed09d88d9982da2211dac7944b96677ad63666d5ffb2999cef1b69500",
+      "backendOutputSha256": "b9e7e83cf712143e2679c35cdf06f16d5d185ec333154d1a42bfa6ce11ca15b6",
       "provider": {
         "id": "command.speech",
         "provider": "command",
@@ -76,7 +85,7 @@
       "declaredBackend": "mlx-whisper",
       "declaredModel": "mlx-community/whisper-tiny",
       "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
-      "gitHead": "c48ffcc3b9d5d949dba43f462dfb7c2daccfea32",
+      "gitHead": "ba192e2319bce74528b946fc1efa027ae68c75a1",
       "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
       "recognizedWords": 181,
       "transcriptScreening": {
@@ -87,6 +96,16 @@
         "referenceWords": 197,
         "hypothesisWords": 181,
         "wordErrorRate": 0.37055837563451777,
+        "timingScreening": {
+          "referenceWords": 197,
+          "hypothesisWords": 181,
+          "matchedWords": 134,
+          "withinTolerance": 106,
+          "toleranceSeconds": 0.2,
+          "status": "unavailable",
+          "limitation": "Word matches and reference timestamps are automatic; omissions and ambiguous matches are not timing successes."
+        },
+        "timingHypothesesExcluded": 0,
         "referenceBoundaryWordsExcluded": 1,
         "overlappingReferencePairs": 28,
         "lowConfidenceWords": 54,
@@ -122,7 +141,7 @@
       "sourceSha256": "a15017d0d3c871866971ee178052a0ce3a7e44d6fbf89fc23dcab326511b65f5",
       "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
       "decodedSha256": "5d6df58bb317a7e40a2c36497b202197b516dc7462f1cc550f4b360c3aafed32",
-      "backendOutputSha256": "49a1e2191d371735fc99a2eff1457dd17a565b1ddf90e9298fc5baa46776b0bd",
+      "backendOutputSha256": "ea886ab8b9484569c9d03bbf9f9105591b1254be62e04606d72b56b94a98e2fb",
       "provider": {
         "id": "command.speech",
         "provider": "command",
@@ -131,7 +150,7 @@
       "declaredBackend": "mlx-whisper",
       "declaredModel": "mlx-community/whisper-tiny",
       "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
-      "gitHead": "8bd3f4d8cba7e46e45ed8e00c954a791d9487c8b",
+      "gitHead": "ba192e2319bce74528b946fc1efa027ae68c75a1",
       "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
       "recognizedWords": 147,
       "transcriptScreening": {
@@ -142,6 +161,16 @@
         "referenceWords": 280,
         "hypothesisWords": 147,
         "wordErrorRate": 0.6857142857142857,
+        "timingScreening": {
+          "referenceWords": 280,
+          "hypothesisWords": 147,
+          "matchedWords": 89,
+          "withinTolerance": 60,
+          "toleranceSeconds": 0.2,
+          "status": "unavailable",
+          "limitation": "Word matches and reference timestamps are automatic; omissions and ambiguous matches are not timing successes."
+        },
+        "timingHypothesesExcluded": 0,
         "referenceBoundaryWordsExcluded": 2,
         "overlappingReferencePairs": 265,
         "lowConfidenceWords": 91,
@@ -172,7 +201,7 @@
       "sourceSha256": "a15017d0d3c871866971ee178052a0ce3a7e44d6fbf89fc23dcab326511b65f5",
       "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
       "decodedSha256": "2f26aea1cf8259597bffa8eabab4dad99532d0387a58d8d970ae99c051a39cb6",
-      "backendOutputSha256": "4093fd6d4f5dbe03db5189260896afcc50ef99d6c9dba47f4802a8c7e55536b5",
+      "backendOutputSha256": "31b6616c14e57776fe027bb46230366494d3ad10ae293a3443c9be646be96dd7",
       "provider": {
         "id": "command.speech",
         "provider": "command",
@@ -181,7 +210,7 @@
       "declaredBackend": "mlx-whisper",
       "declaredModel": "mlx-community/whisper-tiny",
       "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
-      "gitHead": "8bd3f4d8cba7e46e45ed8e00c954a791d9487c8b",
+      "gitHead": "ba192e2319bce74528b946fc1efa027ae68c75a1",
       "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
       "recognizedWords": 147,
       "transcriptScreening": {
@@ -192,6 +221,16 @@
         "referenceWords": 201,
         "hypothesisWords": 147,
         "wordErrorRate": 0.43781094527363185,
+        "timingScreening": {
+          "referenceWords": 201,
+          "hypothesisWords": 147,
+          "matchedWords": 114,
+          "withinTolerance": 89,
+          "toleranceSeconds": 0.2,
+          "status": "unavailable",
+          "limitation": "Word matches and reference timestamps are automatic; omissions and ambiguous matches are not timing successes."
+        },
+        "timingHypothesesExcluded": 0,
         "referenceBoundaryWordsExcluded": 3,
         "overlappingReferencePairs": 86,
         "lowConfidenceWords": 49,
@@ -222,7 +261,7 @@
       "sourceSha256": "a15017d0d3c871866971ee178052a0ce3a7e44d6fbf89fc23dcab326511b65f5",
       "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
       "decodedSha256": "00d40fe11ef62c73dc75837f4b47b8c229486ac73499ede5e81014e0514ba5bd",
-      "backendOutputSha256": "dac7c96a0099fe7526c8a38eebe47d094d49dafabfd3901f278131acba81e63e",
+      "backendOutputSha256": "dd84e0961bd8a32404f255d2b3976392f3f4b518cdbf128b7cb90f3304c62903",
       "provider": {
         "id": "command.speech",
         "provider": "command",
@@ -231,7 +270,7 @@
       "declaredBackend": "mlx-whisper",
       "declaredModel": "mlx-community/whisper-tiny",
       "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
-      "gitHead": "8bd3f4d8cba7e46e45ed8e00c954a791d9487c8b",
+      "gitHead": "ba192e2319bce74528b946fc1efa027ae68c75a1",
       "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
       "recognizedWords": 180,
       "transcriptScreening": {
@@ -242,6 +281,16 @@
         "referenceWords": 240,
         "hypothesisWords": 180,
         "wordErrorRate": 0.4166666666666667,
+        "timingScreening": {
+          "referenceWords": 240,
+          "hypothesisWords": 180,
+          "matchedWords": 141,
+          "withinTolerance": 105,
+          "toleranceSeconds": 0.2,
+          "status": "unavailable",
+          "limitation": "Word matches and reference timestamps are automatic; omissions and ambiguous matches are not timing successes."
+        },
+        "timingHypothesesExcluded": 0,
         "referenceBoundaryWordsExcluded": 2,
         "overlappingReferencePairs": 70,
         "lowConfidenceWords": 60,
@@ -272,7 +321,7 @@
       "sourceSha256": "a15017d0d3c871866971ee178052a0ce3a7e44d6fbf89fc23dcab326511b65f5",
       "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
       "decodedSha256": "ee84c4235ce9261a79fcfa293b37d910c0145e304e33fb3cf1cb7fd2c4df9cd6",
-      "backendOutputSha256": "35d4f2e4c7cfefdcfe9f55a98c753bbe25192ba3978689057d527c7e2205cd93",
+      "backendOutputSha256": "41fb523c45916cf441370289a819fabd9dc1d2b2c43ac2454e81865469b8ad7f",
       "provider": {
         "id": "command.speech",
         "provider": "command",
@@ -281,7 +330,7 @@
       "declaredBackend": "mlx-whisper",
       "declaredModel": "mlx-community/whisper-tiny",
       "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
-      "gitHead": "8bd3f4d8cba7e46e45ed8e00c954a791d9487c8b",
+      "gitHead": "ba192e2319bce74528b946fc1efa027ae68c75a1",
       "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
       "recognizedWords": 174,
       "transcriptScreening": {
@@ -292,6 +341,16 @@
         "referenceWords": 226,
         "hypothesisWords": 174,
         "wordErrorRate": 0.4557522123893805,
+        "timingScreening": {
+          "referenceWords": 226,
+          "hypothesisWords": 174,
+          "matchedWords": 130,
+          "withinTolerance": 96,
+          "toleranceSeconds": 0.2,
+          "status": "unavailable",
+          "limitation": "Word matches and reference timestamps are automatic; omissions and ambiguous matches are not timing successes."
+        },
+        "timingHypothesesExcluded": 0,
         "referenceBoundaryWordsExcluded": 2,
         "overlappingReferencePairs": 116,
         "lowConfidenceWords": 68,
@@ -328,7 +387,7 @@
       "sourceSha256": "a15017d0d3c871866971ee178052a0ce3a7e44d6fbf89fc23dcab326511b65f5",
       "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
       "decodedSha256": "a35cb31871d530857fb808998a8291f0b74ffa828a5439281e7e060db80b2179",
-      "backendOutputSha256": "a7f716d86e7bb3cecf4748f4eea59e89483e40c25222ee80ac01dba7961370c0",
+      "backendOutputSha256": "2b78480cedaf7c2da5995c4fd49a6743531e821e6fde7ad0566db7767b98edc7",
       "provider": {
         "id": "command.speech",
         "provider": "command",
@@ -337,7 +396,7 @@
       "declaredBackend": "mlx-whisper",
       "declaredModel": "mlx-community/whisper-tiny",
       "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
-      "gitHead": "8bd3f4d8cba7e46e45ed8e00c954a791d9487c8b",
+      "gitHead": "ba192e2319bce74528b946fc1efa027ae68c75a1",
       "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
       "recognizedWords": 219,
       "transcriptScreening": {
@@ -348,6 +407,16 @@
         "referenceWords": 260,
         "hypothesisWords": 219,
         "wordErrorRate": 0.3769230769230769,
+        "timingScreening": {
+          "referenceWords": 260,
+          "hypothesisWords": 219,
+          "matchedWords": 168,
+          "withinTolerance": 134,
+          "toleranceSeconds": 0.2,
+          "status": "unavailable",
+          "limitation": "Word matches and reference timestamps are automatic; omissions and ambiguous matches are not timing successes."
+        },
+        "timingHypothesesExcluded": 0,
         "referenceBoundaryWordsExcluded": 2,
         "overlappingReferencePairs": 71,
         "lowConfidenceWords": 72,
@@ -378,7 +447,7 @@
       "sourceSha256": "a15017d0d3c871866971ee178052a0ce3a7e44d6fbf89fc23dcab326511b65f5",
       "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
       "decodedSha256": "8f1ffe7e127ffe067568c23da4ad2c8a6ca8bf382720f1fe8e0cd0e7ed9675d2",
-      "backendOutputSha256": "2e88a0c1ed4fb964232652dc08147b605179d502c0d029025f937ac4cb5d4b86",
+      "backendOutputSha256": "93f3673ef80eaf88567643ddec8bb35ad6acb00805de23afbc6e31f4724b5735",
       "provider": {
         "id": "command.speech",
         "provider": "command",
@@ -387,7 +456,7 @@
       "declaredBackend": "mlx-whisper",
       "declaredModel": "mlx-community/whisper-tiny",
       "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
-      "gitHead": "8bd3f4d8cba7e46e45ed8e00c954a791d9487c8b",
+      "gitHead": "ba192e2319bce74528b946fc1efa027ae68c75a1",
       "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
       "recognizedWords": 131,
       "transcriptScreening": {
@@ -398,6 +467,16 @@
         "referenceWords": 213,
         "hypothesisWords": 131,
         "wordErrorRate": 0.5633802816901409,
+        "timingScreening": {
+          "referenceWords": 213,
+          "hypothesisWords": 131,
+          "matchedWords": 93,
+          "withinTolerance": 69,
+          "toleranceSeconds": 0.2,
+          "status": "unavailable",
+          "limitation": "Word matches and reference timestamps are automatic; omissions and ambiguous matches are not timing successes."
+        },
+        "timingHypothesesExcluded": 0,
         "referenceBoundaryWordsExcluded": 1,
         "overlappingReferencePairs": 142,
         "lowConfidenceWords": 61,
@@ -428,7 +507,7 @@
       "sourceSha256": "a15017d0d3c871866971ee178052a0ce3a7e44d6fbf89fc23dcab326511b65f5",
       "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
       "decodedSha256": "7cac194267514bc13a5885e4b6631cc6cf5a2af4845b3d665c4f39d83ea7aa45",
-      "backendOutputSha256": "7eab363c6001ffa7c952ae25dca75aa5f57f566faf03b3e204c6c9b911a9f185",
+      "backendOutputSha256": "3c0563794fbc75561817f1f97046941699e0417b2acf33a7fdecb7f0d7ed2efb",
       "provider": {
         "id": "command.speech",
         "provider": "command",
@@ -437,7 +516,7 @@
       "declaredBackend": "mlx-whisper",
       "declaredModel": "mlx-community/whisper-tiny",
       "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
-      "gitHead": "8bd3f4d8cba7e46e45ed8e00c954a791d9487c8b",
+      "gitHead": "ba192e2319bce74528b946fc1efa027ae68c75a1",
       "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
       "recognizedWords": 167,
       "transcriptScreening": {
@@ -448,6 +527,16 @@
         "referenceWords": 209,
         "hypothesisWords": 167,
         "wordErrorRate": 0.39712918660287083,
+        "timingScreening": {
+          "referenceWords": 209,
+          "hypothesisWords": 167,
+          "matchedWords": 128,
+          "withinTolerance": 105,
+          "toleranceSeconds": 0.2,
+          "status": "unavailable",
+          "limitation": "Word matches and reference timestamps are automatic; omissions and ambiguous matches are not timing successes."
+        },
+        "timingHypothesesExcluded": 0,
         "referenceBoundaryWordsExcluded": 1,
         "overlappingReferencePairs": 79,
         "lowConfidenceWords": 66,
@@ -478,7 +567,7 @@
       "sourceSha256": "a15017d0d3c871866971ee178052a0ce3a7e44d6fbf89fc23dcab326511b65f5",
       "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
       "decodedSha256": "5afd46bf809232f886a90a31af6d81120a927e6cceec782535bd3fe5e71d98eb",
-      "backendOutputSha256": "8acfa5b6cf0a346a5429fc36ea57188a691a9aaf3d07feb0bdae89e85c172e42",
+      "backendOutputSha256": "566c91b619ce2a20976db5544a59b16c9d3e07a8fb2d9393753c107e475b3dff",
       "provider": {
         "id": "command.speech",
         "provider": "command",
@@ -487,7 +576,7 @@
       "declaredBackend": "mlx-whisper",
       "declaredModel": "mlx-community/whisper-tiny",
       "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
-      "gitHead": "c48ffcc3b9d5d949dba43f462dfb7c2daccfea32",
+      "gitHead": "ba192e2319bce74528b946fc1efa027ae68c75a1",
       "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
       "recognizedWords": 140,
       "transcriptScreening": {
@@ -498,6 +587,16 @@
         "referenceWords": 157,
         "hypothesisWords": 140,
         "wordErrorRate": 0.2484076433121019,
+        "timingScreening": {
+          "referenceWords": 157,
+          "hypothesisWords": 140,
+          "matchedWords": 121,
+          "withinTolerance": 82,
+          "toleranceSeconds": 0.2,
+          "status": "unavailable",
+          "limitation": "Word matches and reference timestamps are automatic; omissions and ambiguous matches are not timing successes."
+        },
+        "timingHypothesesExcluded": 0,
         "referenceBoundaryWordsExcluded": 2,
         "overlappingReferencePairs": 3,
         "lowConfidenceWords": 31,
@@ -528,7 +627,7 @@
       "sourceSha256": "3e2560b19bee6952c7c7ce041b0f1ea8a7ea9468044c4eea79d2a2c67e24ab0f",
       "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
       "decodedSha256": "6109ed6841f7685c498161c8661d882e7972461557bb46b1104668f99a8caaa9",
-      "backendOutputSha256": "b138d4972767d481b87884e629e4ee8b0833d81044b61fbe89fb049c0a7dccb4",
+      "backendOutputSha256": "612d67d8ddd3e13a5452ed445b0404a4858f1b09c2d145d3ec8a748ce9d7075c",
       "provider": {
         "id": "command.speech",
         "provider": "command",
@@ -537,7 +636,7 @@
       "declaredBackend": "mlx-whisper",
       "declaredModel": "mlx-community/whisper-tiny",
       "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
-      "gitHead": "8bd3f4d8cba7e46e45ed8e00c954a791d9487c8b",
+      "gitHead": "ba192e2319bce74528b946fc1efa027ae68c75a1",
       "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
       "recognizedWords": 51,
       "transcriptScreening": {
@@ -548,6 +647,16 @@
         "referenceWords": 62,
         "hypothesisWords": 51,
         "wordErrorRate": 0.6774193548387096,
+        "timingScreening": {
+          "referenceWords": 62,
+          "hypothesisWords": 51,
+          "matchedWords": 21,
+          "withinTolerance": 15,
+          "toleranceSeconds": 0.2,
+          "status": "unavailable",
+          "limitation": "Word matches and reference timestamps are automatic; omissions and ambiguous matches are not timing successes."
+        },
+        "timingHypothesesExcluded": 0,
         "referenceBoundaryWordsExcluded": 0,
         "overlappingReferencePairs": 12,
         "lowConfidenceWords": 35,
@@ -577,7 +686,7 @@
       "sourceSha256": "3e2560b19bee6952c7c7ce041b0f1ea8a7ea9468044c4eea79d2a2c67e24ab0f",
       "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
       "decodedSha256": "ad5c43a6c3fbebc829ffe085f17801a3539b3dc4e55703fb7795c81b3ec9995c",
-      "backendOutputSha256": "2e77a6e6568310cde9194ffb4f0a2025d5dc78cda88c58936f93b2b45f5b96f4",
+      "backendOutputSha256": "1c912bf25fee2b51049f2f259d8db7d69173b8d4a22ea370b759af238763991e",
       "provider": {
         "id": "command.speech",
         "provider": "command",
@@ -586,7 +695,7 @@
       "declaredBackend": "mlx-whisper",
       "declaredModel": "mlx-community/whisper-tiny",
       "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
-      "gitHead": "8bd3f4d8cba7e46e45ed8e00c954a791d9487c8b",
+      "gitHead": "ba192e2319bce74528b946fc1efa027ae68c75a1",
       "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
       "recognizedWords": 80,
       "transcriptScreening": {
@@ -597,6 +706,16 @@
         "referenceWords": 94,
         "hypothesisWords": 80,
         "wordErrorRate": 0.2765957446808511,
+        "timingScreening": {
+          "referenceWords": 94,
+          "hypothesisWords": 80,
+          "matchedWords": 69,
+          "withinTolerance": 43,
+          "toleranceSeconds": 0.2,
+          "status": "unavailable",
+          "limitation": "Word matches and reference timestamps are automatic; omissions and ambiguous matches are not timing successes."
+        },
+        "timingHypothesesExcluded": 0,
         "referenceBoundaryWordsExcluded": 1,
         "overlappingReferencePairs": 8,
         "lowConfidenceWords": 23,
@@ -646,7 +765,7 @@
       "sourceSha256": "6eb5a0ede0d9e72794f976ce7bea5b78133eae969f99b4c5418b43c2468d25b1",
       "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
       "decodedSha256": "e84edc68965ed7ee271f85440a5fb78d6b2f71edf694be054dc7d505264157e9",
-      "backendOutputSha256": "51b78fda63b86b17bd3d1f98ed628234881fcc81d32b3bab0ac0b1b3dc6a9396",
+      "backendOutputSha256": "e8e301931644147f73d7e9c1de16cd5e4f71807958d20156759a114cd3f936aa",
       "provider": {
         "id": "command.speech",
         "provider": "command",
@@ -655,20 +774,30 @@
       "declaredBackend": "mlx-whisper",
       "declaredModel": "mlx-community/whisper-tiny",
       "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
-      "gitHead": "8bd3f4d8cba7e46e45ed8e00c954a791d9487c8b",
+      "gitHead": "ba192e2319bce74528b946fc1efa027ae68c75a1",
       "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
-      "recognizedWords": 19,
+      "recognizedWords": 33,
       "transcriptScreening": {
-        "errors": 11,
-        "substitutions": 9,
+        "errors": 24,
+        "substitutions": 8,
         "deletions": 0,
-        "insertions": 2,
+        "insertions": 16,
         "referenceWords": 17,
-        "hypothesisWords": 19,
-        "wordErrorRate": 0.6470588235294118,
+        "hypothesisWords": 33,
+        "wordErrorRate": 1.411764705882353,
+        "timingScreening": {
+          "referenceWords": 17,
+          "hypothesisWords": 33,
+          "matchedWords": 9,
+          "withinTolerance": 6,
+          "toleranceSeconds": 0.2,
+          "status": "unavailable",
+          "limitation": "Word matches and reference timestamps are automatic; omissions and ambiguous matches are not timing successes."
+        },
+        "timingHypothesesExcluded": 0,
         "referenceBoundaryWordsExcluded": 1,
         "overlappingReferencePairs": 7,
-        "lowConfidenceWords": 11,
+        "lowConfidenceWords": 21,
         "timingStatus": "unavailable",
         "limitation": "Reference timings are automatically aligned; cross-speaker overlap makes linear word order ambiguous."
       },
@@ -695,7 +824,7 @@
       "sourceSha256": "6eb5a0ede0d9e72794f976ce7bea5b78133eae969f99b4c5418b43c2468d25b1",
       "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
       "decodedSha256": "59be17e37d389f14486414d9f23a1f2113f0f1c9b3e69b760a5ba49f96ac4506",
-      "backendOutputSha256": "f6519cfc0bf642ee3b06e641ec7f0b35eff1604fd52d164e2f608c202156f683",
+      "backendOutputSha256": "c935542e7c3ad58348b2cd1b25cb5287880ce27ad574324fdd32dfb5524f7e16",
       "provider": {
         "id": "command.speech",
         "provider": "command",
@@ -704,7 +833,7 @@
       "declaredBackend": "mlx-whisper",
       "declaredModel": "mlx-community/whisper-tiny",
       "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
-      "gitHead": "8bd3f4d8cba7e46e45ed8e00c954a791d9487c8b",
+      "gitHead": "ba192e2319bce74528b946fc1efa027ae68c75a1",
       "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
       "recognizedWords": 130,
       "transcriptScreening": {
@@ -715,6 +844,16 @@
         "referenceWords": 149,
         "hypothesisWords": 130,
         "wordErrorRate": 0.30201342281879195,
+        "timingScreening": {
+          "referenceWords": 149,
+          "hypothesisWords": 130,
+          "matchedWords": 106,
+          "withinTolerance": 84,
+          "toleranceSeconds": 0.2,
+          "status": "unavailable",
+          "limitation": "Word matches and reference timestamps are automatic; omissions and ambiguous matches are not timing successes."
+        },
+        "timingHypothesesExcluded": 0,
         "referenceBoundaryWordsExcluded": 1,
         "overlappingReferencePairs": 6,
         "lowConfidenceWords": 32,
@@ -745,7 +884,7 @@
       "sourceSha256": "b6ce59ff735c234afdd94b13744aa26f6785af746170543fd03b33160e920a6d",
       "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
       "decodedSha256": "b280ed81bfa544157f815bfe3323e6612267c4cea41895a4a3a4389b4d0a70fc",
-      "backendOutputSha256": "ca66d4c82d24b80a492ec5d3b4c72896507b850e3e3f1f0f64b2fd06d0423cf3",
+      "backendOutputSha256": "b77112a1607570988db260dd5f1229e90431730e2708cb81e78381bc38cec9bc",
       "provider": {
         "id": "command.speech",
         "provider": "command",
@@ -754,7 +893,7 @@
       "declaredBackend": "mlx-whisper",
       "declaredModel": "mlx-community/whisper-tiny",
       "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
-      "gitHead": "8bd3f4d8cba7e46e45ed8e00c954a791d9487c8b",
+      "gitHead": "ba192e2319bce74528b946fc1efa027ae68c75a1",
       "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
       "recognizedWords": 46,
       "transcriptScreening": {
@@ -765,6 +904,16 @@
         "referenceWords": 71,
         "hypothesisWords": 46,
         "wordErrorRate": 0.49295774647887325,
+        "timingScreening": {
+          "referenceWords": 71,
+          "hypothesisWords": 46,
+          "matchedWords": 36,
+          "withinTolerance": 20,
+          "toleranceSeconds": 0.2,
+          "status": "unavailable",
+          "limitation": "Word matches and reference timestamps are automatic; omissions and ambiguous matches are not timing successes."
+        },
+        "timingHypothesesExcluded": 0,
         "referenceBoundaryWordsExcluded": 0,
         "overlappingReferencePairs": 13,
         "lowConfidenceWords": 25,
@@ -794,7 +943,7 @@
       "sourceSha256": "b6ce59ff735c234afdd94b13744aa26f6785af746170543fd03b33160e920a6d",
       "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
       "decodedSha256": "f2e1f6931ae132c69a6a42b349c401ba09c0b8927e8ae7b0a41a058a40527825",
-      "backendOutputSha256": "c0cb38a2c5732ca2edb91316eaee12564ca57668f7fc9b829363892ac9a581fb",
+      "backendOutputSha256": "ba4af877922b77ddd711869e091fed2837a24ad81f1b0c433f408afcc61e06f1",
       "provider": {
         "id": "command.speech",
         "provider": "command",
@@ -803,7 +952,7 @@
       "declaredBackend": "mlx-whisper",
       "declaredModel": "mlx-community/whisper-tiny",
       "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
-      "gitHead": "8bd3f4d8cba7e46e45ed8e00c954a791d9487c8b",
+      "gitHead": "ba192e2319bce74528b946fc1efa027ae68c75a1",
       "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
       "recognizedWords": 104,
       "transcriptScreening": {
@@ -814,6 +963,16 @@
         "referenceWords": 119,
         "hypothesisWords": 104,
         "wordErrorRate": 0.3025210084033613,
+        "timingScreening": {
+          "referenceWords": 119,
+          "hypothesisWords": 104,
+          "matchedWords": 84,
+          "withinTolerance": 59,
+          "toleranceSeconds": 0.2,
+          "status": "unavailable",
+          "limitation": "Word matches and reference timestamps are automatic; omissions and ambiguous matches are not timing successes."
+        },
+        "timingHypothesesExcluded": 0,
         "referenceBoundaryWordsExcluded": 1,
         "overlappingReferencePairs": 8,
         "lowConfidenceWords": 30,
