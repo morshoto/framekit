@@ -119,7 +119,7 @@ export class FfmpegStoryboardRenderer {
       if (bytes.length > 8 * 1024 * 1024) throw new Error("HEADLESS_STORYBOARD_LIMIT: contact sheet exceeds 8 MiB");
       await checkSources();
       signal?.throwIfAborted();
-      return { data: bytes.toString("base64"), mimeType: "image/png", samples, ...(titleFontDigest ? { titleFontDigest } : {}), limitations: [`${width}x${height} pixels per sample; ${columns} columns and ${rows} rows in sample order`, "Only shot starts and title midpoints are sampled; motion, audio and unsampled frames are not represented.", "Source frames are sought independently; source and output frame-rate conversion can select different nearby frames.", "The basic title outline is headless-only and is not encoded in FCPXML; native appearance is unverified."] };
+      return { data: bytes.toString("base64"), mimeType: "image/png", samples, ...(titleFontDigest ? { titleFontDigest } : {}), limitations: [`${width}x${height} pixels per sample; ${columns} columns and ${rows} rows in sample order`, "Only shot starts and title midpoints are sampled; motion, audio and unsampled frames are not represented.", "Source frames are sought independently; source and output frame-rate conversion can select different nearby frames.", ...(titles.length ? ["The basic title outline is headless-only and is not encoded in FCPXML; native appearance is unverified."] : [])] };
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
