@@ -80,3 +80,9 @@ test('pins a single-speaker source and its coarse subtitle revision', async () =
   assert.match(subtitle.url, /oldid=269864367/);
   assert.match(subtitle.timing, /not word-level/i);
 });
+
+test('single-speaker runner rejects missing source before running a provider', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const runner = new URL('../../../scripts/benchmarks/ai-editing/run-nespoli.mjs', import.meta.url);
+  assert.throws(() => execFileSync(process.execPath, [runner.pathname, '/missing/audio', '/missing/srt', 'python'], {stdio: 'pipe'}), /ENOENT/);
+});
