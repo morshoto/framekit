@@ -73,3 +73,9 @@ test('recognition proxy is fixed to the measured renders and is not acceptance',
   assert.equal(config.minimumExploratoryRetention, 0.9);
   assert.match(config.limitation, /not.*intelligibility/i);
 });
+
+test('speech proxy runner checks media identity before recognition', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const runner = new URL('../../../scripts/benchmarks/ai-editing/run-speech-proxy.mjs', import.meta.url);
+  assert.throws(() => execFileSync(process.execPath,[runner.pathname,'/missing/a','/missing/b','python'],{stdio:'pipe'}), /ENOENT/);
+});
