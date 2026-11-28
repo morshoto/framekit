@@ -170,6 +170,7 @@ export async function createEditDecisionPlan(request: EditDecisionPlanRequest, a
             rationale: "Potential filler observation only; this is not a safe removal or an executable edit.", range: structuredClone(candidate.sequenceRange),
             sourceRange: structuredClone(candidate.sourceRange), word: structuredClone(candidate.word), analysisRef: structuredClone(request.speechRef!) })));
           fillerWarnings.push("Filler observations are not safe removals; review speech, protection and context separately before any edit.");
+          fillerWarnings.push("Transcription may omit fillers; observations do not establish that all fillers were found.");
         }
       }
     }

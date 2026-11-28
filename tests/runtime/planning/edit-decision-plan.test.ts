@@ -937,6 +937,7 @@ test("optional filler observations bind speech and remain unavailable for execut
     assert.deepEqual(fillers.map((item) => item.protection), ["not-evaluated", "overlaps-protected"]);
     assert.ok(fillers.every((item) => item.analysisRef.artifactDigest === speechRef.artifactDigest));
     assert.ok(observed.plan.warnings.some((warning) => /not.*(safe|remov)/i.test(warning)));
+    assert.ok(observed.plan.warnings.some((warning) => /transcription may omit fillers/i.test(warning)));
     assert.notEqual(normal.plan.planDigest, observed.plan.planDigest);
     assert.deepEqual(request.snapshot, original);
     await writeFile(f.path, "changed source");

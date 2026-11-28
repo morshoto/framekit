@@ -138,8 +138,9 @@ potential fillers in the target occurrence. These observations report the
 recognized word, confidence and source/timeline ranges; they are not safe
 removals or executable edits. A detected overlap with a speech-protected
 segment is marked, while other protection is not evaluated. Partial or missing
-speech evidence does not produce observations. Review the actual speech,
-protection and context separately before considering any edit.
+speech evidence does not produce observations. Transcription may omit fillers,
+so an empty list does not establish that no fillers were spoken. Review the
+actual speech, protection and context separately before considering any edit.
 To correct a recognized word in the caption proposal, supply
 `caption.wordCorrections` entries with the transcript `wordIndex` and replacement
 `text`. The plan keeps the original text, timing and analysis reference visible;
