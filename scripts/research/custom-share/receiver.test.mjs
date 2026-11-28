@@ -59,3 +59,28 @@ test('rejects wrong basenames, duplicate output paths and malformed names', asyn
   await assert.rejects(receiver.complete(a.id, [valid, valid]), /duplicate/);
   assert.equal((await receiver.get(a.id)).state, 'pending');
 });
+
+test('pending mock survives restart and local cancellation rejects late callbacks', async t => {
+  const root = await fixture(t);
+  const receiver = await createReceiver(root);
+  const a = await receiver.create('Example');
+  const restarted = await createReceiver(root);
+  assert.equal((await restarted.get(a.id)).state, 'pending');
+  const cancelled = await restarted.cancel(a.id);
+  assert.equal(cancelled.state, 'cancelled');
+  const path = join(a.directory, 'Example.fcpxml');
+  await writeFile(path, '<fcpxml/>');
+  await assert.rejects(restarted.complete(a.id, [path]), /cancelled/);
+  assert.equal((await (await createReceiver(root)).get(a.id)).state, 'cancelled');
+});
+
+test('a malformed or target-tampered journal cannot accept an output', async t => {
+  const root = await fixture(t);
+  const receiver = await createReceiver(root);
+  const a = await receiver.create('Example');
+  const record = join(root, `${a.id}.json`);
+  await writeFile(record, '{');
+  await assert.rejects(receiver.get(a.id));
+  await writeFile(record, JSON.stringify({ ...a, directory: root }));
+  await assert.rejects(receiver.complete(a.id, [join(root, 'Example.fcpxml')]), /invalid receipt/);
+});
