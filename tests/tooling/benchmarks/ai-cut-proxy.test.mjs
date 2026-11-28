@@ -31,3 +31,15 @@ test('pins disputed cut, sample windows and proxy limits before inference', asyn
   assert.equal(c.minimumExploratoryRetention,1);
   assert.match(c.limitation,/not.*continuity/i);
 });
+
+test('wraps PCM as a correctly sized mono WAV', async () => {
+  const { pcmWav } = await import('../../../scripts/benchmarks/ai-editing/cut-proxy.mjs');
+  const pcm=Buffer.from([1,0,2,0]);
+  const wav=pcmWav(pcm,16000);
+  assert.equal(wav.toString('ascii',0,4),'RIFF');
+  assert.equal(wav.readUInt32LE(4),wav.length-8);
+  assert.equal(wav.readUInt32LE(24),16000);
+  assert.equal(wav.readUInt32LE(40),pcm.length);
+  assert.deepEqual(wav.subarray(44),pcm);
+  assert.throws(()=>pcmWav(Buffer.from([0]),16000),/PCM/i);
+});
