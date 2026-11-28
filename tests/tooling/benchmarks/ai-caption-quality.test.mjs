@@ -147,3 +147,24 @@ test('talking-head runner verifies source identity before inference', async () =
   const runner = new URL('../../../scripts/benchmarks/ai-editing/run-talking-head.mjs',import.meta.url);
   assert.throws(() => execFileSync(process.execPath,['--import','tsx',runner.pathname,'/missing/video','python'],{stdio:'pipe'}), /ENOENT/);
 });
+
+test('headless caption probe samples active frames against a title-free render', async () => {
+  const { mkdtemp, rm, readFile } = await import('node:fs/promises');
+  const { execFileSync } = await import('node:child_process');
+  const { createHash } = await import('node:crypto');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const { renderCaptionProbe } = await import('../../../scripts/benchmarks/ai-editing/caption-render-probe.mjs');
+  const directory = await mkdtemp(join(tmpdir(),'framekit-caption-render-'));
+  try {
+    const source = join(directory,'source.mp4');
+    execFileSync('ffmpeg',['-v','error','-f','lavfi','-i','color=black:s=320x180:r=30:d=2','-c:v','libx264','-threads','1',source]);
+    const digest = createHash('sha256').update(await readFile(source)).digest('hex');
+    const groups = [{lines:['Hello'],sequenceRange:{start:0.5,end:1,startTime:{value:'1',timescale:'2'},durationTime:{value:'1',timescale:'2'}}}];
+    const result = await renderCaptionProbe(source,digest,2,groups,directory);
+    assert.equal(result.sampledActiveFrames,2);
+    assert.equal(result.framesWithChangedPixels,2);
+    assert.equal(result.textAccuracy,'unavailable');
+    assert.equal(result.nativeStatus,'unavailable');
+  } finally { await rm(directory,{recursive:true,force:true}); }
+});
