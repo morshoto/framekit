@@ -4,93 +4,34 @@
   "referenceTiming": "AMI word text is manually transcribed; word timestamps are automatically aligned and are not human-verified boundaries.",
   "assets": [
     {
-      "id": "EN2002a",
-      "kind": "audio",
-      "filename": "EN2002a.wav",
+      "id": "EN2002a", "kind": "audio", "filename": "EN2002a.wav",
       "url": "https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/EN2002a/audio/EN2002a.Mix-Headset.wav",
       "sha256": "a15017d0d3c871866971ee178052a0ce3a7e44d6fbf89fc23dcab326511b65f5",
-      "credit": "AMI Consortium",
-      "license": "CC BY 4.0",
-      "rangesSeconds": [
-        [
-          0,
-          600
-        ]
-      ],
-      "features": [
-        "conversation",
-        "pauses",
-        "filler words"
-      ]
+      "credit": "AMI Consortium", "license": "CC BY 4.0", "rangesSeconds": [[0, 600]], "features": ["conversation", "pauses", "filler words"]
     },
     {
-      "id": "ES2004a",
-      "kind": "audio",
-      "filename": "ES2004a.wav",
+      "id": "ES2004a", "kind": "audio", "filename": "ES2004a.wav",
       "url": "https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/ES2004a/audio/ES2004a.Mix-Headset.wav",
       "sha256": "3e2560b19bee6952c7c7ce041b0f1ea8a7ea9468044c4eea79d2a2c67e24ab0f",
-      "credit": "AMI Consortium",
-      "license": "CC BY 4.0",
-      "rangesSeconds": [
-        [
-          0,
-          120
-        ]
-      ],
-      "features": [
-        "conversation",
-        "pauses",
-        "filler words"
-      ]
+      "credit": "AMI Consortium", "license": "CC BY 4.0", "rangesSeconds": [[0, 120]], "features": ["conversation", "pauses", "filler words"]
     },
     {
-      "id": "IS1009a",
-      "kind": "audio",
-      "filename": "IS1009a.wav",
+      "id": "IS1009a", "kind": "audio", "filename": "IS1009a.wav",
       "url": "https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/IS1009a/audio/IS1009a.Mix-Headset.wav",
       "sha256": "6eb5a0ede0d9e72794f976ce7bea5b78133eae969f99b4c5418b43c2468d25b1",
-      "credit": "AMI Consortium",
-      "license": "CC BY 4.0",
-      "rangesSeconds": [
-        [
-          0,
-          120
-        ]
-      ],
-      "features": [
-        "conversation",
-        "pauses",
-        "filler words"
-      ]
+      "credit": "AMI Consortium", "license": "CC BY 4.0", "rangesSeconds": [[0, 120]], "features": ["conversation", "pauses", "filler words"]
     },
     {
-      "id": "TS3003a",
-      "kind": "audio",
-      "filename": "TS3003a.wav",
+      "id": "TS3003a", "kind": "audio", "filename": "TS3003a.wav",
       "url": "https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/TS3003a/audio/TS3003a.Mix-Headset.wav",
       "sha256": "b6ce59ff735c234afdd94b13744aa26f6785af746170543fd03b33160e920a6d",
-      "credit": "AMI Consortium",
-      "license": "CC BY 4.0",
-      "rangesSeconds": [
-        [
-          0,
-          120
-        ]
-      ],
-      "features": [
-        "conversation",
-        "pauses",
-        "filler words"
-      ]
+      "credit": "AMI Consortium", "license": "CC BY 4.0", "rangesSeconds": [[0, 120]], "features": ["conversation", "pauses", "filler words"]
     },
     {
-      "id": "ami-manual-1.6.2",
-      "kind": "annotations",
-      "filename": "annotations.zip",
+      "id": "ami-manual-1.6.2", "kind": "annotations", "filename": "annotations.zip",
       "url": "https://groups.inf.ed.ac.uk/ami/AMICorpusAnnotations/ami_public_manual_1.6.2.zip",
       "sha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
-      "credit": "AMI Consortium",
-      "license": "CC BY 4.0"
+      "credit": "AMI Consortium", "license": "CC BY 4.0"
     }
   ],
   "supplementalAssets": [
