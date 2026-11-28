@@ -42,3 +42,15 @@ test('extracts timed words from AMI annotations as unverified screening evidence
   await assert.rejects(parseAmiWords('<wrong/>', 'A'), /annotation/i);
   await assert.rejects(parseAmiWords('<nite:root><w starttime="bad" endtime="2">oops</w></nite:root>', 'A'), /timing/i);
 });
+
+test('compares chunk-relative proposals with source-relative reference words', async () => {
+  const { screenAlignedCuts } = await import('../../../scripts/benchmarks/ai-editing/corpus.mjs');
+  const result = screenAlignedCuts([{sourceRange: {start: 1, end: 2}}], 60, [
+    {start: 61.5, end: 62.5, text: 'word', speaker: 'A', verification: 'automatic-alignment'},
+    {start: 62, end: 63, text: 'next', speaker: 'B', verification: 'automatic-alignment'},
+  ]);
+  assert.equal(result[0].start, 61);
+  assert.equal(result[0].end, 62);
+  assert.deepEqual(result[0].overlaps.map((word) => word.text), ['word']);
+  assert.throws(() => screenAlignedCuts([{sourceRange: {start: 2, end: 1}}], 60, []), /range/i);
+});
