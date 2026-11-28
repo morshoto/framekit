@@ -89,6 +89,22 @@ test('allows explicit bounded gain for an exploratory comparison', async () => {
   assert.equal(selectedGain('-36', -24), -36);
   assert.throws(() => selectedGain('1', -24), /gain/i);
   assert.throws(() => selectedGain('bad', -24), /gain/i);
+  assert.throws(() => selectedGain('  ', -24), /gain/i);
+});
+
+test('creates nested output directories without accepting an existing output', async () => {
+  const { mkdtemp, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { prepareOutputDirectory } = await import('../../../scripts/benchmarks/ai-editing/music-quality.mjs');
+  const root = await mkdtemp(join(tmpdir(), 'framekit-music-output-'));
+  try {
+    const output = join(root, 'new-parent', 'output');
+    await prepareOutputDirectory(output);
+    await assert.rejects(prepareOutputDirectory(output), { code: 'EEXIST' });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test('labels the quieter gain comparison as exploratory and post hoc', async () => {

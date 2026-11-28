@@ -1,3 +1,12 @@
+import { mkdir } from 'node:fs/promises';
+import { dirname } from 'node:path';
+
+/** Create missing parents while preserving the requirement that output is new. */
+export async function prepareOutputDirectory(output) {
+  await mkdir(dirname(output), { recursive: true });
+  await mkdir(output);
+}
+
 /** Measure aligned decoded components; numeric balance is not an intelligibility judgment. */
 export function measureMix(speech, music, mix) {
   if (!speech.length || speech.length !== music.length || speech.length !== mix.length) throw new Error('Invalid samples');
@@ -43,6 +52,6 @@ export function estimateOffsetFrames(reference, rendered, expectedStart, frameSa
 /** Validate optional exploratory gain without amplifying the source. */
 export function selectedGain(argument, fallback) {
   const gain = argument === undefined ? fallback : Number(argument);
-  if (!Number.isFinite(gain) || gain > 0 || gain < -96 || argument === '') throw new Error('Invalid music gain');
+  if (!Number.isFinite(gain) || gain > 0 || gain < -96 || (typeof argument === 'string' && argument.trim() === '')) throw new Error('Invalid music gain');
   return gain;
 }

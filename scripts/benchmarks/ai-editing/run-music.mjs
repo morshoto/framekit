@@ -2,13 +2,13 @@
 // Produces disposable headless renders for measurement and separate human listening.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createFramekitRenderPlan, createFramekitRenderRequest } from '../../../packages/runtime/src/index.ts';
 import { FfmpegTimelineRenderer } from '../../../adapters/headless/typescript/src/index.ts';
 import { loadCorpus, verifyAsset } from './corpus.mjs';
-import { estimateOffsetFrames, measureMix, selectedGain } from './music-quality.mjs';
+import { estimateOffsetFrames, measureMix, prepareOutputDirectory, selectedGain } from './music-quality.mjs';
 
 const [speechFile, musicFile, outputArg, gainArgument] = process.argv.slice(2);
 if (!speechFile || !musicFile || !outputArg) throw new Error('Expected speech, music and new output directory');
@@ -19,7 +19,7 @@ const gainDb = selectedGain(gainArgument, config.scenario.gainDb);
 await verifyAsset(speechFile, speech.sha256);
 await verifyAsset(musicFile, config.music.sha256);
 const output = resolve(outputArg);
-await mkdir(output);
+await prepareOutputDirectory(output);
 const ffmpeg = process.env.FFMPEG_BIN || 'ffmpeg';
 const call = (args, options = {}) => execFileSync(ffmpeg, args, { maxBuffer: 32 * 1024 * 1024, ...options });
 const withSpeech = join(output, 'source-speech.mp4');
