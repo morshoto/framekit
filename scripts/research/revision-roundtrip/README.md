@@ -1,0 +1,16 @@
+# Revision round-trip research
+
+Research fixtures only. They do not call Final Cut, establish a production MCP workflow, or authorize any native operation. The independently authored XML and synthetic media names are not Final Cut-produced evidence.
+
+From this worktree after `pnpm install --frozen-lockfile`:
+
+```sh
+./node_modules/.bin/tsx --test scripts/research/revision-roundtrip/*.test.ts
+node --test scripts/research/revision-roundtrip/matching.test.mjs
+```
+
+The TypeScript characterization tests demonstrate current adapter/reconciliation boundaries, including the equal-name misdirection, negative audio lane, unsupported story element, and a blocked accepted-brief to version-B chain. Keep those results distinct from the proposed `matching.mjs` experiment.
+
+The matcher compares a separately supplied source SHA-256 and normalized exact source interval, requiring uniqueness on each side and rejecting missing, invalid, or ambiguous intervals. A revision digest binds exact artifact bytes; callers must preserve a trusted expected digest and independently verify the source bytes and target. It cannot distinguish a replacement with the same source and range, identify trimmed or split clips, authenticate a source, prove continuity, preserve XML semantics, or produce version B. It is not integrated into production and is not evidence of a safe automatic rebase. Unknown or changed source intervals fail closed in this model.
+
+The source XML in the existing independent fixtures uses FCPXML 1.11. They were originally checked with the installed DTD; syntactic/DTD validation is not evidence of correct import, editability, playback, identity, or native Undo. See issue #903 for pinned candidate, toolchain, hashes, negative controls and complete evidence limits.
