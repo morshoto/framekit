@@ -100,6 +100,38 @@ test("render-and-verify returns verified provenance and independent artifact met
     const missingCheck = structuredClone(outcome);
     missingCheck.verification!.checks = missingCheck.verification!.checks.filter((check) => check.name !== "output-stability");
     assert.equal(await reverifyBriefArtifactObservation(missingCheck, verifier), undefined);
+    const missingFrameCount = structuredClone(outcome);
+    missingFrameCount.verification!.checks = missingFrameCount.verification!.checks.filter((check) => check.name !== "frame-count");
+    assert.equal(await reverifyBriefArtifactObservation(missingFrameCount, verifier), undefined,
+      "a render without the original decoded frame-count evidence cannot support conformance");
+    const noFrameCountVerifier = { verify: async () => structuredClone(missingFrameCount.verification!) };
+    assert.equal(await reverifyBriefArtifactObservation(outcome, noFrameCountVerifier), undefined,
+      "reverification must also supply the decoded frame-count check");
+    const duplicateFrameCount = structuredClone(outcome);
+    duplicateFrameCount.verification!.checks.push(structuredClone(duplicateFrameCount.verification!.checks.find((check) => check.name === "frame-count")!));
+    assert.equal(await reverifyBriefArtifactObservation(duplicateFrameCount, verifier), undefined,
+      "ambiguous duplicate decoded frame-count checks cannot support conformance");
+    const forgedFrameCount = structuredClone(outcome);
+    const forgedCount = forgedFrameCount.verification!.checks.find((check) => check.name === "frame-count")!;
+    forgedCount.expected = 2; forgedCount.observed = 2; forgedCount.passed = true;
+    const matchingForgedVerifier = { verify: async () => structuredClone(forgedFrameCount.verification!) };
+    assert.equal(await reverifyBriefArtifactObservation(forgedFrameCount, matchingForgedVerifier), undefined,
+      "a passed count must still match the requested frame rate and canonical duration");
+    for (const [observedFrames, allowed] of [[59, true], [61, true], [58, false], [62, false]] as const) {
+      const candidate = structuredClone(outcome);
+      candidate.verification!.checks.find((check) => check.name === "frame-count")!.observed = observedFrames;
+      const matching = { verify: async () => structuredClone(candidate.verification!) };
+      assert.equal(Boolean(await reverifyBriefArtifactObservation(candidate, matching)), allowed, `decoded count ${observedFrames}`);
+    }
+    for (const invalid of [undefined, "60", 0, -1, 60.5, Number.NaN]) {
+      const candidate = structuredClone(outcome);
+      candidate.verification!.checks.find((check) => check.name === "frame-count")!.observed = invalid;
+      const matching = { verify: async () => structuredClone(candidate.verification!) };
+      assert.equal(await reverifyBriefArtifactObservation(candidate, matching), undefined, `invalid decoded count ${invalid}`);
+    }
+    const wrongExpectation = structuredClone(outcome);
+    wrongExpectation.verification!.checks.find((check) => check.name === "frame-count")!.expected = 2;
+    assert.equal(await reverifyBriefArtifactObservation(wrongExpectation, { verify: async () => structuredClone(wrongExpectation.verification!) }), undefined);
     const changedArtifact = structuredClone(outcome);
     changedArtifact.verification!.artifact!.fileDigest = "f".repeat(64);
     assert.equal(await reverifyBriefArtifactObservation(changedArtifact, verifier), undefined);
@@ -133,6 +165,11 @@ test("render-and-verify returns verified provenance and independent artifact met
     await unrangedRenderer.render(unrangedPlan);
     const unrangedFrame = await frameAt(unrangedParameters.outputPath, 1.1, directory, "range-ignored");
     assert.notEqual(frameDigest(rangedFrame), frameDigest(unrangedFrame), "sourceStartTime must change the verified artifact segment");
+    const fractionalRequest = createFramekitRenderRequest({ timeline, target: { projectId: timeline.project.id, sequenceId: timeline.sequence.id },
+      parameters: { ...renderParameters(join(directory, "fractional.mp4")), frameRate: { value: "30000", timescale: "1001" } } });
+    const fractionalOutcome = await renderAndVerifyFramekitProject(fractionalRequest, new FfmpegTimelineRenderer(), verifier);
+    assert.equal(fractionalOutcome.status, "passed");
+    assert.ok(await reverifyBriefArtifactObservation(fractionalOutcome, verifier), "fractional-rate decoded counts remain valid");
     await appendFile(outcome.verification!.artifact!.path, "changed after verification");
     assert.equal(await reverifyBriefArtifactObservation(outcome, verifier), undefined);
   } finally {

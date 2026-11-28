@@ -1435,6 +1435,21 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: briefTargetSchema,
   }, async (input) => sessionResult(() => requireHeadlessBriefs().inspect(input)));
 
+  registerValidatedTool(server, "headless.brief.inspect-timeline-coverage", {
+    description: "Inspect exact source-range placement in the accepted headless timeline. This does not verify rendered output, content meaning, visibility, audibility, or native edits.",
+    inputSchema: briefTargetSchema,
+  }, async (input) => sessionResult(() => requireHeadlessBriefs().inspectTimelineCoverage(input)));
+
+  registerValidatedTool(server, "headless.brief.inspect-render", {
+    description: "Compare a reverified headless artifact's duration and aspect ratio with an accepted brief at the same revision. This does not authenticate the edit chain or establish complete brief or native acceptance.",
+    inputSchema: { ...briefTargetSchema, renderId: z.string().min(1) },
+  }, async (input) => sessionResult(() => requireHeadlessBriefs().inspectRender(input)));
+
+  registerValidatedTool(server, "headless.brief.preview-render-correction", {
+    description: "Propose review-only dimensions for an aspect-ratio mismatch on a reverified render. This may stretch footage and does not authorize a render or edit.",
+    inputSchema: { ...briefTargetSchema, renderId: z.string().min(1) },
+  }, async (input) => sessionResult(() => requireHeadlessBriefs().previewRenderCorrection(input)));
+
   registerValidatedTool(server, "headless.brief.revise", {
     description: "Revise a brief from its reviewed digest; this invalidates its previous acceptance and does not edit the timeline.",
     inputSchema: { ...briefTargetSchema, expectedDigest: z.string().min(1), brief: creativeBriefSchema },
@@ -1693,6 +1708,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     description: "Inspect a persisted headless render record, provenance, and independent verification evidence.",
     inputSchema: { renderId: z.string().min(1) },
   }, async ({ renderId }) => sessionResult(() => requireHeadlessProjects().inspectRender(renderId)));
+
+  registerValidatedTool(server, "headless.render.reverify", {
+    description: "Recheck current artifact bytes against a historical headless render record. This does not authenticate the record, approved edits, brief conformance, or native execution.",
+    inputSchema: { renderId: z.string().min(1) },
+  }, async ({ renderId }) => sessionResult(() => requireHeadlessProjects().reverifyRender(renderId)));
 
   server.registerTool("editor.inspect", {
     description: "Read editor identity and machine-readable capabilities before selecting an editing path.",

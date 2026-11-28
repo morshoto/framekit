@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { constants } from "node:fs";
 import { readdir, readFile, rename, writeFile, mkdir, link, unlink, realpath, stat, lstat, open } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -10,6 +11,7 @@ import {
   ProjectTransactionService,
   createFramekitRenderRequest,
   renderAndVerifyFramekitProject,
+  reverifyBriefArtifactObservation,
   type ContextRevision,
   type FramekitProjectDocument,
   type FramekitRenderArtifactVerifier,
@@ -163,6 +165,7 @@ export interface HeadlessProjectWorkflow {
     expectedRevision?: ContextRevision,
   ): Promise<HeadlessRenderRecord>;
   inspectRender(renderId: string): Promise<HeadlessRenderRecord>;
+  reverifyRender(renderId: string): Promise<HeadlessRenderReverification>;
 }
 
 export interface HeadlessProjectSummary {
@@ -199,6 +202,17 @@ export interface HeadlessRenderRecord {
   createdAt: string;
   status: "passed" | "failed" | "unavailable";
   outcome: unknown;
+}
+
+export function isMissingHeadlessRenderRecord(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith("HEADLESS_RENDER_NOT_FOUND: ");
+}
+
+export interface HeadlessRenderReverification {
+  renderId: string;
+  status: "verified" | "unavailable";
+  observation?: NonNullable<Awaited<ReturnType<typeof reverifyBriefArtifactObservation>>>;
+  notice: string;
 }
 
 export interface HeadlessRoughCutRequest {
@@ -1069,6 +1083,27 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new Error(`HEADLESS_RENDER_NOT_FOUND: render record does not exist: ${renderId}`);
       throw error;
     }
+  }
+
+  /** Recheck current bytes against a historical record; this does not authenticate that record. */
+  public async reverifyRender(renderId: string): Promise<HeadlessRenderReverification> {
+    const notice = "Point-in-time artifact check against a historical record; it does not authenticate the record, editing approvals, brief conformance, or native execution.";
+    const unavailable = (): HeadlessRenderReverification => ({ renderId, status: "unavailable", notice });
+    validateRenderId(renderId);
+    if (!this.verifier) return unavailable();
+    let record: HeadlessRenderRecord;
+    try { record = await this.inspectRender(renderId); }
+    catch (error) { if (isMissingHeadlessRenderRecord(error)) return unavailable(); throw error; }
+    if (!record || record.renderId !== renderId || record.status !== "passed" || !record.outcome || typeof record.outcome !== "object") return unavailable();
+    const outcome = record.outcome as FramekitRenderAndVerifyResult;
+    if (!outcome.plan || record.projectId !== outcome.plan.target?.projectId || record.sequenceId !== outcome.plan.target?.sequenceId
+      || !isDeepStrictEqual(record.requestedRevision, outcome.plan.projectRevision)) return unavailable();
+    const observation = await reverifyBriefArtifactObservation(outcome, this.verifier);
+    if (!observation) return unavailable();
+    try {
+      if (!isDeepStrictEqual(record, await this.inspectRender(renderId))) return unavailable();
+    } catch (error) { if (isMissingHeadlessRenderRecord(error)) return unavailable(); throw error; }
+    return { renderId, status: "verified", observation, notice };
   }
 
   private async assertOutputSeparation(project: FramekitProjectDocument, paths: string[]): Promise<void> {

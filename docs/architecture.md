@@ -338,6 +338,10 @@ renderer backends are checked against their source audio metadata.
 When `headless.render` records a failed render or verification, its MCP result
 sets `isError` and includes the failed record. `headless.render.inspect` can
 retrieve that record later using its `renderId`.
+`headless.render.inspect` returns historical evidence and does not recheck the
+file. `headless.render.reverify` compares the current artifact with that record
+using the configured verifier; its point-in-time result does not authenticate
+the record, editing approvals, brief conformance, or native execution.
 
 For `ripple-delete`, preview rejects ranges outside the active sequence bounds
 before issuing a preview token. The structured error reports the requested

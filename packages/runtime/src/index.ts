@@ -20,6 +20,7 @@ export * from "./context/project-catalog.js";
 export * from "./speech/filler-removal.js";
 export * from "./planning/native-plan-handoff.js";
 export * from "./planning/brief-conformance.js";
+export * from "./planning/brief-timeline-coverage.js";
 export * from "./audio/analysis.js";
 export * from "./audio/dialogue-normalization.js";
 export * from "./audio/noise-reduction.js";

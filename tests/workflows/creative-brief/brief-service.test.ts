@@ -26,7 +26,8 @@ async function fixture() {
     return operation(locked);
   }));
   const service = new HeadlessCreativeBriefService({ openProject: async () => structuredClone(current), withProjectLock: async (_projectId, operation) => operation(), storeForProject: () => store });
-  return { dir, store, service, setProject: (value: FramekitProjectDocument) => { current = structuredClone(value); } };
+  return { dir, store, service, setProject: (value: FramekitProjectDocument) => { current = structuredClone(value); },
+    withRender: (render: any) => new HeadlessCreativeBriefService({ openProject: async () => structuredClone(current), withProjectLock: async (_id, operation) => operation(), storeForProject: () => store, render }) };
 }
 const target = { projectId: "p", sequenceId: "t", expectedRevision: revision };
 
@@ -46,6 +47,71 @@ test("draft, review, explicitly accept and revise without editing the project", 
     assert.equal(revised.record.state, "draft");
     assert.equal(revised.record.brief.version, 2);
     assert.deepEqual(project, initial);
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test("brief render inspection binds current project and reverified artifact without claiming complete acceptance", async () => {
+  const f = await fixture();
+  try {
+    const current = structuredClone(project);
+    const stored = { renderId: "render-fixture", projectId: "p", sequenceId: "t", requestedRevision: revision, status: "passed", outcome: { plan: { timeline: current.timeline } } };
+    const observation = { status: "passed", target: { projectId: "p", sequenceId: "t" }, revision, fileDigest: "b".repeat(64), durationSeconds: 45, width: 1080, height: 1920 };
+    let record = structuredClone(stored);
+    let verified = true;
+    let missingRecord = false;
+    let badRecord = false;
+    let verificationCount = 0;
+    let driftOnSecond = false;
+    const service = f.withRender({ inspect: async () => {
+      if (missingRecord) throw new Error("HEADLESS_RENDER_NOT_FOUND: missing record");
+      if (badRecord) throw new Error("HEADLESS_RENDER_CORRUPT: invalid record");
+      return structuredClone(record);
+    }, reverify: async () => {
+      verificationCount++;
+      if (!verified || (driftOnSecond && verificationCount % 2 === 0)) return { renderId: "render-fixture", status: "unavailable" };
+      return { renderId: "render-fixture", status: "verified", observation: structuredClone(observation) };
+    } });
+    const draft = await service.create({ ...target, brief });
+    await service.accept({ ...target, expectedDigest: draft.record.digest, confirmed: true });
+    const result = await service.inspectRender({ ...target, renderId: "render-fixture" });
+    assert.equal(result.status, "incomplete");
+    assert.equal(result.nativeAcceptance, "unavailable");
+    assert.deepEqual(result.checks.map((check: any) => check.status), ["matches", "matches", "unavailable", "unavailable", "unavailable"]);
+    assert.equal(result.binding?.artifactDigest, observation.fileDigest);
+    assert.match(result.notice, /not.*(approval|execution)/i);
+    observation.durationSeconds = 20; observation.width = 1920; observation.height = 1080;
+    const mismatch = await service.inspectRender({ ...target, renderId: "render-fixture" });
+    assert.deepEqual(mismatch.checks.slice(0, 2).map((check) => check.status), ["does-not-match", "does-not-match"]);
+    assert.ok(mismatch.checks.slice(0, 2).every((check) => check.nextStep));
+    const initialProject = structuredClone(current);
+    const proposal = await service.previewRenderCorrection({ ...target, renderId: "render-fixture" });
+    assert.equal(proposal.status, "available");
+    assert.equal(proposal.reviewRequired, true);
+    assert.deepEqual(proposal.aspectRatio?.dimensions, { width: 594, height: 1056 });
+    assert.equal(proposal.duration.status, "unavailable");
+    assert.match(proposal.notice, /stretch/i);
+    assert.match(proposal.notice, /not.*(authorize|approval)/i);
+    assert.deepEqual(current, initialProject);
+    assert.deepEqual(await service.previewRenderCorrection({ ...target, renderId: "render-fixture" }), proposal);
+    observation.width = 2; observation.height = 2;
+    assert.equal((await service.previewRenderCorrection({ ...target, renderId: "render-fixture" })).status, "unavailable", "impossible even dimensions cannot produce a proposal");
+    observation.durationSeconds = 45; observation.width = 1080; observation.height = 1920;
+    assert.equal((await service.previewRenderCorrection({ ...target, renderId: "render-fixture" })).status, "unavailable", "matching ratio needs no correction");
+    verificationCount = 0; driftOnSecond = true;
+    assert.equal((await service.inspectRender({ ...target, renderId: "render-fixture" })).status, "unavailable");
+    driftOnSecond = false;
+    verified = false;
+    assert.equal((await service.inspectRender({ ...target, renderId: "render-fixture" })).status, "unavailable");
+    assert.equal((await service.previewRenderCorrection({ ...target, renderId: "render-fixture" })).status, "unavailable");
+    verified = true;
+    missingRecord = true;
+    assert.equal((await service.inspectRender({ ...target, renderId: "render-fixture" })).status, "unavailable");
+    assert.equal((await service.previewRenderCorrection({ ...target, renderId: "render-fixture" })).status, "unavailable");
+    missingRecord = false; badRecord = true;
+    await assert.rejects(() => service.inspectRender({ ...target, renderId: "render-fixture" }), /HEADLESS_RENDER_CORRUPT/);
+    badRecord = false;
+    record.outcome.plan.timeline.sequence.id = "other";
+    assert.equal((await service.inspectRender({ ...target, renderId: "render-fixture" })).status, "unavailable");
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
@@ -280,11 +346,52 @@ test("MCP exposes project-bound review and explicit acceptance without timeline 
     assert.notEqual(created.isError, true);
     const response = JSON.parse((created.content as Array<{ text: string }>)[0]!.text);
     assert.equal(response.record.state, "draft");
+    const beforeAcceptance = await client.callTool({ name: "headless.brief.inspect-timeline-coverage", arguments: target });
+    assert.equal(beforeAcceptance.isError, true);
     const denied = await client.callTool({ name: "headless.brief.accept", arguments: { ...target, expectedDigest: response.record.digest, confirmed: false } });
     assert.equal(denied.isError, true);
     const accepted = await client.callTool({ name: "headless.brief.accept", arguments: { ...target, expectedDigest: response.record.digest, confirmed: true } });
     assert.notEqual(accepted.isError, true);
     assert.equal(JSON.parse((accepted.content as Array<{ text: string }>)[0]!.text).record.state, "accepted");
+    const coverage = await client.callTool({ name: "headless.brief.inspect-timeline-coverage", arguments: target });
+    assert.notEqual(coverage.isError, true);
+    assert.equal(JSON.parse((coverage.content as Array<{ text: string }>)[0]!.text).checks[0].status, "unavailable");
+    const noRender = await client.callTool({ name: "headless.brief.inspect-render", arguments: { ...target, renderId: "render-fixture" } });
+    assert.notEqual(noRender.isError, true);
+    assert.equal(JSON.parse((noRender.content as Array<{ text: string }>)[0]!.text).status, "unavailable");
+    const noProposal = await client.callTool({ name: "headless.brief.preview-render-correction", arguments: { ...target, renderId: "render-fixture" } });
+    assert.notEqual(noProposal.isError, true);
+    assert.equal(JSON.parse((noProposal.content as Array<{ text: string }>)[0]!.text).status, "unavailable");
     assert.deepEqual(await runtime.inspectProject(), before);
   } finally { await client.close(); await server.close(); await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test("accepted target reports timeline coverage without asserting final artifact conformance", async () => {
+  const f = await fixture();
+  try {
+    const current = structuredClone(project);
+    current.timeline.resources[0]!.name = "Media";
+    current.timeline.resources[0]!.metadata!.streams = [{ kind: "video", frameRate: { value: "30", timescale: "1" } }];
+    Object.assign(current.timeline, { schemaVersion: 1, project: { id: "p", name: "P" }, sequence: {
+      id: "t", name: "T", durationTime: { value: "10", timescale: "1" }, frameDuration: { value: "1", timescale: "30" },
+      occurrences: [{ id: "clip", name: "Clip", mediaId: "media", role: "video", track: 0,
+        startTime: { value: "0", timescale: "1" }, sourceStartTime: { value: "0", timescale: "1" }, durationTime: { value: "10", timescale: "1" } }],
+      storyElements: [], markers: [], captions: [],
+    } });
+    f.setProject(current);
+    const draft = await f.service.create({ ...target, brief });
+    await assert.rejects(() => f.service.inspectTimelineCoverage(target), /BRIEF_NOT_ACCEPTED/);
+    await f.service.accept({ ...target, expectedDigest: draft.record.digest, confirmed: true });
+    const result = await f.service.inspectTimelineCoverage(target);
+    assert.equal(result.checks[0]?.status, "present");
+    assert.equal(result.checks[0]?.sourceDigest, digest);
+    assert.deepEqual(result.binding.revision, revision);
+    assert.equal(result.binding.projectId, "p");
+    assert.equal(result.binding.briefDigest, draft.record.digest);
+    assert.match(result.notice, /not.*(render|output)/i);
+    const changed = structuredClone(current);
+    changed.timeline.sequence.occurrences[0]!.durationTime.value = "9";
+    f.setProject(changed);
+    await assert.rejects(() => f.service.inspectTimelineCoverage(target), /STALE/);
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
 });

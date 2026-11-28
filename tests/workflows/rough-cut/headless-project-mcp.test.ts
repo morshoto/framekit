@@ -2210,6 +2210,7 @@ test("production stdio MCP persists and reopens the headless project and render 
     const listedTools = await client.listTools();
     assert.ok(listedTools.tools.some((tool) => tool.name === "headless.project.create"));
     assert.ok(listedTools.tools.some((tool) => tool.name === "headless.render.inspect"));
+    assert.ok(listedTools.tools.some((tool) => tool.name === "headless.render.reverify"));
     assert.match(client.getInstructions() ?? "", /headless Framekit-owned project/i);
 
     const supportedRoute = payload(await client.callTool({ name: "editing.route", arguments: {
@@ -2314,6 +2315,39 @@ test("production stdio MCP persists and reopens the headless project and render 
     const reopenedRender = payload(await client.callTool({ name: "headless.render.inspect", arguments: { renderId: render.renderId } }));
     assert.equal(reopenedRender.status, "passed");
     assert.equal(reopenedRender.outcome.render.projectRevision.id, finished.after.timeline.revision.id);
+    const missingRenderId = "render-00000000-0000-4000-8000-000000000000";
+    const missing = payload(await client.callTool({ name: "headless.render.reverify", arguments: { renderId: missingRenderId } }));
+    assert.equal(missing.status, "unavailable");
+    assert.equal((await client.callTool({ name: "headless.render.inspect", arguments: { renderId: missingRenderId } })).isError, true);
+    const invalid = await client.callTool({ name: "headless.render.reverify", arguments: { renderId: "invalid" } });
+    assert.equal(invalid.isError, true);
+    assert.match(toolErrorText(invalid), /HEADLESS_RENDER_INVALID/);
+    const reverified = payload(await client.callTool({ name: "headless.render.reverify", arguments: { renderId: render.renderId } }));
+    assert.equal(reverified.status, "verified");
+    assert.equal(reverified.observation.fileDigest, render.outcome.verification.artifact.fileDigest);
+    const recordPath = join(directory, "state", "projects", `${render.renderId}.json`);
+    const originalRecord = await readFile(recordPath, "utf8");
+    await writeFile(recordPath, JSON.stringify({ ...render, projectId: "different-project" }));
+    const mismatched = payload(await client.callTool({ name: "headless.render.reverify", arguments: { renderId: render.renderId } }));
+    assert.equal(mismatched.status, "unavailable");
+    await writeFile(recordPath, originalRecord);
+    const realVerifier = new FfmpegRenderVerifier();
+    const racingService = new HeadlessProjectService({ directory: join(directory, "state", "projects"), verifier: {
+      verify: async (plan, providerResult) => {
+        const result = await realVerifier.verify(plan, providerResult);
+        await writeFile(recordPath, JSON.stringify({ ...render, createdAt: "changed" }));
+        return result;
+      },
+    } });
+    assert.equal((await racingService.reverifyRender(render.renderId)).status, "unavailable");
+    await writeFile(recordPath, originalRecord);
+    const outputPath = join(directory, "mcp-final.mp4");
+    await writeFile(outputPath, Buffer.concat([await readFile(outputPath), Buffer.from([0])]));
+    const changed = payload(await client.callTool({ name: "headless.render.reverify", arguments: { renderId: render.renderId } }));
+    assert.equal(changed.status, "unavailable");
+    assert.equal(changed.observation, undefined);
+    const historic = payload(await client.callTool({ name: "headless.render.inspect", arguments: { renderId: render.renderId } }));
+    assert.equal(historic.status, "passed", "inspection remains historical");
   } finally {
     await client?.close();
     await transport?.close();

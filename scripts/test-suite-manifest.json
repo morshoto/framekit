@@ -2530,6 +2530,23 @@
       "network": "none"
     },
     {
+      "path": "tests/runtime/planning/brief-timeline-coverage.test.ts",
+      "owner": "packages/runtime",
+      "tags": [
+        "unit"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "packages/runtime"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
       "path": "tests/runtime/planning/caption-planning.test.ts",
       "owner": "packages/runtime",
       "tags": [
