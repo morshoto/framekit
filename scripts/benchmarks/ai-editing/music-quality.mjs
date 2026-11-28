@@ -39,3 +39,10 @@ export function estimateOffsetFrames(reference, rendered, expectedStart, frameSa
   }
   return best;
 }
+
+/** Validate optional exploratory gain without amplifying the source. */
+export function selectedGain(argument, fallback) {
+  const gain = argument === undefined ? fallback : Number(argument);
+  if (!Number.isFinite(gain) || gain > 0 || gain < -96 || argument === '') throw new Error('Invalid music gain');
+  return gain;
+}
