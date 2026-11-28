@@ -1,3 +1,4 @@
+import { createGitHubRequestPolicy, isReadOnlyGraphQL } from './github-request-policy.mjs';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -136,33 +137,15 @@ export function createProjectStatusClient({
 		'X-GitHub-Api-Version': '2022-11-28',
 		'Content-Type': 'application/json',
 	};
-	const rest = async (path, { method = 'GET', body, allowNotFound = false } = {}) => {
-		const url = `${apiRoot}/repos/${repository}${path}`;
-		const response = await fetchImpl(url, {
-			method,
-			headers,
-			...(body === undefined ? {} : { body: JSON.stringify(body) }),
-		});
-		if (allowNotFound && response.status === 404) return null;
-		if (!response.ok) {
-			throw new Error(`GITHUB_API_REQUEST_FAILED: ${method} ${new URL(url).pathname} returned ${response.status}`);
-		}
-		if (response.status === 204) return null;
-		return response.json();
-	};
-	const graphql = async (query, variables) => {
-		const url = `${apiRoot}/graphql`;
-		const response = await fetchImpl(url, { method: 'POST', headers, body: JSON.stringify({ query, variables }) });
-		if (!response.ok) {
-			throw new Error(`GITHUB_GRAPHQL_REQUEST_FAILED: returned ${response.status}`);
-		}
-		const result = await response.json();
-		if (result.errors?.length) {
-			const messages = result.errors.map((error) => error.message).join('; ');
-			throw new Error(`GITHUB_GRAPHQL_REQUEST_FAILED: ${messages}`);
-		}
-		return result.data;
-	};
+	const request = createGitHubRequestPolicy({ fetchImpl });
+	const rest = (path, { method = 'GET', body, allowNotFound = false } = {}) => request(
+		`${apiRoot}/repos/${repository}${path}`,
+		{ method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) },
+		{ readOnly: method === 'GET', allowNotFound },
+	);
+	const graphql = (query, variables) => request(`${apiRoot}/graphql`, {
+		method: 'POST', headers, body: JSON.stringify({ query, variables }),
+	}, { graphql: true, readOnly: isReadOnlyGraphQL(query) });
 
 	const getProject = async () => {
 		const items = [];
@@ -187,22 +170,51 @@ export function createProjectStatusClient({
 
 	const setProjectStatus = async (project, itemId, status, previousStatus) => {
 		if (status === previousStatus) return false;
-		await graphql(UPDATE_STATUS_MUTATION, {
-			project: project.id,
-			item: itemId,
-			field: project.statusField.id,
-			option: project.options.get(status),
-		});
+		try {
+			await graphql(UPDATE_STATUS_MUTATION, {
+				project: project.id,
+				item: itemId,
+				field: project.statusField.id,
+				option: project.options.get(status),
+			});
+		} catch {
+			// A fresh observation is not a lock or proof of who made the change.
+			// Do not replay this mutation, even when the desired value is absent.
+			let observed = 'unavailable';
+			try {
+				const refreshed = await getProject();
+				if (refreshed.id === project.id && refreshed.statusField.id === project.statusField.id) {
+					const item = refreshed.items.find((entry) => entry.id === itemId);
+					observed = !item ? 'missing' : statusValue(item, refreshed.statusField.id) === status ? 'desired' : 'different';
+				}
+			} catch { /* Report the original failure even if the read fails. */ }
+			throw new Error(`PARTIAL_STATUS_SYNC: project observation=${observed}`);
+		}
 		return true;
 	};
 
 	const setIssueStatusLabel = async (issue, status) => {
 		const changes = statusLabelChanges(issueLabels(issue), status);
-		if (changes.add.length) {
-			await rest(`/issues/${issue.number}/labels`, { method: 'POST', body: { labels: changes.add } });
-		}
-		for (const label of changes.remove) {
-			await rest(`/issues/${issue.number}/labels/${encodeURIComponent(label)}`, { method: 'DELETE' });
+		let completed = 0;
+		try {
+			if (changes.add.length) {
+				await rest(`/issues/${issue.number}/labels`, { method: 'POST', body: { labels: changes.add } });
+				completed += 1;
+			}
+			for (const label of changes.remove) {
+				await rest(`/issues/${issue.number}/labels/${encodeURIComponent(label)}`, { method: 'DELETE' });
+				completed += 1;
+			}
+		} catch {
+			// Observation is point-in-time only; never replay or overwrite a newer decision.
+			let observed = 'unavailable';
+			try {
+				const current = await rest(`/issues/${issue.number}`);
+				observed = !current ? 'unavailable' : current.state === 'closed' ? 'closed'
+					: statusLabelChanges(issueLabels(current), status).add.length === 0
+						&& statusLabelChanges(issueLabels(current), status).remove.length === 0 ? 'desired' : 'different';
+			} catch { /* Preserve the original partial failure. */ }
+			throw new Error(`PARTIAL_STATUS_SYNC: labels completed=${completed} observation=${observed}`);
 		}
 	};
 
