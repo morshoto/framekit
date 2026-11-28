@@ -12,6 +12,7 @@
     <command name="make" code="corecrel">
       <cocoa class="MockMakeCommand"/>
       <parameter name="new" code="kocl" type="type"><cocoa key="ObjectClass"/></parameter>
+      <parameter name="with properties" code="prdt" type="record" optional="yes"><cocoa key="KeyDictionary"/></parameter>
       <result type="specifier"/>
     </command>
     <class-extension extends="application"><element type="asset"><cocoa key="assets"/></element></class-extension>

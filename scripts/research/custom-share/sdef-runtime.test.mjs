@@ -43,14 +43,19 @@ test('characterizes Cocoa scripting in an uninstalled test app', { skip: process
     let make;
     try { make = await run(binary, ['send', String(child.pid), 'make'], { timeout: 5000 }); }
     catch (error) {
+      t.diagnostic(stderr);
       assert.match(error.stderr ?? '', /errAETimeout/);
       assert.doesNotMatch(error.stderr ?? '', /make-response-received/);
       t.diagnostic('inconclusive: make timed out');
       return;
     }
-    assert.equal(make.stdout.trim(), 'make:asset-1:get:Synthetic:location:reco:metadata:verified:incoming:verified:unknown-rejected');
+    assert.equal(make.stdout.trim(), 'make:asset-1:get:Synthetic:location:reco:metadata:verified:unknown-rejected');
     assert.match(stderr, /MOCK MAKE COMMAND INVOKED/);
-    t.diagnostic('SDEF-backed Cocoa make and get resolved the asset, location and string metadata');
+    const countBefore = stderr.split('MOCK MAKE COMMAND INVOKED').length - 1;
+    const withProperties = await run(binary, ['send', String(child.pid), 'make-properties'], { timeout: 5000 });
+    assert.equal(withProperties.stdout.trim(), 'properties-rejected:-1708');
+    assert.equal(stderr.split('MOCK MAKE COMMAND INVOKED').length - 1, countBefore);
+    t.diagnostic('SDEF-backed Cocoa make and get succeeded; make with name properties returned -1708 without an observed mock command');
   } finally {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
     await exited;
