@@ -2,6 +2,8 @@
 import hashlib
 import importlib.metadata
 import json
+import os
+import importlib.util
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -13,7 +15,10 @@ raw = open(sys.argv[1], 'rb').read()
 assert hashlib.sha256(raw).hexdigest() == '623ac3f65c4206d79ad41c56ab7cc020e0011ee64969bb7519e20253cdd29bcb'
 assert otio.__version__ == '0.18.1'
 adapter_version = importlib.metadata.version('otio-fcpx-xml-adapter')
-assert adapter_version == '1.0.0'
+expected_version = os.environ.get('FRAMEKIT_OTIO_ADAPTER_VERSION', '1.0.0')
+assert expected_version in ('1.0.0', '1.1.0') and adapter_version == expected_version
+source_file = importlib.util.find_spec('otio_fcpx_xml_adapter.fcpx_xml').origin
+assert hashlib.sha256(open(source_file, 'rb').read()).hexdigest() == '342b7e496dd358dc0f1614c60616f3fc3807328d68fd29d6ea77b55c1137a3b0'
 # The adapter's output writer may run ffprobe for a path. Never inspect media.
 def no_media_probe(*_args, **_kwargs):
     raise OSError('media probing disabled for this fixture')

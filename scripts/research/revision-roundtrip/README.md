@@ -74,6 +74,17 @@ FRAMEKIT_OTIO_PYTHON="$otio_dir/venv/bin/python" FRAMEKIT_OTIO_DTD='file:///Appl
 
 The test skips when `FRAMEKIT_OTIO_PYTHON` is absent; DTD validation is also optional and runs only when `FRAMEKIT_OTIO_DTD` is set. The observed macOS ARM/Python 3.13 wheel SHA-256 values are `ae5677b6864bd48879f77d2b5fe141a7674664b9f43c87b3e0b6d3c49b5f62a9` (OpenTimelineIO) and `9891fcba190e1a2ebc339d2da42398ce98927dfb0055d57d8b37ea8769477f73` (adapter). The test writes only disposable files and never contacts Final Cut.
 
+The upstream [main commit `c61839e105fb035589d3ec704b1266a22089b425`](https://github.com/OpenTimelineIO/otio-fcpx-xml-adapter/tree/c61839e105fb035589d3ec704b1266a22089b425) declared adapter version 1.1.0 when inspected; it was not available from the package index used for the 1.0.0 test. Its `fcpx_xml.py` is byte-identical to the 1.0.0 source file (SHA-256 `342b7e496dd358dc0f1614c60616f3fc3807328d68fd29d6ea77b55c1137a3b0`), although other repository files differ. Building that pinned source in a second disposable environment and running the same probe with `FRAMEKIT_OTIO_ADAPTER_VERSION=1.1.0` gave the same observed missing references, loss and output digest; this is a source-commit observation, not a claim about future releases. The probe checks the installed implementation file's hash as well as the declared version.
+
+```sh
+otio_main_dir=$(mktemp -d -t framekit-otio-main)
+git clone https://github.com/OpenTimelineIO/otio-fcpx-xml-adapter.git "$otio_main_dir/source"
+git -C "$otio_main_dir/source" checkout --detach c61839e105fb035589d3ec704b1266a22089b425
+python3 -m venv "$otio_main_dir/venv"
+"$otio_main_dir/venv/bin/python" -m pip install 'opentimelineio==0.18.1' "$otio_main_dir/source"
+FRAMEKIT_OTIO_PYTHON="$otio_main_dir/venv/bin/python" FRAMEKIT_OTIO_ADAPTER_VERSION=1.1.0 FRAMEKIT_OTIO_DTD='file:///Applications/Final%20Cut%20Pro.app/Contents/Frameworks/Interchange.framework/Versions/A/Resources/FCPXMLv1_8.dtd' node --test scripts/research/revision-roundtrip/otio-probe.test.mjs
+```
+
 ```sh
 research_dir=$(mktemp -d -t framekit-anchored)
 node scripts/research/revision-roundtrip/run-anchored-handoff.mjs "$research_dir/b.fcpxml"

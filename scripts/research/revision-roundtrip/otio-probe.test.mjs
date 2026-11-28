@@ -18,7 +18,7 @@ test('characterizes third-party FCPXML conversion of the authored edit fixture',
   const input = new URL('./anchored-edit.fcpxml', import.meta.url).pathname;
   const report = JSON.parse((await run(process.env.FRAMEKIT_OTIO_PYTHON, [script, input, output])).stdout);
   assert.equal(report.otioVersion, '0.18.1');
-  assert.equal(report.adapterVersion, '1.0.0');
+  assert.equal(report.adapterVersion, process.env.FRAMEKIT_OTIO_ADAPTER_VERSION ?? '1.0.0');
   assert.equal(report.input.clips, 3);
   assert.equal(report.input.spineItems, 3);
   assert.equal(report.input.audio, 1);
