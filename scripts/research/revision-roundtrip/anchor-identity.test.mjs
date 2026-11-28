@@ -76,3 +76,13 @@ test('rejects an anchored replacement that loses title and music structure', asy
   assert.notEqual(altered, external);
   assert.throws(() => findAnchoredTarget(base, altered, 'opening-v1', expected), /structure/);
 });
+
+test('rejects unexamined spine elements that may carry copied anchors', async () => {
+  const { base, external } = await fixtures();
+  const copied = external.replace('</spine>', '<clip name="Other" offset="3s" duration="1s"><metadata><md key="com.framekit.id" value="opening-v1"/></metadata></clip></spine>');
+  const gap = external.replace('</spine>', '<gap name="Gap" offset="3s" duration="1s"/></spine>');
+  assert.notEqual(copied, external);
+  assert.throws(() => findAnchoredTarget(base, copied, 'opening-v1', expected), /unsupported|duplicate/);
+  assert.throws(() => findAnchoredTarget(base, gap, 'opening-v1', expected), /unsupported/);
+  assert.throws(() => findAnchoredTarget(gap, external, 'opening-v1', expected), /unsupported/);
+});

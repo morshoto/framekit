@@ -50,6 +50,9 @@ function inspect(xml) {
   const uid = project['@_uid'];
   if (typeof uid !== 'string' || !uid) throw new Error('invalid project');
   const spine = one(one(project.sequence, 'sequence').spine, 'spine');
+  for (const name of Object.keys(spine)) {
+    if (!name.startsWith('@_') && name !== 'asset-clip') throw new Error(`unsupported spine child: ${name}`);
+  }
   const assets = new Map();
   for (const asset of array(resources.asset)) {
     const id = asset['@_id'];
