@@ -120,3 +120,33 @@ test('reports partial label changes and refreshes issue state after an uncertain
  await assert.rejects(client.setIssueStatusLabel({ number: 42, labels: [] }, 'Pending'), /PARTIAL_STATUS_SYNC.*desired/);
  assert.deepEqual(calls.map(([method]) => method), ['POST', 'GET']);
 });
+
+test('reports the observed project state after an uncertain status mutation without replay', async () => {
+ const { createProjectStatusClient, PROJECT_STATUSES } = await import('../../../scripts/sync-project-status.mjs');
+ const options = PROJECT_STATUSES.map((name) => ({ name, id: `option-${name}` }));
+ for (const [observed, itemStatus] of [['desired', 'Pending'], ['different', 'In review'], ['missing', null]]) {
+  const operations = [];
+  const client = createProjectStatusClient({ repository: 'owner/repo', token: 'secret', fetchImpl: async (_url, init) => {
+   const { query } = JSON.parse(init.body);
+   operations.push(query.trim().match(/^(query|mutation)\b/)[1]);
+   if (query.includes('updateProjectV2ItemFieldValue')) throw new Error('connection lost after mutation');
+   const items = itemStatus === null ? [] : [{ id: 'item', fieldValues: { nodes: [{ name: itemStatus, field: { id: 'field' } }] } }];
+   return new Response(JSON.stringify({ data: { user: { projectV2: { id: 'project', fields: { nodes: [{ id: 'field', name: 'Status', options }] }, items: { nodes: items, pageInfo: { hasNextPage: false, endCursor: null } } } } } }));
+  } });
+  const project = { id: 'project', statusField: { id: 'field' }, options: new Map(options.map((option) => [option.name, option.id])) };
+  await assert.rejects(client.setProjectStatus(project, 'item', 'Pending', 'In progress'), new RegExp(`PARTIAL_STATUS_SYNC.*project.*observation=${observed}`));
+  assert.deepEqual(operations, ['mutation', 'query']);
+ }
+});
+
+test('reports unavailable observation when refreshing an uncertain project mutation fails', async () => {
+ const { createProjectStatusClient } = await import('../../../scripts/sync-project-status.mjs');
+ let calls = 0;
+ const client = createProjectStatusClient({ repository: 'owner/repo', token: 'secret', fetchImpl: async () => {
+  calls++;
+  return new Response('{}', { status: 401 });
+ } });
+ const project = { id: 'project', statusField: { id: 'field' }, options: new Map([['Pending', 'option']]) };
+ await assert.rejects(client.setProjectStatus(project, 'item', 'Pending', 'In progress'), /PARTIAL_STATUS_SYNC.*observation=unavailable/);
+ assert.equal(calls, 2);
+});

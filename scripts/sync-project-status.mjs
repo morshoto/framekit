@@ -170,12 +170,26 @@ export function createProjectStatusClient({
 
 	const setProjectStatus = async (project, itemId, status, previousStatus) => {
 		if (status === previousStatus) return false;
-		await graphql(UPDATE_STATUS_MUTATION, {
-			project: project.id,
-			item: itemId,
-			field: project.statusField.id,
-			option: project.options.get(status),
-		});
+		try {
+			await graphql(UPDATE_STATUS_MUTATION, {
+				project: project.id,
+				item: itemId,
+				field: project.statusField.id,
+				option: project.options.get(status),
+			});
+		} catch {
+			// A fresh observation is not a lock or proof of who made the change.
+			// Do not replay this mutation, even when the desired value is absent.
+			let observed = 'unavailable';
+			try {
+				const refreshed = await getProject();
+				if (refreshed.id === project.id && refreshed.statusField.id === project.statusField.id) {
+					const item = refreshed.items.find((entry) => entry.id === itemId);
+					observed = !item ? 'missing' : statusValue(item, refreshed.statusField.id) === status ? 'desired' : 'different';
+				}
+			} catch { /* Report the original failure even if the read fails. */ }
+			throw new Error(`PARTIAL_STATUS_SYNC: project observation=${observed}`);
+		}
 		return true;
 	};
 
