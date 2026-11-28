@@ -6,7 +6,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { verifyAsset } from './corpus.mjs';
-import { proxyModel, proxyVariant, recognitionRetention } from './speech-consistency.mjs';
+import { proxyModel, proxyVariant, proxyWindowWords, recognitionRetention } from './speech-consistency.mjs';
 
 const [baseline, mixed, python, variant, modelVariant] = process.argv.slice(2);
 if (!baseline || !mixed || !python) throw new Error('Expected baseline, mixed render and Python');
@@ -27,16 +27,19 @@ function analyze(path,digest,id) {
   if (child.status !== 0) throw new Error(`Speech backend failed: ${child.stderr}`);
   const output = JSON.parse(child.stdout);
   const tokens = output.words.flatMap((word) => word.text.trim().split(/\s+/u)).filter((word) => /[\p{L}\p{N}]/u.test(word));
-  return {tokens, digest:hash(child.stdout), provider:output.provider, lowConfidenceWords:output.words.filter((word)=>word.confidence<0.8).length};
+  return {tokens, words:output.words, digest:hash(child.stdout), provider:output.provider, lowConfidenceWords:output.words.filter((word)=>word.confidence<0.8).length};
 }
 const original = analyze(baseline,selected.baselineSha256,'baseline');
 const result = analyze(mixed,selected.mixedSha256,'mixed');
 const comparison = recognitionRetention(original.tokens,result.tokens);
+const activeRange = {start:config.activeMusicSeconds[0],end:config.activeMusicSeconds[1]};
+const baselineActive = proxyWindowWords(original.words,activeRange), mixedActive = proxyWindowWords(result.words,activeRange);
+const activeComparison = recognitionRetention(baselineActive.tokens,mixedActive.tokens);
 const report = {gitHead:execFileSync('git',['rev-parse','HEAD'],{cwd:repository,encoding:'utf8'}).trim(),
   baselineSha256:selected.baselineSha256,mixedSha256:selected.mixedSha256,model,provider:original.provider,
   baselineAnalysisSha256:original.digest,mixedAnalysisSha256:result.digest,
   baselineLowConfidenceWords:original.lowConfidenceWords,mixedLowConfidenceWords:result.lowConfidenceWords,
-  comparison,minimumExploratoryRetention:config.minimumExploratoryRetention,
+  comparison,activeWindow:{range:activeRange,designation:config.activeWindowDesignation,comparison:activeComparison,baselineExcludedBoundaryWords:baselineActive.excludedBoundaryWords,mixedExcludedBoundaryWords:mixedActive.excludedBoundaryWords,baselineOutsideWords:baselineActive.outsideWords,mixedOutsideWords:mixedActive.outsideWords},minimumExploratoryRetention:config.minimumExploratoryRetention,
   meetsExploratoryTarget:comparison.retention === null ? null : comparison.retention >= config.minimumExploratoryRetention,
   limitation:config.limitation+' Provider declarations do not authenticate loaded model bytes.'};
 process.stdout.write(`${JSON.stringify(report,null,2)}\n`);
