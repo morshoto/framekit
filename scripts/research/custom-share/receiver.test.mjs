@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, symlink, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, symlink, rm, rename } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createReceiver } from './receiver.mjs';
@@ -106,4 +106,17 @@ test('mock rejects malformed requested output kind combinations', async t => {
   await assert.rejects(receiver.create('Example', []), /requested kinds/);
   await assert.rejects(receiver.create('Example', ['media', 'media']), /requested kinds/);
   await assert.rejects(receiver.create('Example', ['archive']), /requested kinds/);
+});
+
+
+test('rejects an asset directory replaced with a symlink before callback', async t => {
+  const root = await fixture(t);
+  const outside = await fixture(t);
+  const receiver = await createReceiver(root);
+  const asset = await receiver.create('Example');
+  await writeFile(join(outside, 'Example.fcpxml'), '<fcpxml/>');
+  await rename(asset.directory, `${asset.directory}-original`);
+  await symlink(outside, asset.directory);
+  await assert.rejects(receiver.complete(asset.id, [join(asset.directory, 'Example.fcpxml')]), /asset directory/);
+  assert.equal((await receiver.get(asset.id)).state, 'pending');
 });
