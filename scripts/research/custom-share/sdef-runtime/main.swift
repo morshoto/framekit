@@ -15,8 +15,11 @@ extension NSDictionary {
         var values = [String: String]()
         var index = 1
         while index <= fields.numberOfItems {
-            guard let key = fields.atIndex(index)?.stringValue, !key.isEmpty,
-                  let value = fields.atIndex(index + 1)?.stringValue, values[key] == nil else { return nil }
+            guard let keyDescriptor = fields.atIndex(index), let valueDescriptor = fields.atIndex(index + 1),
+                  [DescType(typeUnicodeText), DescType(typeUTF8Text)].contains(keyDescriptor.descriptorType),
+                  [DescType(typeUnicodeText), DescType(typeUTF8Text)].contains(valueDescriptor.descriptorType),
+                  let key = keyDescriptor.stringValue, !key.isEmpty,
+                  let value = valueDescriptor.stringValue, values[key] == nil else { return nil }
             values[key] = value
             index += 2
         }
@@ -101,12 +104,17 @@ if args.count == 2 && args[1] == "conversion-control" {
     malformed.setDescriptor(duplicates, forKeyword: AEKeyword(keyASUserRecordFields))
     guard NSDictionary.testUserRecord(with: malformed) == nil else { fputs("duplicate metadata accepted\n", stderr); exit(1) }
     for invalid in [NSAppleEventDescriptor(int32: 42), NSAppleEventDescriptor(boolean: true),
-                    NSAppleEventDescriptor(fileURL: URL(fileURLWithPath: "/synthetic"))] {
+                    NSAppleEventDescriptor(fileURL: URL(fileURLWithPath: "/synthetic")), NSAppleEventDescriptor.record()] {
         let fields = NSAppleEventDescriptor.list()
         fields.insert(NSAppleEventDescriptor(string: "key"), at: 1)
         fields.insert(invalid, at: 2)
         malformed.setDescriptor(fields, forKeyword: AEKeyword(keyASUserRecordFields))
         guard NSDictionary.testUserRecord(with: malformed) == nil else { fputs("coerced metadata accepted\n", stderr); exit(1) }
+        let invalidKey = NSAppleEventDescriptor.list()
+        invalidKey.insert(invalid, at: 1)
+        invalidKey.insert(NSAppleEventDescriptor(string: "value"), at: 2)
+        malformed.setDescriptor(invalidKey, forKeyword: AEKeyword(keyASUserRecordFields))
+        guard NSDictionary.testUserRecord(with: malformed) == nil else { fputs("coerced metadata key accepted\n", stderr); exit(1) }
     }
     let app = NSApplication.shared
     app.setActivationPolicy(.prohibited)

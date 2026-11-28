@@ -63,6 +63,7 @@ async function exercise(t, writableName = false) {
     const withProperties = await run(binary, ['send', String(child.pid), 'make-properties'], { timeout: 5000 });
     assert.equal(withProperties.stdout.trim(), 'properties:asset-2:get:Named:metadata:Incoming');
     assert.equal(stderr.split('MOCK MAKE COMMAND INVOKED').length - 1, countBefore + 1);
+    assert.match(stderr, /MOCK USER RECORD DECODER INVOKED/);
     t.diagnostic(`SDEF-backed Cocoa make/get accepted ${writableName ? 'writable' : 'read-only'} name properties`);
   } finally {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');

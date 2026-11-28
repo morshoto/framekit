@@ -121,7 +121,7 @@ extension MockAssetRegistry {
 
 // Real scripting entrypoint remains disabled until sender and target are authenticated.
 @objc(ResearchMakeCommand)
-final class ResearchMakeCommand: NSScriptCommand {
+final class ResearchMakeCommand: NSCreateCommand {
     override func performDefaultImplementation() -> Any? {
         scriptErrorNumber = Int(errAEEventNotHandled)
         scriptErrorString = "Unverified sender and target"
