@@ -29,3 +29,12 @@ test('missing or malformed evidence fails closed', () => {
   assert.equal(compareReports(base, current).current.classification, 'unsupported/unknown');
   assert.equal(compareReports(base, current).canonicalCapabilityPromoted, false);
 });
+
+test('rejects malformed version and dictionary collections', () => {
+  const malformedVersion = structuredClone(base);
+  malformedVersion.finalCut.version = { injected: true };
+  assert.throws(() => compareReports(base, malformedVersion), /invalid report/);
+  const malformedDictionary = structuredClone(base);
+  malformedDictionary.supportedSurfaces.appleEvents.classes = null;
+  assert.throws(() => compareReports(base, malformedDictionary), /invalid report/);
+});
