@@ -13,7 +13,7 @@ test('repository label definitions reconcile on configuration changes and repair
  assert.deepEqual(maintenance.on.push.branches, ['main']);
  assert.deepEqual(maintenance.on.push.paths, ['.github/labels/labels.json']);
  assert.ok(Object.hasOwn(maintenance.on, 'workflow_dispatch'));
- assert.ok(maintenance.on.schedule.length > 0);
+ assert.deepEqual(maintenance.on.schedule, [{ cron: '31 */6 * * *' }]);
  assert.equal(Object.hasOwn(maintenance.on, 'pull_request'), false);
  assert.equal(Object.hasOwn(maintenance.on, 'issues'), false);
  const job = maintenance.jobs.sync;
