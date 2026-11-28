@@ -915,7 +915,7 @@ test("optional filler observations bind speech and remain unavailable for execut
   try {
     const speech = { ...f.record.speech, words: [
       { text: "Hello.", start: 1, end: 2, confidence: 0.98 },
-      { text: "um,", start: 3, end: 3.3, confidence: 0.99 },
+      { text: "um,", start: 3, end: 3.3, confidence: 0.99, filler: true },
       { text: "uh,", start: 4, end: 4.3, confidence: 0.55 },
       { text: "Again", start: 5, end: 6, confidence: 0.96 },
     ], protectedSegments: [{ kind: "speech" as const, start: 3.9, end: 4.4 }] };
@@ -932,6 +932,8 @@ test("optional filler observations bind speech and remain unavailable for execut
     assert.equal(fillers.length, 2);
     assert.ok(fillers.every((item) => item.support === "unavailable" && item.reviewRequired === true));
     assert.deepEqual(fillers.map((item) => item.word.text), ["um,", "uh,"]);
+    assert.deepEqual(fillers[0]?.word, { text: "um,", start: 3, end: 3.3, confidence: 0.99 });
+    assert.ok(fillers[0]?.reasonCodes.includes("ANALYZER_MARKED_FILLER"));
     assert.ok(fillers.every((item) => item.reasonCodes.includes("VOCABULARY_MATCH")));
     assert.deepEqual(fillers.map((item) => item.confidenceStatus), ["meets-threshold", "below-threshold"]);
     assert.deepEqual(fillers.map((item) => item.protection), ["not-evaluated", "overlaps-protected"]);
