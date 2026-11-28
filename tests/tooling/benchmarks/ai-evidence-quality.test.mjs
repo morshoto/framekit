@@ -35,3 +35,9 @@ test('provider comparison case fixes media, cut and context before execution', a
   assert.equal(config.secondaryModel, 'mlx-community/whisper-large-v3-turbo');
   assert.match(config.interpretation, /not proof/i);
 });
+
+test('provider runner verifies source before invoking a model', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const runner = new URL('../../../scripts/benchmarks/ai-editing/run-disagreement.mjs', import.meta.url);
+  assert.throws(() => execFileSync(process.execPath, [runner.pathname, '/missing/source', 'python'], {stdio:'pipe'}), /ENOENT/);
+});
