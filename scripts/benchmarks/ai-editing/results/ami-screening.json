@@ -1,0 +1,641 @@
+{
+  "description": "Exploratory AMI screening with fresh production speech backend; all candidate safety and continuity judgments remain unverified.",
+  "evaluatedHead": "b1b2280f703577328443aa06e9bfbd7cbaf89e41",
+  "environment": {
+    "mlxWhisperVersion": "0.4.3",
+    "sileroVadVersion": "6.3",
+    "observedLocalWhisperSnapshot": "78c52ab98ca87f570bc57ad852e15ef7060f9f76",
+    "snapshotLimitation": "Cache reference observed locally; backend model bytes were not independently authenticated."
+  },
+  "windows": [
+    {
+      "corpusVersion": 1,
+      "meeting": "EN2002a",
+      "windowSeconds": [
+        0,
+        60
+      ],
+      "sourceSha256": "a15017d0d3c871866971ee178052a0ce3a7e44d6fbf89fc23dcab326511b65f5",
+      "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
+      "decodedSha256": "4dff2396b7a00fccf3ad2ba505dc34ff637d26d70fa2d8e3c52ac97400f1e140",
+      "backendOutputSha256": "e38e467da593c5139e67c9df5186220ee6bb9dd362984f52bf710f384a3615d3",
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "declaredBackend": "mlx-whisper",
+      "declaredModel": "mlx-community/whisper-tiny",
+      "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
+      "gitHead": "b1b2280f703577328443aa06e9bfbd7cbaf89e41",
+      "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "recognizedWords": 105,
+      "candidates": [],
+      "warnings": [
+        "Candidates require review and separate evidence-bound approval before any edit.",
+        "Visual context is unavailable; ranking uses speech evidence only.",
+        "No safe candidates were issued at some sentence boundaries because word confidence was low; review the transcript."
+      ],
+      "referenceTiming": "AMI word text is manually transcribed; word timestamps are automatically aligned and are not human-verified boundaries.",
+      "limitations": [
+        "Reference overlaps are screening disagreements, not proof of speech clipping.",
+        "A provider declaration does not prove which model bytes were loaded.",
+        "No listening or native acceptance is implied."
+      ]
+    },
+    {
+      "corpusVersion": 1,
+      "meeting": "EN2002a",
+      "windowSeconds": [
+        120,
+        180
+      ],
+      "sourceSha256": "a15017d0d3c871866971ee178052a0ce3a7e44d6fbf89fc23dcab326511b65f5",
+      "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
+      "decodedSha256": "7983ac7bc43b3c2856d30853f34611a1f937c4388d678db866ec95c7e69de2af",
+      "backendOutputSha256": "e4f4c6808165e8e2c2c5c4a5b4e81f22f01e32c7bc4de402a4779aa23980b33e",
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "declaredBackend": "mlx-whisper",
+      "declaredModel": "mlx-community/whisper-tiny",
+      "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
+      "gitHead": "b1b2280f703577328443aa06e9bfbd7cbaf89e41",
+      "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "recognizedWords": 181,
+      "candidates": [
+        {
+          "start": 160.96666666666667,
+          "end": 162.46666666666667,
+          "overlaps": []
+        }
+      ],
+      "warnings": [
+        "Candidates require review and separate evidence-bound approval before any edit.",
+        "Visual context is unavailable; ranking uses speech evidence only.",
+        "Non-speech gaps remain uncertain and require listening."
+      ],
+      "referenceTiming": "AMI word text is manually transcribed; word timestamps are automatically aligned and are not human-verified boundaries.",
+      "limitations": [
+        "Reference overlaps are screening disagreements, not proof of speech clipping.",
+        "A provider declaration does not prove which model bytes were loaded.",
+        "No listening or native acceptance is implied."
+      ]
+    },
+    {
+      "corpusVersion": 1,
+      "meeting": "EN2002a",
+      "windowSeconds": [
+        180,
+        240
+      ],
+      "sourceSha256": "a15017d0d3c871866971ee178052a0ce3a7e44d6fbf89fc23dcab326511b65f5",
+      "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
+      "decodedSha256": "5d6df58bb317a7e40a2c36497b202197b516dc7462f1cc550f4b360c3aafed32",
+      "backendOutputSha256": "a39d36f6c7587afb28052f52bc28942ef5a64e153da51908e345a3b899ef6b96",
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "declaredBackend": "mlx-whisper",
+      "declaredModel": "mlx-community/whisper-tiny",
+      "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
+      "gitHead": "b1b2280f703577328443aa06e9bfbd7cbaf89e41",
+      "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "recognizedWords": 147,
+      "candidates": [],
+      "warnings": [
+        "Candidates require review and separate evidence-bound approval before any edit.",
+        "Visual context is unavailable; ranking uses speech evidence only.",
+        "No safe candidates were issued at some sentence boundaries because word confidence was low; review the transcript.",
+        "No safe candidates were issued at some sentence boundaries because the VAD-bounded pause was too short."
+      ],
+      "referenceTiming": "AMI word text is manually transcribed; word timestamps are automatically aligned and are not human-verified boundaries.",
+      "limitations": [
+        "Reference overlaps are screening disagreements, not proof of speech clipping.",
+        "A provider declaration does not prove which model bytes were loaded.",
+        "No listening or native acceptance is implied."
+      ]
+    },
+    {
+      "corpusVersion": 1,
+      "meeting": "EN2002a",
+      "windowSeconds": [
+        240,
+        300
+      ],
+      "sourceSha256": "a15017d0d3c871866971ee178052a0ce3a7e44d6fbf89fc23dcab326511b65f5",
+      "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
+      "decodedSha256": "2f26aea1cf8259597bffa8eabab4dad99532d0387a58d8d970ae99c051a39cb6",
+      "backendOutputSha256": "7ffbc741b772b8759aca96b9d1bb3f7980905a18f84ad98c5fe1ce2db0eb9cdf",
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "declaredBackend": "mlx-whisper",
+      "declaredModel": "mlx-community/whisper-tiny",
+      "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
+      "gitHead": "b1b2280f703577328443aa06e9bfbd7cbaf89e41",
+      "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "recognizedWords": 147,
+      "candidates": [],
+      "warnings": [
+        "Candidates require review and separate evidence-bound approval before any edit.",
+        "Visual context is unavailable; ranking uses speech evidence only.",
+        "No safe candidates were issued at some sentence boundaries because word confidence was low; review the transcript.",
+        "No safe candidates were issued at some sentence boundaries because the VAD-bounded pause was too short."
+      ],
+      "referenceTiming": "AMI word text is manually transcribed; word timestamps are automatically aligned and are not human-verified boundaries.",
+      "limitations": [
+        "Reference overlaps are screening disagreements, not proof of speech clipping.",
+        "A provider declaration does not prove which model bytes were loaded.",
+        "No listening or native acceptance is implied."
+      ]
+    },
+    {
+      "corpusVersion": 1,
+      "meeting": "EN2002a",
+      "windowSeconds": [
+        300,
+        360
+      ],
+      "sourceSha256": "a15017d0d3c871866971ee178052a0ce3a7e44d6fbf89fc23dcab326511b65f5",
+      "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
+      "decodedSha256": "00d40fe11ef62c73dc75837f4b47b8c229486ac73499ede5e81014e0514ba5bd",
+      "backendOutputSha256": "bdb2e500f8b87fa1e9ba695dae6e5d585b37bbda11e3a2c2fbef7e42baf4184b",
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "declaredBackend": "mlx-whisper",
+      "declaredModel": "mlx-community/whisper-tiny",
+      "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
+      "gitHead": "b1b2280f703577328443aa06e9bfbd7cbaf89e41",
+      "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "recognizedWords": 180,
+      "candidates": [],
+      "warnings": [
+        "Candidates require review and separate evidence-bound approval before any edit.",
+        "Visual context is unavailable; ranking uses speech evidence only.",
+        "No safe candidates were issued at some sentence boundaries because word confidence was low; review the transcript.",
+        "No safe candidates were issued at some sentence boundaries because the VAD-bounded pause was too short."
+      ],
+      "referenceTiming": "AMI word text is manually transcribed; word timestamps are automatically aligned and are not human-verified boundaries.",
+      "limitations": [
+        "Reference overlaps are screening disagreements, not proof of speech clipping.",
+        "A provider declaration does not prove which model bytes were loaded.",
+        "No listening or native acceptance is implied."
+      ]
+    },
+    {
+      "corpusVersion": 1,
+      "meeting": "EN2002a",
+      "windowSeconds": [
+        360,
+        420
+      ],
+      "sourceSha256": "a15017d0d3c871866971ee178052a0ce3a7e44d6fbf89fc23dcab326511b65f5",
+      "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
+      "decodedSha256": "ee84c4235ce9261a79fcfa293b37d910c0145e304e33fb3cf1cb7fd2c4df9cd6",
+      "backendOutputSha256": "5a3a59d9f5623d9a362faee9c18eb589be6459a898191842f8bcf2bddf479d23",
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "declaredBackend": "mlx-whisper",
+      "declaredModel": "mlx-community/whisper-tiny",
+      "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
+      "gitHead": "b1b2280f703577328443aa06e9bfbd7cbaf89e41",
+      "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "recognizedWords": 174,
+      "candidates": [
+        {
+          "start": 408.4,
+          "end": 409.4,
+          "overlaps": []
+        }
+      ],
+      "warnings": [
+        "Candidates require review and separate evidence-bound approval before any edit.",
+        "Visual context is unavailable; ranking uses speech evidence only.",
+        "VAD only partially covers adjacent words; review the boundaries carefully.",
+        "Non-speech gaps remain uncertain and require listening."
+      ],
+      "referenceTiming": "AMI word text is manually transcribed; word timestamps are automatically aligned and are not human-verified boundaries.",
+      "limitations": [
+        "Reference overlaps are screening disagreements, not proof of speech clipping.",
+        "A provider declaration does not prove which model bytes were loaded.",
+        "No listening or native acceptance is implied."
+      ]
+    },
+    {
+      "corpusVersion": 1,
+      "meeting": "EN2002a",
+      "windowSeconds": [
+        420,
+        480
+      ],
+      "sourceSha256": "a15017d0d3c871866971ee178052a0ce3a7e44d6fbf89fc23dcab326511b65f5",
+      "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
+      "decodedSha256": "a35cb31871d530857fb808998a8291f0b74ffa828a5439281e7e060db80b2179",
+      "backendOutputSha256": "34c25e70a7b9f2bf7eaff68de95d464d327ada60945fbaefc7ea6a58cfb6a35c",
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "declaredBackend": "mlx-whisper",
+      "declaredModel": "mlx-community/whisper-tiny",
+      "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
+      "gitHead": "b1b2280f703577328443aa06e9bfbd7cbaf89e41",
+      "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "recognizedWords": 219,
+      "candidates": [],
+      "warnings": [
+        "Candidates require review and separate evidence-bound approval before any edit.",
+        "Visual context is unavailable; ranking uses speech evidence only.",
+        "No safe candidates were issued at some sentence boundaries because word confidence was low; review the transcript.",
+        "No safe candidates were issued at some sentence boundaries because the VAD-bounded pause was too short."
+      ],
+      "referenceTiming": "AMI word text is manually transcribed; word timestamps are automatically aligned and are not human-verified boundaries.",
+      "limitations": [
+        "Reference overlaps are screening disagreements, not proof of speech clipping.",
+        "A provider declaration does not prove which model bytes were loaded.",
+        "No listening or native acceptance is implied."
+      ]
+    },
+    {
+      "corpusVersion": 1,
+      "meeting": "EN2002a",
+      "windowSeconds": [
+        480,
+        540
+      ],
+      "sourceSha256": "a15017d0d3c871866971ee178052a0ce3a7e44d6fbf89fc23dcab326511b65f5",
+      "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
+      "decodedSha256": "8f1ffe7e127ffe067568c23da4ad2c8a6ca8bf382720f1fe8e0cd0e7ed9675d2",
+      "backendOutputSha256": "016c9478753ef9eb1b7bef992c4f4ae89315bd3ff150256ca00be5e4aca3f5a6",
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "declaredBackend": "mlx-whisper",
+      "declaredModel": "mlx-community/whisper-tiny",
+      "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
+      "gitHead": "b1b2280f703577328443aa06e9bfbd7cbaf89e41",
+      "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "recognizedWords": 131,
+      "candidates": [],
+      "warnings": [
+        "Candidates require review and separate evidence-bound approval before any edit.",
+        "Visual context is unavailable; ranking uses speech evidence only.",
+        "No safe candidates were issued at some sentence boundaries because word confidence was low; review the transcript.",
+        "No safe candidates were issued at some sentence boundaries because the VAD-bounded pause was too short."
+      ],
+      "referenceTiming": "AMI word text is manually transcribed; word timestamps are automatically aligned and are not human-verified boundaries.",
+      "limitations": [
+        "Reference overlaps are screening disagreements, not proof of speech clipping.",
+        "A provider declaration does not prove which model bytes were loaded.",
+        "No listening or native acceptance is implied."
+      ]
+    },
+    {
+      "corpusVersion": 1,
+      "meeting": "EN2002a",
+      "windowSeconds": [
+        540,
+        600
+      ],
+      "sourceSha256": "a15017d0d3c871866971ee178052a0ce3a7e44d6fbf89fc23dcab326511b65f5",
+      "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
+      "decodedSha256": "7cac194267514bc13a5885e4b6631cc6cf5a2af4845b3d665c4f39d83ea7aa45",
+      "backendOutputSha256": "efb1fa65d2dda32b6f9c408f9f30f139b38c22dec80c4d62052916c6f1a03b70",
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "declaredBackend": "mlx-whisper",
+      "declaredModel": "mlx-community/whisper-tiny",
+      "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
+      "gitHead": "b1b2280f703577328443aa06e9bfbd7cbaf89e41",
+      "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "recognizedWords": 167,
+      "candidates": [],
+      "warnings": [
+        "Candidates require review and separate evidence-bound approval before any edit.",
+        "Visual context is unavailable; ranking uses speech evidence only.",
+        "No safe candidates were issued at some sentence boundaries because word confidence was low; review the transcript.",
+        "No safe candidates were issued at some sentence boundaries because the VAD-bounded pause was too short."
+      ],
+      "referenceTiming": "AMI word text is manually transcribed; word timestamps are automatically aligned and are not human-verified boundaries.",
+      "limitations": [
+        "Reference overlaps are screening disagreements, not proof of speech clipping.",
+        "A provider declaration does not prove which model bytes were loaded.",
+        "No listening or native acceptance is implied."
+      ]
+    },
+    {
+      "corpusVersion": 1,
+      "meeting": "EN2002a",
+      "windowSeconds": [
+        60,
+        120
+      ],
+      "sourceSha256": "a15017d0d3c871866971ee178052a0ce3a7e44d6fbf89fc23dcab326511b65f5",
+      "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
+      "decodedSha256": "5afd46bf809232f886a90a31af6d81120a927e6cceec782535bd3fe5e71d98eb",
+      "backendOutputSha256": "0092b9cf3ee089257b9ee9eedfbe83f58a37817ebec6a49d3337dc9262b6c3ef",
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "declaredBackend": "mlx-whisper",
+      "declaredModel": "mlx-community/whisper-tiny",
+      "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
+      "gitHead": "b1b2280f703577328443aa06e9bfbd7cbaf89e41",
+      "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "recognizedWords": 140,
+      "candidates": [],
+      "warnings": [
+        "Candidates require review and separate evidence-bound approval before any edit.",
+        "Visual context is unavailable; ranking uses speech evidence only.",
+        "No safe candidates were issued at some sentence boundaries because word confidence was low; review the transcript.",
+        "No safe candidates were issued at some sentence boundaries because the VAD-bounded pause was too short."
+      ],
+      "referenceTiming": "AMI word text is manually transcribed; word timestamps are automatically aligned and are not human-verified boundaries.",
+      "limitations": [
+        "Reference overlaps are screening disagreements, not proof of speech clipping.",
+        "A provider declaration does not prove which model bytes were loaded.",
+        "No listening or native acceptance is implied."
+      ]
+    },
+    {
+      "corpusVersion": 1,
+      "meeting": "ES2004a",
+      "windowSeconds": [
+        0,
+        60
+      ],
+      "sourceSha256": "3e2560b19bee6952c7c7ce041b0f1ea8a7ea9468044c4eea79d2a2c67e24ab0f",
+      "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
+      "decodedSha256": "6109ed6841f7685c498161c8661d882e7972461557bb46b1104668f99a8caaa9",
+      "backendOutputSha256": "d2d4603721c21b74d88bea682f77c6ca03eed9a9117fdfdbefa8830bcdbb0fb9",
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "declaredBackend": "mlx-whisper",
+      "declaredModel": "mlx-community/whisper-tiny",
+      "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
+      "gitHead": "b1b2280f703577328443aa06e9bfbd7cbaf89e41",
+      "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "recognizedWords": 51,
+      "candidates": [],
+      "warnings": [
+        "Candidates require review and separate evidence-bound approval before any edit.",
+        "Visual context is unavailable; ranking uses speech evidence only.",
+        "No safe candidates were issued at some sentence boundaries because word confidence was low; review the transcript."
+      ],
+      "referenceTiming": "AMI word text is manually transcribed; word timestamps are automatically aligned and are not human-verified boundaries.",
+      "limitations": [
+        "Reference overlaps are screening disagreements, not proof of speech clipping.",
+        "A provider declaration does not prove which model bytes were loaded.",
+        "No listening or native acceptance is implied."
+      ]
+    },
+    {
+      "corpusVersion": 1,
+      "meeting": "ES2004a",
+      "windowSeconds": [
+        60,
+        120
+      ],
+      "sourceSha256": "3e2560b19bee6952c7c7ce041b0f1ea8a7ea9468044c4eea79d2a2c67e24ab0f",
+      "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
+      "decodedSha256": "ad5c43a6c3fbebc829ffe085f17801a3539b3dc4e55703fb7795c81b3ec9995c",
+      "backendOutputSha256": "84e8bd732a300866a925ae7ec86ef260ee77b3e8504071d3db8d9f736535053e",
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "declaredBackend": "mlx-whisper",
+      "declaredModel": "mlx-community/whisper-tiny",
+      "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
+      "gitHead": "b1b2280f703577328443aa06e9bfbd7cbaf89e41",
+      "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "recognizedWords": 80,
+      "candidates": [
+        {
+          "start": 94.46666666666667,
+          "end": 95.46666666666667,
+          "overlaps": [
+            {
+              "start": 93.56,
+              "end": 94.62,
+              "text": "um",
+              "speaker": "B",
+              "verification": "automatic-alignment"
+            }
+          ]
+        },
+        {
+          "start": 116.13333333333333,
+          "end": 117.4,
+          "overlaps": []
+        }
+      ],
+      "warnings": [
+        "Candidates require review and separate evidence-bound approval before any edit.",
+        "Visual context is unavailable; ranking uses speech evidence only.",
+        "VAD only partially covers adjacent words; review the boundaries carefully.",
+        "Non-speech gaps remain uncertain and require listening."
+      ],
+      "referenceTiming": "AMI word text is manually transcribed; word timestamps are automatically aligned and are not human-verified boundaries.",
+      "limitations": [
+        "Reference overlaps are screening disagreements, not proof of speech clipping.",
+        "A provider declaration does not prove which model bytes were loaded.",
+        "No listening or native acceptance is implied."
+      ]
+    },
+    {
+      "corpusVersion": 1,
+      "meeting": "IS1009a",
+      "windowSeconds": [
+        0,
+        60
+      ],
+      "sourceSha256": "6eb5a0ede0d9e72794f976ce7bea5b78133eae969f99b4c5418b43c2468d25b1",
+      "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
+      "decodedSha256": "e84edc68965ed7ee271f85440a5fb78d6b2f71edf694be054dc7d505264157e9",
+      "backendOutputSha256": "4a4f90ca3203ba4a6be99b4bb1a048128f2d6d51e86f54fe553350d90e409ecc",
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "declaredBackend": "mlx-whisper",
+      "declaredModel": "mlx-community/whisper-tiny",
+      "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
+      "gitHead": "b1b2280f703577328443aa06e9bfbd7cbaf89e41",
+      "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "recognizedWords": 17,
+      "candidates": [],
+      "warnings": [
+        "Candidates require review and separate evidence-bound approval before any edit.",
+        "Visual context is unavailable; ranking uses speech evidence only.",
+        "No safe candidates were issued at some sentence boundaries because word confidence was low; review the transcript."
+      ],
+      "referenceTiming": "AMI word text is manually transcribed; word timestamps are automatically aligned and are not human-verified boundaries.",
+      "limitations": [
+        "Reference overlaps are screening disagreements, not proof of speech clipping.",
+        "A provider declaration does not prove which model bytes were loaded.",
+        "No listening or native acceptance is implied."
+      ]
+    },
+    {
+      "corpusVersion": 1,
+      "meeting": "IS1009a",
+      "windowSeconds": [
+        60,
+        120
+      ],
+      "sourceSha256": "6eb5a0ede0d9e72794f976ce7bea5b78133eae969f99b4c5418b43c2468d25b1",
+      "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
+      "decodedSha256": "59be17e37d389f14486414d9f23a1f2113f0f1c9b3e69b760a5ba49f96ac4506",
+      "backendOutputSha256": "2bd43ef1302927ac6e418d41f16b0c4f1529576a19ae7b2c14a73bde42a85e52",
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "declaredBackend": "mlx-whisper",
+      "declaredModel": "mlx-community/whisper-tiny",
+      "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
+      "gitHead": "b1b2280f703577328443aa06e9bfbd7cbaf89e41",
+      "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "recognizedWords": 130,
+      "candidates": [],
+      "warnings": [
+        "Candidates require review and separate evidence-bound approval before any edit.",
+        "Visual context is unavailable; ranking uses speech evidence only.",
+        "No safe candidates were issued at some sentence boundaries because word confidence was low; review the transcript.",
+        "No safe candidates were issued at some sentence boundaries because the VAD-bounded pause was too short."
+      ],
+      "referenceTiming": "AMI word text is manually transcribed; word timestamps are automatically aligned and are not human-verified boundaries.",
+      "limitations": [
+        "Reference overlaps are screening disagreements, not proof of speech clipping.",
+        "A provider declaration does not prove which model bytes were loaded.",
+        "No listening or native acceptance is implied."
+      ]
+    },
+    {
+      "corpusVersion": 1,
+      "meeting": "TS3003a",
+      "windowSeconds": [
+        0,
+        60
+      ],
+      "sourceSha256": "b6ce59ff735c234afdd94b13744aa26f6785af746170543fd03b33160e920a6d",
+      "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
+      "decodedSha256": "b280ed81bfa544157f815bfe3323e6612267c4cea41895a4a3a4389b4d0a70fc",
+      "backendOutputSha256": "50a525e696cf545a072d251a60c0d11b1bf219b66640843fe75cde19785ca021",
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "declaredBackend": "mlx-whisper",
+      "declaredModel": "mlx-community/whisper-tiny",
+      "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
+      "gitHead": "b1b2280f703577328443aa06e9bfbd7cbaf89e41",
+      "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "recognizedWords": 46,
+      "candidates": [],
+      "warnings": [
+        "Candidates require review and separate evidence-bound approval before any edit.",
+        "Visual context is unavailable; ranking uses speech evidence only.",
+        "No safe candidates were issued at some sentence boundaries because word confidence was low; review the transcript."
+      ],
+      "referenceTiming": "AMI word text is manually transcribed; word timestamps are automatically aligned and are not human-verified boundaries.",
+      "limitations": [
+        "Reference overlaps are screening disagreements, not proof of speech clipping.",
+        "A provider declaration does not prove which model bytes were loaded.",
+        "No listening or native acceptance is implied."
+      ]
+    },
+    {
+      "corpusVersion": 1,
+      "meeting": "TS3003a",
+      "windowSeconds": [
+        60,
+        120
+      ],
+      "sourceSha256": "b6ce59ff735c234afdd94b13744aa26f6785af746170543fd03b33160e920a6d",
+      "annotationsSha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
+      "decodedSha256": "f2e1f6931ae132c69a6a42b349c401ba09c0b8927e8ae7b0a41a058a40527825",
+      "backendOutputSha256": "282e1c252f201f39aa9f56a87eb66d898cf79c61f97a241eac0ce6e47c81223f",
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "declaredBackend": "mlx-whisper",
+      "declaredModel": "mlx-community/whisper-tiny",
+      "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
+      "gitHead": "b1b2280f703577328443aa06e9bfbd7cbaf89e41",
+      "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "recognizedWords": 104,
+      "candidates": [
+        {
+          "start": 77.2,
+          "end": 77.66666666666667,
+          "overlaps": [
+            {
+              "start": 76.51,
+              "end": 77.97,
+              "text": "voice",
+              "speaker": "A",
+              "verification": "automatic-alignment"
+            }
+          ]
+        },
+        {
+          "start": 98.03333333333333,
+          "end": 99,
+          "overlaps": [
+            {
+              "start": 97.14,
+              "end": 99.19,
+              "text": "documents",
+              "speaker": "A",
+              "verification": "automatic-alignment"
+            }
+          ]
+        }
+      ],
+      "warnings": [
+        "Candidates require review and separate evidence-bound approval before any edit.",
+        "Visual context is unavailable; ranking uses speech evidence only.",
+        "VAD only partially covers adjacent words; review the boundaries carefully.",
+        "Non-speech gaps remain uncertain and require listening."
+      ],
+      "referenceTiming": "AMI word text is manually transcribed; word timestamps are automatically aligned and are not human-verified boundaries.",
+      "limitations": [
+        "Reference overlaps are screening disagreements, not proof of speech clipping.",
+        "A provider declaration does not prove which model bytes were loaded.",
+        "No listening or native acceptance is implied."
+      ]
+    }
+  ]
+}
