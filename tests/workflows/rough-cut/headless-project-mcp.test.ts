@@ -4175,6 +4175,11 @@ test("approved reviewed headless cut executes once and independently reads back"
     assert.equal(correctedPlan.status, "available", correctedPlan.reason);
     const oldIds = captionPreview.preview.command.operations.map((operation: any) => operation.title.id);
     const correctionArgs = { ...correctionInput, planDigest: correctedPlan.plan.planDigest, replaceTitleIds: oldIds };
+    const invalidReplacement = await client.callTool({ name: "headless.decision.approved-preview-captions", arguments: { ...correctionArgs, replaceTitleIds: ["unrelated"] } });
+    assert.equal(invalidReplacement.isError, true);
+    assert.match(toolErrorText(invalidReplacement), /CAPTION_REPLACEMENT_INVALID/);
+    const transcriptBefore = await readFile(vadArtifact);
+    const staleCorrection = payload(await client.callTool({ name: "headless.decision.approved-preview-captions", arguments: correctionArgs }));
     const correctionPreview = payload(await client.callTool({ name: "headless.decision.approved-preview-captions", arguments: correctionArgs }));
     assert.deepEqual(correctionPreview.replacedTitleIds, oldIds);
     assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, musicFinal.timeline);
@@ -4185,6 +4190,10 @@ test("approved reviewed headless cut executes once and independently reads back"
     assert.deepEqual({ ...newTitle, text: finalTitle.text }, finalTitle);
     assert.match(newTitle.text, /Again!/);
     assert.equal(updated.timeline.sequence.titles.length, musicFinal.timeline.sequence.titles.length);
+    assert.deepEqual(await readFile(vadArtifact), transcriptBefore);
+    const staleExecution = await client.callTool({ name: "headless.decision.approved-execute-captions", arguments: { projectId, sequenceId, previewToken: staleCorrection.previewToken, approved: true } });
+    assert.equal(staleExecution.isError, true);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, updated.timeline);
     assert.equal((await client.callTool({ name: "headless.decision.approved-execute-captions", arguments: { projectId, sequenceId, previewToken: correctionPreview.previewToken, approved: true } })).isError, true);
 
   } finally { if (connection) { await connection.client.close(); await connection.transport.close(); } await rm(directory, { recursive: true, force: true }); }

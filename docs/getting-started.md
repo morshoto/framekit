@@ -165,8 +165,13 @@ To correct a recognized word in the caption proposal, supply
 `text`. The plan keeps the original text, timing and analysis reference visible;
 the correction itself still requires review and changes the plan digest.
 Caption preview rejects a proposed title that overlaps an existing title on
-the same lane. Review the existing title and separately approve its removal or
-replacement before retrying; titles that only touch at a boundary are allowed.
+the same lane. To replace existing titles, pass their explicit `replaceTitleIds`
+to the caption preview. Each selected title must match exactly one proposed
+caption's lane, start and duration; its identity, timing and style are retained.
+Other overlapping titles remain protected. The plan digest binds the correction,
+while the separately reviewed preview and single-use execution token bind the
+selected replacements and exact operations. Timing changes require a separate
+edit. Titles that only touch at a boundary are allowed.
 Music capability and speech-presence inputs are caller-supplied context, not
 independent capability discovery or verified speech detection.
 
