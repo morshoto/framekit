@@ -3124,7 +3124,7 @@
         "unit"
       ],
       "evidence": "fixture",
-      "dependsOn": [],
+      "dependsOn": ["scripts/benchmarks"],
       "requires": [],
       "platforms": [
         "any"
