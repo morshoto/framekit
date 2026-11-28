@@ -232,9 +232,11 @@ function frameSafeGroups(words: CaptionWord[], separator: string, maxWords: numb
   const next = new Array<number | undefined>(words.length + 1);
   next[words.length] = words.length;
   for (let start = words.length - 1; start >= 0; start--) {
+    let hasSample = false;
     for (let end = start + 1; end <= Math.min(words.length, start + maxWords); end++) {
+      hasSample ||= words[end - 1]!.frameAlignedRange.end > words[end - 1]!.frameAlignedRange.start + 1e-9;
       if (!wrap(words.slice(start, end), separator, maxChars, maxLines)) break;
-      if (next[end] !== undefined && (!requireSample || words[end - 1]!.frameAlignedRange.end > words[start]!.frameAlignedRange.start + 1e-9)
+      if (next[end] !== undefined && (!requireSample || hasSample)
         && (end === words.length || words[end - 1]!.frameAlignedRange.end <= words[end]!.frameAlignedRange.start + 1e-9)) next[start] = end;
     }
   }

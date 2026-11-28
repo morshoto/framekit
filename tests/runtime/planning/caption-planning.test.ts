@@ -186,6 +186,7 @@ test("sample-free words remain visible with neighboring sampled speech", async (
 test("sample-free words alone cannot manufacture a caption frame", async () => {
   const f = await fixture([{ text: "First.", start: 1.01, end: 1.24, confidence: 0.9 },
     { text: "Second.", start: 1.24, end: 1.48, confidence: 0.9 },
+    { text: "Bridge", start: 1.48, end: 1.64, confidence: 0.9 },
     { text: "Third", start: 2.01, end: 2.02, confidence: 0.9 },
     { text: "Fourth", start: 2.21, end: 2.22, confidence: 0.9 }]);
   try {
