@@ -25,3 +25,14 @@ export function prepareCutPcm(original, firstSample, endSample) {
   if (!Number.isSafeInteger(firstSample) || !Number.isSafeInteger(endSample) || firstSample < 0 || endSample <= firstSample || endSample > samples) throw new Error('Invalid cut range');
   return {original:Buffer.from(original),cut:Buffer.concat([original.subarray(0,firstSample*2),original.subarray(endSample*2)])};
 }
+
+/** Encode mono PCM in a minimal WAV container for the speech backend. */
+export function pcmWav(pcm, sampleRate) {
+  if (!Buffer.isBuffer(pcm) || !pcm.length || pcm.length % 2 || !Number.isSafeInteger(sampleRate) || sampleRate <= 0 || pcm.length > 0xffffffff-36) throw new Error('Invalid PCM');
+  const header=Buffer.alloc(44);
+  header.write('RIFF',0); header.writeUInt32LE(pcm.length+36,4); header.write('WAVEfmt ',8);
+  header.writeUInt32LE(16,16); header.writeUInt16LE(1,20); header.writeUInt16LE(1,22);
+  header.writeUInt32LE(sampleRate,24); header.writeUInt32LE(sampleRate*2,28); header.writeUInt16LE(2,32); header.writeUInt16LE(16,34);
+  header.write('data',36); header.writeUInt32LE(pcm.length,40);
+  return Buffer.concat([header,pcm]);
+}
