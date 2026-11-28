@@ -42,3 +42,21 @@ unauthenticated.setParam(files, forKeyword: AEKeyword(keyDirectObject))
 let unauthenticatedReply = NSAppleEventDescriptor.record()
 receiver.handleOpen(unauthenticated, withReplyEvent: unauthenticatedReply)
 require(unauthenticatedReply.paramDescriptor(forKeyword: AEKeyword(keyErrorNumber))?.int32Value == Int32(errAEEventNotHandled), "untrusted file accepted")
+
+let registry = MockAssetRegistry(root: URL(fileURLWithPath: "/synthetic/share-root", isDirectory: true))
+let firstAsset = registry.make(name: "Example")!
+let secondAsset = registry.make(name: "Example")!
+require(firstAsset.uniqueID != secondAsset.uniqueID, "asset ids collided")
+require(firstAsset.locationInfo["basename"] as? String == "Example", "base name mismatch")
+require(firstAsset.locationInfo["hasDescription"] as? Bool == true, "description flag missing")
+require(firstAsset.locationInfo["hasMedia"] as? Bool == false, "unexpected media flag")
+let firstFolder = firstAsset.locationInfo["folder"] as! URL
+let secondFolder = secondAsset.locationInfo["folder"] as! URL
+require(firstFolder != secondFolder, "asset directories collided")
+let firstOutput = firstFolder.appendingPathComponent("Example.fcpxml")
+require(registry.matchOutput(firstOutput)?.uniqueID == firstAsset.uniqueID, "asset path did not correlate")
+require(registry.matchOutput(secondFolder.appendingPathComponent("Example.fcpxml"))?.uniqueID == secondAsset.uniqueID, "second output miscorrelated")
+require(registry.matchOutput(firstFolder.appendingPathComponent("Other.fcpxml")) == nil, "wrong output accepted")
+require(registry.matchOutput(URL(fileURLWithPath: "/synthetic/other/Example.fcpxml")) == nil, "foreign path accepted")
+require(registry.make(name: "../escape") == nil, "invalid name accepted")
+require(firstAsset.value(forKey: "uniqueID") as? String == firstAsset.uniqueID, "KVC id mismatch")
