@@ -35,3 +35,31 @@ test('a later reconciliation repairs a failed label creation without duplicate w
   await rm(directory, { recursive: true, force: true });
  }
 });
+
+test('a later reconciliation does not recreate a label after a lost acknowledgement', async () => {
+ const directory = await mkdtemp(join(tmpdir(), 'framekit-label-uncertain-'));
+ const labelsPath = join(directory, 'labels.json');
+ const desired = { name: 'Status: Pending', color: '123456', description: 'fixture' };
+ await writeFile(labelsPath, JSON.stringify([desired]));
+ let remote = [];
+ let creates = 0;
+ nock.disableNetConnect();
+ try {
+  nock('https://api.github.com').persist().get('/repos/acme/framekit/labels').query(true).reply(200, () => remote);
+  nock('https://api.github.com').persist().post('/repos/acme/framekit/labels').reply((_uri, body) => {
+   creates++;
+   remote = [...remote, body];
+   return [503, { message: 'acknowledgement lost' }];
+  });
+  const options = { token: 'fixture', repo: 'acme/framekit', labels: labelsPath };
+  await assert.rejects(setupLabels(options));
+  assert.deepEqual(remote, [desired]);
+  await setupLabels(options);
+  assert.deepEqual(remote, [desired]);
+  assert.equal(creates, 1);
+ } finally {
+  nock.cleanAll();
+  nock.enableNetConnect();
+  await rm(directory, { recursive: true, force: true });
+ }
+});
