@@ -86,3 +86,10 @@ test('single-speaker runner rejects missing source before running a provider', a
   const runner = new URL('../../../scripts/benchmarks/ai-editing/run-nespoli.mjs', import.meta.url);
   assert.throws(() => execFileSync(process.execPath, [runner.pathname, '/missing/audio', '/missing/srt', 'python'], {stdio: 'pipe'}), /ENOENT/);
 });
+
+test('chooses a conservative integral analysis range for rounded container durations', async () => {
+  const { safeWholeSecondDuration } = await import('../../../scripts/benchmarks/ai-editing/caption-quality.mjs');
+  assert.equal(safeWholeSecondDuration(44.013271), 44);
+  assert.throws(() => safeWholeSecondDuration(0.5), /duration/i);
+  assert.throws(() => safeWholeSecondDuration(NaN), /duration/i);
+});
