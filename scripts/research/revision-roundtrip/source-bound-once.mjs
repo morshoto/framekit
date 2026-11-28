@@ -13,6 +13,7 @@ export async function commitSourceBoundRenumberedRevisionB(options) {
   const claimPath = join(options.claimDirectory, `claim-${id}.json`);
   // A claim preceding the output leaves uncertainty after interruption.
   await writeRevision(claimPath, result.xml, options.expectedProject);
+  if (options.afterClaim) await options.afterClaim(); // deterministic test barrier only
   const output = await open(options.output, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
   try { await output.writeFile(result.xml); await output.sync(); } finally { await output.close(); }
   const directory = await open(dirname(options.output), constants.O_RDONLY);

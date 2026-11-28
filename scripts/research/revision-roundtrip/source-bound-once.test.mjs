@@ -5,11 +5,13 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { promisify } from 'node:util';
 import { signFixtureClaim } from './signed-handoff.mjs';
 import { readRevision } from './revision-store.mjs';
 import { commitSourceBoundRenumberedRevisionB } from './source-bound-once.mjs';
+import { createSourceBoundRenumberedRevisionB } from './source-bound-renumber.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 async function fixture(t) {
@@ -91,4 +93,38 @@ test('independent processes share the source-bound renumbered claim', async t =>
   assert.match((await run('python3', [new URL('./verify-anchored.py', import.meta.url).pathname, input.output, 'Synthetic rename'])).stdout, /manifest verified/);
   if (process.env.FRAMEKIT_RESEARCH_DTD) await run('xmllint', ['--noout', '--dtdvalid', process.env.FRAMEKIT_RESEARCH_DTD, input.output]);
   await assert.rejects(run(process.execPath, [child, dir, pin]), error => /EEXIST/.test(error.stderr));
+});
+
+test('interruption after source-bound claim leaves no B and blocks a blind retry', async t => {
+  const input = await fixture(t);
+  const expected = await createSourceBoundRenumberedRevisionB(input);
+  const dir = input.claimDirectory;
+  await Promise.all([
+    writeFile(join(dir, 'baseline.fcpxml'), input.baseline),
+    writeFile(join(dir, 'external.fcpxml'), input.external),
+    writeFile(join(dir, 'envelope.json'), JSON.stringify(input.envelope)),
+    writeFile(join(dir, 'public.pem'), input.trustedKey.export({ type: 'spki', format: 'pem' })),
+  ]);
+  const pin = hash(input.trustedKey.export({ type: 'spki', format: 'der' }));
+  const childScript = new URL('./source-bound-once-child.mjs', import.meta.url).pathname;
+  const child = spawn(process.execPath, [childScript, dir, pin, 'pause-after-claim'], { stdio: ['pipe', 'pipe', 'pipe'] });
+  const exited = once(child, 'exit');
+  t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); });
+  let timer;
+  const reached = await Promise.race([
+    once(child.stdout, 'data').then(([data]) => data.toString().trim()),
+    exited.then(() => 'exited'),
+    new Promise(resolve => { timer = setTimeout(() => resolve('timeout'), 5000); }),
+  ]);
+  clearTimeout(timer);
+  assert.equal(reached, 'claimed');
+  child.kill('SIGKILL');
+  const [code, signal] = await exited;
+  assert.equal(code, null); assert.equal(signal, 'SIGKILL');
+  const claims = (await readdir(dir)).filter(name => name.startsWith('claim-'));
+  assert.equal(claims.length, 1);
+  const record = JSON.parse(await readFile(join(dir, claims[0]), 'utf8'));
+  assert.equal(record.digest, expected.digest);
+  await assert.rejects(readFile(input.output), { code: 'ENOENT' });
+  await assert.rejects(promisify(execFile)(process.execPath, [childScript, dir, pin]), error => /EEXIST/.test(error.stderr));
 });
