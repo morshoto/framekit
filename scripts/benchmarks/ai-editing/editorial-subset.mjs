@@ -1,7 +1,7 @@
 // Fetch only pinned dataset-server rows into a new disposable output directory.
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export function editorialAssetUrl(payload, item) {
@@ -18,6 +18,7 @@ export function editorialAssetUrl(payload, item) {
 
 export async function downloadEditorialSubset(output, fetcher = fetch) {
   const manifest = JSON.parse(await readFile(new URL('./editorial-subset.json', import.meta.url), 'utf8'));
+  await mkdir(dirname(output), {recursive:true});
   await mkdir(output);
   const saved = [];
   for (const item of manifest.items) {
