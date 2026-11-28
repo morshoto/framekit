@@ -6,7 +6,7 @@ on:
         paths: [.github/labels/labels.json]
     workflow_dispatch:
     schedule:
-        - cron: '31 3 * * 0'
+        - cron: '31 */6 * * *'
 
 permissions:
     contents: read
