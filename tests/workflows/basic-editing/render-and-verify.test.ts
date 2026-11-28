@@ -111,6 +111,12 @@ test("render-and-verify returns verified provenance and independent artifact met
     duplicateFrameCount.verification!.checks.push(structuredClone(duplicateFrameCount.verification!.checks.find((check) => check.name === "frame-count")!));
     assert.equal(await reverifyBriefArtifactObservation(duplicateFrameCount, verifier), undefined,
       "ambiguous duplicate decoded frame-count checks cannot support conformance");
+    const forgedFrameCount = structuredClone(outcome);
+    const forgedCount = forgedFrameCount.verification!.checks.find((check) => check.name === "frame-count")!;
+    forgedCount.expected = 2; forgedCount.observed = 2; forgedCount.passed = true;
+    const matchingForgedVerifier = { verify: async () => structuredClone(forgedFrameCount.verification!) };
+    assert.equal(await reverifyBriefArtifactObservation(forgedFrameCount, matchingForgedVerifier), undefined,
+      "a passed count must still match the requested frame rate and canonical duration");
     const changedArtifact = structuredClone(outcome);
     changedArtifact.verification!.artifact!.fileDigest = "f".repeat(64);
     assert.equal(await reverifyBriefArtifactObservation(changedArtifact, verifier), undefined);
