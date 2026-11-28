@@ -12,12 +12,13 @@ import { createFramekitRenderPlan, createFramekitRenderRequest, type TimelineIr 
 import { FfmpegTimelineRenderer } from '../../../adapters/headless/typescript/src/index.js';
 import { signFixtureClaim } from './signed-handoff.mjs';
 import { createSourceBoundRevisionB } from './source-bound.mjs';
+import { createSourceBoundRenumberedRevisionB } from './source-bound-renumber.mjs';
 
 const run = promisify(execFile);
 const hash = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 const time = (value: number) => ({ value: String(value), timescale: '1' });
 
-for (const externalMode of ['authored', 'process'] as const) test(`renders a bounded flattened preview of ${externalMode} signed synthetic B`, { timeout: 60000 }, async t => {
+for (const externalMode of ['authored', 'process', 'process-renumbered'] as const) test(`renders a bounded flattened preview of ${externalMode} signed synthetic B`, { timeout: 60000 }, async t => {
   if (spawnSync('ffmpeg', ['-version'], { stdio: 'ignore' }).status !== 0 || spawnSync('ffprobe', ['-version'], { stdio: 'ignore' }).status !== 0) {
     t.skip('ffmpeg and ffprobe are required'); return;
   }
@@ -31,22 +32,28 @@ for (const externalMode of ['authored', 'process'] as const) test(`renders a bou
       .replace('file:///synthetic/music.wav', pathToFileURL(sourcePaths.m).href));
     const baseline = await getXml('./anchored-base.fcpxml');
     let external: Buffer;
-    if (externalMode === 'process') {
+    if (externalMode !== 'authored') {
       const inputPath = join(dir, 'a.fcpxml'), editPath = join(dir, 'external.fcpxml');
       await writeFile(inputPath, baseline, { flag: 'wx' });
       await run('python3', ['scripts/research/revision-roundtrip/external-edit.py', inputPath, editPath]);
       external = await readFile(editPath);
+      if (externalMode === 'process-renumbered') {
+        external = Buffer.from(external.toString().replace('id="a"', 'id="v9"').replaceAll('ref="a"', 'ref="v9"')
+          .replace('id="m"', 'id="s8"').replaceAll('ref="m"', 'ref="s8"'));
+        await writeFile(editPath, external);
+      }
       assert.notEqual(hash(baseline), hash(external));
     } else external = await getXml('./anchored-edit.fcpxml');
     const sourceBytes = { a: await readFile(sourcePaths.a), m: await readFile(sourcePaths.m) };
     const pair = generateKeyPairSync('ed25519');
     const claim = { version: 1, projectUid: 'project-framekit-8b68711b3f', targetId: 'opening-v1', baselineDigest: hash(baseline), externalDigest: hash(external),
       sourceDigests: { a: hash(sourceBytes.a), m: hash(sourceBytes.m) }, sourceStart: '2s', duration: '1s', name: 'Synthetic rename' };
-    const result = await createSourceBoundRevisionB({ baseline, external, sourcePaths, envelope: signFixtureClaim(claim, pair.privateKey),
+    const handoff = externalMode === 'process-renumbered' ? createSourceBoundRenumberedRevisionB : createSourceBoundRevisionB;
+    const result = await handoff({ baseline, external, sourcePaths, envelope: signFixtureClaim(claim, pair.privateKey),
       trustedKey: pair.publicKey, expectedProject: claim.projectUid, expectedTarget: claim.targetId });
     const originalB = Buffer.from(result.xml), bPath = join(dir, 'b.fcpxml');
     await writeFile(bPath, originalB, { flag: 'wx' });
-    if (externalMode === 'process' && process.env.FRAMEKIT_RESEARCH_DTD) {
+    if (externalMode !== 'authored' && process.env.FRAMEKIT_RESEARCH_DTD) {
       for (const path of [join(dir, 'a.fcpxml'), join(dir, 'external.fcpxml'), bPath]) {
         await run('xmllint', ['--noout', '--dtdvalid', process.env.FRAMEKIT_RESEARCH_DTD, path]);
       }

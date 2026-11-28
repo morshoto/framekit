@@ -39,6 +39,10 @@ function parse(bytes) {
   return { document, resources, ids, assets };
 }
 
+export function fixtureAssetUrls(bytes) {
+  return new Map([...parse(bytes).assets].map(([id, asset]) => [id, asset.url]));
+}
+
 export function createRenumberedRevisionB(input) {
   const claim = verifyFixtureClaim(input); // bind the original external bytes before normalization
   if (!input.sourceBytes || !Buffer.isBuffer(input.sourceBytes.a) || !Buffer.isBuffer(input.sourceBytes.m)) throw new Error('invalid source bytes');
