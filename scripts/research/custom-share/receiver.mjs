@@ -12,7 +12,14 @@ export async function createReceiver(directory) {
     return join(root, `${id}.json`);
   };
   const get = async id => {
-    try { return JSON.parse(await readFile(receiptPath(id), 'utf8')); }
+    try {
+      const receipt = JSON.parse(await readFile(receiptPath(id), 'utf8'));
+      if (!receipt || receipt.id !== id || receipt.directory !== join(root, id)
+          || typeof receipt.name !== 'string' || !/^[\w -]+$/.test(receipt.name)
+          || !['pending', 'observed', 'cancelled'].includes(receipt.state)
+          || receipt.targetVerified !== false) throw new Error('invalid receipt');
+      return receipt;
+    }
     catch (error) {
       if (error.code === 'ENOENT') throw new Error('unknown asset');
       throw error;
@@ -35,8 +42,16 @@ export async function createReceiver(directory) {
       return receipt;
     },
     get,
+    async cancel(id) {
+      const receipt = await get(id);
+      if (receipt.state !== 'pending') throw new Error('already settled');
+      const cancelled = { ...receipt, state: 'cancelled' };
+      await save(cancelled);
+      return cancelled;
+    },
     async complete(id, paths) {
       const receipt = await get(id);
+      if (receipt.state === 'cancelled') throw new Error('cancelled locally');
       if (receipt.state !== 'pending') throw new Error('already completed');
       if (!Array.isArray(paths) || paths.length === 0) throw new Error('empty output');
       const unique = new Set();
