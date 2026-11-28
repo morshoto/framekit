@@ -132,7 +132,10 @@ export function rankNarrativeCuts(request: NarrativeCutRequest): NarrativeCutPla
     if (previous.word.confidence < MIN_WORD_CONFIDENCE || next.word.confidence < MIN_WORD_CONFIDENCE) { lowConfidenceBoundary = true; continue; }
     const corroboration = (range: TimeRange) => {
       const spans = vad.filter((entry) => entry.segment.kind === "speech" && overlaps(entry.sourceRange, range));
-      const minimum = Math.min(0.2, (range.end - range.start) / 2);
+      // Timestamp estimates can start before VAD detects a short word. Keep the
+      // entire transcript word and VAD span outside the cut, and downgrade
+      // partially corroborated candidates for explicit review.
+      const minimum = Math.min(0.2, Math.max(0.05, (range.end - range.start) / 4));
       if (!spans.some((entry) => Math.min(entry.sourceRange.end, range.end) - Math.max(entry.sourceRange.start, range.start) >= minimum - 1e-9)) return undefined;
       return { spans, complete: spans.some((entry) => entry.sourceRange.start <= range.start && entry.sourceRange.end >= range.end) };
     };
