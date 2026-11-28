@@ -27,5 +27,15 @@ test("session evidence requires a contiguous approved chain and its own verified
   ledger.recordRender("p", "s", render);
   assert.equal(ledger.inspect(gap, bind(2), render).status, "unavailable");
   assert.equal(new HeadlessSessionEvidenceLedger().inspect(session, bind(2), render).status, "unavailable");
+  const invalidPlan = new HeadlessSessionEvidenceLedger();
+  const invalidSession = invalidPlan.begin(bind(0), true);
+  invalidPlan.recordEdit("p", "s", edit(0, 1), "approved-decision", "not-a-digest");
+  assert.equal(invalidPlan.inspect(invalidSession, bind(1), render).status, "unavailable");
+  const noDecision = new HeadlessSessionEvidenceLedger();
+  const noDecisionSession = noDecision.begin(bind(0), true);
+  noDecision.recordEdit("p", "s", edit(0, 1), "approved-edit");
+  noDecision.recordEdit("p", "s", edit(1, 2), "approved-edit");
+  noDecision.recordRender("p", "s", render);
+  assert.equal(noDecision.inspect(noDecisionSession, bind(2), render).status, "unavailable");
   assert.throws(() => ledger.begin(bind(0), false), /CONFIRM/);
 });

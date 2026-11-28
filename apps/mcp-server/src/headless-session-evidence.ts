@@ -31,12 +31,16 @@ interface Session {
   render?: HeadlessRenderRecord;
   expiresAt: number;
 }
-const notice = "Same-process caller-confirmed headless observations only; this does not authenticate a human, establish continuous source integrity, verify content meaning, or prove native execution.";
+const notice = "Same-process observations start at the caller-confirmed baseline and exclude earlier history. They do not authenticate a human, protect against external tampering, establish continuous source integrity, verify content meaning, or prove native execution.";
 const hashTimeline = (timeline: unknown) => createHash("sha256").update(JSON.stringify(timeline)).digest("hex");
 
 /** Ephemeral server-owned journal; no caller-supplied receipts can be inserted through MCP. */
 export class HeadlessSessionEvidenceLedger {
   private readonly sessions = new Map<string, Session>();
+  hasTarget(projectId: string, sequenceId: string): boolean {
+    return [...this.sessions.values()].some((session) => !session.invalid && session.expiresAt > Date.now()
+      && session.base.projectId === projectId && session.base.sequenceId === sequenceId);
+  }
   begin(binding: SessionEvidenceBinding, confirmed: boolean): string {
     if (confirmed !== true) throw new Error("EVIDENCE_CONFIRMATION_REQUIRED: confirm the current baseline");
     if (!binding.projectId || !binding.sequenceId || !/^[a-f0-9]{64}$/.test(binding.timelineDigest) || !/^[a-f0-9]{64}$/.test(binding.briefDigest)
@@ -76,15 +80,15 @@ export class HeadlessSessionEvidenceLedger {
         if (record.status !== "passed" || record.projectId !== projectId || record.sequenceId !== sequenceId
           || !isDeepStrictEqual(record.requestedRevision, session.current.revision) || !outcome.plan?.timeline
           || hashTimeline(outcome.plan.timeline) !== session.current.timelineDigest) continue;
-        session.render = structuredClone(record);
+        session.render = JSON.parse(JSON.stringify(record)) as HeadlessRenderRecord;
       } catch { session.invalid = true; }
     }
   }
-  inspect(id: string, current: SessionEvidenceBinding, record: HeadlessRenderRecord): { status: "observed" | "unavailable"; steps?: Step[]; notice: string } {
+  inspect(id: string, current: SessionEvidenceBinding, record: HeadlessRenderRecord): { status: "observed" | "unavailable"; steps?: Step[]; baseline?: SessionEvidenceBinding; notice: string } {
     const session = this.sessions.get(id);
     if (!session || session.invalid || session.expiresAt <= Date.now() || !session.steps.length
       || !session.steps.some((step) => step.kind === "approved-decision") || !session.render
       || !isDeepStrictEqual(session.current, current) || !isDeepStrictEqual(session.render, record)) return { status: "unavailable", notice };
-    return { status: "observed", steps: structuredClone(session.steps), notice };
+    return { status: "observed", baseline: structuredClone(session.base), steps: structuredClone(session.steps), notice };
   }
 }

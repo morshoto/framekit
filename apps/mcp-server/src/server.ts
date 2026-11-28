@@ -1,10 +1,11 @@
 import { reviewedCutOperations, verifyReviewedCutReadback } from "./headless-decision-cut.js";
+import { HeadlessSessionEvidenceLedger } from "./headless-session-evidence.js";
 import { registerValidatedTool } from "./tools/validated-tool.js";
 import type { SessionSqliteObservationProvider } from "./headless-sessions.js";
 import { McpServer } from "@modelcontextprotocol/server";
 import { createHash, randomUUID } from "node:crypto";
 import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs";
-import { types as utilTypes } from "node:util";
+import { isDeepStrictEqual, types as utilTypes } from "node:util";
 import { isAbsolute, resolve as resolvePath } from "node:path";
 import { z } from "zod/v4";
 import {
@@ -1008,6 +1009,7 @@ export interface McpServerOptions {
 }
 
 export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOptions = {}): McpServer {
+  const sessionEvidence = new HeadlessSessionEvidenceLedger();
   // Inspect only inert descriptors before wrapping. Unknown providers remain
   // guarded rather than being executed to determine whether dispatch is safe.
   const builtinImportUnavailable = isBuiltinImportObservationUnavailable(options.nativeEditor);
@@ -1101,6 +1103,17 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   const requireHeadlessBriefs = (): HeadlessCreativeBriefService => {
     if (!options.headlessBriefs) throw new Error("BRIEF_STORAGE_UNAVAILABLE: headless brief storage is not configured");
     return options.headlessBriefs;
+  };
+
+  const trackApprovedEdit = async (projectId: string, sequenceId: string,
+    edit: Awaited<ReturnType<HeadlessProjectWorkflow["executeApprovedEdit"]>>,
+    kind: "approved-edit" | "approved-decision", planDigest?: string) => {
+    if (!sessionEvidence.hasTarget(projectId, sequenceId)) return;
+    try {
+      const observed = await requireHeadlessProjects().open(projectId);
+      if (!isDeepStrictEqual(observed.timeline, edit.after.timeline)) { sessionEvidence.invalidate(projectId, sequenceId); return; }
+      sessionEvidence.recordEdit(projectId, sequenceId, { ...edit, after: { ...edit.after, timeline: observed.timeline } }, kind, planDigest);
+    } catch { sessionEvidence.invalidate(projectId, sequenceId); }
   };
 
   const prepareSessionReadback = async (sessionId: string, requestedCanonical: boolean, finalVerification: boolean) => {
@@ -1450,6 +1463,30 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { ...briefTargetSchema, renderId: z.string().min(1) },
   }, async (input) => sessionResult(() => requireHeadlessBriefs().previewRenderCorrection(input)));
 
+  registerValidatedTool(server, "headless.evidence.begin", {
+    description: "Start a same-process headless evidence segment from a caller-confirmed, accepted brief and exact project revision. This does not authorize any edit.",
+    inputSchema: { ...briefTargetSchema, confirmed: z.literal(true) },
+  }, async ({ confirmed, ...target }) => sessionResult(async () => {
+    const current = await requireHeadlessBriefs().inspectTimelineCoverage(target);
+    return { sessionId: sessionEvidence.begin(current.binding, confirmed), binding: current.binding,
+      notice: "Headless same-process tracking only; this does not authenticate a human or authorize an edit." };
+  }));
+
+  registerValidatedTool(server, "headless.evidence.inspect", {
+    description: "Inspect a same-process chain of caller-approved headless edits and a captured, reverified render. This is not native acceptance or complete brief conformance.",
+    inputSchema: { ...briefTargetSchema, sessionId: z.string().min(1), renderId: z.string().min(1) },
+  }, async ({ sessionId, renderId, ...target }) => sessionResult(async () => {
+    const inspection = await requireHeadlessBriefs().inspectRender({ ...target, renderId });
+    if (inspection.status !== "incomplete" || !inspection.binding) return { status: "unavailable", notice: "Current brief or artifact evidence is unavailable." };
+    const render = await requireHeadlessProjects().inspectRender(renderId);
+    const { artifactDigest, ...binding } = inspection.binding;
+    const tracked = sessionEvidence.inspect(sessionId, binding, render);
+    if (tracked.status !== "observed") return tracked;
+    const current = await requireHeadlessBriefs().inspectTimelineCoverage(target);
+    if (!isDeepStrictEqual(current.binding, binding)) return { status: "unavailable", notice: "Project or brief changed during evidence inspection." };
+    return { ...tracked, artifactDigest, briefChecks: inspection.checks, nativeAcceptance: "unavailable", conformance: "incomplete" };
+  }));
+
   registerValidatedTool(server, "headless.brief.revise", {
     description: "Revise a brief from its reviewed digest; this invalidates its previous acceptance and does not edit the timeline.",
     inputSchema: { ...briefTargetSchema, expectedDigest: z.string().min(1), brief: creativeBriefSchema },
@@ -1563,7 +1600,16 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       previewToken: z.string().min(1),
       approved: z.literal(true),
     },
-  }, async ({ projectId, sequenceId, previewToken }) => sessionResult(() => requireHeadlessProjects().executeApprovedEdit(projectId, sequenceId, previewToken)));
+  }, async ({ projectId, sequenceId, previewToken }) => sessionResult(async () => {
+    try {
+      const edit = await requireHeadlessProjects().executeApprovedEdit(projectId, sequenceId, previewToken);
+      await trackApprovedEdit(projectId, sequenceId, edit, "approved-edit");
+      return edit;
+    } catch (error) {
+      if (error instanceof HeadlessEditUncertainError) sessionEvidence.invalidate(projectId, sequenceId);
+      throw error;
+    }
+  }));
 
   registerValidatedTool(server, "headless.edit.execute", {
     description: "Execute supported Framekit Timeline IR edits against the expected canonical revision and persist exactly one revision.",
@@ -1671,6 +1717,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ projectId, sequenceId, expectedRevision, parameters }) => {
     try {
       const record = await requireHeadlessProjects().render(projectId, sequenceId, parameters, expectedRevision);
+      sessionEvidence.recordRender(projectId, sequenceId, record);
       return { ...jsonResult(record), ...(record.status === "failed" ? { isError: true } : {}) };
     } catch (error) {
       return sessionResult(async () => { throw error; });
@@ -2525,7 +2572,8 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     decisionCutApprovals.delete(previewToken);
     const plans = options.headlessDecisionPlans;
     if (!plans) throw new Error("DECISION_PLAN_UNAVAILABLE: headless planning is not configured");
-    return plans.executeAcceptedPlan(entry.input, entry.planDigest, (lockedProject) =>
+    try {
+    const result = await plans.executeAcceptedPlan(entry.input, entry.planDigest, (lockedProject) =>
       requireHeadlessProjects().executeApprovedEdit(projectId, sequenceId, entry.editToken, lockedProject), async (edit, plan) => {
       const observed = await requireHeadlessProjects().open(projectId);
       const revision = observed.timeline.revision; const expected = edit.after.timeline.revision;
@@ -2538,6 +2586,13 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       if (!decision || decision.kind !== "cut") throw new Error("HEADLESS_DECISION_READBACK_MISMATCH: reviewed cut is unavailable");
       verifyReviewedCutReadback(edit.before.timeline, observed.timeline, decision.candidate, entry.planDigest);
     });
+    if (result.status === "applied") await trackApprovedEdit(projectId, sequenceId, result.edit, "approved-decision", entry.planDigest);
+    else sessionEvidence.invalidate(projectId, sequenceId);
+    return result;
+    } catch (error) {
+      if (error instanceof HeadlessEditUncertainError) sessionEvidence.invalidate(projectId, sequenceId);
+      throw error;
+    }
   }));
 
   const decisionMusicApprovals = new Map<string, { input: HeadlessDecisionRequest; planDigest: string; editToken: string; expiresAt: number }>();
@@ -2606,7 +2661,8 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     decisionMusicApprovals.delete(previewToken);
     const plans = options.headlessDecisionPlans;
     if (!plans) throw new Error("DECISION_PLAN_UNAVAILABLE: headless planning is not configured");
-    return plans.executeAcceptedPlan(entry.input, entry.planDigest, async (lockedProject) => {
+    try {
+    const result = await plans.executeAcceptedPlan(entry.input, entry.planDigest, async (lockedProject) => {
       if (!entry.input.music.music) throw new Error("MUSIC_PREVIEW_UNAVAILABLE: registered music is required");
       await verifyLocalMediaSource(entry.input.music.music);
       return requireHeadlessProjects().executeApprovedEdit(projectId, sequenceId, entry.editToken, lockedProject);
@@ -2619,6 +2675,13 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
         throw new Error("HEADLESS_DECISION_READBACK_MISMATCH: committed project differs from independent readback");
       }
     });
+    if (result.status === "applied") await trackApprovedEdit(projectId, sequenceId, result.edit, "approved-decision", entry.planDigest);
+    else sessionEvidence.invalidate(projectId, sequenceId);
+    return result;
+    } catch (error) {
+      if (error instanceof HeadlessEditUncertainError) sessionEvidence.invalidate(projectId, sequenceId);
+      throw error;
+    }
   }));
 
   const decisionCaptionApprovals = new Map<string, { input: HeadlessDecisionRequest; planDigest: string; editToken: string; expiresAt: number }>();
@@ -2683,7 +2746,8 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     decisionCaptionApprovals.delete(previewToken);
     const plans = options.headlessDecisionPlans;
     if (!plans) throw new Error("DECISION_PLAN_UNAVAILABLE: headless planning is not configured");
-    return plans.executeAcceptedPlan(entry.input, entry.planDigest, (lockedProject) =>
+    try {
+    const result = await plans.executeAcceptedPlan(entry.input, entry.planDigest, (lockedProject) =>
       requireHeadlessProjects().executeApprovedEdit(projectId, sequenceId, entry.editToken, lockedProject), async (edit) => {
       const observed = await requireHeadlessProjects().open(projectId);
       const revision = observed.timeline.revision; const expected = edit.after.timeline.revision;
@@ -2693,6 +2757,13 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
         throw new Error("HEADLESS_DECISION_READBACK_MISMATCH: committed project differs from independent readback");
       }
     });
+    if (result.status === "applied") await trackApprovedEdit(projectId, sequenceId, result.edit, "approved-decision", entry.planDigest);
+    else sessionEvidence.invalidate(projectId, sequenceId);
+    return result;
+    } catch (error) {
+      if (error instanceof HeadlessEditUncertainError) sessionEvidence.invalidate(projectId, sequenceId);
+      throw error;
+    }
   }));
 
   registerValidatedTool(server, "headless.analysis.pin", {

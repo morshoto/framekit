@@ -300,6 +300,8 @@ test("Phase 0 exposes read/write/diff through MCP stdio", async () => {
         "headless.brief.preview-render-correction",
         "headless.brief.revise",
         "headless.brief.accept",
+        "headless.evidence.begin",
+        "headless.evidence.inspect",
         "headless.analysis.pin",
         "headless.decision.plan",
         "headless.decision.preview-cut",
