@@ -1699,6 +1699,11 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     inputSchema: { renderId: z.string().min(1) },
   }, async ({ renderId }) => sessionResult(() => requireHeadlessProjects().inspectRender(renderId)));
 
+  registerValidatedTool(server, "headless.render.reverify", {
+    description: "Recheck current artifact bytes against a historical headless render record. This does not authenticate the record, approved edits, brief conformance, or native execution.",
+    inputSchema: { renderId: z.string().min(1) },
+  }, async ({ renderId }) => sessionResult(() => requireHeadlessProjects().reverifyRender(renderId)));
+
   server.registerTool("editor.inspect", {
     description: "Read editor identity and machine-readable capabilities before selecting an editing path.",
   }, async () => {

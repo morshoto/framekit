@@ -2318,6 +2318,22 @@ test("production stdio MCP persists and reopens the headless project and render 
     const reverified = payload(await client.callTool({ name: "headless.render.reverify", arguments: { renderId: render.renderId } }));
     assert.equal(reverified.status, "verified");
     assert.equal(reverified.observation.fileDigest, render.outcome.verification.artifact.fileDigest);
+    const recordPath = join(directory, "state", "projects", `${render.renderId}.json`);
+    const originalRecord = await readFile(recordPath, "utf8");
+    await writeFile(recordPath, JSON.stringify({ ...render, projectId: "different-project" }));
+    const mismatched = payload(await client.callTool({ name: "headless.render.reverify", arguments: { renderId: render.renderId } }));
+    assert.equal(mismatched.status, "unavailable");
+    await writeFile(recordPath, originalRecord);
+    const realVerifier = new FfmpegRenderVerifier();
+    const racingService = new HeadlessProjectService({ directory: join(directory, "state", "projects"), verifier: {
+      verify: async (plan, providerResult) => {
+        const result = await realVerifier.verify(plan, providerResult);
+        await writeFile(recordPath, JSON.stringify({ ...render, createdAt: "changed" }));
+        return result;
+      },
+    } });
+    assert.equal((await racingService.reverifyRender(render.renderId)).status, "unavailable");
+    await writeFile(recordPath, originalRecord);
     const outputPath = join(directory, "mcp-final.mp4");
     await writeFile(outputPath, Buffer.concat([await readFile(outputPath), Buffer.from([0])]));
     const changed = payload(await client.callTool({ name: "headless.render.reverify", arguments: { renderId: render.renderId } }));
