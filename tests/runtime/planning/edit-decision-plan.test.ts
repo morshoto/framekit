@@ -909,3 +909,31 @@ test("headless execution preserves committed Undo data across verifier mutation"
     assert.equal(uncloneable.edit.undoId, "recoverable");
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
+
+test("cut planning preserves required source coverage and allows independently retained duplicates", async () => {
+  const f = await fixture();
+  try {
+    const brief = { ...f.request.brief, requiredContent: ["whole source"], sourceCoverage: [{ requirement: "whole source", sourceId: "m", sourceDigest: f.request.speechContext.source.sourceDigest, start: 0, end: 10 }] };
+    const store = new JsonCreativeBriefStore(join(f.dir, "coverage-brief.json"));
+    const draft = await store.create("p", brief); await store.accept("p", draft.digest);
+    const request = { ...f.request, brief, accepted: acceptCreativeBrief(brief) };
+    const before = structuredClone(request.snapshot);
+    const blocked = await createEditDecisionPlan(request, f.artifacts, verifyLocalMediaSource, store);
+    assert.equal(blocked.status, "available");
+    if (blocked.status !== "available") return;
+    assert.equal(blocked.plan.decisions.some((decision) => decision.kind === "cut"), false);
+    assert.ok(blocked.plan.warnings.some((warning) => /required.*coverage/i.test(warning)));
+    assert.deepEqual(request.snapshot, before);
+    const duplicate = { ...request.snapshot.timeline.clips[0]!, id: "duplicate", start: 10, startTime: { value: "10", timescale: "1" } };
+    const snapshot = { ...request.snapshot, timeline: { ...request.snapshot.timeline, duration: 20, durationTime: { value: "20", timescale: "1" }, clips: [...request.snapshot.timeline.clips, duplicate] } };
+    const retained = await createEditDecisionPlan({ ...request, snapshot }, f.artifacts, verifyLocalMediaSource, store);
+    assert.equal(retained.status, "available");
+    if (retained.status !== "available") return;
+    assert.ok(retained.plan.decisions.some((decision) => decision.kind === "cut"));
+    duplicate.enabled = false;
+    const disabled = await createEditDecisionPlan({ ...request, snapshot }, f.artifacts, verifyLocalMediaSource, store);
+    assert.equal(disabled.status, "available");
+    if (disabled.status !== "available") return;
+    assert.equal(disabled.plan.decisions.some((decision) => decision.kind === "cut"), false);
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
