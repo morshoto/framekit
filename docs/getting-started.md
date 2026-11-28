@@ -277,6 +277,10 @@ at 720p) with their baseline at the frame center and a black outline in
 headless renders and storyboards. The outline is not encoded in FCPXML; native
 Final Cut appearance remains unverified. Explicitly styled or positioned titles
 retain their requested settings.
+For standalone FCPXML export, a positioned basic title is represented by a
+height-normalized title transform using the project video format. Export fails
+if the format dimensions are unavailable. Native position and round-trip
+behavior remain unverified; styled titles remain unsupported by this exporter.
 
 For a headless cross-dissolve, the incoming source must have a pre-roll handle
 at least as long as the transition. The blend uses that handle before the cut,

@@ -93,6 +93,7 @@ interface RenderableElement {
   gainDb?: number;
   enabled?: boolean;
   text?: string;
+  position?: TimelineIrTitle["position"];
   frameAlignmentAdjusted?: boolean;
   sourceRangeAdjusted?: boolean;
   beforeId?: string;
@@ -192,6 +193,9 @@ export function compileTimelineIrToFcpxml(
   const formatId = "r1";
   const projectVideo = resources.flatMap((resource) => resource.metadata?.streams.filter((stream) =>
     stream.kind === "video" && stream.width !== undefined && stream.height !== undefined) ?? [])[0];
+  if (titles.some((title) => title.position !== undefined) && (!projectVideo?.width || !projectVideo.height)) {
+    throw new Error("FCPXML_TITLE_POSITION_DIMENSIONS_UNAVAILABLE: positioned titles require an explicit project video format");
+  }
   const projectDimensions = projectVideo?.width && projectVideo.height
     ? ` width="${projectVideo.width}" height="${projectVideo.height}"`
     : "";
@@ -222,7 +226,7 @@ export function compileTimelineIrToFcpxml(
     `      <project uid="${xmlEscape(destination.projectUid)}" name="${xmlEscape(destination.projectName)}">`,
     `        <sequence format="${formatId}" duration="${formatRational(timeline.sequence.durationTime, "sequence.durationTime")}"${timeline.sequence.timecodeStart ? ` tcStart="${formatRational(timeline.sequence.timecodeStart, "sequence.timecodeStart")}"` : ""}>`,
     "          <spine>",
-    ...renderElements(elements, explicitTitleFont),
+    ...renderElements(elements, explicitTitleFont, projectVideo?.width && projectVideo.height ? { width: projectVideo.width, height: projectVideo.height } : undefined),
     "          </spine>",
     "        </sequence>",
     "      </project>",
@@ -265,8 +269,8 @@ export function compileTimelineIrToFcpxml(
 
 function unsupportedFeatures(timeline: TimelineIr): string[] {
   const unsupported = new Set<string>();
-  if (timeline.sequence.titles?.some(({ style, position }) => style !== undefined || position !== undefined)) {
-    unsupported.add("styled-or-positioned-titles");
+  if (timeline.sequence.titles?.some(({ style }) => style !== undefined)) {
+    unsupported.add("styled-titles");
   }
   for (const occurrence of timeline.sequence.occurrences) {
     if (occurrence.transform !== undefined) unsupported.add("transforms");
@@ -310,6 +314,10 @@ function materializationCoverage(
   if (timeline.sequence.titles?.length) {
     exact.add("editable-titles");
     if (hasExplicitTitleFont) degraded.add("native-title-font-availability-unverified");
+    if (timeline.sequence.titles.some((title) => title.position !== undefined)) {
+      degraded.add("native-title-position-unverified");
+      degraded.add("title-position-roundtrip-unverified");
+    }
   }
   if (destinationMode === "versioned") exact.add("versioned-destination");
   if (timeline.sequence.markers.length > 0) exact.add("markers");
@@ -606,6 +614,7 @@ function renderableTitle(title: TimelineIrTitle, timeline: TimelineIr): Renderab
     name: title.id,
     resourceId: BASIC_TITLE_EFFECT_ID,
     text: title.text,
+    ...(title.position ? { position: structuredClone(title.position) } : {}),
   };
 }
 
@@ -662,7 +671,7 @@ function musicAttachmentTarget(occurrence: TimelineIrOccurrence, timeline: Timel
   return parent.id;
 }
 
-function renderElements(elements: RenderableElement[], titleFont?: TimelineIrToFcpxmlOptions["basicTitleFont"]): string[] {
+function renderElements(elements: RenderableElement[], titleFont?: TimelineIrToFcpxmlOptions["basicTitleFont"], dimensions?: { width: number; height: number }): string[] {
   const byParent = new Map<string | undefined, RenderableElement[]>();
   const byId = new Map<string, RenderableElement>();
   for (const element of elements) {
@@ -762,6 +771,13 @@ function renderElements(elements: RenderableElement[], titleFont?: TimelineIrToF
         lines.push(`${indent}  <text-style-def id="${styleId}"><text-style font="${xmlEscape(titleFont.family)}" fontFace="${xmlEscape(titleFont.style)}" fontSize="63" alignment="center" /></text-style-def>`);
       } else if (element.kind === "title" || element.kind === "caption") {
         lines.push(`${indent}  <text>${xmlEscape(element.text ?? "")}</text>`);
+      }
+      if (element.kind === "title" && element.position) {
+        if (!dimensions) throw new Error("FCPXML_TITLE_POSITION_DIMENSIONS_UNAVAILABLE: positioned titles require an explicit project video format");
+        const formatPercent = (value: number) => String(Number(value.toFixed(6)));
+        const x = formatPercent(element.position.x * 50 * dimensions.width / dimensions.height);
+        const y = formatPercent(element.position.y * 50);
+        lines.push(`${indent}  <adjust-transform position="${x} ${y}" />`);
       }
       if (element.gainDb !== undefined) {
         lines.push(`${indent}  <adjust-volume amount="${formatDb(element.gainDb, element.id)}" />`);

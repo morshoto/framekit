@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { compileTimelineIrToFcpxml } from "@framekit/final-cut/fcpxml";
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { compileTimelineIrToFcpxml, FcpxmlDocumentAdapter } from "@framekit/final-cut/fcpxml";
 import type { TimelineIr } from "@framekit/runtime";
 
 const target = { provider: "final-cut" as const, libraryUid: "library", eventUid: "event", projectUid: "project", sequenceUid: "sequence" };
@@ -20,6 +26,11 @@ test("positioned titles export height-normalized transforms with explicit native
   const artifact = compileTimelineIrToFcpxml(value, { target });
   assert.match(artifact.xml, /<adjust-transform position="44\.444444 -25"\s*\/>/);
   assert.ok(artifact.coverage.degraded.includes("native-title-position-unverified"));
+  assert.ok(artifact.coverage.degraded.includes("title-position-roundtrip-unverified"));
+  const portrait = fixture(); portrait.resources[0]!.metadata!.streams[0]!.width = 1080; portrait.resources[0]!.metadata!.streams[0]!.height = 1920;
+  assert.match(compileTimelineIrToFcpxml(portrait, { target }).xml, /<adjust-transform position="14\.0625 -25"\s*\/>/);
+  const center = fixture(); center.sequence.titles![0]!.position = { x: 0, y: 0 };
+  assert.match(compileTimelineIrToFcpxml(center, { target }).xml, /<adjust-transform position="0 0"\s*\/>/);
   assert.ok(!artifact.coverage.exact.includes("native-title-position"));
   const noDimensions = fixture();
   delete noDimensions.resources[0]!.metadata!.streams[0]!.width;
@@ -27,4 +38,16 @@ test("positioned titles export height-normalized transforms with explicit native
   assert.throws(() => compileTimelineIrToFcpxml(noDimensions, { target }), /FCPXML_TITLE_POSITION_DIMENSIONS_UNAVAILABLE/);
   const styled = fixture(); styled.sequence.titles![0]!.style = { color: "red" };
   assert.throws(() => compileTimelineIrToFcpxml(styled, { target }), /FCPXML_UNSUPPORTED_TIMELINE_FEATURE/);
+});
+
+
+test("positioned title export conforms to the installed FCPXML DTD", { skip: !existsSync("/Applications/Final Cut Pro.app/Contents/Frameworks/Interchange.framework/Versions/A/Resources/FCPXMLv1_11.dtd") }, async () => {
+  const dir = await mkdtemp(join(tmpdir(), "framekit-positioned-title-"));
+  try {
+    const path = join(dir, "positioned.fcpxml");
+    await writeFile(path, compileTimelineIrToFcpxml(fixture(), { target }).xml);
+    execFileSync("xmllint", ["--noout", "--dtdvalid", pathToFileURL("/Applications/Final Cut Pro.app/Contents/Frameworks/Interchange.framework/Versions/A/Resources/FCPXMLv1_11.dtd").href, path]);
+    const snapshot = await new FcpxmlDocumentAdapter(path).readProject();
+    assert.deepEqual(snapshot.timeline.storyElements.find((item) => item.kind === "title")?.position, { x: 44.444444, y: -25 });
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });
