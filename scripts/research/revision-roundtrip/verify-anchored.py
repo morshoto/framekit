@@ -12,8 +12,10 @@ assert expected_name in ('Approved name', 'Synthetic rename')
 clips = project.findall('./sequence/spine/asset-clip')
 assert [(c.get('name'), c.get('start'), c.get('duration')) for c in clips] == [
     (expected_name, '2s', '1s'), ('Closing A', '3s', '1s'), ('Opening', '4s', '1s')]
+assert [(c.get('ref'), c.get('offset')) for c in clips] == [('a', '0s'), ('a', '1s'), ('a', '2s')]
 assert [c.find('./metadata/md').get('value') for c in clips] == ['opening-v1', 'closing-v1', 'inserted-v1']
 assert clips[0].find('audio').attrib == {'ref': 'm', 'lane': '-1', 'offset': '2s', 'start': '0s', 'duration': '2s'}
+assert clips[0].find('title').attrib == {'ref': 'title-effect', 'lane': '2', 'offset': '2s', 'name': 'Intro', 'duration': '1s'}
 assert clips[0].find('./title/text/text-style').text == 'Intro'
 def seconds(value):
     assert value.endswith('s')
