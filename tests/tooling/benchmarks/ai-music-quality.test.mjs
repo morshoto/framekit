@@ -43,3 +43,13 @@ test('music runner rejects missing source before invoking a renderer', async () 
   const runner = new URL('../../../scripts/benchmarks/ai-editing/run-music.mjs', import.meta.url);
   assert.throws(() => execFileSync(process.execPath, ['--import', 'tsx', runner.pathname, '/missing/speech', '/missing/music', '/missing/output'], {stdio: 'pipe'}), /ENOENT/);
 });
+
+test('finds music placement by normalized correlation at frame resolution', async () => {
+  const { estimateOffsetFrames } = await import('../../../scripts/benchmarks/ai-editing/music-quality.mjs');
+  const reference = [0.1, -0.3, 0.6, -0.2];
+  const rendered = [0, 0, 0, 0, 0.05, -0.15, 0.3, -0.1, 0, 0];
+  const result = estimateOffsetFrames(reference, rendered, 2, 2, 2);
+  assert.equal(result.offsetFrames, 1);
+  assert.ok(result.correlation > 0.999);
+  assert.equal(estimateOffsetFrames([0, 0], [0, 0, 0, 0], 1, 1, 1), null);
+});
