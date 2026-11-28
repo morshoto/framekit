@@ -38,3 +38,11 @@ test('rejects stale bytes, wrong project and duplicate target intervals', async 
   const extra = value.external.toString().replace('</spine>', '<asset-clip ref="a" name="Opening" offset="0s" start="1s" duration="1s"/></spine>');
   assert.throws(() => createRevisionB({ ...value, external: Buffer.from(extra), externalDigest: hash(extra) }), /ambiguous/);
 });
+
+test('requires pinned digests and rejects changes to source locations', async () => {
+  const value = await input();
+  assert.throws(() => createRevisionB({ ...value, baselineDigest: undefined }), /digest/);
+  assert.throws(() => createRevisionB({ ...value, externalDigest: undefined }), /digest/);
+  const altered = value.external.toString().replace('file:///synthetic/interview.mov', 'file:///synthetic/other.mov');
+  assert.throws(() => createRevisionB({ ...value, external: Buffer.from(altered), externalDigest: hash(altered) }), /source mismatch/);
+});
