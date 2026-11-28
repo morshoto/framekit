@@ -4170,5 +4170,22 @@ test("approved reviewed headless cut executes once and independently reads back"
       const recognized = await execFileAsync(process.env.TESSERACT_BIN || "tesseract", [await realpath(framePath), "stdout", "--psm", "7", "-l", "eng"]);
       assert.equal(recognized.stdout.trim().toLowerCase(), "again");
     }
+    const correctionInput = { ...replanInput, caption: { ...replanInput.caption, wordCorrections: [{ wordIndex: 1, text: "Again!" }] } };
+    const correctedPlan = payload(await client.callTool({ name: "headless.decision.plan", arguments: correctionInput }));
+    assert.equal(correctedPlan.status, "available", correctedPlan.reason);
+    const oldIds = captionPreview.preview.command.operations.map((operation: any) => operation.title.id);
+    const correctionArgs = { ...correctionInput, planDigest: correctedPlan.plan.planDigest, replaceTitleIds: oldIds };
+    const correctionPreview = payload(await client.callTool({ name: "headless.decision.approved-preview-captions", arguments: correctionArgs }));
+    assert.deepEqual(correctionPreview.replacedTitleIds, oldIds);
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, musicFinal.timeline);
+    const replaced = payload(await client.callTool({ name: "headless.decision.approved-execute-captions", arguments: { projectId, sequenceId, previewToken: correctionPreview.previewToken, approved: true } }));
+    assert.equal(replaced.status, "applied");
+    const updated = payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } }));
+    const newTitle = updated.timeline.sequence.titles.find((title: any) => title.id === finalTitle.id);
+    assert.deepEqual({ ...newTitle, text: finalTitle.text }, finalTitle);
+    assert.match(newTitle.text, /Again!/);
+    assert.equal(updated.timeline.sequence.titles.length, musicFinal.timeline.sequence.titles.length);
+    assert.equal((await client.callTool({ name: "headless.decision.approved-execute-captions", arguments: { projectId, sequenceId, previewToken: correctionPreview.previewToken, approved: true } })).isError, true);
+
   } finally { if (connection) { await connection.client.close(); await connection.transport.close(); } await rm(directory, { recursive: true, force: true }); }
 });
