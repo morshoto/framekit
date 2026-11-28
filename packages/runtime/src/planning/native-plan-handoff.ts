@@ -44,7 +44,7 @@ function operationIdentityDigest(identity: unknown): string {
 /** Compare supplied observations only; this neither establishes their independence nor authorizes a write. */
 export function checkNativeCutPreview(
   proposal: NativeCutHandoff, observation: NativeCutTargetObservation, preview: NativeCutRangePreview, now: number,
-): { status: "matched" } | { status: "unavailable"; reason: string } {
+): { status: "matched"; evidence: "caller-supplied"; authorization: "not-authorized" } | { status: "unavailable"; reason: string } {
   try {
     if (proposal.status !== "proposed" || !observation || !preview || !Number.isFinite(now)
       || proposal.authorization !== "not-authorized" || !Number.isSafeInteger(proposal.decisionIndex) || proposal.decisionIndex < 0
@@ -75,7 +75,7 @@ export function checkNativeCutPreview(
       || compareTime(preview.expectedAfterDuration, subtractRationalTimes(observation.sequenceDuration, duration)) !== 0n) {
       throw new Error("Native preview duration or sequence bounds do not match the observation.");
     }
-    return { status: "matched" };
+    return { status: "matched", evidence: "caller-supplied", authorization: "not-authorized" };
   } catch (error) {
     return { status: "unavailable", reason: error instanceof Error ? error.message : "Native preview cannot be inspected." };
   }

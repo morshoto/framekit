@@ -592,7 +592,14 @@ test("native range preview requires matching target, revision, range and live to
     const removed = subtractRationalTimes(proposal.operation.end, proposal.operation.start);
     const preview = { previewToken: "token", operation: "delete-range", range: { start: proposal.operation.start, end: proposal.operation.end }, beforeDuration: observed.sequenceDuration, expectedAfterDuration: subtractRationalTimes(observed.sequenceDuration, removed), sequenceId: "t", revision: "r1", targetIdentity: "native-clip", expiresAt: "2027-01-01T00:00:00Z" };
     const now = Date.parse("2026-12-01T00:00:00Z");
-    assert.deepEqual(checkNativeCutPreview(proposal, observed, preview, now), { status: "matched" });
+    assert.deepEqual(checkNativeCutPreview(proposal, observed, preview, now), {
+      status: "matched", evidence: "caller-supplied", authorization: "not-authorized",
+    });
+    const fabricated = { ...observed, targetIdentity: "fabricated-observation" };
+    assert.deepEqual(checkNativeCutPreview(proposal, fabricated, { ...preview, targetIdentity: fabricated.targetIdentity }, now), {
+      status: "matched", evidence: "caller-supplied", authorization: "not-authorized",
+    });
+    assert.equal(proposal.authorization, "not-authorized");
     for (const altered of [
       { ...proposal, operationId: "sha256:" + "0".repeat(64) },
       { ...proposal, planDigest: "sha256:" + "1".repeat(64) },
