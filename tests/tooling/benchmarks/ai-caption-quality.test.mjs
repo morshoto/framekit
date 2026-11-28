@@ -111,6 +111,24 @@ test('checks caption plan word preservation and timing without claiming rendered
   assert.equal(assessCaptionPlan(words, null, 1/30).status, 'unavailable');
 });
 
+test('approved caption probe verifies its input before creating a new output directory', async () => {
+  const { mkdtemp, writeFile, stat, rm } = await import('node:fs/promises');
+  const { createHash } = await import('node:crypto');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { prepareApprovedCaptionOutput } = await import('../../../scripts/benchmarks/ai-editing/caption-approved-preflight.mjs');
+  const root = await mkdtemp(join(tmpdir(), 'framekit-caption-preflight-'));
+  try {
+    const input = join(root, 'source'); const output = join(root, 'output');
+    await writeFile(input, 'source');
+    const digest = createHash('sha256').update('source').digest('hex');
+    await assert.rejects(prepareApprovedCaptionOutput(input, output, '0'.repeat(64)), /digest mismatch/i);
+    await assert.rejects(stat(output), {code:'ENOENT'});
+    await prepareApprovedCaptionOutput(input, output, digest);
+    await assert.rejects(prepareApprovedCaptionOutput(input, output, digest), {code:'EEXIST'});
+  } finally { await rm(root, {recursive:true, force:true}); }
+});
+
 test('pins the talking-head interview and a fixed evaluation window', async () => {
   const { loadCorpus } = await import('../../../scripts/benchmarks/ai-editing/corpus.mjs');
   const asset = (await loadCorpus()).supplementalAssets.find((item) => item.id === 'novara-interview');
