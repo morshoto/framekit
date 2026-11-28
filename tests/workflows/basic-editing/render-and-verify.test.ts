@@ -165,6 +165,11 @@ test("render-and-verify returns verified provenance and independent artifact met
     await unrangedRenderer.render(unrangedPlan);
     const unrangedFrame = await frameAt(unrangedParameters.outputPath, 1.1, directory, "range-ignored");
     assert.notEqual(frameDigest(rangedFrame), frameDigest(unrangedFrame), "sourceStartTime must change the verified artifact segment");
+    const fractionalRequest = createFramekitRenderRequest({ timeline, target: { projectId: timeline.project.id, sequenceId: timeline.sequence.id },
+      parameters: { ...renderParameters(join(directory, "fractional.mp4")), frameRate: { value: "30000", timescale: "1001" } } });
+    const fractionalOutcome = await renderAndVerifyFramekitProject(fractionalRequest, new FfmpegTimelineRenderer(), verifier);
+    assert.equal(fractionalOutcome.status, "passed");
+    assert.ok(await reverifyBriefArtifactObservation(fractionalOutcome, verifier), "fractional-rate decoded counts remain valid");
     await appendFile(outcome.verification!.artifact!.path, "changed after verification");
     assert.equal(await reverifyBriefArtifactObservation(outcome, verifier), undefined);
   } finally {
