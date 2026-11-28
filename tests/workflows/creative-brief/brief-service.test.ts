@@ -288,3 +288,27 @@ test("MCP exposes project-bound review and explicit acceptance without timeline 
     assert.deepEqual(await runtime.inspectProject(), before);
   } finally { await client.close(); await server.close(); await rm(f.dir, { recursive: true, force: true }); }
 });
+
+test("accepted target reports timeline coverage without asserting final artifact conformance", async () => {
+  const f = await fixture();
+  try {
+    const current = structuredClone(project);
+    Object.assign(current.timeline, { schemaVersion: 1, project: { id: "p", name: "P" }, sequence: {
+      id: "t", name: "T", durationTime: { value: "10", timescale: "1" }, frameDuration: { value: "1", timescale: "30" },
+      occurrences: [{ id: "clip", name: "Clip", mediaId: "media", role: "video", track: 0,
+        startTime: { value: "0", timescale: "1" }, sourceStartTime: { value: "0", timescale: "1" }, durationTime: { value: "10", timescale: "1" } }],
+      storyElements: [], markers: [], captions: [],
+    } });
+    f.setProject(current);
+    const draft = await f.service.create({ ...target, brief });
+    await assert.rejects(() => f.service.inspectTimelineCoverage(target), /BRIEF_NOT_ACCEPTED/);
+    await f.service.accept({ ...target, expectedDigest: draft.record.digest, confirmed: true });
+    const result = await f.service.inspectTimelineCoverage(target);
+    assert.equal(result.checks[0]?.status, "present");
+    assert.match(result.notice, /not.*(render|output)/i);
+    const changed = structuredClone(current);
+    changed.timeline.sequence.occurrences[0]!.durationTime.value = "9";
+    f.setProject(changed);
+    await assert.rejects(() => f.service.inspectTimelineCoverage(target), /STALE/);
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
