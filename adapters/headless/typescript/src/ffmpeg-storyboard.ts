@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { extname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { TimelineIr } from "@framekit/runtime";
-import { titleGlyphProblem } from "./title-glyphs.js";
+import { basicTitleOutlineWidth, titleGlyphProblem } from "./title-glyphs.js";
 import { escapeFilterValue, resolveFontFile } from "./ffmpeg-renderer.js";
 
 const execFileAsync = promisify(execFile);
@@ -102,7 +102,7 @@ export class FfmpegStoryboardRenderer {
           const filename = `title-${index}-${titleIndex}.txt`;
           await writeFile(join(dir, filename), title.text, "utf8");
           const fontSize = Math.max(1, Math.round(dimensions.height * 44 / 720 * scale));
-          filters.push(`drawtext=${font ? `fontfile='${escapeFilterValue(font)}':` : ""}textfile='${filename}':expansion=none:fontcolor=white:fontsize=${fontSize}:x=(w-text_w)/2:y=h/2-text_h`);
+          filters.push(`drawtext=${font ? `fontfile='${escapeFilterValue(font)}':` : ""}textfile='${filename}':expansion=none:fontcolor=white:fontsize=${fontSize}:borderw=${Math.max(1, Math.round(basicTitleOutlineWidth(dimensions.height) * height / dimensions.height))}:bordercolor=black:x=(w-text_w)/2:y=h/2-text_h`);
         }
         const frame = join(dir, `${index}.png`);
         await run(this.options.ffmpegPath ?? process.env.FFMPEG_BIN ?? "ffmpeg", ["-hide_banner", "-loglevel", "error", "-nostdin", "-ss", String(sample.sourceSeconds), "-i", resolve(resource.source!), "-vf", filters.join(","), "-frames:v", "1", "-threads", "1", "-y", frame], { cwd: dir, signal, timeout: 30000, maxBuffer: 1024 * 1024 });
@@ -119,7 +119,7 @@ export class FfmpegStoryboardRenderer {
       if (bytes.length > 8 * 1024 * 1024) throw new Error("HEADLESS_STORYBOARD_LIMIT: contact sheet exceeds 8 MiB");
       await checkSources();
       signal?.throwIfAborted();
-      return { data: bytes.toString("base64"), mimeType: "image/png", samples, ...(titleFontDigest ? { titleFontDigest } : {}), limitations: [`${width}x${height} pixels per sample; ${columns} columns and ${rows} rows in sample order`, "Only shot starts and title midpoints are sampled; motion, audio and unsampled frames are not represented.", "Source frames are sought independently; source and output frame-rate conversion can select different nearby frames."] };
+      return { data: bytes.toString("base64"), mimeType: "image/png", samples, ...(titleFontDigest ? { titleFontDigest } : {}), limitations: [`${width}x${height} pixels per sample; ${columns} columns and ${rows} rows in sample order`, "Only shot starts and title midpoints are sampled; motion, audio and unsampled frames are not represented.", "Source frames are sought independently; source and output frame-rate conversion can select different nearby frames.", "The basic title outline is headless-only and is not encoded in FCPXML; native appearance is unverified."] };
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

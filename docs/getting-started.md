@@ -273,8 +273,10 @@ Title-bearing approvals created before font and face binding
 must be previewed again. A storyboard using a different or unverified font is
 reported unavailable. Glyph coverage alone does not establish visual correctness
 or shaping. Unstyled, unpositioned titles use a canvas-scaled size (44 pixels
-at 720p) with their baseline at the frame center; explicitly styled or
-positioned titles retain their requested settings.
+at 720p) with their baseline at the frame center and a black outline in
+headless renders and storyboards. The outline is not encoded in FCPXML; native
+Final Cut appearance remains unverified. Explicitly styled or positioned titles
+retain their requested settings.
 
 For a headless cross-dissolve, the incoming source must have a pre-roll handle
 at least as long as the transition. The blend uses that handle before the cut,
