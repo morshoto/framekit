@@ -3117,6 +3117,21 @@
       "network": "none"
     },
     {
+      "path": "tests/tooling/benchmarks/ai-editing-evaluation.test.mjs",
+      "owner": "scripts/benchmarks",
+      "reviewed": true,
+      "tags": [
+        "unit"
+      ],
+      "evidence": "fixture",
+      "dependsOn": [],
+      "requires": [],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
       "path": "tests/tooling/ci/ci-policy.test.mjs",
       "tags": [
         "documentation",
@@ -3875,6 +3890,27 @@
       "network": "none"
     },
     {
+      "path": "tests/workflows/creative-brief/brief-service.test.ts",
+      "owner": "packages/headless-application",
+      "tags": [
+        "contract",
+        "fast-integration"
+      ],
+      "requires": [],
+      "reviewed": true,
+      "evidence": "fixture",
+      "dependsOn": [
+        "apps/mcp-server",
+        "packages/headless-application",
+        "packages/runtime",
+        "packages/testkit"
+      ],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
       "path": "tests/workflows/dialogue-normalization/dialogue-normalization-skill.test.ts",
       "owner": "adapters/final-cut/typescript",
       "tags": [
@@ -4022,27 +4058,6 @@
       "evidence": "fixture",
       "dependsOn": [
         "scripts"
-      ],
-      "platforms": [
-        "any"
-      ],
-      "network": "none"
-    },
-    {
-      "path": "tests/workflows/creative-brief/brief-service.test.ts",
-      "owner": "packages/headless-application",
-      "tags": [
-        "contract",
-        "fast-integration"
-      ],
-      "requires": [],
-      "reviewed": true,
-      "evidence": "fixture",
-      "dependsOn": [
-        "apps/mcp-server",
-        "packages/headless-application",
-        "packages/runtime",
-        "packages/testkit"
       ],
       "platforms": [
         "any"
