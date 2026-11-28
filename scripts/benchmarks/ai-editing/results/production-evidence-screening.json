@@ -1,0 +1,24 @@
+{
+  "gitHead": "bf1a5e334b850a2a6b879a61a4f9e4215b09d76f",
+  "sourceSha256": "b6ce59ff735c234afdd94b13744aa26f6785af746170543fd03b33160e920a6d",
+  "sourceWindowSeconds": [
+    72,
+    82
+  ],
+  "addedTailSeconds": 1,
+  "inputSha256": "f1ed053f9caf9ce5ac42484738c0d71c3a7929f98191e147a975b3bbfd4b2e44",
+  "declaredModel": "mlx-community/whisper-tiny",
+  "providerVersion": "mlx-whisper-0.4.3:silero-6.3",
+  "captionGroups": 5,
+  "statuses": {
+    "tampered": "STALE_DECISION_PLAN",
+    "missing": "STALE_DECISION_PLAN",
+    "changedSource": "MEDIA_CHANGED",
+    "unchanged": "applied"
+  },
+  "rejectedTokensSingleUse": true,
+  "programmaticConfirmation": true,
+  "nativeWrites": false,
+  "nativeAcceptance": "unavailable",
+  "limitation": "One real-provider, disposable headless production-stdio run. Model bytes and transcript truth were not independently verified; this is not native acceptance or a speech-safety judgment."
+}
