@@ -1,0 +1,15 @@
+/** Screen an independently generated transcript against candidate cuts; never authorize an edit. */
+export function compareProviderCuts(candidates, sourceSha256, evidence) {
+  const validRange = (value) => value && Number.isFinite(value.start) && Number.isFinite(value.end) && value.start >= 0 && value.end > value.start;
+  if (!Array.isArray(candidates) || candidates.some((range) => !validRange(range))) throw new Error('Invalid candidate range');
+  if (!/^[a-f0-9]{64}$/.test(sourceSha256) || !evidence || evidence.sourceSha256 !== sourceSha256 || !validRange(evidence.coverage)
+    || !Array.isArray(evidence.words) || evidence.words.some((word) => !validRange(word)) || !candidates.length
+    || candidates.some((cut) => cut.start < evidence.coverage.start || cut.end > evidence.coverage.end)) {
+    return {status:'unavailable', conflicts:[], safety:'unverified'};
+  }
+  const conflicts = candidates.flatMap((cut) => {
+    const words = evidence.words.filter((word) => word.start < cut.end && cut.start < word.end);
+    return words.length ? [{cut, words}] : [];
+  });
+  return {status:conflicts.length ? 'disagreement' : 'no-overlap-observed', conflicts, safety:'unverified'};
+}
