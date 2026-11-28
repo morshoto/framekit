@@ -326,6 +326,15 @@ test("basic titles retain contrast over bright and dark footage", async () => {
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
+test("changed basic title rendering rejects old renderer plans", async () => {
+  const timeline = timelineWithoutMedia();
+  const request = createFramekitRenderRequest({ timeline, target: { projectId: timeline.project.id, sequenceId: timeline.sequence.id }, parameters: parameters("/tmp/framekit-title-old-plan.mp4") });
+  const previous = new FfmpegTimelineRenderer({ version: "0.1.0" });
+  const current = new FfmpegTimelineRenderer();
+  const oldPlan = createFramekitRenderPlan(request, previous.capabilities(request));
+  await assert.rejects(current.render(oldPlan), /HEADLESS_RENDER_PLAN_MISMATCH.*renderer version/);
+});
+
 test("basic 720p title fits the observed Final Cut bounds", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-title-720-parity-"));
   try {
