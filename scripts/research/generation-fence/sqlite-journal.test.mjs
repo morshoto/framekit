@@ -64,7 +64,7 @@ test('claimed operation remains uncertain after its owning process is killed', a
 });
 
 
-test('claim prevents mock redispatch but cannot fence downstream queued work', async t => {
+test('prior claim is reported while downstream queued work still executes', async t => {
   const path = await setup(t);
   const directory = dirname(path);
   const output = join(directory, 'output');
