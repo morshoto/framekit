@@ -58,3 +58,13 @@ test("positioned title export conforms to the installed FCPXML DTD", { skip: !ex
     assert.deepEqual(snapshot.timeline.storyElements.find((item) => item.kind === "title")?.position, { x: 44.444444, y: -25 });
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test("positioned title export reports missing dimensions on any primary source", () => {
+  for (const streams of [[{ kind: "video" as const, frameRate: { value: "30", timescale: "1" } }], [{ kind: "audio" as const, sampleRate: 48000, channels: 2 }]]) {
+    const timeline = fixture();
+    timeline.sequence.durationTime = { value: "3", timescale: "1" };
+    timeline.resources.push({ ...structuredClone(timeline.resources[0]!), id: "second", metadata: { durationTime: { value: "2", timescale: "1" }, streams } });
+    timeline.sequence.occurrences.push({ ...structuredClone(timeline.sequence.occurrences[0]!), id: "second-clip", mediaId: "second", startTime: { value: "2", timescale: "1" }, durationTime: { value: "1", timescale: "1" } });
+    assert.throws(() => compileTimelineIrToFcpxml(timeline, { target }), /FCPXML_TITLE_POSITION_DIMENSIONS_UNAVAILABLE/);
+  }
+});
