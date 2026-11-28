@@ -6,10 +6,11 @@ test("session evidence requires a contiguous approved chain and its own verified
   const { createHash } = await import("node:crypto");
   const digest = (timeline: unknown) => createHash("sha256").update(JSON.stringify(timeline)).digest("hex");
   const revision = (sequence: number) => ({ id: `r${sequence}`, sequence, timestamp: `2026-01-01T00:00:0${sequence}Z` });
-  const timeline = (sequence: number) => ({ project: { id: "p" }, sequence: { id: "s" }, revision: revision(sequence), payload: sequence });
+  const timeline = (sequence: number) => ({ schemaVersion: 1 as const, project: { id: "p", name: "P" }, sequence: { id: "s", name: "S",
+    durationTime: { value: "0", timescale: "1" }, frameDuration: { value: "1", timescale: "30" }, occurrences: [], storyElements: [], markers: [], captions: [] }, resources: [], revision: revision(sequence) });
   const bind = (n: number) => ({ projectId: "p", sequenceId: "s", revision: revision(n), timelineDigest: digest(timeline(n)), briefDigest: "a".repeat(64) });
   const edit = (before: number, after: number) => ({ committed: true as const, undoId: `undo-${after}`, before: { timeline: timeline(before) }, after: { timeline: timeline(after) } });
-  const render = { renderId: "render-1", projectId: "p", sequenceId: "s", status: "passed", requestedRevision: revision(2), outcome: { plan: { timeline: timeline(2) } } };
+  const render = { renderId: "render-1", projectId: "p", sequenceId: "s", status: "passed" as const, createdAt: "2026-01-01T00:00:03Z", requestedRevision: revision(2), outcome: { plan: { timeline: timeline(2) } } };
   const ledger = new HeadlessSessionEvidenceLedger();
   const session = ledger.begin(bind(0), true);
   ledger.recordEdit("p", "s", edit(0, 1), "approved-edit");
