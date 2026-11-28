@@ -112,6 +112,28 @@ test('checks caption plan word preservation and timing without claiming rendered
   assert.equal(assessCaptionPlan(words, null, 1/30).status, 'unavailable');
 });
 
+test('scores a unique recognized target against human-checked boundaries', async () => {
+  const { assessHumanTarget } = await import('../../../scripts/benchmarks/ai-editing/caption-quality.mjs');
+  const reference={text:'abstract',start:1,end:1.5};
+  const word={text:'Abstract,',start:1.1,end:1.6,confidence:0.9};
+  assert.equal(assessHumanTarget(reference,[word],0.2).status,'within-tolerance');
+  assert.equal(assessHumanTarget(reference,[{...word,end:1.71}],0.2).status,'outside-tolerance');
+  assert.equal(assessHumanTarget(reference,[],0.2).status,'missing');
+  assert.equal(assessHumanTarget(reference,[word,word],0.2).status,'ambiguous');
+  assert.equal(assessHumanTarget(reference,[{...word,text:'the abstract'}],0.2).status,'ambiguous');
+  assert.throws(()=>assessHumanTarget({...reference,end:0.5},[word],0.2),/reference/i);
+});
+
+test('pins the human-checked target sample and tolerance before inference', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const c=JSON.parse(await readFile(new URL('../../../scripts/benchmarks/ai-editing/human-timing-case.json',import.meta.url)));
+  assert.equal(c.sampleIds.length,20);
+  assert.equal(new Set(c.sampleIds).size,20);
+  assert.equal(c.toleranceSeconds,0.2);
+  assert.equal(c.minimumWithinFraction,0.95);
+  assert.match(c.limitation,/read speech/i);
+});
+
 test('approved caption probe verifies its input before creating a new output directory', async () => {
   const { mkdtemp, writeFile, stat, rm } = await import('node:fs/promises');
   const { createHash } = await import('node:crypto');

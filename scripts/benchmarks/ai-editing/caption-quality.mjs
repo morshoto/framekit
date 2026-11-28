@@ -8,6 +8,27 @@ function normalizeWords(words) {
     });
 }
 
+/** Score only an unambiguous model word against a human-checked target interval. */
+export function assessHumanTarget(reference, words, tolerance) {
+  if (!reference || typeof reference.text !== 'string' || !Number.isFinite(reference.start) || !Number.isFinite(reference.end) || reference.start < 0 || reference.end <= reference.start) throw new Error('Invalid human target reference');
+  if (!Array.isArray(words) || !Number.isFinite(tolerance) || tolerance < 0) throw new Error('Invalid target assessment');
+  const target=normalizeWords([reference.text])[0], matches=[];
+  let multiwordMatch=false;
+  for (const word of words) {
+    if (typeof word?.text !== 'string' || !Number.isFinite(word.start) || !Number.isFinite(word.end) || word.start < 0 || word.end <= word.start || !Number.isFinite(word.confidence) || word.confidence < 0 || word.confidence > 1) throw new Error('Invalid recognized word');
+    const tokens=word.text.trim().split(/\s+/u).filter((token)=>/[\p{L}\p{N}]/u.test(token));
+    const normalized=normalizeWords(tokens);
+    if (normalized.includes(target)) {
+      if (normalized.length!==1) multiwordMatch=true;
+      else matches.push(word);
+    }
+  }
+  if (multiwordMatch || matches.length>1) return {status:'ambiguous'};
+  if (!matches.length) return {status:'missing'};
+  const word=matches[0], startError=word.start-reference.start, endError=word.end-reference.end;
+  return {status:Math.abs(startError)<=tolerance+1e-9 && Math.abs(endError)<=tolerance+1e-9 ? 'within-tolerance' : 'outside-tolerance',startErrorSeconds:startError,endErrorSeconds:endError,confidence:word.confidence};
+}
+
 /** Word error rate with case and outer punctuation normalized; no semantic equivalence is assumed. */
 export function compareTranscript(reference, hypothesis) {
   const expected = normalizeWords(reference);
