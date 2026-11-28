@@ -1,8 +1,8 @@
 {
-  "gitHead": "cc8fb6dc2325668da045d69bdc161d98040e2966",
+  "gitHead": "94b5bb3b3399b00fe401d1d19613d0a032988407",
   "sourceSha256": "b6ce59ff735c234afdd94b13744aa26f6785af746170543fd03b33160e920a6d",
   "decodedSha256": "14ab75d872b512f1963ed940f042a2d54bc8e5049965dab6559e41174189d396",
-  "backendOutputSha256": "959f29fdcc0f61aa3e2475e03135b880c62427f4c670a5db265d032b7813884a",
+  "backendOutputSha256": "b2ac50bdf7d8072f29a27929be36f6035d72e281c89d0774de1edbcb19debe4e",
   "secondaryProvider": {
     "id": "command.speech",
     "provider": "command",
@@ -23,7 +23,8 @@
     "end": 77.66666666666667
   },
   "evidenceChecks": {
-    "artifactDigest": "sha256:afeb5dfb1385c29a8415674e66340806a72e76687090d8b782f9c9b39d48856d",
+    "artifactDigest": "sha256:a6b4210a6a056e84215f172b617c3e522f4fc402fb79b348063f65053387995e",
+    "artifactDigestScope": "Includes a disposable source path; digest is run-specific.",
     "statuses": {
       "original": "verified",
       "staleProvider": "invalid",
