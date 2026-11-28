@@ -309,6 +309,21 @@ test("basic titles retain contrast over bright and dark footage", async () => {
       assert.ok(visible > 25, `${color} footage must show contrasting title pixels: ${visible}`);
       assert.equal(outside, 0, "title contrast must disappear outside its interval");
       if (color === "white") {
+        const positioned = structuredClone(source);
+        positioned.sequence.titles![0]!.position = { x: 0, y: -0.55 };
+        const positionedOutput = join(directory, "positioned-title.mp4");
+        const positionedRequest = createFramekitRenderRequest({ timeline: positioned, target: { projectId: positioned.project.id, sequenceId: positioned.sequence.id }, parameters: parameters(positionedOutput) });
+        await renderer.render(createFramekitRenderPlan(positionedRequest, renderer.capabilities(positionedRequest)));
+        const positionedActive = await frameAt(positionedOutput, 0.4, directory, "positioned-active");
+        const positionedInactive = await frameAt(positionedOutput, 1.4, directory, "positioned-inactive");
+        let positionedVisible = 0; let positionedOutside = 0;
+        for (let y = 115; y < 165; y++) for (let x = 40; x < 280; x++) {
+          const a = ppmPixel(positionedActive, x, y); const b = ppmPixel(positionedInactive, x, y);
+          if (Math.max(a.r, a.g, a.b) < 120) positionedVisible++;
+          if (Math.max(b.r, b.g, b.b) < 120) positionedOutside++;
+        }
+        assert.ok(positionedVisible > 25, `positioned text must retain its dark outline: ${positionedVisible}`);
+        assert.equal(positionedOutside, 0);
         const storyboard = await new FfmpegStoryboardRenderer().render(source, { width: 320, height: 180 });
         const index = storyboard.samples.findIndex((sample) => sample.kind === "title");
         assert.ok(index >= 0);
