@@ -33,3 +33,24 @@ export async function startReceiver(options) {
     },
   };
 }
+
+export async function startSender(options) {
+  const child = fork(new URL('./sender.mjs', import.meta.url), [], { stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
+  child.send(options);
+  const [ready] = await once(child, 'message');
+  if (ready !== 'ready') throw new Error('sender did not initialize');
+  return {
+    async dispatch() {
+      const response = once(child, 'message');
+      child.send('dispatch');
+      const [value] = await response;
+      if (value !== 'dispatched') throw new Error('dispatch failed');
+    },
+    async kill() {
+      const exited = once(child, 'exit');
+      if (!child.kill('SIGKILL')) throw new Error('cannot stop owned sender');
+      const [code, signal] = await exited;
+      if (code !== null || signal !== 'SIGKILL') throw new Error('unexpected sender exit');
+    },
+  };
+}
