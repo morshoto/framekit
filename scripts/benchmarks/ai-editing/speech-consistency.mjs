@@ -19,7 +19,7 @@ export function recognitionRetention(baseline, mixed) {
 }
 
 export function proxyVariant(config, variant) {
-  if (variant !== undefined && variant !== 'quiet') throw new Error('Unknown proxy variant');
+  if (variant !== undefined && variant !== 'quiet' && variant !== 'standard') throw new Error('Unknown proxy variant');
   const mixedSha256 = variant === 'quiet' ? config.followUpMixedSha256 : config.mixedSha256;
   if (!/^[a-f0-9]{64}$/.test(mixedSha256) || !/^[a-f0-9]{64}$/.test(config.baselineSha256)) throw new Error('Invalid proxy variant digest');
   return {baselineSha256:config.baselineSha256,mixedSha256};
