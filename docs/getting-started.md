@@ -133,6 +133,13 @@ appropriate. The server loads the current project and accepted brief; it
 rejects stale targets, mismatched configured analyzer descriptors, missing or
 changed pinned evidence, relevant changes to
 the current analysis index, and brief or project changes observed during planning. Review the returned decisions and warnings. If no safe cut is proposed, warnings can identify low-confidence words or a VAD-bounded pause that is too short; they are not proof that all speech was recognized.
+Set `includeFillerObservations: true` with a pinned `speechRef` to list
+potential fillers in the target occurrence. These observations report the
+recognized word, confidence and source/timeline ranges; they are not safe
+removals or executable edits. A detected overlap with a speech-protected
+segment is marked, while other protection is not evaluated. Partial or missing
+speech evidence does not produce observations. Review the actual speech,
+protection and context separately before considering any edit.
 To correct a recognized word in the caption proposal, supply
 `caption.wordCorrections` entries with the transcript `wordIndex` and replacement
 `text`. The plan keeps the original text, timing and analysis reference visible;
