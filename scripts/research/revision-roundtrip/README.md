@@ -140,3 +140,19 @@ FRAMEKIT_PIPELINE_OUTPUT="$research_dir/output/edited (Converted-1.11).fcpxml" n
 ```
 
 The observed edited input SHA-256 was `623ac3f65c4206d79ad41c56ab7cc020e0011ee64969bb7519e20253cdd29bcb`; output SHA-256 was `388f9b069b424914f130274597fdfaa42832e022374cc15374d129260f4b6804`. Serialization bytes may vary by platform. The accepted result is specific to the fixture and supplied manifest and does not establish authenticated occurrence identity or native editability.
+
+### Third-party Uncut timeline edit (fixture only)
+
+The `uncut-probe.ts` experiment calls the actual import planner, edit engine and FCPXML exporter from [Uncut](https://github.com/blazejkustra/uncut) at commit `9fb9733b4465f459f545c9beb9268580bcd78282`. It creates an empty in-memory project with caller-supplied synthetic media records (the media paths are never opened), imports `anchored-base.fcpxml`, and asks Uncut to split `Opening` at frame 15 before exporting. The Uncut API edits the timeline in a separate implementation; the edit is scripted by this research harness, not made in the Uncut UI. No application or Final Cut operation is launched.
+
+On this fixture the importer planned four items without warnings. The split produced three spine clips; Uncut's own reader found the text `Intro` and the music path on a negative lane. Its export regenerated the resources, changed the title lane from 2 to 1, represented the connected music as an `asset-clip` rather than `audio`, emitted FCPXML 1.10, and omitted both the project UID and occurrence metadata. Neither import nor export reported a warning. The matcher rejects the raw document's DOCTYPE, then rejects its version after the DOCTYPE is removed; no unsupported document is reconciled. The output passed the installed 1.10 DTD in this test. This is a concrete independent-editor-core negative result for the current anchor design, not a claim that all Uncut versions or other edits behave identically, nor proof of Final Cut import, playback or title/music editability.
+
+```sh
+research_dir=$(mktemp -d -t framekit-uncut)
+git clone https://github.com/blazejkustra/uncut.git "$research_dir/uncut"
+git -C "$research_dir/uncut" checkout 9fb9733b4465f459f545c9beb9268580bcd78282
+./node_modules/.bin/tsx scripts/research/revision-roundtrip/uncut-probe.ts "$research_dir/uncut" "$research_dir/edited.fcpxml"
+xmllint --noout --dtdvalid 'file:///Applications/Final%20Cut%20Pro.app/Contents/Frameworks/Interchange.framework/Versions/A/Resources/FCPXMLv1_10.dtd' "$research_dir/edited.fcpxml"
+```
+
+The probe checks the checkout commit, input digest, observed import/edit/export shape and matcher rejections. Output is create-only. The observed output SHA-256 was `8680396f3747b49086ea1c60d4d49c9808b0b105cdf6a4ca0e85a03090ac25ce`. The checkout pin does not authenticate a locally modified checkout; run it only against a clean, trusted checkout. The scripted split and supplied media metadata are fixture assumptions, not independent original-source evidence.
