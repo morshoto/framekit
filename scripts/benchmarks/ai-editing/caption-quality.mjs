@@ -94,3 +94,9 @@ export function subtitleWords(srt) {
   if (!words.length) throw new Error('Empty subtitle');
   return words;
 }
+
+/** Do not extend a requested analysis past the decoded sample count on rounded containers. */
+export function safeWholeSecondDuration(duration) {
+  if (!Number.isFinite(duration) || duration < 1) throw new Error('Invalid source duration');
+  return Math.floor(duration);
+}
