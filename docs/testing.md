@@ -419,6 +419,10 @@ Final Cut. Repeating the same start is inspection-only; changed inputs are
 rejected. `pending-or-interrupted` does not establish whether a worker is alive.
 Even a recorded simulated dispatch remains `BLOCKED` and cannot establish
 native receiver quiescence, independent readback, or permission to publish.
+QA registration uses a bounded mutex to serialize index updates. If a process
+dies while holding it, later registration returns `QA_REGISTRATION_BUSY` and
+does not remove it automatically; inspect and reconcile the QA root before
+any recovery. This mutex is separate from native reservations.
 
 ### CodeQL baselines for stacked pull requests
 

@@ -1538,6 +1538,123 @@ test("missing job index blocks authorization binding and dispatch claims", async
   } finally { await rm(otherRoot, { recursive: true, force: true }); }
 });
 
+test("a lost authorization index cannot be reassigned to a different job", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-lost-auth-index-"));
+  try {
+    const first = { ...manifest, qaRunId: "first-job" };
+    await createOrInspectRun(root, first);
+    await claimDispatchIntent(root, first, "simulated-job-1");
+    // The test removes only a disposable QA index to model storage damage.
+    await rm(join(root, `.authorization-${first.authorizationDigest}`), { recursive: true });
+    const other = { ...first, qaRunId: "second-job", targetDigest: "a".repeat(64) };
+    await assert.rejects(createOrInspectRun(root, other), /QA_(INDEX_RECONCILIATION_REQUIRED|RUN_IDENTITY_MISMATCH)/);
+    assert.equal((await inspectRun(root, first.qaRunId)).dispatch, "UNKNOWN_AFTER_DISPATCH");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("a lost authorization index cannot be rebound to an existing job", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-lost-auth-bind-"));
+  try {
+    const first = { ...manifest, qaRunId: "first-job" };
+    const other = { ...first, qaRunId: "second-job", targetDigest: "a".repeat(64), authorizationDigest: null };
+    await createOrInspectRun(root, first);
+    await claimDispatchIntent(root, first, "simulated-job-1");
+    await createOrInspectRun(root, other);
+    await rm(join(root, `.authorization-${first.authorizationDigest}`), { recursive: true });
+    await assert.rejects(bindQaAuthorization(root, other, first.authorizationDigest!), /QA_(INDEX_RECONCILIATION_REQUIRED|RUN_IDENTITY_MISMATCH)/);
+    assert.equal((await inspectRun(root, first.qaRunId)).dispatch, "UNKNOWN_AFTER_DISPATCH");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("a rejected authorization does not reserve a different QA job", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-conflict-no-orphan-"));
+  try {
+    const first = { ...manifest, qaRunId: "first-job" };
+    const other = { ...first, qaRunId: "second-job", targetDigest: "a".repeat(64) };
+    await createOrInspectRun(root, first);
+    await assert.rejects(createOrInspectRun(root, other), /QA_RUN_IDENTITY_MISMATCH/);
+    assert.equal((await createOrInspectRun(root, { ...other, authorizationDigest: "9".repeat(64) })).created, true);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("concurrent distinct jobs cannot reserve the same authorization", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-cross-job-auth-race-"));
+  try {
+    const first = { ...manifest, qaRunId: "first-job" };
+    const other = { ...first, qaRunId: "second-job", targetDigest: "a".repeat(64) };
+    const outcomes = await Promise.allSettled([createOrInspectRun(root, first), createOrInspectRun(root, other)]);
+    assert.equal(outcomes.filter(result => result.status === "fulfilled" && result.value.created).length, 1);
+    const failed = outcomes.findIndex(result => result.status === "rejected");
+    assert.notEqual(failed, -1);
+    const retry = failed === 0 ? first : other;
+    assert.equal((await createOrInspectRun(root, { ...retry, authorizationDigest: "9".repeat(64) })).created, true);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("separate processes serialize conflicting QA authorization claims", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-process-auth-race-"));
+  const script = `import { createOrInspectRun } from "./scripts/native-qa/run-store.ts";
+    let text = ""; for await (const chunk of process.stdin) text += chunk;
+    try { const value = await createOrInspectRun(process.argv[1], JSON.parse(text)); process.stdout.write(JSON.stringify({ created: value.created })); }
+    catch (error) { process.stdout.write(JSON.stringify({ error: String(error) })); }`;
+  const run = (value: typeof manifest) => new Promise<{ created?: boolean; error?: string }>((resolve, reject) => {
+    const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script, root], { stdio: ["pipe", "pipe", "pipe"] });
+    let stdout = ""; let stderr = "";
+    child.stdout.setEncoding("utf8"); child.stdout.on("data", chunk => { stdout += chunk; });
+    child.stderr.setEncoding("utf8"); child.stderr.on("data", chunk => { stderr += chunk; });
+    child.once("error", reject);
+    child.once("close", code => {
+      if (code !== 0) return reject(new Error(stderr));
+      try { resolve(JSON.parse(stdout)); } catch (error) { reject(error); }
+    });
+    child.stdin.end(JSON.stringify(value));
+  });
+  try {
+    const first = { ...manifest, qaRunId: "first-job" };
+    const other = { ...first, qaRunId: "second-job", targetDigest: "a".repeat(64) };
+    const results = await Promise.all([run(first), run(other)]);
+    assert.equal(results.filter(value => value.created === true).length, 1);
+    assert.equal(results.filter(value => /QA_RUN_IDENTITY_MISMATCH/.test(value.error ?? "")).length, 1);
+    const failed = results[0]!.error ? first : other;
+    assert.equal((await createOrInspectRun(root, { ...failed, authorizationDigest: "9".repeat(64) })).created, true);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("an incomplete authorization index does not reserve a new job", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-incomplete-auth-index-"));
+  try {
+    const orphan = join(root, `.authorization-${manifest.authorizationDigest}`);
+    await mkdir(orphan);
+    await writeFile(join(orphan, "run-id"), "missing-owner\n");
+    const other = { ...manifest, qaRunId: "second-job", targetDigest: "a".repeat(64) };
+    await assert.rejects(createOrInspectRun(root, other), /QA_RUN_NOT_FOUND_OR_INCOMPLETE/);
+    assert.equal((await createOrInspectRun(root, { ...other, authorizationDigest: "9".repeat(64) })).created, true);
+    assert.equal(await readFile(join(orphan, "run-id"), "utf8"), "missing-owner\n");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("an incomplete unrelated QA run does not reserve a rejected job", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-incomplete-no-orphan-"));
+  try {
+    const incomplete = join(root, "incomplete-run");
+    await mkdir(incomplete);
+    const other = { ...manifest, qaRunId: "second-job", authorizationDigest: null };
+    await assert.rejects(createOrInspectRun(root, other), /QA_INDEX_RECONCILIATION_REQUIRED/);
+    // Remove only the artificial, empty test fixture before a new attempt.
+    await rm(incomplete, { recursive: true });
+    assert.equal((await createOrInspectRun(root, other)).created, true);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("an abandoned QA registration mutex remains reserved", async () => {
+  const root = await mkdtemp(join(tmpdir(), "framekit-qa-abandoned-mutex-"));
+  try {
+    await mkdir(join(root, ".registration-mutex"));
+    await assert.rejects(createOrInspectRun(root, manifest), /QA_REGISTRATION_BUSY/);
+    assert.equal((await lstat(join(root, ".registration-mutex"))).isDirectory(), true);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("an interrupted pre-spawn run can explicitly resume headless work only", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-qa-resume-headless-"));
   const cli = ["--import", "tsx", "scripts/native-qa/cli.ts"];

@@ -1,6 +1,6 @@
 import { readQaRecord } from "./read-record.js";
 import { createHash } from "node:crypto";
-import { lstat, mkdir, open, readdir } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, rmdir } from "node:fs/promises";
 import { join } from "node:path";
 import { publishQaRecord } from "./atomic-record.js";
 
@@ -43,6 +43,27 @@ async function assertPrivateRoot(root: string): Promise<void> {
     const info = await lstat(root);
     if (!info.isDirectory() || info.isSymbolicLink() || (info.mode & 0o077) !== 0 || typeof process.getuid !== "function" || info.uid !== process.getuid()) throw new Error("unsafe");
   } catch { throw new Error("QA_RUN_ROOT_UNSAFE"); }
+}
+
+/** Serialize registration only; an abandoned mutex is never removed automatically. */
+async function withRegistrationMutex<T>(root: string, operation: () => Promise<T>): Promise<T> {
+  const path = join(root, ".registration-mutex");
+  let acquired = false;
+  for (let attempt = 0; attempt < 200; attempt++) {
+    try { await mkdir(path, { mode: 0o700 }); acquired = true; break; }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+  }
+  if (!acquired) throw new Error("QA_REGISTRATION_BUSY");
+  const owned = await lstat(path, { bigint: true });
+  try { return await operation(); }
+  finally {
+    const current = await lstat(path, { bigint: true });
+    if (!current.isDirectory() || current.isSymbolicLink() || current.dev !== owned.dev || current.ino !== owned.ino) throw new Error("QA_REGISTRATION_MUTEX_CHANGED");
+    await rmdir(path);
+  }
 }
 function validateId(id: unknown): asserts id is string {
   if (typeof id !== "string" || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(id)) throw new Error("QA_RUN_ID_INVALID");
@@ -125,6 +146,24 @@ function jobIdentity(manifest: QaRunManifest): unknown[] {
 function jobIndexName(manifest: QaRunManifest): string {
   return `.job-${createHash("sha256").update(JSON.stringify(jobIdentity(manifest))).digest("hex")}`;
 }
+
+/** Lost or incomplete records cannot prove that an authorization is unused. */
+async function inspectExistingRuns(root: string, bound: QaRunManifest, digest: string | null): Promise<void> {
+  const entries = await readdir(root, { withFileTypes: true });
+  if (entries.length > 1024) throw new Error("QA_INDEX_RECONCILIATION_REQUIRED");
+  for (const entry of entries) {
+    if (entry.name === bound.qaRunId || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(entry.name)
+      || (!entry.isDirectory() && !entry.isSymbolicLink())) continue;
+    let previous: QaRun;
+    try { previous = await inspectRun(root, entry.name); }
+    catch { throw new Error("QA_INDEX_RECONCILIATION_REQUIRED"); }
+    const sameJob = JSON.stringify(jobIdentity(previous.manifest)) === JSON.stringify(jobIdentity(bound));
+    if (sameJob) throw new Error("QA_INDEX_RECONCILIATION_REQUIRED");
+    const previousDigest = previous.manifest.authorizationDigest ?? previous.authorizationBinding;
+    if (digest !== null && previousDigest === digest) throw new Error("QA_RUN_IDENTITY_MISMATCH");
+    if (digest !== null && previous.dispatch === "UNKNOWN_AFTER_DISPATCH" && !previousDigest) throw new Error("QA_INDEX_RECONCILIATION_REQUIRED");
+  }
+}
 export async function assertQaJobIndex(root: string, manifest: QaRunManifest): Promise<void> {
   const directory = join(root, jobIndexName(manifest));
   try {
@@ -161,6 +200,23 @@ async function reserveIndex(root: string, name: string, runId: string): Promise<
   return undefined;
 }
 
+async function existingIndex(root: string, name: string): Promise<string | undefined> {
+  const directory = join(root, name);
+  let index;
+  try { index = await lstat(directory); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; }
+  try {
+    const binding = await lstat(join(directory, "run-id"));
+    if (!index.isDirectory() || index.isSymbolicLink() || !binding.isFile() || binding.isSymbolicLink()) throw new Error("QA_RUN_UNSAFE_PATH");
+    const content = await readQaRecord(join(directory, "run-id"));
+    if (!/^[a-z0-9][a-z0-9-]{0,63}\n$/.test(content)) throw new Error("QA_RUN_NOT_FOUND_OR_INCOMPLETE");
+    return content.slice(0, -1);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT" || (error instanceof Error && error.message === "QA_RECORD_INVALID")) throw new Error("QA_RUN_NOT_FOUND_OR_INCOMPLETE");
+    throw error;
+  }
+}
+
 /** Old records without a profile are generic; they cannot be upgraded to a fixture profile. */
 export function assertQaHeadlessProfile(run: QaRun, profile: QaHeadlessProfile): void {
   if ((run.headlessProfile ?? "generic") !== profile) throw new Error("QA_WORKER_PROFILE_MISMATCH");
@@ -184,42 +240,49 @@ export async function createOrInspectRun(root: string, manifest: QaRunManifest, 
     if (headlessProfile !== undefined) assertQaHeadlessProfile(run, headlessProfile);
     return { created: false, run };
   };
+  // Inspection of an existing run remains available even after a process dies
+  // holding the registration mutex; it never schedules another operation.
   try {
     await lstat(directory);
     return await inspectMatching(bound.qaRunId);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
-  const identity = jobIdentity(bound);
-  const existingJob = await reserveIndex(root, jobIndexName(bound), bound.qaRunId);
-  if (existingJob) return inspectMatching(existingJob);
-  // An absent index can be a lost or older record, not proof that a job never existed.
-  const entries = await readdir(root, { withFileTypes: true });
-  if (entries.length > 1024) throw new Error("QA_INDEX_RECONCILIATION_REQUIRED");
-  for (const entry of entries) {
-    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(entry.name) || (!entry.isDirectory() && !entry.isSymbolicLink())) continue;
-    let previous: QaRun;
-    try { previous = await inspectRun(root, entry.name); }
-    catch { throw new Error("QA_INDEX_RECONCILIATION_REQUIRED"); }
-    const previousIdentity = jobIdentity(previous.manifest);
-    if (JSON.stringify(previousIdentity) === JSON.stringify(identity)) throw new Error("QA_INDEX_RECONCILIATION_REQUIRED");
-  }
-  if (bound.authorizationDigest !== null) {
-    const existingApproval = await reserveIndex(root, `.authorization-${bound.authorizationDigest}`, bound.qaRunId);
-    if (existingApproval) return inspectMatching(existingApproval);
-  }
-  try { await mkdir(directory, { mode: 0o700 }); }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    return inspectMatching(bound.qaRunId);
-  }
-  const run: QaRun = { schemaVersion: 1, manifest: bound, dispatch: "NOT_DISPATCHED", verdict: "BLOCKED", ...(headlessProfile === undefined ? {} : { headlessProfile }) };
-  const file = await open(join(directory, "run.json"), "wx", 0o600);
-  try { await file.writeFile(JSON.stringify(run) + "\n"); await file.sync(); }
-  finally { await file.close(); }
-  await syncDirectory(directory);
-  await syncDirectory(root);
-  return { created: true, run };
+  return withRegistrationMutex(root, async () => {
+    try {
+      await lstat(directory);
+      return await inspectMatching(bound.qaRunId);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    const indexedJob = await existingIndex(root, jobIndexName(bound));
+    if (indexedJob) return inspectMatching(indexedJob);
+    // Check for lost records before claiming an index: rejected attempts must not
+    // leave a new job reservation behind when an existing run is incomplete.
+    await inspectExistingRuns(root, bound, bound.authorizationDigest);
+    if (bound.authorizationDigest !== null) {
+      const indexedApproval = await existingIndex(root, `.authorization-${bound.authorizationDigest}`);
+      if (indexedApproval) return inspectMatching(indexedApproval);
+    }
+    const existingJob = await reserveIndex(root, jobIndexName(bound), bound.qaRunId);
+    if (existingJob) return inspectMatching(existingJob);
+    if (bound.authorizationDigest !== null) {
+      const existingApproval = await reserveIndex(root, `.authorization-${bound.authorizationDigest}`, bound.qaRunId);
+      if (existingApproval) return inspectMatching(existingApproval);
+    }
+    try { await mkdir(directory, { mode: 0o700 }); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      return inspectMatching(bound.qaRunId);
+    }
+    const run: QaRun = { schemaVersion: 1, manifest: bound, dispatch: "NOT_DISPATCHED", verdict: "BLOCKED", ...(headlessProfile === undefined ? {} : { headlessProfile }) };
+    const file = await open(join(directory, "run.json"), "wx", 0o600);
+    try { await file.writeFile(JSON.stringify(run) + "\n"); await file.sync(); }
+    finally { await file.close(); }
+    await syncDirectory(directory);
+    await syncDirectory(root);
+    return { created: true, run };
+  });
 }
 
 
@@ -229,66 +292,73 @@ export async function bindQaAuthorization(root: string, manifest: QaRunManifest,
   validateManifest(bound);
   if (bound.authorizationDigest !== null) throw new Error("QA_AUTHORIZATION_ALREADY_DECLARED");
   if (typeof digest !== "string" || !/^[a-f0-9]{64}$/.test(digest)) throw new Error("QA_AUTHORIZATION_DIGEST_INVALID");
-  const run = await inspectRun(root, bound.qaRunId);
-  if (manifestFields.some(key => run.manifest[key] !== bound[key])) throw new Error("QA_RUN_IDENTITY_MISMATCH");
-  if (run.authorizationBinding) {
-    if (run.authorizationBinding !== digest) throw new Error("QA_RUN_IDENTITY_MISMATCH");
-    return { bound: false, run };
-  }
-  if (run.dispatch !== "NOT_DISPATCHED") throw new Error("QA_DISPATCH_ALREADY_CLAIMED");
-  await assertQaJobIndex(root, bound);
-  const authorizationDirectory = join(root, `.authorization-${digest}`);
-  try { await mkdir(authorizationDirectory, { mode: 0o700 }); }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    let owner: string;
-    try {
-      const bindingDir = await lstat(authorizationDirectory);
-      const bindingFile = await lstat(join(authorizationDirectory, "run-id"));
-      if (!bindingDir.isDirectory() || bindingDir.isSymbolicLink() || !bindingFile.isFile() || bindingFile.isSymbolicLink()) throw new Error("QA_RUN_UNSAFE_PATH");
-      const content = await readQaRecord(join(authorizationDirectory, "run-id"));
-      if (!/^[a-z0-9][a-z0-9-]{0,63}\n$/.test(content)) throw new Error("QA_AUTHORIZATION_BINDING_INCOMPLETE");
-      owner = content.slice(0, -1);
-    } catch (bindingError) {
-      if ((bindingError as NodeJS.ErrnoException).code === "ENOENT") throw new Error("QA_AUTHORIZATION_BINDING_INCOMPLETE");
-      throw bindingError;
+  await assertPrivateRoot(root);
+  return withRegistrationMutex(root, async () => {
+    const run = await inspectRun(root, bound.qaRunId);
+    if (manifestFields.some(key => run.manifest[key] !== bound[key])) throw new Error("QA_RUN_IDENTITY_MISMATCH");
+    if (run.authorizationBinding) {
+      if (run.authorizationBinding !== digest) throw new Error("QA_RUN_IDENTITY_MISMATCH");
+      return { bound: false, run };
     }
-    const original = await inspectRun(root, owner);
-    if (manifestFields.some(key => key !== "qaRunId" && key !== "authorizationDigest" && original.manifest[key] !== bound[key])) throw new Error("QA_RUN_IDENTITY_MISMATCH");
-    if ((original.manifest.authorizationDigest ?? original.authorizationBinding) !== digest) throw new Error("QA_AUTHORIZATION_BINDING_INCOMPLETE");
-    return { bound: false, run: original };
-  }
-  await syncDirectory(root);
-  await publishQaRecord(join(authorizationDirectory, "run-id"), `${bound.qaRunId}\n`);
-  try {
-    await publishQaRecord(join(root, bound.qaRunId, "authorization-binding.json"), `${JSON.stringify({ schemaVersion: 1, authorizationDigest: digest })}\n`);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    const existing = await inspectRun(root, bound.qaRunId);
-    if (existing.authorizationBinding !== digest) throw new Error("QA_RUN_IDENTITY_MISMATCH");
-    return { bound: false, run: existing };
-  }
-  return { bound: true, run: await inspectRun(root, bound.qaRunId) };
+    if (run.dispatch !== "NOT_DISPATCHED") throw new Error("QA_DISPATCH_ALREADY_CLAIMED");
+    await assertQaJobIndex(root, bound);
+    await inspectExistingRuns(root, bound, digest);
+    const authorizationDirectory = join(root, `.authorization-${digest}`);
+    try { await mkdir(authorizationDirectory, { mode: 0o700 }); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      let owner: string;
+      try {
+        const bindingDir = await lstat(authorizationDirectory);
+        const bindingFile = await lstat(join(authorizationDirectory, "run-id"));
+        if (!bindingDir.isDirectory() || bindingDir.isSymbolicLink() || !bindingFile.isFile() || bindingFile.isSymbolicLink()) throw new Error("QA_RUN_UNSAFE_PATH");
+        const content = await readQaRecord(join(authorizationDirectory, "run-id"));
+        if (!/^[a-z0-9][a-z0-9-]{0,63}\n$/.test(content)) throw new Error("QA_AUTHORIZATION_BINDING_INCOMPLETE");
+        owner = content.slice(0, -1);
+      } catch (bindingError) {
+        if ((bindingError as NodeJS.ErrnoException).code === "ENOENT") throw new Error("QA_AUTHORIZATION_BINDING_INCOMPLETE");
+        throw bindingError;
+      }
+      const original = await inspectRun(root, owner);
+      if (manifestFields.some(key => key !== "qaRunId" && key !== "authorizationDigest" && original.manifest[key] !== bound[key])) throw new Error("QA_RUN_IDENTITY_MISMATCH");
+      if ((original.manifest.authorizationDigest ?? original.authorizationBinding) !== digest) throw new Error("QA_AUTHORIZATION_BINDING_INCOMPLETE");
+      return { bound: false, run: original };
+    }
+    await syncDirectory(root);
+    await publishQaRecord(join(authorizationDirectory, "run-id"), `${bound.qaRunId}\n`);
+    try {
+      await publishQaRecord(join(root, bound.qaRunId, "authorization-binding.json"), `${JSON.stringify({ schemaVersion: 1, authorizationDigest: digest })}\n`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const existing = await inspectRun(root, bound.qaRunId);
+      if (existing.authorizationBinding !== digest) throw new Error("QA_RUN_IDENTITY_MISMATCH");
+      return { bound: false, run: existing };
+    }
+    return { bound: true, run: await inspectRun(root, bound.qaRunId) };
+  });
 }
 
 /** Conservatively record uncertainty; this function never authorizes or dispatches native work. */
 export async function markDispatchUncertain(root: string, manifest: QaRunManifest): Promise<QaRun> {
   const bound = structuredClone(manifest);
   validateManifest(bound);
-  const existing = await inspectRun(root, bound.qaRunId);
-  if (manifestFields.some(key => existing.manifest[key] !== bound[key])) throw new Error("QA_RUN_IDENTITY_MISMATCH");
-  if (existing.dispatch === "UNKNOWN_AFTER_DISPATCH") return existing;
-  const directory = join(root, bound.qaRunId);
-  let marker;
-  try { marker = await open(join(directory, "dispatch-uncertain"), "wx", 0o600); }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") return inspectRun(root, bound.qaRunId);
-    throw error;
-  }
-  try { await marker.writeFile("uncertain\n"); await marker.sync(); }
-  finally { await marker.close(); }
-  await syncDirectory(directory);
-  return inspectRun(root, bound.qaRunId);
+  await assertPrivateRoot(root);
+  return withRegistrationMutex(root, async () => {
+    const existing = await inspectRun(root, bound.qaRunId);
+    if (manifestFields.some(key => existing.manifest[key] !== bound[key])) throw new Error("QA_RUN_IDENTITY_MISMATCH");
+    if (existing.dispatch === "UNKNOWN_AFTER_DISPATCH") return existing;
+    const directory = join(root, bound.qaRunId);
+    let marker;
+    try { marker = await open(join(directory, "dispatch-uncertain"), "wx", 0o600); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") return inspectRun(root, bound.qaRunId);
+      throw error;
+    }
+    try { await marker.writeFile("uncertain\n"); await marker.sync(); }
+    finally { await marker.close(); }
+    await syncDirectory(directory);
+    return inspectRun(root, bound.qaRunId);
+  });
 }
 
 /** Persist one conservative publisher intent; this never dispatches or authorizes native work. */
@@ -296,17 +366,20 @@ export async function claimDispatchIntent(root: string, manifest: QaRunManifest,
   const bound = structuredClone(manifest);
   validateManifest(bound);
   if (typeof publishJobId !== "string" || !/^[a-z0-9][a-z0-9-]{0,127}$/.test(publishJobId)) throw new Error("QA_PUBLISH_JOB_ID_INVALID");
-  const existing = await inspectRun(root, bound.qaRunId);
-  if (manifestFields.some(key => existing.manifest[key] !== bound[key])) throw new Error("QA_RUN_IDENTITY_MISMATCH");
-  const authorizationDigest = bound.authorizationDigest ?? existing.authorizationBinding;
-  if (!authorizationDigest) throw new Error("QA_AUTHORIZATION_REQUIRED");
-  await assertQaJobIndex(root, bound);
-  await assertAuthorizationBinding(root, { ...bound, authorizationDigest });
-  const directory = join(root, bound.qaRunId);
-  try { await publishQaRecord(join(directory, "dispatch-uncertain"), `${JSON.stringify({ publishJobId })}\n`); }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error("QA_DISPATCH_ALREADY_CLAIMED");
-    throw error;
-  }
-  return inspectRun(root, bound.qaRunId);
+  await assertPrivateRoot(root);
+  return withRegistrationMutex(root, async () => {
+    const existing = await inspectRun(root, bound.qaRunId);
+    if (manifestFields.some(key => existing.manifest[key] !== bound[key])) throw new Error("QA_RUN_IDENTITY_MISMATCH");
+    const authorizationDigest = bound.authorizationDigest ?? existing.authorizationBinding;
+    if (!authorizationDigest) throw new Error("QA_AUTHORIZATION_REQUIRED");
+    await assertQaJobIndex(root, bound);
+    await assertAuthorizationBinding(root, { ...bound, authorizationDigest });
+    const directory = join(root, bound.qaRunId);
+    try { await publishQaRecord(join(directory, "dispatch-uncertain"), `${JSON.stringify({ publishJobId })}\n`); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error("QA_DISPATCH_ALREADY_CLAIMED");
+      throw error;
+    }
+    return inspectRun(root, bound.qaRunId);
+  });
 }
