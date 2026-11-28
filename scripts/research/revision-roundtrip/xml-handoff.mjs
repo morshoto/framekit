@@ -2,6 +2,7 @@
 // No native identity, concurrency, arbitrary FCPXML or safe production rebase is implied.
 import { XMLBuilder, XMLParser, XMLValidator } from 'fast-xml-parser';
 import { bindRevision, locateTarget } from './matching.mjs';
+import { findAnchoredTarget } from './anchor-identity.mjs';
 const parserOptions = { preserveOrder: true, ignoreAttributes: false, trimValues: false };
 
 function children(nodes, key) {
@@ -64,6 +65,28 @@ export function createRevisionB({ baseline, external, baselineDigest, externalDi
   const externalName = edited.clips[Number(selected)][':@']?.['@_name'];
   if (typeof originalName !== 'string' || externalName !== originalName) throw new Error('rename conflict');
   edited.clips[Number(selected)][':@']['@_name'] = name;
+  const xml = Buffer.from(new XMLBuilder(parserOptions).build(edited.document));
+  return { xml, digest: bindRevision(xml).digest };
+}
+
+// Only a constrained fixture experiment. The manifest and metadata are unauthenticated.
+export function createAnchoredRevisionB({ baseline, external, baselineDigest, externalDigest, projectUid, sourceDigests, targetId, manifest, name }) {
+  if (!/^[a-f0-9]{64}$/.test(baselineDigest ?? '') || !/^[a-f0-9]{64}$/.test(externalDigest ?? '')) throw new Error('invalid digest');
+  bindRevision(baseline, baselineDigest);
+  bindRevision(external, externalDigest);
+  if (typeof projectUid !== 'string' || !projectUid || typeof name !== 'string' || !name
+      || !sourceDigests || typeof sourceDigests !== 'object') throw new Error('invalid input');
+  findAnchoredTarget(baseline.toString('utf8'), external.toString('utf8'), targetId, manifest);
+  const base = parse(baseline, projectUid, sourceDigests);
+  const edited = parse(external, projectUid, sourceDigests);
+  for (const [id, source] of base.assets) {
+    const other = edited.assets.get(id);
+    if (!other || source.src !== other.src || source.digest !== other.digest) throw new Error('source mismatch');
+  }
+  const found = edited.clips.filter(clip => children(clip['asset-clip'], 'metadata').some(metadata =>
+    children(metadata.metadata, 'md').some(md => md[':@']?.['@_key'] === 'com.framekit.id' && md[':@']?.['@_value'] === targetId)));
+  if (found.length !== 1) throw new Error('missing or ambiguous anchor');
+  found[0][':@']['@_name'] = name;
   const xml = Buffer.from(new XMLBuilder(parserOptions).build(edited.document));
   return { xml, digest: bindRevision(xml).digest };
 }
