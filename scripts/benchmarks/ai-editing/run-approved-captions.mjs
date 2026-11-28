@@ -8,7 +8,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { loadCorpus } from './corpus.mjs';
+import { headlessProbeEnvironment, loadCorpus, resolveProbeCommand } from './corpus.mjs';
 import { prepareApprovedCaptionOutput } from './caption-approved-preflight.mjs';
 
 const [sourceArg, pythonArg, outputArg] = process.argv.slice(2);
@@ -17,7 +17,7 @@ for (const name of ['FRAMEKIT_WHISPER_BACKEND','FRAMEKIT_WHISPER_MODEL','FRAMEKI
   if (!process.env[name]?.trim()) throw new Error(`Missing ${name}`);
 }
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
-const source = resolve(sourceArg), python = resolve(pythonArg), output = resolve(outputArg);
+const source = resolve(sourceArg), python = resolveProbeCommand(pythonArg), output = resolve(outputArg);
 const asset = (await loadCorpus()).supplementalAssets.find((item) => item.id === 'novara-interview');
 await prepareApprovedCaptionOutput(source, output, asset.sha256);
 const ffmpeg = process.env.FFMPEG_BIN || 'ffmpeg';
@@ -28,7 +28,7 @@ const wrapper = join(output, 'speech-wrapper.mjs');
 const backend = join(root, 'apps/mcp-server/runtime/whisper-speech-backend.py');
 await writeFile(wrapper, `#!/usr/bin/env node\nimport { spawnSync } from 'node:child_process';\nlet input=''; for await (const chunk of process.stdin) input+=chunk;\nconst child=spawnSync(${JSON.stringify(python)},[${JSON.stringify(backend)}],{input,encoding:'utf8',maxBuffer:33554432,env:process.env});\nif(child.error) throw child.error; process.stdout.write(child.stdout); process.stderr.write(child.stderr); process.exitCode=child.status ?? 1;\n`);
 await chmod(wrapper, 0o700);
-const env = {...process.env, FRAMEKIT_EDITOR:'final-cut-live', FRAMEKIT_AUTO_CONNECT:'0', FRAMEKIT_FINAL_CUT_HEADLESS:'1', FRAMEKIT_FINAL_CUT_NATIVE_WRITES:'0', FRAMEKIT_FINAL_CUT_SOCKET:join(output,'missing.sock'), FRAMEKIT_STATE_DIR:join(output,'state'), FRAMEKIT_SPEECH_ANALYZER:wrapper, FRAMEKIT_SPEECH_REQUIRE_VAD:'1', FRAMEKIT_AUDIO_ANALYZER:''};
+const env = {...headlessProbeEnvironment(process.env,output), FRAMEKIT_SPEECH_ANALYZER:wrapper, FRAMEKIT_SPEECH_REQUIRE_VAD:'1', FRAMEKIT_AUDIO_ANALYZER:''};
 const transport = new StdioClientTransport({command:process.execPath,args:['--import','tsx',join(root,'apps/mcp-server/src/main.ts')],env,stderr:'pipe'});
 const client = new Client({name:'approved-caption-probe',version:'1.0.0'});
 await client.connect(transport);

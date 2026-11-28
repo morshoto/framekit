@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { compareTranscript } from '../../../scripts/benchmarks/ai-editing/caption-quality.mjs';
@@ -84,7 +85,7 @@ test('pins a single-speaker source and its coarse subtitle revision', async () =
 test('single-speaker runner rejects missing source before running a provider', async () => {
   const { execFileSync } = await import('node:child_process');
   const runner = new URL('../../../scripts/benchmarks/ai-editing/run-nespoli.mjs', import.meta.url);
-  assert.throws(() => execFileSync(process.execPath, [runner.pathname, '/missing/audio', '/missing/srt', 'python'], {stdio: 'pipe'}), /ENOENT/);
+  assert.throws(() => execFileSync(process.execPath, [fileURLToPath(runner), '/missing/audio', '/missing/srt', 'python'], {stdio: 'pipe'}), /ENOENT/);
 });
 
 test('chooses a conservative integral analysis range for rounded container durations', async () => {
@@ -168,7 +169,7 @@ test('caption probe binds and checks recognized words without asserting speech t
 test('talking-head runner verifies source identity before inference', async () => {
   const { execFileSync } = await import('node:child_process');
   const runner = new URL('../../../scripts/benchmarks/ai-editing/run-talking-head.mjs',import.meta.url);
-  assert.throws(() => execFileSync(process.execPath,['--import','tsx',runner.pathname,'/missing/video','python'],{stdio:'pipe'}), /ENOENT/);
+  assert.throws(() => execFileSync(process.execPath,['--import','tsx',fileURLToPath(runner),'/missing/video','python'],{stdio:'pipe'}), /ENOENT/);
 });
 
 test('headless caption probe samples active frames against a title-free render', async () => {
