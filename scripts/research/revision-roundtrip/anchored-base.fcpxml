@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fcpxml version="1.11"><resources>
+<format id="f" name="FFVideoFormat720p30" frameDuration="1/30s" width="1280" height="720"/>
+<asset id="a" name="Interview" start="0s" duration="10s" hasVideo="1" format="f"><media-rep kind="original-media" src="file:///synthetic/interview.mov"/></asset>
+<asset id="m" name="Music" start="0s" duration="10s" hasAudio="1"><media-rep kind="original-media" src="file:///synthetic/music.wav"/></asset>
+<effect id="title-effect" name="Basic Title" uid=".../Titles.localized/Bumper:Opener.localized/Basic Title.localized/Basic Title.moti"/>
+</resources><library><event name="Research"><project name="Research edited" uid="project-framekit-8b68711b3f"><sequence format="f" duration="3s"><spine>
+<asset-clip ref="a" name="Opening" offset="0s" start="1s" duration="1s"><audio ref="m" lane="-1" offset="1s" start="0s" duration="2s"/><title ref="title-effect" lane="2" offset="1s" name="Intro" duration="1s"><text><text-style ref="ts">Intro</text-style></text><text-style-def id="ts"><text-style font="Helvetica" fontSize="63"/></text-style-def></title><metadata><md key="com.framekit.id" value="opening-v1"/></metadata></asset-clip>
+<asset-clip ref="a" name="Closing" offset="1s" start="3s" duration="2s"><metadata><md key="com.framekit.id" value="closing-v1"/></metadata></asset-clip>
+</spine></sequence></project></event></library></fcpxml>
