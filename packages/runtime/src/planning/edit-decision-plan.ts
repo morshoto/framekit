@@ -65,6 +65,67 @@ export type EditDecisionPlanValidity = { status: "current" } | { status: "stale"
 function sameRevision(a: ContextRevision, b: ContextRevision): boolean {
   return !!a && !!b && a.id === b.id && a.sequence === b.sequence && a.timestamp === b.timestamp;
 }
+
+type CoverageFraction = { value: bigint; timescale: bigint };
+function coverageCompare(a: CoverageFraction, b: CoverageFraction): number {
+  const delta = a.value * b.timescale - b.value * a.timescale;
+  return delta < 0n ? -1 : delta > 0n ? 1 : 0;
+}
+function coverageAdd(a: CoverageFraction, b: CoverageFraction): CoverageFraction {
+  return { value: a.value * b.timescale + b.value * a.timescale, timescale: a.timescale * b.timescale };
+}
+function coverageDecimal(n: number): CoverageFraction {
+  const match = /^(\d+)(?:\.(\d+))?(?:e([+-]?\d+))?$/i.exec(String(n));
+  if (!match) throw new Error("invalid coverage time");
+  const value = BigInt(match[1]! + (match[2] ?? ""));
+  const exponent = Number(match[3] ?? 0) - (match[2]?.length ?? 0);
+  return exponent >= 0 ? { value: value * 10n ** BigInt(exponent), timescale: 1n }
+    : { value, timescale: 10n ** BigInt(-exponent) };
+}
+
+/** Withhold cuts unless every removed required source interval survives elsewhere. */
+function preservesRequiredCoverage(candidate: NarrativeCutCandidate, request: EditDecisionPlanRequest, source: MediaSourceIdentity): boolean {
+  const required = request.brief.sourceCoverage.filter((item) => item.sourceId === source.mediaId);
+  if (!required.length) return true;
+  try {
+    const fraction = (time: NonNullable<TimeRange["startTime"]>) => parseRational(time, "COVERAGE_UNAVAILABLE");
+    if (!candidate.sourceRange.startTime || !candidate.sourceRange.durationTime) return false;
+    const cutStart = fraction(candidate.sourceRange.startTime);
+    const cutEnd = coverageAdd(cutStart, fraction(candidate.sourceRange.durationTime));
+    for (const requirement of required) {
+      const start = coverageDecimal(requirement.start); const end = coverageDecimal(requirement.end);
+      const removedStart = coverageCompare(cutStart, start) > 0 ? cutStart : start;
+      const removedEnd = coverageCompare(cutEnd, end) < 0 ? cutEnd : end;
+      if (coverageCompare(removedStart, removedEnd) >= 0) continue;
+      const timelineEnd = request.snapshot.timeline.durationTime;
+      if (!timelineEnd) return false;
+      const sequenceEnd = fraction(timelineEnd);
+      const ids = request.snapshot.timeline.clips.map((clip) => clip.id);
+      if (new Set(ids).size !== ids.length) return false;
+      const selected = request.snapshot.timeline.clips.find((clip) => clip.id === candidate.occurrenceId);
+      if (!selected?.role || (selected.role !== "video" && selected.role !== "audio")) return false;
+      const retained = request.snapshot.timeline.clips.flatMap((clip) => {
+        if (clip.id === candidate.occurrenceId || clip.mediaId !== source.mediaId || clip.enabled === false || clip.role !== selected.role
+          || !clip.startTime || !clip.durationTime || (!clip.sourceStartTime && (clip.sourceStart ?? 0) !== 0)) return [];
+        try {
+          const sequenceStart = fraction(clip.startTime); const duration = fraction(clip.durationTime);
+          if (sequenceStart.value < 0n || duration.value <= 0n || coverageCompare(coverageAdd(sequenceStart, duration), sequenceEnd) > 0) return [];
+          const sourceStart = fraction(clip.sourceStartTime ?? { value: "0", timescale: "1" });
+          return [{ start: sourceStart, end: coverageAdd(sourceStart, duration) }];
+        } catch { return []; }
+      }).sort((a, b) => coverageCompare(a.start, b.start));
+      let cursor = removedStart;
+      for (const range of retained) {
+        if (coverageCompare(range.end, cursor) <= 0) continue;
+        if (coverageCompare(range.start, cursor) > 0) break;
+        cursor = range.end;
+        if (coverageCompare(cursor, removedEnd) >= 0) break;
+      }
+      if (coverageCompare(cursor, removedEnd) < 0) return false;
+    }
+    return true;
+  } catch { return false; }
+}
 function digest(value: unknown): string {
   const encoded = JSON.stringify(value, (_key, item: unknown) => {
     if (!item || typeof item !== "object" || Array.isArray(item)) return item;
@@ -153,7 +214,10 @@ export async function createEditDecisionPlan(request: EditDecisionPlanRequest, a
         sequenceRange: { start: clip.start, end: clip.start + clip.duration, startTime: clip.startTime, durationTime: clip.durationTime },
         sequenceFrameDuration: snapshot.timeline.frameDuration }, request.vadRef, vadContext, artifacts, verifySource);
       if (cuts.status !== "available") return { status: "unavailable", reason: `Cut evidence: ${cuts.reason}` };
-      cutDecisions.push(...cuts.plan.candidates.map((candidate): EditDecision => ({ kind: "cut", support: "unavailable", rationale: candidate.rationale, range: structuredClone(candidate.sequenceRange), candidate, analysisRef: structuredClone(cuts.analysisRef) })));
+      const safe = cuts.plan.candidates.filter((candidate) => preservesRequiredCoverage(candidate, request, source));
+      if (safe.length !== cuts.plan.candidates.length) cutWarnings.push("Some cut candidates were withheld because required source coverage would be lost or could not be verified.");
+      if (!safe.length && cuts.plan.candidates.length) cutDecisions.push({ kind: "cut-unavailable", support: "unavailable", rationale: "No candidate preserves verified required source coverage." });
+      cutDecisions.push(...safe.map((candidate): EditDecision => ({ kind: "cut", support: "unavailable", rationale: candidate.rationale, range: structuredClone(candidate.sequenceRange), candidate, analysisRef: structuredClone(cuts.analysisRef) })));
       cutWarnings.push(...cuts.plan.warnings);
     }
     const captionPolicy = request.brief.captionPolicy;

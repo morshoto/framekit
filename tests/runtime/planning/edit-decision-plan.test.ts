@@ -916,7 +916,9 @@ test("cut planning preserves required source coverage and allows independently r
     const brief = { ...f.request.brief, requiredContent: ["whole source"], sourceCoverage: [{ requirement: "whole source", sourceId: "m", sourceDigest: f.request.speechContext.source.sourceDigest, start: 0, end: 10 }] };
     const store = new JsonCreativeBriefStore(join(f.dir, "coverage-brief.json"));
     const draft = await store.create("p", brief); await store.accept("p", draft.digest);
-    const request = { ...f.request, brief, accepted: acceptCreativeBrief(brief) };
+    const request = { ...f.request, brief, accepted: acceptCreativeBrief(brief), snapshot: { ...f.request.snapshot, timeline: {
+      ...f.request.snapshot.timeline, clips: f.request.snapshot.timeline.clips.map((clip) => ({ ...clip, role: "video" as const })),
+    } } };
     const before = structuredClone(request.snapshot);
     const blocked = await createEditDecisionPlan(request, f.artifacts, verifyLocalMediaSource, store);
     assert.equal(blocked.status, "available");
@@ -924,7 +926,7 @@ test("cut planning preserves required source coverage and allows independently r
     assert.equal(blocked.plan.decisions.some((decision) => decision.kind === "cut"), false);
     assert.ok(blocked.plan.warnings.some((warning) => /required.*coverage/i.test(warning)));
     assert.deepEqual(request.snapshot, before);
-    const duplicate = { ...request.snapshot.timeline.clips[0]!, id: "duplicate", start: 10, startTime: { value: "10", timescale: "1" } };
+    const duplicate = { ...request.snapshot.timeline.clips[0]!, id: "duplicate", start: 10, enabled: true, startTime: { value: "10", timescale: "1" } };
     const snapshot = { ...request.snapshot, timeline: { ...request.snapshot.timeline, duration: 20, durationTime: { value: "20", timescale: "1" }, clips: [...request.snapshot.timeline.clips, duplicate] } };
     const retained = await createEditDecisionPlan({ ...request, snapshot }, f.artifacts, verifyLocalMediaSource, store);
     assert.equal(retained.status, "available");
@@ -935,5 +937,38 @@ test("cut planning preserves required source coverage and allows independently r
     assert.equal(disabled.status, "available");
     if (disabled.status !== "available") return;
     assert.equal(disabled.plan.decisions.some((decision) => decision.kind === "cut"), false);
+    duplicate.enabled = true;
+    const wrongRole = structuredClone(snapshot);
+    (wrongRole.timeline.clips[1] as { role: string }).role = "audio";
+    const mismatchedRole = await createEditDecisionPlan({ ...request, snapshot: wrongRole }, f.artifacts, verifyLocalMediaSource, store);
+    assert.equal(mismatchedRole.status, "available");
+    if (mismatchedRole.status !== "available") return;
+    assert.equal(mismatchedRole.plan.decisions.some((decision) => decision.kind === "cut"), false);
+    duplicate.duration = 3;
+    duplicate.durationTime = { value: "3", timescale: "1" };
+    const partial = await createEditDecisionPlan({ ...request, snapshot }, f.artifacts, verifyLocalMediaSource, store);
+    assert.equal(partial.status, "available");
+    if (partial.status !== "available") return;
+    assert.equal(partial.plan.decisions.some((decision) => decision.kind === "cut"), false);
+    duplicate.duration = 10;
+    duplicate.durationTime = { value: "10", timescale: "1" };
+    const unknownDuration = structuredClone(snapshot);
+    delete (unknownDuration.timeline as { durationTime?: unknown }).durationTime;
+    const unknown = await createEditDecisionPlan({ ...request, snapshot: unknownDuration }, f.artifacts, verifyLocalMediaSource, store);
+    assert.equal(unknown.status, "available");
+    if (unknown.status !== "available") return;
+    assert.equal(unknown.plan.decisions.some((decision) => decision.kind === "cut"), false);
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test("a cut touching but not crossing a required interval remains available", async () => {
+  const f = await fixture();
+  try {
+    const brief = { ...f.request.brief, requiredContent: ["opening"], sourceCoverage: [{ requirement: "opening", sourceId: "m", sourceDigest: f.request.speechContext.source.sourceDigest, start: 0, end: 2.3 }] };
+    const store = new JsonCreativeBriefStore(join(f.dir, "boundary-brief.json"));
+    const draft = await store.create("p", brief); await store.accept("p", draft.digest);
+    const result = await createEditDecisionPlan({ ...f.request, brief, accepted: acceptCreativeBrief(brief) }, f.artifacts, verifyLocalMediaSource, store);
+    assert.equal(result.status, "available");
+    if (result.status === "available") assert.ok(result.plan.decisions.some((decision) => decision.kind === "cut"));
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
