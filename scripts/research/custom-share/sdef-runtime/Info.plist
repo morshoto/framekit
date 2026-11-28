@@ -1,0 +1,1 @@
+<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>org.framekit.test.only.cocoa</string><key>CFBundleExecutable</key><string>mock</string><key>CFBundlePackageType</key><string>APPL</string><key>NSAppleScriptEnabled</key><true/><key>NSScriptingDefinition</key><string>mock.sdef</string></dict></plist>
