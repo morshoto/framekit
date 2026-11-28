@@ -15,8 +15,13 @@ process.on('message', async message => {
     process.send('checked');
     return;
   }
+  if (options.mode === 'target-check' && (typeof options.target !== 'string' || !options.target
+      || options.target !== options.allowedTarget)) {
+    process.send('rejected-target', () => process.disconnect());
+    return;
+  }
   let permitted = options.mode === 'legacy' || accepted;
-  if (options.mode === 'receiver-check') {
+  if (options.mode === 'receiver-check' || options.mode === 'target-check') {
     try { permitted = (await readFile(options.generation, 'utf8')) === options.generationId; }
     catch { permitted = false; }
   }
