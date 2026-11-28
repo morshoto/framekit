@@ -176,11 +176,11 @@ export async function planCaptionGroups(
           return range && { ...word, frameAlignedRange: range };
         });
         if (sampled.some((word) => !word)) return { status: "unavailable", reason: "Frame rounding causes caption groups to overlap and some words have no sampled frame." };
-        const sampledGroups = frameSafeGroups(sampled as CaptionWord[], separator, request.maxWordsPerGroup, request.maxCharsPerLine, request.maxLines);
+        const sampledGroups = frameSafeGroups(sampled as CaptionWord[], separator, request.maxWordsPerGroup, request.maxCharsPerLine, request.maxLines, true);
         if (!sampledGroups) return { status: "unavailable", reason: "Frame rounding causes caption groups to overlap." };
         grouped = sampledGroups;
         sampledTiming = true;
-        warnings.push("Caption group timing uses sampled frames rather than outward rounding and may start up to one frame after a word begins; review timing.");
+        warnings.push("Caption group timing uses sampled frames rather than outward rounding and may start up to one frame after a word begins; words without sampled frames share a caption with neighboring speech. Review timing.");
       }
     }
     if (corrections.length) warnings.push("User-supplied caption corrections require review and do not alter the pinned transcript; confidence refers to the original recognition.");
@@ -219,7 +219,7 @@ function sampledFrameRange(range: TimeRange, frame: { value: string; timescale: 
   };
   const start = indexAtOrAfter(range.startTime);
   const end = indexAtOrAfter(addRationalTimes(range.startTime, range.durationTime));
-  if (end <= start) return undefined;
+  if (end < start) return undefined;
   const startTime = { value: String(start * step.value), timescale: String(step.timescale) };
   const durationTime = { value: String((end - start) * step.value), timescale: String(step.timescale) };
   return { start: seconds(startTime), end: seconds(addRationalTimes(startTime, durationTime)), startTime, durationTime };
@@ -228,13 +228,14 @@ function sampledFrameRange(range: TimeRange, frame: { value: string; timescale: 
 function sameWord(a: SpeechWord, b: SpeechWord): boolean {
   return a.text === b.text && a.start === b.start && a.end === b.end && a.confidence === b.confidence;
 }
-function frameSafeGroups(words: CaptionWord[], separator: string, maxWords: number, maxChars: number, maxLines: number): CaptionWord[][] | undefined {
+function frameSafeGroups(words: CaptionWord[], separator: string, maxWords: number, maxChars: number, maxLines: number, requireSample = false): CaptionWord[][] | undefined {
   const next = new Array<number | undefined>(words.length + 1);
   next[words.length] = words.length;
   for (let start = words.length - 1; start >= 0; start--) {
     for (let end = start + 1; end <= Math.min(words.length, start + maxWords); end++) {
       if (!wrap(words.slice(start, end), separator, maxChars, maxLines)) break;
-      if (next[end] !== undefined && (end === words.length || words[end - 1]!.frameAlignedRange.end <= words[end]!.frameAlignedRange.start + 1e-9)) next[start] = end;
+      if (next[end] !== undefined && (!requireSample || words[end - 1]!.frameAlignedRange.end > words[start]!.frameAlignedRange.start + 1e-9)
+        && (end === words.length || words[end - 1]!.frameAlignedRange.end <= words[end]!.frameAlignedRange.start + 1e-9)) next[start] = end;
     }
   }
   if (next[0] === undefined) return undefined;
