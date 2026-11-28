@@ -120,7 +120,7 @@ export async function runAnalysisProviderPreflight(options: {
           sourceTimebase: result.value.sourceTimebase, signalFormat: result.value.signalFormat,
           measuredRange: result.value.measuredRange, analyzedDurationSeconds: result.value.analyzedDurationSeconds,
           integratedLufs: result.value.integratedLufs, truePeakDb: result.value.truePeakDb, silenceMs: result.value.silenceMs,
-        } : unavailable(result.reason ?? "provider-rejected-audio");
+        } : unavailable(result.reason ?? safeProviderReason(result.value?.invalidReason) ?? "provider-rejected-audio");
       }
       assets.push({ filename: clip.filename, sourceDigest: expected, requestedRange: range, speech, vad, audio });
     }
@@ -143,6 +143,10 @@ export async function runAnalysisProviderPreflight(options: {
 }
 
 function unavailable(reason: string): CapabilityResult { return { status: "unavailable", reason }; }
+function safeProviderReason(reason: string | undefined): string | undefined {
+  const value = reason?.trim();
+  return value && /^[A-Z][A-Z0-9_]{3,63}$/.test(value) ? value : undefined;
+}
 async function digest(path: string): Promise<string> { return createHash("sha256").update(await readFile(path)).digest("hex"); }
 
 async function analyze<T>(client: Client, name: string, args: { mediaId: string; range: TimeRange }): Promise<{ value?: T; reason?: string }> {
@@ -164,10 +168,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       speechModelIdentity: process.env.FRAMEKIT_SPEECH_ANALYZER_MODEL_ID,
       speechModelAssetPath: process.env.FRAMEKIT_SPEECH_MODEL_ASSET_PATH,
       speechModelAssetSha256: process.env.FRAMEKIT_SPEECH_MODEL_ASSET_SHA256,
-      speechVadModelAssetPath: process.env.FRAMEKIT_SILERO_VAD_MODEL?.trim() && process.env.FRAMEKIT_SILERO_VAD_SHA256?.trim()
-        ? process.env.FRAMEKIT_SILERO_VAD_MODEL.trim() : undefined,
-      speechVadModelAssetSha256: process.env.FRAMEKIT_SILERO_VAD_MODEL?.trim() && process.env.FRAMEKIT_SILERO_VAD_SHA256?.trim()
-        ? process.env.FRAMEKIT_SILERO_VAD_SHA256.trim().toLowerCase() : undefined,
+      speechVadModelAssetPath: process.env.FRAMEKIT_SILERO_VAD_MODEL?.trim() || undefined,
+      speechVadModelAssetSha256: process.env.FRAMEKIT_SILERO_VAD_SHA256?.trim().toLowerCase() || undefined,
       speechRequireVad: process.env.FRAMEKIT_SPEECH_REQUIRE_VAD === "1",
       audioCommand: process.env.FRAMEKIT_AUDIO_ANALYZER,
       audioProviderVersion: process.env.FRAMEKIT_AUDIO_ANALYZER_VERSION,

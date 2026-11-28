@@ -102,6 +102,35 @@ test("provider preflight distinguishes empty activity from unavailable detection
   }
 });
 
+test("provider preflight preserves a safe audio rejection code without unfiltered details", async t => {
+  for (const [reason, expected] of [["AUDIO_SILENT", "AUDIO_SILENT"], ["private diagnostic /secret", "provider-rejected-audio"]]) {
+    const report = await runAnalysisProviderPreflight({ fixtures: await fixtures(t), audioAnalyzer: {
+      ...audio, analyze: async (_input, range) => ({ integratedLufs: -18, truePeakDb: -1, silenceMs: 0,
+        measuredRange: range, valid: false, invalidReason: reason }),
+    } });
+    assert.equal(report.status, "blocked");
+    for (const asset of report.assets) assert.equal(asset.audio.reason, expected);
+  }
+});
+
+for (const missing of ["model", "hash"] as const) test(`provider preflight CLI rejects VAD configuration missing ${missing}`, async t => {
+  const directory = await fixtures(t);
+  let diagnostic = "";
+  const code = await new Promise<number | null>((resolve, reject) => {
+    const child = spawn(process.execPath, ["--import", "tsx", "scripts/run-analysis-provider-preflight.ts", "--fixtures", directory, "--output", join(directory, "report.json")], {
+      env: { ...process.env, FRAMEKIT_SPEECH_ANALYZER: "", FRAMEKIT_AUDIO_ANALYZER: "",
+        FRAMEKIT_SPEECH_MODEL_ASSET_PATH: undefined, FRAMEKIT_SPEECH_MODEL_ASSET_SHA256: undefined,
+        FRAMEKIT_SILERO_VAD_MODEL: missing === "model" ? undefined : join(directory, "model"),
+        FRAMEKIT_SILERO_VAD_SHA256: missing === "hash" ? undefined : "a".repeat(64) },
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    child.stderr.on("data", chunk => { diagnostic += String(chunk); });
+    child.once("error", reject); child.once("close", resolve);
+  });
+  assert.equal(code, 1);
+  assert.match(diagnostic, /ANALYZER_SETUP_REQUIRED/);
+});
+
 test("provider preflight CLI honors required VAD provenance", async t => {
   const directory = await fixtures(t);
   const command = join(directory, "incomplete-provider.mjs"), output = join(directory, "report.json");
