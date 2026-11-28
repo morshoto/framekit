@@ -274,3 +274,17 @@ test("retains a VAD-observed word omitted by the transcript at a real conversati
   assert.ok(plan.candidates[0]!.sourceRange.end < 42.68, "the candidate must end before the independently timed missing word");
   assert.ok(plan.warnings.some((warning) => /uncertain.*listening/i.test(warning)));
 });
+
+test("reports a possible spoken correction for review without proposing its removal", () => {
+  const words = [
+    { text: "Tuesday,", start: 1, end: 1.5, confidence: 0.99 },
+    { text: "no", start: 1.6, end: 1.8, confidence: 0.72 },
+    { text: "Wednesday", start: 1.9, end: 2.5, confidence: 0.99 },
+  ];
+  const analysis = { ...input.analysis, words, vadSegments: [{ kind: "speech" as const, start: 0.8, end: 2.6 }] };
+  const result = rankNarrativeCuts({ ...input, analysis });
+  assert.equal(result.candidates.length, 0);
+  assert.ok(result.warnings.some((warning) => /possible spoken correction/i.test(warning) && /21\.6/.test(warning) && /review/i.test(warning)));
+  const negation = rankNarrativeCuts({ ...input, analysis: { ...analysis, words: [{ ...words[0]!, text: "is" }, words[1]!, { ...words[2]!, text: "problem" }] } });
+  assert.equal(negation.warnings.some((warning) => /possible spoken correction/i.test(warning)), false);
+});
