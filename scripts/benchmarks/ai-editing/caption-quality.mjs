@@ -29,6 +29,16 @@ export function assessHumanTarget(reference, words, tolerance) {
   return {status:Math.abs(startError)<=tolerance+1e-9 && Math.abs(endError)<=tolerance+1e-9 ? 'within-tolerance' : 'outside-tolerance',startErrorSeconds:startError,endErrorSeconds:endError,confidence:word.confidence};
 }
 
+/** Keep every fixed target in the denominator and mark incomplete runs unavailable. */
+export function summarizeHumanTargets(rows, minimumFraction) {
+  if (!Array.isArray(rows) || !rows.length || !Number.isFinite(minimumFraction) || minimumFraction<0 || minimumFraction>1) throw new Error('Invalid target summary');
+  const allowed=['within-tolerance','outside-tolerance','missing','ambiguous','coverage-unavailable','backend-error'];
+  const counts=Object.fromEntries(allowed.map((key)=>[key,0]));
+  for (const row of rows) { if (!allowed.includes(row?.status)) throw new Error('Invalid target status'); counts[row.status]++; }
+  const total=rows.length, withinTolerance=counts['within-tolerance'], withinFraction=withinTolerance/total;
+  return {status:counts['coverage-unavailable'] || counts['backend-error'] ? 'unavailable' : withinFraction>=minimumFraction ? 'pass' : 'fail',total,withinTolerance,withinFraction,counts};
+}
+
 /** Word error rate with case and outer punctuation normalized; no semantic equivalence is assumed. */
 export function compareTranscript(reference, hypothesis) {
   const expected = normalizeWords(reference);

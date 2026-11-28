@@ -134,6 +134,23 @@ test('pins the human-checked target sample and tolerance before inference', asyn
   assert.match(c.limitation,/read speech/i);
 });
 
+test('human timing summary counts missing, ambiguous and unavailable targets', async () => {
+  const { summarizeHumanTargets } = await import('../../../scripts/benchmarks/ai-editing/caption-quality.mjs');
+  const x=summarizeHumanTargets([{status:'within-tolerance'},{status:'outside-tolerance'},{status:'missing'},{status:'ambiguous'},{status:'coverage-unavailable'}],0.95);
+  assert.equal(x.total,5);
+  assert.equal(x.withinTolerance,1);
+  assert.equal(x.withinFraction,0.2);
+  assert.equal(x.status,'unavailable');
+  assert.equal(summarizeHumanTargets([{status:'within-tolerance'},{status:'missing'}],0.95).status,'fail');
+  assert.throws(()=>summarizeHumanTargets([{status:'unknown'}],0.95),/status/i);
+});
+
+test('human timing runner verifies the parquet before running an extractor', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const runner=new URL('../../../scripts/benchmarks/ai-editing/run-human-timing.mjs',import.meta.url);
+  assert.throws(()=>execFileSync(process.execPath,[fileURLToPath(runner),'/missing/parquet','python'],{stdio:'pipe'}),/ENOENT/);
+});
+
 test('approved caption probe verifies its input before creating a new output directory', async () => {
   const { mkdtemp, writeFile, stat, rm } = await import('node:fs/promises');
   const { createHash } = await import('node:crypto');
