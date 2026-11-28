@@ -290,6 +290,11 @@ test("suggests a long reviewed pause with partially aligned adjacent VAD", () =>
   assert.ok(candidate.sourceRange.start >= 3.142 && candidate.sourceRange.end <= 7.0);
   assert.ok(candidate.confidence <= 0.5 && candidate.reviewRequired);
   assert.ok(plan.warnings.some((warning) => /partial.*review/i.test(warning)));
+  const tooLittleCorroboration = { ...partial, analysis: { ...partial.analysis,
+    words: [partial.analysis.words[0]!, { text: "Go", start: 7.2, end: 7.28, confidence: 0.98 }],
+    vadSegments: [partial.analysis.vadSegments[0]!, { kind: "speech" as const, start: 7.25, end: 9.566 }],
+  } };
+  assert.equal(rankNarrativeCuts(tooLittleCorroboration).candidates.length, 0, "very small overlaps must not corroborate speech");
   const protectedInput = { ...partial, analysis: { ...partial.analysis, protectedSegments: [{ kind: "speech" as const, start: 4, end: 5 }] } };
   assert.equal(rankNarrativeCuts(protectedInput).candidates.length, 0);
   const conflicting = { ...partial, analysis: { ...partial.analysis, vadSegments: [partial.analysis.vadSegments[0]!,
