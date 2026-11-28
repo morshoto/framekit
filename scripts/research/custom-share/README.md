@@ -16,6 +16,8 @@ This is not yet a functional custom Share destination. Apple documents an app bu
 
 The Node experiments model strict callback ordering, output hashes and journals. Their generated IDs and event semantics are mock assumptions. Both implementations remain unable to authenticate the native sender or bind the callback to an exact Final Cut target/revision, and the earlier Node race and durability limits remain. No result here clears a reservation or demonstrates native operation completion.
 
+Apple's [response protocol](https://developer.apple.com/documentation/professional-video-applications/responding-to-apple-events-from-final-cut-pro) describes an app-supplied `com.apple.proapps.share.id` share-metadata value that Final Cut includes in exported media files for tracking. This is a possible future correlation input, not a documented callback token, authenticated sender, unique project identity or revision digest. The documentation does not establish its availability in an FCPXML-only export, persistence through every format, resistance to copied metadata, or a safe retry/fencing protocol. The same documentation says Final Cut updates the shared project with returned share metadata. Consequently, do not test or enable this metadata path against an existing library under the present no-mutation constraint; even a future isolated native test needs an explicitly authorized, disposable target and operation. This is a documentation observation only: the fail-closed receiver does not return metadata, and no Final Cut operation was performed.
+
 To compile a temporary app without registering or launching it:
 
 ```sh
