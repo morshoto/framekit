@@ -134,3 +134,19 @@ test('manual milestone repair does not mutate closed, missing or fork PRs', asyn
   assert.equal(calls, 1);
  }
 });
+
+test('manual repair dispatch targets a PR without starting project backfill', async () => {
+ const { Parser, Lexer, Evaluator, data } = await import('@actions/expressions');
+ const workflow = readWorkflow('assign');
+ assert.equal(workflow.on.workflow_dispatch.inputs.pr_number.required, false);
+ const evaluate = (job, prNumber) => {
+  const source = workflow.jobs[job].if.replace(/^\s*\$\{\{|\}\}\s*$/g, '').trim();
+  const node = new Parser(new Lexer(source).lex().tokens, ['github'], []).parse();
+  const dict = (obj) => new data.Dictionary(...Object.entries(obj).map(([key, value]) => ({ key, value: typeof value === 'string' ? new data.StringData(value) : dict(value) })));
+  return new Evaluator(node, dict({ github: { event_name: 'workflow_dispatch', event: { inputs: { pr_number: prNumber }, pull_request: { head: { repo: { full_name: '' } } } }, repository: 'acme/framekit' } })).evaluate().coerceString() === 'true';
+ };
+ assert.equal(evaluate('sync-pull-request-milestone', '22'), true);
+ assert.equal(evaluate('sync-project-status', '22'), false);
+ assert.equal(evaluate('sync-pull-request-milestone', ''), false);
+ assert.equal(evaluate('sync-project-status', ''), true);
+});
