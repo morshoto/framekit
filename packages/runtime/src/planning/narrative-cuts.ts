@@ -123,6 +123,15 @@ export function rankNarrativeCuts(request: NarrativeCutRequest): NarrativeCutPla
   if (gaps.some((gap) => !validRange(gap))) {
     result.warnings.push("Visual gap evidence is invalid; no visual observations were used.");
   }
+  // A correction marker is a review cue, not evidence for a safe deletion range.
+  // Require preceding transcript punctuation and words on both sides.
+  for (let index = 1; index < words.length - 1; index++) {
+    const previous = words[index - 1]!;
+    const marker = words[index]!;
+    if (!/[,，]$/u.test(previous.word.text.trim()) || !/^no[,，]?$/iu.test(marker.word.text.trim())) continue;
+    const sequenceSeconds = request.sequenceRange.start + marker.sourceRange.start - request.sourceRange.start;
+    result.warnings.push(`Possible spoken correction near sequence ${sequenceSeconds.toFixed(3)} s; review the surrounding speech. No correction cut was proposed.`);
+  }
   let lowConfidenceBoundary = false;
   let shortObservedPause = false;
   for (let index = 0; index < words.length - 1; index++) {

@@ -132,7 +132,7 @@ caption grouping options, and music placement and context options. Pass the
 appropriate. The server loads the current project and accepted brief; it
 rejects stale targets, mismatched configured analyzer descriptors, missing or
 changed pinned evidence, relevant changes to
-the current analysis index, and brief or project changes observed during planning. Review the returned decisions and warnings. If no safe cut is proposed, warnings can identify low-confidence words or a VAD-bounded pause that is too short; they are not proof that all speech was recognized.
+the current analysis index, and brief or project changes observed during planning. Review the returned decisions and warnings. If no safe cut is proposed, warnings can identify low-confidence words or a VAD-bounded pause that is too short; they are not proof that all speech was recognized. A warning may also flag a possible spoken correction when a recognized “no” follows a comma; it is a heuristic for review, can be wrong, and does not propose a correction cut.
 To correct a recognized word in the caption proposal, supply
 `caption.wordCorrections` entries with the transcript `wordIndex` and replacement
 `text`. The plan keeps the original text, timing and analysis reference visible;
