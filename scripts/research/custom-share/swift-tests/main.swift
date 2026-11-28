@@ -79,6 +79,16 @@ let desired = made.specifier.descriptor?.forKeyword(AEKeyword(keyAEDesiredClass)
 require(desired?.typeCodeValue == OSType(0x61736574), "desired class was not asset")
 require(made.specifier.descriptor?.forKeyword(AEKeyword(keyAEKeyForm))?.typeCodeValue == OSType(formUniqueID), "wrong specifier form")
 require(made.specifier.descriptor?.forKeyword(AEKeyword(keyAEKeyData))?.stringValue == made.asset.uniqueID, "descriptor id mismatch")
+let testContainer = ResearchTestContainer([firstAsset, secondAsset])
+NSClassDescription.register(description, for: ResearchTestContainer.self)
+let firstSpecifier = NSUniqueIDSpecifier(containerClassDescription: description, containerSpecifier: nil, key: "assets", uniqueID: firstAsset.uniqueID)
+let resolved = firstSpecifier.objectsByEvaluating(withContainers: testContainer) as? ResearchAsset
+require(resolved === firstAsset, "specifier did not resolve the exact test asset")
+let unknownSpecifier = NSUniqueIDSpecifier(containerClassDescription: description, containerSpecifier: nil, key: "assets", uniqueID: "missing")
+require(unknownSpecifier.objectsByEvaluating(withContainers: testContainer) == nil, "unknown id resolved")
+let duplicateContainer = ResearchTestContainer([firstAsset, firstAsset])
+let duplicateSpecifier = NSUniqueIDSpecifier(containerClassDescription: description, containerSpecifier: nil, key: "assets", uniqueID: firstAsset.uniqueID)
+require(duplicateSpecifier.objectsByEvaluating(withContainers: duplicateContainer) == nil, "duplicate id resolved")
 print("Specifier encodes synthetic asset class and identifier")
 let incomplete = NSScriptClassDescription(suiteName: "Research Share", className: "unbound", dictionary: ["AppleEventCode": "capp"])!
 if registry.makeSpecifier(name: "Unbound", containerDescription: incomplete) != nil {
