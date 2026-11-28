@@ -103,3 +103,8 @@ test('only explicit GraphQL queries are marked safe to retry', () => {
  assert.equal(isReadOnlyGraphQL('mutation Change { update { id } }'), false);
  assert.equal(isReadOnlyGraphQL('{ viewer { id } }'), false);
 });
+
+test('rejects malformed successful JSON rather than treating a write as successful', async () => {
+ const request = createGitHubRequestPolicy({ log: () => {}, fetchImpl: async () => new Response('not-json', { status: 200 }) });
+ await assert.rejects(request('https://api.github.com/test', { method: 'POST' }), /invalid-response/);
+});

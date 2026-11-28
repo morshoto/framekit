@@ -7,7 +7,7 @@ export function createGitHubRequestPolicy({ fetchImpl = fetch, sleep = (ms) => n
  let requests = 0;
  return async (url, options = {}, { readOnly = false, allowNotFound = false, graphql = false } = {}) => {
   for (let attempt = 1; ; attempt++) {
-   let response, payload, category;
+   let response, payload, category, invalidJson;
    const remaining = deadline - now();
    if (remaining <= 0) throw new Error('GITHUB_API_REQUEST_FAILED: deadline exhausted-or-deferred');
    const controller = new AbortController();
@@ -19,14 +19,14 @@ export function createGitHubRequestPolicy({ fetchImpl = fetch, sleep = (ms) => n
     const operation = (async () => {
      const result = await fetchImpl(url, { ...options, signal });
      if ((allowNotFound && result.status === 404) || result.status === 204) return { response: result, payload: null };
-     let json;
-     try { json = await result.json(); } catch { json = null; }
-     return { response: result, payload: json };
+     let json, invalid = false;
+     try { json = await result.json(); } catch { json = null; invalid = true; }
+     return { response: result, payload: json, invalidJson: invalid };
     })();
     const timeout = new Promise((_, reject) => {
      timer = setTimeout(() => { timedOut = true; controller.abort(); reject(new Error('deadline')); }, remaining);
     });
-    ({ response, payload } = await Promise.race([operation, timeout]));
+    ({ response, payload, invalidJson } = await Promise.race([operation, timeout]));
     if (allowNotFound && response.status === 404) return null;
     if (response.status === 204) return null;
     const message = typeof payload?.message === 'string' ? payload.message : '';
@@ -35,6 +35,7 @@ export function createGitHubRequestPolicy({ fetchImpl = fetch, sleep = (ms) => n
     else if (response.status === 401) category = 'authentication';
     else if (response.status >= 500 && response.status <= 599) category = 'server';
     else if (!response.ok) category = 'http';
+    else if (invalidJson || (graphql && (payload === null || typeof payload !== 'object' || !('data' in payload || 'errors' in payload)))) category = 'invalid-response';
     else if (graphql && payload?.errors?.length && payload.errors.every((error) => error.type === 'RATE_LIMITED')) category = 'rate-limit';
     else if (graphql && payload?.errors?.length) category = payload.errors.every((error) => /internal|service unavailable|something went wrong/i.test(error.message ?? '')) ? 'graphql-transient' : 'graphql';
     else return graphql ? payload?.data : payload;
