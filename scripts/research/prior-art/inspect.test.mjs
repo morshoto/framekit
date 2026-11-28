@@ -32,3 +32,12 @@ test('missing anchors remain unknown instead of proving absence', () => {
 test('rejects missing or non-text source inputs', () => {
   assert.throws(() => inspectSources({ ...sources, contents: null }), /invalid source/);
 });
+
+test('surfaces selected-item original-media and fallback anchors independently', () => {
+  const source = 'selectedClip = items[0];\nNSSelectorFromString(@"originalMediaURL")\nNSSelectorFromString(@"currentRep")';
+  const report = inspectSources({ ...sources, server: source });
+  assert.equal(report.anchors.selectedFirst, true);
+  assert.equal(report.anchors.originalMediaUrl, true);
+  assert.equal(report.anchors.currentRepresentation, true);
+  assert.equal(report.runtimeVerified, false);
+});
