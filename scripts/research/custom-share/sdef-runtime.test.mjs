@@ -9,12 +9,12 @@ import { promisify } from 'node:util';
 const run = promisify(execFile);
 const here = new URL('./sdef-runtime/', import.meta.url).pathname;
 
-async function exercise(t, writableName = false, useDelegate = false) {
+async function exercise(t, writableName = false, useDelegate = false, fileDelegate = false) {
   const dir = await mkdtemp(join(tmpdir(), 'framekit-sdef-runtime-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const shareDir = useDelegate ? await realpath(dir) : undefined;
   if (shareDir) await writeFile(join(shareDir, 'Synthetic.fcpxml'), '<fcpxml version="1.11"/>', { flag: 'wx' });
-  const testEnv = { ...process.env, FRAMEKIT_TEST_USE_DELEGATE: useDelegate ? '1' : '0', FRAMEKIT_TEST_SHARE_DIR: shareDir ?? '/synthetic/share-output' };
+  const testEnv = { ...process.env, FRAMEKIT_TEST_USE_DELEGATE: useDelegate ? (fileDelegate ? 'file' : '1') : '0', FRAMEKIT_TEST_SHARE_DIR: shareDir ?? '/synthetic/share-output' };
   const contents = join(dir, 'Mock.app', 'Contents');
   await mkdir(join(contents, 'MacOS'), { recursive: true });
   await mkdir(join(contents, 'Resources'));
@@ -57,9 +57,11 @@ async function exercise(t, writableName = false, useDelegate = false) {
       t.diagnostic(stderr);
       assert.match(error.stderr ?? '', /errAETimeout/);
       if (useDelegate && /make-response-received/.test(error.stderr ?? '')) {
-        assert.match(stderr, /MOCK DELEGATE OPEN INVOKED/);
-        assert.match(stderr, /MOCK DELEGATE HAS CURRENT REPLY/);
-        assert.match(stderr, /MOCK DELEGATE FILE EXISTS/);
+        assert.match(stderr, /MOCK MAKE COMMAND INVOKED/);
+        const afterMake = stderr.split('MOCK MAKE COMMAND INVOKED').slice(1).join('MOCK MAKE COMMAND INVOKED');
+        assert.match(afterMake, fileDelegate ? /MOCK FILE DELEGATE OPEN INVOKED/ : /MOCK DELEGATE OPEN INVOKED/);
+        assert.match(afterMake, /MOCK DELEGATE HAS CURRENT REPLY/);
+        assert.match(afterMake, /MOCK DELEGATE FILE EXISTS/);
         t.diagnostic('delegate invoked but synthetic open reply timed out; result inconclusive');
         return;
       }
@@ -72,7 +74,7 @@ async function exercise(t, writableName = false, useDelegate = false) {
     assert.equal(make.stdout.trim(), 'make:asset-1:get:Synthetic:location:reco:metadata:verified:unknown-rejected:open:asset-1:open-unknown-rejected');
     assert.match(stderr, /MOCK MAKE COMMAND INVOKED/);
     if (useDelegate) {
-      assert.match(stderr, /MOCK DELEGATE OPEN INVOKED/);
+      assert.match(stderr, fileDelegate ? /MOCK FILE DELEGATE OPEN INVOKED/ : /MOCK DELEGATE OPEN INVOKED/);
       assert.match(stderr, /MOCK DELEGATE FILE EXISTS/);
     }
     else {
@@ -95,3 +97,4 @@ async function exercise(t, writableName = false, useDelegate = false) {
 test('characterizes Cocoa scripting in an uninstalled test app', { skip: process.platform !== 'darwin', timeout: 15000 }, t => exercise(t));
 test('characterizes make with a writable name property', { skip: process.platform !== 'darwin', timeout: 15000 }, t => exercise(t, true));
 test('characterizes Cocoa application delegate open callback', { skip: process.platform !== 'darwin', timeout: 15000 }, t => exercise(t, false, true));
+test('characterizes Cocoa application openFile callback', { skip: process.platform !== 'darwin', timeout: 15000 }, t => exercise(t, false, true, true));

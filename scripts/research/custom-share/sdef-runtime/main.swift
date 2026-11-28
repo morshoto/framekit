@@ -5,6 +5,7 @@ import Carbon
 import Darwin
 
 let testShareDirectory = ProcessInfo.processInfo.environment["FRAMEKIT_TEST_SHARE_DIR"] ?? "/synthetic/share-output"
+let testDelegateMode = ProcessInfo.processInfo.environment["FRAMEKIT_TEST_USE_DELEGATE"] ?? "0"
 func testSharePath(_ name: String) -> String {
     URL(fileURLWithPath: testShareDirectory, isDirectory: true).appendingPathComponent("\(name).fcpxml").path
 }
@@ -73,7 +74,7 @@ enum MockStore { static var assets: [MockAsset] = [] }
 extension NSApplication {
     @objc dynamic var assets: [MockAsset] { MockStore.assets }
     @objc(valueInAssetsWithUniqueID:) func asset(withID id: String) -> MockAsset? {
-        if let receiver = Receiver.active, ProcessInfo.processInfo.environment["FRAMEKIT_TEST_USE_DELEGATE"] != "1" {
+        if let receiver = Receiver.active, testDelegateMode == "0" {
             Receiver.reportRegistration("before-reregister")
             if ProcessInfo.processInfo.environment["FRAMEKIT_TEST_NO_REREGISTER"] != "1" {
                 NSAppleEventManager.shared().setEventHandler(receiver, andSelector: #selector(Receiver.ping(_:withReplyEvent:)),
@@ -157,6 +158,20 @@ final class MockDelegate: NSObject, NSApplicationDelegate {
         application.reply(toOpenOrPrint: .success)
     }
 }
+final class MockFileDelegate: NSObject, NSApplicationDelegate {
+    func application(_ application: NSApplication, openFile filename: String) -> Bool {
+        fputs("MOCK FILE DELEGATE OPEN INVOKED\n", stderr)
+        guard let reply = NSAppleEventManager.shared().currentReplyAppleEvent else { return false }
+        fputs("MOCK DELEGATE HAS CURRENT REPLY\n", stderr)
+        if FileManager.default.fileExists(atPath: filename) { fputs("MOCK DELEGATE FILE EXISTS\n", stderr) }
+        let matches = MockStore.assets.filter { filename == testSharePath($0.name) }
+        guard matches.count == 1, let description = NSScriptClassDescription(for: NSApplication.self),
+              let descriptor = NSUniqueIDSpecifier(containerClassDescription: description, containerSpecifier: nil,
+                  key: "assets", uniqueID: matches[0].uniqueID).descriptor else { return false }
+        reply.setParam(descriptor, forKeyword: AEKeyword(keyDirectObject))
+        return true
+    }
+}
 let args = CommandLine.arguments
 if args.count == 2 && args[1] == "conversion-control" {
     let unsupported: NSDictionary = ["synthetic": 42]
@@ -219,19 +234,21 @@ if args.count == 2 && args[1] == "conversion-control" {
     app.setActivationPolicy(.prohibited)
     let receiver = Receiver()
     let delegate = MockDelegate()
-    if ProcessInfo.processInfo.environment["FRAMEKIT_TEST_USE_DELEGATE"] == "1" { app.delegate = delegate }
+    let fileDelegate = MockFileDelegate()
+    if testDelegateMode == "1" { app.delegate = delegate }
+    if testDelegateMode == "file" { app.delegate = fileDelegate }
     Receiver.active = receiver
     DispatchQueue.main.async {
         NSAppleEventManager.shared().setEventHandler(receiver, andSelector: #selector(Receiver.ping(_:withReplyEvent:)),
             forEventClass: AEEventClass(kCoreEventClass), andEventID: AEEventID(0x666b7069))
-        if ProcessInfo.processInfo.environment["FRAMEKIT_TEST_USE_DELEGATE"] != "1" {
+        if testDelegateMode == "0" {
             NSAppleEventManager.shared().setEventHandler(receiver, andSelector: #selector(Receiver.ping(_:withReplyEvent:)),
                 forEventClass: AEEventClass(kCoreEventClass), andEventID: AEEventID(kAEOpenDocuments))
             Receiver.reportRegistration("initial")
         }
         print("ready"); fflush(stdout)
     }
-    withExtendedLifetime((receiver, delegate)) { app.run() }
+    withExtendedLifetime((receiver, delegate, fileDelegate)) { app.run() }
 } else if args.count == 4 && args[1] == "send", let target = Int32(args[2]), target > 0, ["ping", "make", "make-properties"].contains(args[3]) {
     var path = [CChar](repeating: 0, count: 4096)
     let length = proc_pidpath(target, &path, UInt32(path.count))
