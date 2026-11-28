@@ -136,6 +136,9 @@ test('caption probe binds and checks recognized words without asserting speech t
     assert.equal(result.lowConfidenceWords,1);
     assert.equal(result.renderedTextStatus,'unavailable');
     assert.equal(result.transcriptionAccuracy,'unavailable');
+    assert.equal(result.captionGroups, undefined);
+    const renderInput = await probeCaptionPlan(media,revision,provider,output,{includeGroups:true});
+    assert.equal(renderInput.captionGroups[0].lines[0], 'Hello');
   } finally { await rm(directory,{recursive:true,force:true}); }
 });
 
