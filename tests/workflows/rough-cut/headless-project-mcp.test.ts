@@ -2356,7 +2356,6 @@ test("production stdio MCP persists and reopens the headless project and render 
     const reopenedRender = payload(await client.callTool({ name: "headless.render.inspect", arguments: { renderId: render.renderId } }));
     assert.equal(reopenedRender.status, "passed");
     assert.equal(reopenedRender.outcome.render.projectRevision.id, finished.after.timeline.revision.id);
-
   } finally {
     await client?.close();
     await transport?.close();
