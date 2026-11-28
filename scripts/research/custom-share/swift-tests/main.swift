@@ -67,8 +67,19 @@ require(firstAsset.value(forKey: "metadata") is NSDictionary, "KVC metadata unav
 require(firstAsset.value(forKey: "dataOptions") is NSDictionary, "KVC data options unavailable")
 print("Swift mock asset, callback controls and fail-closed Apple Event handler passed")
 
-let description = NSScriptClassDescription(suiteName: "Research Share", className: "application", dictionary: [:])!
+let assetDescription = NSScriptClassDescription(suiteName: "Research Share", className: "ResearchAsset", dictionary: ["AppleEventCode": "aset"])!
+NSScriptSuiteRegistry.shared().register(assetDescription)
+let description = NSScriptClassDescription(suiteName: "Research Share", className: "application", dictionary: ["AppleEventCode": "capp", "ToManyRelationships": ["assets": ["AppleEventCode": "aset", "Type": "ResearchAsset"]]])!
 let made = registry.makeSpecifier(name: "New Asset", containerDescription: description)!
 require(made.specifier.key == "assets", "specifier container key mismatch")
 require(made.specifier.uniqueID as? String == made.asset.uniqueID, "specifier does not bind asset id")
 require(registry.makeSpecifier(name: "../escape", containerDescription: description) == nil, "invalid make accepted")
+require(made.specifier.descriptor?.descriptorType == DescType(typeObjectSpecifier), "object specifier descriptor missing")
+let desired = made.specifier.descriptor?.forKeyword(AEKeyword(keyAEDesiredClass))
+require(desired?.typeCodeValue == OSType(0x61736574), "desired class was not asset")
+print("Specifier encodes synthetic asset class and identifier")
+let incomplete = NSScriptClassDescription(suiteName: "Research Share", className: "unbound", dictionary: ["AppleEventCode": "capp"])!
+if registry.makeSpecifier(name: "Unbound", containerDescription: incomplete) != nil {
+    fputs("unbound desired class must be rejected\n", stderr)
+    exit(1)
+}
