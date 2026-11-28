@@ -115,3 +115,25 @@ test('pins the talking-head interview and a fixed evaluation window', async () =
   assert.deepEqual(asset.windowSeconds, [0,30]);
   assert.equal(asset.referenceText, 'unavailable');
 });
+
+test('caption probe binds and checks recognized words without asserting speech truth', async () => {
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const { createHash } = await import('node:crypto');
+  const { probeCaptionPlan } = await import('../../../scripts/benchmarks/ai-editing/caption-plan-probe.mjs');
+  const directory = await mkdtemp(join(tmpdir(),'framekit-caption-probe-'));
+  try {
+    const path = join(directory,'sample.mp4'); const bytes = Buffer.from('sample'); await writeFile(path,bytes);
+    const media = {mediaId:'clip',source:path,sourceDigest:createHash('sha256').update(bytes).digest('hex'),mediaKind:'video',duration:30};
+    const revision = {id:'r1',sequence:1,timestamp:'2026-01-01T00:00:00.000Z'};
+    const provider = {id:'speech',provider:'command',version:'1',model:'model',configurationDigest:'config'};
+    const output = {words:[{text:'Hello',start:1,end:1.5,confidence:0.7}],requestedRange:{start:0,end:30},observedRange:{start:0,end:30}};
+    const result = await probeCaptionPlan(media,revision,provider,output);
+    assert.equal(result.planStatus,'available');
+    assert.equal(result.assessment.status,'pass');
+    assert.equal(result.lowConfidenceWords,1);
+    assert.equal(result.renderedTextStatus,'unavailable');
+    assert.equal(result.transcriptionAccuracy,'unavailable');
+  } finally { await rm(directory,{recursive:true,force:true}); }
+});
