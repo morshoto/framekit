@@ -107,7 +107,7 @@ export function assessCaptionPlan(words, groups, frameDuration) {
   if (!Array.isArray(words) || !words.length || !Array.isArray(groups)) return unavailable;
   if (!Number.isFinite(frameDuration) || frameDuration <= 0) throw new Error('Invalid frame duration');
   const counts = Array(words.length).fill(0);
-  let timingFailures = 0, malformed = 0, previousEnd = 0;
+  let timingFailures = 0, textMismatches = 0, malformed = 0, previousEnd = 0;
   for (const group of groups) {
     const range = group?.sequenceRange;
     if (!range || !Number.isFinite(range.start) || !Number.isFinite(range.end) || range.start < previousEnd - 1e-9 || range.end <= range.start || !Array.isArray(group.words)) { malformed++; continue; }
@@ -117,13 +117,14 @@ export function assessCaptionPlan(words, groups, frameDuration) {
       if (!Number.isSafeInteger(index) || index < 0 || index >= words.length) { malformed++; continue; }
       counts[index]++;
       const word = words[index];
+      if (item.text !== word.text) textMismatches++;
       if (!Number.isFinite(word.start) || !Number.isFinite(word.end) || word.end <= word.start) { malformed++; continue; }
       if (range.start > word.start + frameDuration + 1e-9 || range.end < word.end - frameDuration - 1e-9) timingFailures++;
     }
   }
   const missingWords = counts.filter((count) => count === 0).length;
   const duplicateWords = counts.filter((count) => count > 1).length;
-  return {status:missingWords || duplicateWords || timingFailures || malformed ? 'fail' : 'pass',
-    referenceWords:words.length,missingWords,duplicateWords,timingFailures,malformed,
+  return {status:missingWords || duplicateWords || timingFailures || textMismatches || malformed ? 'fail' : 'pass',
+    referenceWords:words.length,missingWords,duplicateWords,timingFailures,textMismatches,malformed,
     toleranceSeconds:frameDuration,renderedTextStatus:'unavailable'};
 }
