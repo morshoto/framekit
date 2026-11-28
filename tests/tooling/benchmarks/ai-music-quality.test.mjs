@@ -79,3 +79,11 @@ test('speech proxy runner checks media identity before recognition', async () =>
   const runner = new URL('../../../scripts/benchmarks/ai-editing/run-speech-proxy.mjs', import.meta.url);
   assert.throws(() => execFileSync(process.execPath,[runner.pathname,'/missing/a','/missing/b','python'],{stdio:'pipe'}), /ENOENT/);
 });
+
+test('allows explicit bounded gain for an exploratory comparison', async () => {
+  const { selectedGain } = await import('../../../scripts/benchmarks/ai-editing/music-quality.mjs');
+  assert.equal(selectedGain(undefined, -24), -24);
+  assert.equal(selectedGain('-36', -24), -36);
+  assert.throws(() => selectedGain('1', -24), /gain/i);
+  assert.throws(() => selectedGain('bad', -24), /gain/i);
+});
