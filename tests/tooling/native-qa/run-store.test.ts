@@ -23,7 +23,8 @@ import { inspectQaPublisher, inspectQaPublisherFromStore } from "../../../script
 import { verifyQaPublisherFixture, readQaPublisherFixtureEvidence } from "../../../scripts/native-qa/publisher-fixture-evidence.js";
 import { verifyQaPublisherSources, readQaPublisherSourceEvidence } from "../../../scripts/native-qa/publisher-source-evidence.js";
 import { recordQaPublisherStage, readQaPublisherStages } from "../../../scripts/native-qa/publisher-stages.js";
-import { publisherTargetDigest, resumeSupervisedQaPublisherVerification, runSupervisedQaPublisher } from "../../../scripts/native-qa/publisher-supervision.js";
+import { publisherTargetDigest } from "../../../scripts/native-qa/publisher-supervision.js";
+import { resumeSupervisedQaPublisherVerification, runSupervisedQaPublisher } from "../../support/native-qa-publisher-harness.js";
 import { readQaEvidenceBundle } from "../../../scripts/native-qa/evidence-bundle.js";
 import { readQaPublisherObservation, startQaPublisherObservation } from "../../../scripts/native-qa/publisher-observation.js";
 import { ScriptedNativeReceiver } from "../../support/simulated-native-receiver.js";
@@ -152,6 +153,7 @@ test("detached simulation ignores a configured native receiver socket", async ()
   const root = await mkdtemp(join(tmpdir(), "fk-sim-socket-"));
   const socket = join(root, "receiver.sock");
   let connections = 0;
+  let injectedCalls = 0;
   const server = createServer((connection) => { connections++; connection.destroy(); });
   const previous = { socket: process.env.FRAMEKIT_FINAL_CUT_SOCKET, editor: process.env.FRAMEKIT_EDITOR,
     writes: process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES, auto: process.env.FRAMEKIT_AUTO_CONNECT };
@@ -163,7 +165,10 @@ test("detached simulation ignores a configured native receiver socket", async ()
     process.env.FRAMEKIT_FINAL_CUT_NATIVE_WRITES = "1";
     process.env.FRAMEKIT_AUTO_CONNECT = "1";
     const spec = { artifactPath: fixture.artifact, target: publisherTarget, mode: "pending" as const };
-    assert.equal((await startQaPublisherSimulation(root, fixture.bound, spec)).scheduled, true);
+    const injectedPublisher = async () => { injectedCalls++; throw new Error("unexpected publisher"); };
+    const injectedNoopGate = async () => { injectedCalls++; };
+    const started = await Reflect.apply(startQaPublisherSimulation, undefined, [root, fixture.bound, spec, injectedPublisher, injectedNoopGate]);
+    assert.equal(started.scheduled, true);
     let result: Awaited<ReturnType<typeof readQaPublisherSimulation>> | undefined;
     for (let i = 0; i < 200; i++) {
       result = await readQaPublisherSimulation(root, fixture.bound.qaRunId);
@@ -173,6 +178,7 @@ test("detached simulation ignores a configured native receiver socket", async ()
     assert.equal(result?.status, "verification-pending");
     assert.equal(result?.dispatchAllowed, false);
     assert.equal(connections, 0);
+    assert.equal(injectedCalls, 0);
   } finally {
     for (const [key, value] of Object.entries({ FRAMEKIT_FINAL_CUT_SOCKET: previous.socket, FRAMEKIT_EDITOR: previous.editor,
       FRAMEKIT_FINAL_CUT_NATIVE_WRITES: previous.writes, FRAMEKIT_AUTO_CONNECT: previous.auto })) {
@@ -239,7 +245,12 @@ test("detached publisher observation rejects inherited Node preloads", async () 
   }
 });
 
-test("simulation runs cannot use a supplied publisher callback", async () => {
+test("headless QA exposes no caller-controlled publisher or verification seam", async () => {
+  const production = await import("../../../scripts/native-qa/publisher-supervision.js");
+  assert.deepEqual(Object.keys(production).sort(), ["publisherTargetDigest", "readQaPublisherVerificationClaim", "runSupervisedQaPublisherSimulation"]);
+});
+
+test("test-only harness rejects publisher callbacks for simulation runs", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-simulation-native-route-"));
   try {
     const fixture = await createQaPublisherFixture(root, false);
@@ -1630,7 +1641,7 @@ test("simulated receiver acceptance survives a publisher process crash", async (
   const root = await mkdtemp(join(tmpdir(), "framekit-qa-acceptance-crash-"));
   const fixture = await createQaPublisherFixture(root);
   const script = `import { createOrInspectRun } from "./scripts/native-qa/run-store.ts";
-    import { runSupervisedQaPublisher } from "./scripts/native-qa/publisher-supervision.ts";
+    import { runSupervisedQaPublisher } from "./tests/support/native-qa-publisher-harness.ts";
     let text = ""; process.stdin.setEncoding("utf8"); for await (const chunk of process.stdin) text += chunk;
     const { manifest, artifact, entries } = JSON.parse(text); const root = process.argv[1]; await createOrInspectRun(root, manifest);
     const call = async name => {
