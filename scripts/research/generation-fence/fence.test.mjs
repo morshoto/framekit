@@ -81,10 +81,19 @@ test('killing a sender cannot retract work already handed to another process', a
 
 test('synthetic receiver checks target separately from matching generation', async t => {
   const paths = await setup(t);
+  const sentinel = `${paths.output}.unrelated`;
+  await writeFile(sentinel, 'untouched');
   const wrong = await startReceiver({ ...paths, generationId: '1', mode: 'target-check', target: 'project-b', allowedTarget: 'project-a' });
   assert.equal(await wrong.execute(), 'rejected-target');
   await assert.rejects(readFile(paths.output), { code: 'ENOENT' });
   const right = await startReceiver({ ...paths, generationId: '1', mode: 'target-check', target: 'project-a', allowedTarget: 'project-a' });
   assert.equal(await right.execute(), 'executed');
+  assert.equal(await readFile(paths.output, 'utf8'), 'target-check\n');
+  assert.equal(await readFile(sentinel, 'utf8'), 'untouched');
+  const missing = await startReceiver({ ...paths, generationId: '1', mode: 'target-check', allowedTarget: 'project-a' });
+  assert.equal(await missing.execute(), 'rejected-target');
+  await writeFile(paths.generation, '2');
+  const stale = await startReceiver({ ...paths, generationId: '1', mode: 'target-check', target: 'project-a', allowedTarget: 'project-a' });
+  assert.equal(await stale.execute(), 'rejected-stale');
   assert.equal(await readFile(paths.output, 'utf8'), 'target-check\n');
 });
