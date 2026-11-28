@@ -76,3 +76,34 @@ test('workflow conditions preserve behavior across issue and PR event fixtures',
  assert.equal(condition('assign-author', 'issues', 'opened'), true);
  assert.equal(condition('assign-author', 'issues', 'reopened'), false);
 });
+
+test('a later PR event repairs a milestone after an interrupted timeline read', async () => {
+ let interrupted = true;
+ let milestone = null;
+ let writes = 0;
+ const fetchImpl = async (input, init = {}) => {
+  const url = String(input);
+  if (url.endsWith('/issues/22') && init.method === 'PATCH') {
+   writes += 1;
+   milestone = JSON.parse(String(init.body)).milestone;
+   return jsonResponse({ number: 22, milestone: { number: milestone } });
+  }
+  if (url.endsWith('/issues/22')) return jsonResponse({ number: 22, pull_request: {}, milestone: milestone === null ? null : { number: milestone } });
+  if (url.endsWith('/issues/123')) return jsonResponse({ number: 123, milestone: { number: 21 } });
+  if (url.includes('/timeline?')) {
+   if (interrupted) throw new Error('simulated interruption');
+   return jsonResponse([{ event: 'cross-referenced', source: { issue: { number: 22, pull_request: {} } } }]);
+  }
+  throw new Error(`Unexpected request: ${url}`);
+ };
+ const { syncPullRequestMilestone } = await import('../../../scripts/sync-pr-milestone.mjs');
+ const jsonResponse = (value) => new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json' } });
+ const options = { repository: 'acme/framekit', pullRequestNumber: 22, body: 'Refs #123', token: 'test-token', fetchImpl, timelineRetryDelaysMs: [] };
+ await assert.rejects(syncPullRequestMilestone(options), /simulated interruption/);
+ assert.equal(milestone, null);
+ assert.equal(writes, 0);
+ interrupted = false;
+ assert.deepEqual(await syncPullRequestMilestone(options), { action: 'updated', milestoneNumber: 21 });
+ assert.equal(milestone, 21);
+ assert.equal(writes, 1);
+});
