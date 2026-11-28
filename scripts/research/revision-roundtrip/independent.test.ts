@@ -61,3 +61,24 @@ test('reconciliation reports a conflict when a structurally shifted clip was als
   assert.equal(result.merged, undefined);
   assert.ok(result.conflicts.some(conflict => conflict.kind === 'delete-modify-conflict'));
 });
+
+test('same-name insertion can redirect a rename through positional identity', async () => {
+  const original = (await readFile(fixture, 'utf8')).replace(/<audio ref="m"[^>]*\/>/, '');
+  const shifted = original.replace('name="Opening" offset="0s"', 'name="Opening" offset="1s"')
+    .replace('<spine>', '<spine><asset-clip ref="a" name="Opening" offset="0s" start="4s" duration="1s"/>')
+    .replace('duration="3s"><spine>', 'duration="4s"><spine>');
+  const parse = (value: string) => createTimelineIrFromProjectSnapshot(
+    FcpxmlDocumentAdapter.readProjectFromContent('/synthetic/independent.fcpxml', value),
+  );
+  const base = parse(original);
+  const ours = structuredClone(base);
+  ours.sequence.occurrences[0]!.name = 'Agent rename';
+  const theirs = parse(shifted);
+  theirs.revision = { id: 'synthetic-external', sequence: 1, timestamp: '2026-01-01T00:00:00.000Z' };
+  const result = reconcileTimelineIr({ base, ours, theirs });
+  assert.equal(result.status, 'rebased');
+  const renamed = result.merged?.sequence.occurrences.find(item => item.name === 'Agent rename');
+  assert.deepEqual(renamed?.sourceStartTime, { value: '4', timescale: '1' });
+  assert.deepEqual(base.sequence.occurrences[0]?.sourceStartTime, { value: '1', timescale: '1' });
+  assert.equal(result.conflicts.length, 0);
+});
