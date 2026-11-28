@@ -22,14 +22,14 @@ function canonical(claim) {
 }
 
 export function signFixtureClaim(claim, privateKey) {
-  if (privateKey?.asymmetricKeyType !== 'ed25519') throw new Error('invalid signing key');
+  if (privateKey?.type !== 'private' || privateKey?.asymmetricKeyType !== 'ed25519') throw new Error('invalid signing key');
   const payload = canonical(claim);
   return { payload, signature: sign(null, Buffer.from(payload), privateKey).toString('base64') };
 }
 
 export function createSignedRevisionB({ baseline, external, envelope, trustedKey, expectedProject, expectedTarget }) {
   if (!envelope || typeof envelope.payload !== 'string' || envelope.payload.length > 4096
-      || typeof envelope.signature !== 'string' || trustedKey?.asymmetricKeyType !== 'ed25519') throw new Error('invalid signature');
+      || typeof envelope.signature !== 'string' || trustedKey?.type !== 'public' || trustedKey?.asymmetricKeyType !== 'ed25519') throw new Error('invalid signature');
   const signature = Buffer.from(envelope.signature, 'base64');
   if (signature.length !== 64 || signature.toString('base64') !== envelope.signature
       || !verify(null, Buffer.from(envelope.payload), trustedKey, signature)) throw new Error('invalid signature');
