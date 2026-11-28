@@ -108,3 +108,15 @@ test('rejects malformed successful JSON rather than treating a write as successf
  const request = createGitHubRequestPolicy({ log: () => {}, fetchImpl: async () => new Response('not-json', { status: 200 }) });
  await assert.rejects(request('https://api.github.com/test', { method: 'POST' }), /invalid-response/);
 });
+
+test('reports partial label changes and refreshes issue state after an uncertain write', async () => {
+ const { createProjectStatusClient } = await import('../../../scripts/sync-project-status.mjs');
+ const calls = [];
+ const client = createProjectStatusClient({ repository: 'owner/repo', token: 'secret', fetchImpl: async (url, options) => {
+  calls.push([options.method, new URL(url).pathname]);
+  if (options.method === 'POST') throw new Error('connection lost after write');
+  return new Response(JSON.stringify({ number: 42, state: 'open', labels: [{ name: 'Status: Pending' }] }));
+ } });
+ await assert.rejects(client.setIssueStatusLabel({ number: 42, labels: [] }, 'Pending'), /PARTIAL_STATUS_SYNC.*desired/);
+ assert.deepEqual(calls.map(([method]) => method), ['POST', 'GET']);
+});

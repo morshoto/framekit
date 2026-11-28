@@ -181,11 +181,26 @@ export function createProjectStatusClient({
 
 	const setIssueStatusLabel = async (issue, status) => {
 		const changes = statusLabelChanges(issueLabels(issue), status);
-		if (changes.add.length) {
-			await rest(`/issues/${issue.number}/labels`, { method: 'POST', body: { labels: changes.add } });
-		}
-		for (const label of changes.remove) {
-			await rest(`/issues/${issue.number}/labels/${encodeURIComponent(label)}`, { method: 'DELETE' });
+		let completed = 0;
+		try {
+			if (changes.add.length) {
+				await rest(`/issues/${issue.number}/labels`, { method: 'POST', body: { labels: changes.add } });
+				completed += 1;
+			}
+			for (const label of changes.remove) {
+				await rest(`/issues/${issue.number}/labels/${encodeURIComponent(label)}`, { method: 'DELETE' });
+				completed += 1;
+			}
+		} catch {
+			// Observation is point-in-time only; never replay or overwrite a newer decision.
+			let observed = 'unavailable';
+			try {
+				const current = await rest(`/issues/${issue.number}`);
+				observed = !current ? 'unavailable' : current.state === 'closed' ? 'closed'
+					: statusLabelChanges(issueLabels(current), status).add.length === 0
+						&& statusLabelChanges(issueLabels(current), status).remove.length === 0 ? 'desired' : 'different';
+			} catch { /* Preserve the original partial failure. */ }
+			throw new Error(`PARTIAL_STATUS_SYNC: labels completed=${completed} observation=${observed}`);
 		}
 	};
 
