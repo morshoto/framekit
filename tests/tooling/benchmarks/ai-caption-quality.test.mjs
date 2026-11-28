@@ -174,3 +174,9 @@ test('records exact expected text and time for visual caption review', async () 
   assert.deepEqual(captionSampleMetadata({lines:['Hello','world'],sequenceRange:{start:1,end:2}}), {midpointSeconds:1.5,expectedLines:['Hello','world']});
   assert.throws(() => captionSampleMetadata({lines:[],sequenceRange:{start:2,end:1}}), /caption/i);
 });
+
+test('identifies recognized words with no frame-start sample', async () => {
+  const { sampleFreeWordIndices } = await import('../../../scripts/benchmarks/ai-editing/caption-quality.mjs');
+  assert.deepEqual(sampleFreeWordIndices([{start:0,end:0.01},{start:0.01,end:0.02},{start:1/30,end:2/30}],30),[1]);
+  assert.throws(() => sampleFreeWordIndices([{start:1,end:0.5}],30), /timing/i);
+});
