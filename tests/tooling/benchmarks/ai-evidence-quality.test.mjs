@@ -42,6 +42,17 @@ test('provider runner verifies source before invoking a model', async () => {
   assert.throws(() => execFileSync(process.execPath, [runner.pathname, '/missing/source', 'python'], {stdio:'pipe'}), /ENOENT/);
 });
 
+test('production evidence probe accepts only the expected typed rejection', async () => {
+  const { isEvidenceRejection } = await import('../../../scripts/benchmarks/ai-editing/evidence-quality.mjs');
+  const response = (isError, code) => ({isError,content:[{type:'text',text:JSON.stringify({code,message:code})}]});
+  assert.equal(isEvidenceRejection(response(true,'STALE_DECISION_PLAN'),'STALE_DECISION_PLAN'), true);
+  assert.equal(isEvidenceRejection(response(true,'MEDIA_CHANGED'),'MEDIA_CHANGED'), true);
+  assert.equal(isEvidenceRejection(response(true,'INPUT_INVALID'),'STALE_DECISION_PLAN'), false);
+  assert.equal(isEvidenceRejection(response(false,'STALE_DECISION_PLAN'),'STALE_DECISION_PLAN'), false);
+  assert.equal(isEvidenceRejection({isError:true,content:[{type:'text',text:'not json'}]},'MEDIA_CHANGED'), false);
+  assert.equal(isEvidenceRejection(response(true,'INPUT_INVALID'),'INPUT_INVALID'), false);
+});
+
 test('real-evidence probe detects changed bytes, provider, revision and incomplete coverage', async () => {
   const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises');
   const { join } = await import('node:path');

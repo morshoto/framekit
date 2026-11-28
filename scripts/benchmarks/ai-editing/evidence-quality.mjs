@@ -1,3 +1,10 @@
+/** Recognize the expected typed evidence failure, never an unrelated input error. */
+export function isEvidenceRejection(response, expected) {
+  if (!['STALE_DECISION_PLAN','MEDIA_CHANGED'].includes(expected) || response?.isError !== true || response.content?.[0]?.type !== 'text') return false;
+  try { return JSON.parse(response.content[0].text)?.code === expected; }
+  catch { return false; }
+}
+
 /** Screen an independently generated transcript against candidate cuts; never authorize an edit. */
 export function compareProviderCuts(candidates, sourceSha256, evidence) {
   const validRange = (value) => value && Number.isFinite(value.start) && Number.isFinite(value.end) && value.start >= 0 && value.end > value.start;
