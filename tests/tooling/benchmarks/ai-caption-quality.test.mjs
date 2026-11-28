@@ -40,3 +40,22 @@ test('screens AMI transcript ordering and leaves automatic timing unverified', a
   assert.equal(result.lowConfidenceWords, 1);
   assert.equal(result.timingStatus, 'unavailable');
 });
+
+test('reports automated boundary disagreement for matched words without asserting accuracy', async () => {
+  const { screenWordTiming } = await import('../../../scripts/benchmarks/ai-editing/caption-quality.mjs');
+  const ref = [
+    {text: 'Hello,', start: 1, end: 1.5},
+    {text: 'there', start: 2, end: 2.4},
+  ];
+  const predicted = [
+    {text: 'hello', start: 1.1, end: 1.6},
+    {text: 'different', start: 2, end: 2.4},
+  ];
+  const result = screenWordTiming(ref, predicted, 0.2);
+  assert.equal(result.matchedWords, 1);
+  assert.equal(result.withinTolerance, 1);
+  assert.equal(result.referenceWords, 2);
+  assert.equal(result.status, 'unavailable');
+  assert.equal(screenWordTiming(ref, [], 0.2).withinTolerance, 0);
+  assert.throws(() => screenWordTiming(ref, [{text: 'hello', start: 2, end: 1}], 0.2), /timing/i);
+});
