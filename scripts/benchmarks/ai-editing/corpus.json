@@ -126,7 +126,18 @@
         30
       ],
       "referenceText": "unavailable",
-      "designation": "Exploratory fixed first 30 seconds; no independently checked transcript or word boundaries."
+      "designation": "Exploratory fixed first 30 seconds; no independently checked transcript or word boundaries.",
+      "additionalWindowsSeconds": [
+        [
+          30,
+          60
+        ],
+        [
+          60,
+          90
+        ]
+      ],
+      "additionalWindowsDesignation": "Post hoc fixed consecutive windows to screen difficult caption boundaries; no independent word timing reference."
     }
   ]
 }
