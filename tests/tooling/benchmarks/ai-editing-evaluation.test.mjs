@@ -18,8 +18,8 @@ test('does not call unverified reference timing safe or count it as measured tru
   assert.equal(result.status, 'unavailable');
 });
 
-test('requires complete human-reviewed coverage before reporting a pass', () => {
-  const result = assessCuts([{start: 1, end: 2}], [], {coverage: 'partial'});
+test('requires reviewed ranges before reporting a pass', () => {
+  const result = assessCuts([{start: 1, end: 2}], []);
   assert.equal(result.status, 'unavailable');
 });
 

@@ -34,6 +34,7 @@ export async function parseAmiWords(xml, speaker) {
 export function screenAlignedCuts(candidates, offset, words) {
   if (!Number.isFinite(offset) || offset < 0) throw new Error('Invalid source offset');
   return candidates.map((candidate) => {
+    if (!candidate?.sourceRange) throw new Error('Invalid candidate range');
     const { start, end } = candidate.sourceRange;
     if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) throw new Error('Invalid candidate range');
     const sourceStart = start + offset;

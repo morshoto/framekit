@@ -53,6 +53,8 @@ test('compares chunk-relative proposals with source-relative reference words', a
   assert.equal(result[0].end, 62);
   assert.deepEqual(result[0].overlaps.map((word) => word.text), ['word']);
   assert.throws(() => screenAlignedCuts([{sourceRange: {start: 2, end: 1}}], 60, []), /range/i);
+  assert.throws(() => screenAlignedCuts([{}], 60, []), /Invalid candidate range/);
+  assert.throws(() => screenAlignedCuts([null], 60, []), /Invalid candidate range/);
 });
 
 test('runner rejects unknown recordings and out-of-corpus windows before invoking providers', async () => {

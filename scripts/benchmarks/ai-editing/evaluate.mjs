@@ -1,4 +1,4 @@
-/** Compare cuts with human-checked word boundaries. Automated alignments are warnings only. */
+/** Compare cuts with human-checked word boundaries. A pass requires reviewedRanges covering every cut; automated alignments are warnings only. */
 export function assessCuts(cuts, references, options = {}) {
   const reviewedRanges = options.reviewedRanges ?? [];
   for (const item of [...cuts, ...references, ...reviewedRanges]) {
