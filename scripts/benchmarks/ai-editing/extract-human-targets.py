@@ -9,6 +9,7 @@ import sys
 import wave
 from pathlib import Path
 
+import pyarrow
 import pyarrow.parquet as pq
 
 parquet_path, case_path, output_path = map(Path, sys.argv[1:])
@@ -41,4 +42,4 @@ for index, sample_id in enumerate(selected):
         raise ValueError("Human target outside audio")
     result.append({"id":sample_id,"file":filename,"audioSha256":hashlib.sha256(audio).hexdigest(),"duration":duration,
                    "text":row["text"],"target":row["target"],"start":row["target_onset"],"end":row["target_offset"]})
-print(json.dumps(result, ensure_ascii=False))
+print(json.dumps({"samples":result,"pythonVersion":sys.version.split()[0],"pyarrowVersion":pyarrow.__version__}, ensure_ascii=False))

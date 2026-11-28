@@ -21,7 +21,7 @@ try {
   const audioDirectory=join(temporary,'audio');
   const extractor=fileURLToPath(new URL('./extract-human-targets.py',import.meta.url));
   const extracted=execFileSync(python,[extractor,parquet,configPath,audioDirectory],{encoding:'utf8',maxBuffer:4*1024*1024});
-  const samples=JSON.parse(extracted);
+  const extraction=JSON.parse(extracted), samples=extraction.samples;
   if(samples.length!==config.sampleIds.length || samples.some((sample,index)=>sample.id!==config.sampleIds[index])) throw new Error('Sample IDs differ from fixed case');
   const rows=[];
   for(const sample of samples){
@@ -38,6 +38,6 @@ try {
     }
     rows.push({id:sample.id,audioSha256:sample.audioSha256,duration:sample.duration,target:sample.target,humanRange:{start:sample.start,end:sample.end},provider,outputSha256,...assessment});
   }
-  const report={gitHead:execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),datasetRevision:config.revision,parquetSha256:config.parquetSha256,model:config.model,toleranceSeconds:config.toleranceSeconds,minimumWithinFraction:config.minimumWithinFraction,summary:summarizeHumanTargets(rows,config.minimumWithinFraction),rows,limitation:config.limitation+' Model declarations do not authenticate loaded bytes; no native operation or subjective listening was performed.'};
+  const report={gitHead:execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),datasetRevision:config.revision,parquetSha256:config.parquetSha256,pythonVersion:extraction.pythonVersion,pyarrowVersion:extraction.pyarrowVersion,declaredBackend:process.env.FRAMEKIT_WHISPER_BACKEND ?? null,declaredVadSha256:process.env.FRAMEKIT_SILERO_VAD_SHA256 ?? null,model:config.model,toleranceSeconds:config.toleranceSeconds,minimumWithinFraction:config.minimumWithinFraction,summary:summarizeHumanTargets(rows,config.minimumWithinFraction),rows,limitation:config.limitation+' Model declarations do not authenticate loaded bytes; no native operation or subjective listening was performed.'};
   process.stdout.write(`${JSON.stringify(report,null,2)}\n`);
 } finally { await rm(temporary,{recursive:true,force:true}); }
