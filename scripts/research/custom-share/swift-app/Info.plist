@@ -7,6 +7,6 @@
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>NSAppleScriptEnabled</key><true/>
-<key>NSScriptingDefinition</key><string>ShareResearch.sdef</string>
+<key>OSAScriptingDefinition</key><string>ShareResearch.sdef</string>
 <key>com.apple.proapps.MediaAssetProtocol</key><dict/>
 </dict></plist>

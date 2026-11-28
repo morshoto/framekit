@@ -5,6 +5,7 @@ import Darwin
 import Foundation
 
 private let assetType = OSType(0x61736574) // aset
+private let scriptingClass = AEEventClass(0x636f7265) // core
 private let objectClass = AEKeyword(0x6b6f636c) // kocl
 private let makeEvent = AEEventID(0x6372656c) // crel
 private let getEvent = AEEventID(0x67657464) // getd
@@ -32,7 +33,7 @@ final class TestMakeReceiver: NSObject {
     @objc func handlePing(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {
         var handler: AEEventHandlerUPP?
         var reference: UnsafeMutableRawPointer?
-        let status = AEGetEventHandler(AEEventClass(kCoreEventClass), makeEvent, &handler, &reference, false)
+        let status = AEGetEventHandler(scriptingClass, makeEvent, &handler, &reference, false)
         reply.setParam(NSAppleEventDescriptor(string: "pong:\(status)"), forKeyword: AEKeyword(keyDirectObject))
     }
     @objc func handleMake(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {
@@ -52,7 +53,7 @@ final class TestMakeReceiver: NSObject {
         }
         issued[id] = name
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(TestMakeReceiver.handleGet(_:withReplyEvent:)),
-            forEventClass: AEEventClass(kCoreEventClass), andEventID: getEvent)
+            forEventClass: scriptingClass, andEventID: getEvent)
         reply.setParam(descriptor, forKeyword: AEKeyword(keyDirectObject))
         fputs("make replied\n", stderr)
     }
@@ -90,7 +91,7 @@ if args.count == 2 && args[1] == "listen" {
     TestMakeReceiver.active = receiver
     DispatchQueue.main.async {
         NSAppleEventManager.shared().setEventHandler(receiver, andSelector: #selector(TestMakeReceiver.handleMake(_:withReplyEvent:)),
-            forEventClass: AEEventClass(kCoreEventClass), andEventID: makeEvent)
+            forEventClass: scriptingClass, andEventID: makeEvent)
         NSAppleEventManager.shared().setEventHandler(receiver, andSelector: #selector(TestMakeReceiver.handlePing(_:withReplyEvent:)),
             forEventClass: AEEventClass(kCoreEventClass), andEventID: AEEventID(kAEOpenDocuments))
         print("ready"); fflush(stdout)
@@ -105,7 +106,7 @@ if args.count == 2 && args[1] == "listen" {
         fputs("target is not the test executable\n", stderr); exit(2)
     }
     let address = NSAppleEventDescriptor(processIdentifier: target)
-    let event = NSAppleEventDescriptor(eventClass: AEEventClass(kCoreEventClass), eventID: args[1] == "ping" ? AEEventID(kAEOpenDocuments) : makeEvent,
+    let event = NSAppleEventDescriptor(eventClass: args[1] == "ping" ? AEEventClass(kCoreEventClass) : scriptingClass, eventID: args[1] == "ping" ? AEEventID(kAEOpenDocuments) : makeEvent,
         targetDescriptor: address, returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
     if args[1] == "ping" { event.setParam(NSAppleEventDescriptor(string: "ping"), forKeyword: AEKeyword(keyDirectObject)) }
     else {
@@ -138,7 +139,7 @@ if args.count == 2 && args[1] == "listen" {
         guard let property = record.coerce(toDescriptorType: DescType(typeObjectSpecifier)) else {
             fputs("cannot construct property specifier\n", stderr); exit(1)
         }
-        let get = NSAppleEventDescriptor(eventClass: AEEventClass(kCoreEventClass), eventID: getEvent,
+        let get = NSAppleEventDescriptor(eventClass: scriptingClass, eventID: getEvent,
             targetDescriptor: address, returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
         get.setParam(property, forKeyword: AEKeyword(keyDirectObject))
         let getReply = try get.sendEvent(options: [.waitForReply, .neverInteract], timeout: 3)
@@ -161,7 +162,7 @@ if args.count == 2 && args[1] == "listen" {
         fake.setDescriptor(parent, forKeyword: AEKeyword(keyAEContainer))
         record.setDescriptor(fake, forKeyword: AEKeyword(keyAEContainer))
         guard let invalidProperty = record.coerce(toDescriptorType: DescType(typeObjectSpecifier)) else { exit(1) }
-        let invalidGet = NSAppleEventDescriptor(eventClass: AEEventClass(kCoreEventClass), eventID: getEvent,
+        let invalidGet = NSAppleEventDescriptor(eventClass: scriptingClass, eventID: getEvent,
             targetDescriptor: address, returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
         invalidGet.setParam(invalidProperty, forKeyword: AEKeyword(keyDirectObject))
         var rejected = false
