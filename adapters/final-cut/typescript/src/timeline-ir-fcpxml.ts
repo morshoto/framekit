@@ -201,7 +201,10 @@ export function compileTimelineIrToFcpxml(
       && (occurrence.role === undefined || occurrence.role === "video")).map((occurrence) => occurrence.mediaId));
     for (const mediaId of primaryMediaIds) {
       const video = resources.find((resource) => resource.id === mediaId)?.metadata?.streams.find((stream) => stream.kind === "video");
-      if (!video?.width || !video.height || video.width !== projectVideo!.width || video.height !== projectVideo!.height) {
+      if (!video?.width || !video.height) {
+        throw new Error("FCPXML_TITLE_POSITION_DIMENSIONS_UNAVAILABLE: positioned titles require dimensions for all primary video sources");
+      }
+      if (video.width !== projectVideo!.width || video.height !== projectVideo!.height) {
         throw new Error("FCPXML_TITLE_POSITION_FORMAT_AMBIGUOUS: positioned titles require matching dimensions for all primary video sources");
       }
     }
