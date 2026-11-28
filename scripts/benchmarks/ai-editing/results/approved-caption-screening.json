@@ -1,0 +1,226 @@
+{
+  "gitHead": "badb90478a9ab66c20a2d209035d4037c4869f6a",
+  "sourceSha256": "2d1304cfebf10290acd74b1a8bdce638ce94c58f5cfa8950a288d44d8e138c5f",
+  "sourceWindowSeconds": [
+    0,
+    30
+  ],
+  "addedTailSeconds": 1,
+  "inputSha256": "55216e6f530a996c83b9340997c050418ccd16639ea194bcc28ebd6eac0187e0",
+  "outputSha256": "fe8c67b6b51c5e79a48d3c481cc9990a5dc8a5f01ce4f19ee7840a1ca0d17c9d",
+  "ffmpegVersion": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+  "providerVersion": "mlx-whisper-0.4.3:silero-6.3",
+  "declaredModel": "mlx-community/whisper-tiny",
+  "groups": [
+    {
+      "range": {
+        "start": 0,
+        "end": 1.6666666666666667,
+        "startTime": {
+          "value": "0",
+          "timescale": "30"
+        },
+        "durationTime": {
+          "value": "5",
+          "timescale": "3"
+        }
+      },
+      "lines": [
+        "So what was the significance of"
+      ]
+    },
+    {
+      "range": {
+        "start": 1.6666666666666667,
+        "end": 2.8,
+        "startTime": {
+          "value": "50",
+          "timescale": "30"
+        },
+        "durationTime": {
+          "value": "17",
+          "timescale": "15"
+        }
+      },
+      "lines": [
+        "the Trump presidency? Or did it"
+      ]
+    },
+    {
+      "range": {
+        "start": 2.8,
+        "end": 3.966666666666667,
+        "startTime": {
+          "value": "84",
+          "timescale": "30"
+        },
+        "durationTime": {
+          "value": "7",
+          "timescale": "6"
+        }
+      },
+      "lines": [
+        "betoken in terms of the world"
+      ]
+    },
+    {
+      "range": {
+        "start": 3.966666666666667,
+        "end": 6.5,
+        "startTime": {
+          "value": "119",
+          "timescale": "30"
+        },
+        "durationTime": {
+          "value": "38",
+          "timescale": "15"
+        }
+      },
+      "lines": [
+        "order? You know, it's both",
+        "unbelievably"
+      ]
+    },
+    {
+      "range": {
+        "start": 6.5,
+        "end": 10.333333333333334,
+        "startTime": {
+          "value": "195",
+          "timescale": "30"
+        },
+        "durationTime": {
+          "value": "23",
+          "timescale": "6"
+        }
+      },
+      "lines": [
+        "dangerous and also kind of very"
+      ]
+    },
+    {
+      "range": {
+        "start": 10.333333333333334,
+        "end": 12.866666666666667,
+        "startTime": {
+          "value": "310",
+          "timescale": "30"
+        },
+        "durationTime": {
+          "value": "38",
+          "timescale": "15"
+        }
+      },
+      "lines": [
+        "predictable. Even though it wasn't",
+        "predicted"
+      ]
+    },
+    {
+      "range": {
+        "start": 12.866666666666667,
+        "end": 14.866666666666667,
+        "startTime": {
+          "value": "386",
+          "timescale": "30"
+        },
+        "durationTime": {
+          "value": "2",
+          "timescale": "1"
+        }
+      },
+      "lines": [
+        "in the sense that all of"
+      ]
+    },
+    {
+      "range": {
+        "start": 14.866666666666667,
+        "end": 17.6,
+        "startTime": {
+          "value": "446",
+          "timescale": "30"
+        },
+        "durationTime": {
+          "value": "41",
+          "timescale": "15"
+        }
+      },
+      "lines": [
+        "these pre -existing forces were at"
+      ]
+    },
+    {
+      "range": {
+        "start": 17.6,
+        "end": 22.233333333333334,
+        "startTime": {
+          "value": "528",
+          "timescale": "30"
+        },
+        "durationTime": {
+          "value": "139",
+          "timescale": "30"
+        }
+      },
+      "lines": [
+        "work. And he just followed this"
+      ]
+    },
+    {
+      "range": {
+        "start": 22.233333333333334,
+        "end": 26.366666666666667,
+        "startTime": {
+          "value": "667",
+          "timescale": "30"
+        },
+        "durationTime": {
+          "value": "62",
+          "timescale": "15"
+        }
+      },
+      "lines": [
+        "path and so he's just kind"
+      ]
+    },
+    {
+      "range": {
+        "start": 26.366666666666667,
+        "end": 28.5,
+        "startTime": {
+          "value": "791",
+          "timescale": "30"
+        },
+        "durationTime": {
+          "value": "32",
+          "timescale": "15"
+        }
+      },
+      "lines": [
+        "of this logical outcome of this"
+      ]
+    },
+    {
+      "range": {
+        "start": 28.5,
+        "end": 29.533333333333335,
+        "startTime": {
+          "value": "855",
+          "timescale": "30"
+        },
+        "durationTime": {
+          "value": "31",
+          "timescale": "30"
+        }
+      },
+      "lines": [
+        "worship of wealth."
+      ]
+    }
+  ],
+  "programmaticConfirmation": true,
+  "nativeWrites": false,
+  "nativeAcceptance": "unavailable",
+  "limitation": "One exploratory headless run with programmatic confirmation. Text and speech timestamps are not independently verified; model declarations do not authenticate model bytes."
+}

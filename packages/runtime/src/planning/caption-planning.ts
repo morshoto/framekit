@@ -163,7 +163,7 @@ export async function planCaptionGroups(
       } else currentWords = trial;
     }
     if (currentWords.length) grouped.push(currentWords);
-    const warnings = ["Transcript and emphasis require human review; native editable title support is not established."];
+    const warnings = ["Transcript and emphasis require human review; recognition confidence does not verify text or timing; native editable title support is not established."];
     let sampledTiming = false;
     if (grouped.some((words, i) => i > 0 && grouped[i - 1]![grouped[i - 1]!.length - 1]!.frameAlignedRange.end > words[0]!.frameAlignedRange.start + 1e-9)) {
       const alternative = frameSafeGroups(mapped, separator, request.maxWordsPerGroup, request.maxCharsPerLine, request.maxLines);

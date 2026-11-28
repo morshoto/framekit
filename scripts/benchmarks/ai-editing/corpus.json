@@ -33,5 +33,52 @@
       "sha256": "56e29112cd89cfba76fbf8f10215eb245cc89b0d3d27355ba14b406a7ea7776c",
       "credit": "AMI Consortium", "license": "CC BY 4.0"
     }
+  ],
+  "supplementalAssets": [
+    {
+      "id": "nespoli-voice",
+      "filename": "nespoli.flac",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/5/57/ESA-Astronaut-Paolo-Nespoli_Voice-intro-ENG.flac",
+      "sha256": "6c237bc93a26e7e1d839e3ae29b88a9aecdb8f9e7483951d9ad4041d39e08d42",
+      "credit": "ESA / Paolo Nespoli",
+      "license": "CC BY-SA 3.0 IGO",
+      "description": "Single-speaker English voice introduction; audio only."
+    },
+    {
+      "id": "nespoli-subtitles",
+      "filename": "nespoli-reference.srt",
+      "url": "https://commons.wikimedia.org/w/index.php?title=TimedText:ESA-Astronaut-Paolo-Nespoli_Voice-intro-ENG.flac.en.srt&oldid=269864367&action=raw",
+      "sha256": "ec642f0f031c5e7f0807d223fe6ba1b40830c78b88acb11be0eaeea01c18d4e4",
+      "credit": "Wikimedia Commons subtitle contributors",
+      "license": "See Wikimedia Commons timed text page",
+      "timing": "Coarse subtitle cues, not word-level reference timings."
+    },
+    {
+      "id": "novara-interview",
+      "filename": "novara-interview.webm",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/d/df/Interview_with_Naomi_Klein_at_The_World_Transformed.webm",
+      "descriptionUrl": "https://commons.wikimedia.org/wiki/File:Interview_with_Naomi_Klein_at_The_World_Transformed.webm",
+      "sha256": "2d1304cfebf10290acd74b1a8bdce638ce94c58f5cfa8950a288d44d8e138c5f",
+      "credit": "Novara Media",
+      "license": "CC BY 3.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/3.0/",
+      "windowSeconds": [
+        0,
+        30
+      ],
+      "referenceText": "unavailable",
+      "designation": "Exploratory fixed first 30 seconds; no independently checked transcript or word boundaries.",
+      "additionalWindowsSeconds": [
+        [
+          30,
+          60
+        ],
+        [
+          60,
+          90
+        ]
+      ],
+      "additionalWindowsDesignation": "Post hoc fixed consecutive windows to screen difficult caption boundaries; no independent word timing reference."
+    }
   ]
 }

@@ -1,0 +1,131 @@
+{
+  "designation": "Post hoc consecutive talking-head windows; no independent transcript or word-boundary truth.",
+  "baseline": [
+    {
+      "gitHead": "798510a8b8718ef137c1b9e2ea32350b792d6cad",
+      "sourceSha256": "2d1304cfebf10290acd74b1a8bdce638ce94c58f5cfa8950a288d44d8e138c5f",
+      "sourceWindowSeconds": [
+        30,
+        60
+      ],
+      "derivedSha256": "2db16b0e9f2504edf22bd34cf1e2fd9ecc086fa959deeb1a5bdeba562875befd",
+      "backendOutputSha256": "4d2f1cf87c0f143043a6e30a9bbb9b28aa18ac677a80f5b47cb31221c187e2a5",
+      "declaredModel": "mlx-community/whisper-tiny",
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "plan": {
+        "planStatus": "available",
+        "groups": 14,
+        "warnings": [
+          "Transcript and emphasis require human review; native editable title support is not established.",
+          "Caption group timing uses sampled frames rather than outward rounding and may start up to one frame after a word begins; review timing.",
+          "Word timing was rounded outward to the sequence frame grid.",
+          "Low-confidence transcript words require correction before use."
+        ],
+        "nativeTitleStatus": "unavailable",
+        "recognizedWords": 68,
+        "sampleFreeWordIndices": [],
+        "lowConfidenceWords": 16,
+        "assessment": {
+          "status": "pass",
+          "referenceWords": 68,
+          "missingWords": 0,
+          "duplicateWords": 0,
+          "timingFailures": 0,
+          "textMismatches": 0,
+          "lineMismatches": 0,
+          "malformed": 0,
+          "toleranceSeconds": 0.03333333333333333,
+          "renderedTextStatus": "unavailable"
+        },
+        "renderedTextStatus": "unavailable",
+        "transcriptionAccuracy": "unavailable"
+      },
+      "limitation": "No independently checked transcript or word boundaries. Plan coverage is relative to recognized words only; it does not verify caption rendering or native acceptance. Declared model identity does not authenticate loaded bytes."
+    },
+    {
+      "gitHead": "798510a8b8718ef137c1b9e2ea32350b792d6cad",
+      "sourceSha256": "2d1304cfebf10290acd74b1a8bdce638ce94c58f5cfa8950a288d44d8e138c5f",
+      "sourceWindowSeconds": [
+        60,
+        90
+      ],
+      "derivedSha256": "0a28ee7725770b23fe5fc2890eceae8cb2a916420a40a7f3eac4e25b3e9a5d8a",
+      "backendOutputSha256": "b0bf90e09d1dfaade4f65ca618ad3d04423e1580df4bf561bbdae2b06a535b29",
+      "declaredModel": "mlx-community/whisper-tiny",
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "plan": {
+        "planStatus": "unavailable",
+        "reason": "Frame rounding causes caption groups to overlap and some words have no sampled frame.",
+        "recognizedWords": 65,
+        "sampleFreeWordIndices": [
+          28
+        ],
+        "lowConfidenceWords": 13,
+        "assessment": {
+          "status": "unavailable",
+          "renderedTextStatus": "unavailable"
+        },
+        "renderedTextStatus": "unavailable",
+        "transcriptionAccuracy": "unavailable"
+      },
+      "limitation": "No independently checked transcript or word boundaries. Plan coverage is relative to recognized words only; it does not verify caption rendering or native acceptance. Declared model identity does not authenticate loaded bytes."
+    }
+  ],
+  "candidate": {
+    "gitHead": "b3c317399a37e36873a97f6f77f4e1ebc9fad8ef",
+    "sourceSha256": "2d1304cfebf10290acd74b1a8bdce638ce94c58f5cfa8950a288d44d8e138c5f",
+    "sourceWindowSeconds": [
+      60,
+      90
+    ],
+    "derivedSha256": "0a28ee7725770b23fe5fc2890eceae8cb2a916420a40a7f3eac4e25b3e9a5d8a",
+    "backendOutputSha256": "a1aa68142634e8c0ca2defec00a06b77ed4f97ce6cc39596cc1f24893c6192f3",
+    "declaredModel": "mlx-community/whisper-tiny",
+    "provider": {
+      "id": "command.speech",
+      "provider": "command",
+      "version": "mlx-whisper-0.4.3:silero-6.3"
+    },
+    "plan": {
+      "planStatus": "available",
+      "groups": 13,
+      "warnings": [
+        "Transcript and emphasis require human review; native editable title support is not established.",
+        "Caption group timing uses sampled frames rather than outward rounding and may start up to one frame after a word begins; words without sampled frames share a caption with neighboring speech. Review timing.",
+        "Word timing was rounded outward to the sequence frame grid.",
+        "Low-confidence transcript words require correction before use."
+      ],
+      "nativeTitleStatus": "unavailable",
+      "recognizedWords": 65,
+      "sampleFreeWordIndices": [
+        28
+      ],
+      "lowConfidenceWords": 13,
+      "assessment": {
+        "status": "pass",
+        "referenceWords": 65,
+        "missingWords": 0,
+        "duplicateWords": 0,
+        "timingFailures": 0,
+        "textMismatches": 0,
+        "lineMismatches": 0,
+        "malformed": 0,
+        "toleranceSeconds": 0.03333333333333333,
+        "renderedTextStatus": "unavailable"
+      },
+      "renderedTextStatus": "unavailable",
+      "transcriptionAccuracy": "unavailable"
+    },
+    "limitation": "No independently checked transcript or word boundaries. Plan coverage is relative to recognized words only; it does not verify caption rendering or native acceptance. Declared model identity does not authenticate loaded bytes."
+  },
+  "candidatePullRequestHead": "d9840abb899760d28c22907e3751ae068aaa19fc",
+  "interpretation": "The candidate is a disposable local merge of the evaluation branch and PR #886. Plan coverage is relative to provider words, not proof of rendered captions or native acceptance."
+}

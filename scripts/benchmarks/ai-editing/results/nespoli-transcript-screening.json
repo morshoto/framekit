@@ -1,0 +1,33 @@
+{
+  "sourceSha256": "6c237bc93a26e7e1d839e3ae29b88a9aecdb8f9e7483951d9ad4041d39e08d42",
+  "subtitlesSha256": "ec642f0f031c5e7f0807d223fe6ba1b40830c78b88acb11be0eaeea01c18d4e4",
+  "duration": 44.013271,
+  "analyzedDuration": 44,
+  "backendOutputSha256": "284fd727424bd6c74ed3411cf1b3367d686922469f06cb00bbdc25860fbeb5bc",
+  "provider": {
+    "id": "command.speech",
+    "provider": "command",
+    "version": "mlx-whisper-0.4.3:silero-6.3"
+  },
+  "declaredBackend": "mlx-whisper",
+  "declaredModel": "mlx-community/whisper-tiny",
+  "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
+  "gitHead": "ba9a2b95c7b97d0a5866c4d1ecdefbba1fd1e28c",
+  "transcriptScreening": {
+    "errors": 10,
+    "substitutions": 6,
+    "deletions": 1,
+    "insertions": 3,
+    "referenceWords": 103,
+    "hypothesisWords": 105,
+    "wordErrorRate": 0.0970873786407767
+  },
+  "lowConfidenceWords": 22,
+  "timingStatus": "unavailable",
+  "limitations": [
+    "Published subtitles have not been independently checked against the audio.",
+    "Subtitle cues are not word-level timing references.",
+    "A declared model does not prove loaded bytes.",
+    "No listening, caption rendering or native acceptance is implied."
+  ]
+}

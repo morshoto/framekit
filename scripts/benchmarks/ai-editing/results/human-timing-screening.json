@@ -1,0 +1,429 @@
+{
+  "gitHead": "2903973c68050df9bc44715da1df5647991a853e",
+  "datasetRevision": "d607806619aba678030dac10ea086fb19347205a",
+  "parquetSha256": "062bba8dac1c4c97f1206f04cb6abdb499a3bed97817dcb5dda172009923fa37",
+  "pythonVersion": "3.13.3",
+  "pyarrowVersion": "21.0.0",
+  "declaredBackend": "mlx-whisper",
+  "declaredVadSha256": "07b3e9d41c520f59db3ca3f38fb944eb87e641bc3108ba14254f062b3fd9b24a",
+  "model": "mlx-community/whisper-tiny",
+  "toleranceSeconds": 0.2,
+  "minimumWithinFraction": 0.95,
+  "summary": {
+    "status": "pass",
+    "total": 20,
+    "withinTolerance": 20,
+    "withinFraction": 1,
+    "counts": {
+      "within-tolerance": 20,
+      "outside-tolerance": 0,
+      "missing": 0,
+      "ambiguous": 0,
+      "coverage-unavailable": 0,
+      "backend-error": 0
+    }
+  },
+  "rows": [
+    {
+      "id": "EN_S001_A_001",
+      "audioSha256": "8b817f7f4869b27eaecf0d6a90c1b33e7a64ce208b927c31196d370d4b20b318",
+      "duration": 2.16,
+      "target": "abstract",
+      "humanRange": {
+        "start": 0.53,
+        "end": 1.09
+      },
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "outputSha256": "29e3784ec83a27829b884bd4338b3fdc2641e1a3ef81cb016f5e47a7ea4a608c",
+      "status": "within-tolerance",
+      "startErrorSeconds": -0.050000000000000044,
+      "endErrorSeconds": -0.15000000000000013,
+      "confidence": 0.95361328125
+    },
+    {
+      "id": "EN_S001_A_002",
+      "audioSha256": "49d1d0ebe63c00b7c89db3dc74fe0d78776465dccd7bd82743fa373a3a8c2db7",
+      "duration": 2.98,
+      "target": "abstract",
+      "humanRange": {
+        "start": 0.6,
+        "end": 1.2
+      },
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "outputSha256": "a12d97dea09c1081292abe16a254b7b6c516e4ec8d9daa7570cc47b389fdff5f",
+      "status": "within-tolerance",
+      "startErrorSeconds": -0.039999999999999925,
+      "endErrorSeconds": -0.15999999999999992,
+      "confidence": 0.94775390625
+    },
+    {
+      "id": "EN_S002_A_003",
+      "audioSha256": "d74447d0ae2fa785a83276a4f666c3e9062600f84c1af6b5881fcc6456d44360",
+      "duration": 1.98,
+      "target": "address",
+      "humanRange": {
+        "start": 0.79,
+        "end": 1.12
+      },
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "outputSha256": "a4560fba8faddc0edea6dee02b9b22f494d9b04228d18ad62bfc76701ca4df23",
+      "status": "within-tolerance",
+      "startErrorSeconds": 0.029999999999999916,
+      "endErrorSeconds": -0.040000000000000036,
+      "confidence": 0.9150390625
+    },
+    {
+      "id": "EN_S002_A_004",
+      "audioSha256": "3c09c50d63943457e67ddaf19affb84ff47732e086fd48e3501ec40ff6ed1724",
+      "duration": 1.87,
+      "target": "address",
+      "humanRange": {
+        "start": 0.37,
+        "end": 0.68
+      },
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "outputSha256": "e4cd9c738e0215bfd1882ba2ab4efea5538a46ecda8823a0f714bdd6adf338b8",
+      "status": "within-tolerance",
+      "startErrorSeconds": 0.030000000000000027,
+      "endErrorSeconds": -0.020000000000000018,
+      "confidence": 0.58935546875
+    },
+    {
+      "id": "EN_S003_A_005",
+      "audioSha256": "ac5a48371ce34837543763ba25a714e3af315811169447885dc4f312170cfe79",
+      "duration": 2.39,
+      "target": "conduct",
+      "humanRange": {
+        "start": 0.19,
+        "end": 0.85
+      },
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "outputSha256": "b391ea028fb094f863ffec61f7b6755dd0a54f101fcda1a55734cfda7d635027",
+      "status": "within-tolerance",
+      "startErrorSeconds": 0.010000000000000009,
+      "endErrorSeconds": -0.10999999999999999,
+      "confidence": 0.984375
+    },
+    {
+      "id": "EN_S003_A_006",
+      "audioSha256": "3d845a5826283ac15637316eb3b0c765b13b62e0402c41a5911ae7a3fce89af2",
+      "duration": 2.22,
+      "target": "conduct",
+      "humanRange": {
+        "start": 0.25,
+        "end": 0.7
+      },
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "outputSha256": "beae6db3ef18b9b06f98e746003591f945c27e47ac2b4a40eed7fe1ce07306d5",
+      "status": "within-tolerance",
+      "startErrorSeconds": 0.030000000000000027,
+      "endErrorSeconds": -0.039999999999999925,
+      "confidence": 0.99853515625
+    },
+    {
+      "id": "EN_S004_A_007",
+      "audioSha256": "0677df6469baf6513ed9a4caf48dc6a258ddb40af9d7593e053c30d5df63a02c",
+      "duration": 2.24,
+      "target": "discharge",
+      "humanRange": {
+        "start": 0.98,
+        "end": 1.51
+      },
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "outputSha256": "29a26feebe1e0350c6e863f811abb365a9ea0acbaaabb684efe9e60c137ee952",
+      "status": "within-tolerance",
+      "startErrorSeconds": 0.06000000000000005,
+      "endErrorSeconds": -0.1100000000000001,
+      "confidence": 0.984375
+    },
+    {
+      "id": "EN_S004_A_008",
+      "audioSha256": "ccd9009ae2f49996e489cd3f1d9e0d4d09f2cc03128802a892cd77c9081f5195",
+      "duration": 1.93,
+      "target": "discharge",
+      "humanRange": {
+        "start": 0.19,
+        "end": 0.72
+      },
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "outputSha256": "e87df47dd24fca23020aaaa37bc44deafff36fb40e3ae525b7aafcce557f6e11",
+      "status": "within-tolerance",
+      "startErrorSeconds": 0.07,
+      "endErrorSeconds": -0.09999999999999998,
+      "confidence": 0.94287109375
+    },
+    {
+      "id": "EN_S005_A_009",
+      "audioSha256": "5ff7e13f7a08a91611ad6d44a6d573eb12975444ced601947b0e5a76064f1693",
+      "duration": 2.29,
+      "target": "discount",
+      "humanRange": {
+        "start": 0.73,
+        "end": 1.19
+      },
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "outputSha256": "dd50cc596871dbb5f21f554132064286ba4bd552c8b295e699ab4fb61c02a998",
+      "status": "within-tolerance",
+      "startErrorSeconds": 0.10999999999999999,
+      "endErrorSeconds": -0.08999999999999986,
+      "confidence": 0.998046875
+    },
+    {
+      "id": "EN_S005_A_010",
+      "audioSha256": "d47fa919311df33aceeb93b591e1c644075af9b777a5f7989b913d01faa0e996",
+      "duration": 2.13,
+      "target": "discount",
+      "humanRange": {
+        "start": 0.51,
+        "end": 0.94
+      },
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "outputSha256": "c62c95a11c961b6a571324916d893a8b54cba710c0a615e85e1a3bb674fbf520",
+      "status": "within-tolerance",
+      "startErrorSeconds": 0.030000000000000027,
+      "endErrorSeconds": -0.039999999999999925,
+      "confidence": 0.97509765625
+    },
+    {
+      "id": "EN_S006_A_011",
+      "audioSha256": "3cd127c50b80fe488bafa022cbdb9e04ecd6160a3b80602a93523eec93929582",
+      "duration": 2.5,
+      "target": "impact",
+      "humanRange": {
+        "start": 1.35,
+        "end": 1.81
+      },
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "outputSha256": "57e61aaf0096aec0906bd04ce9a6c979c9abe2084603f7e180a27993ac033b49",
+      "status": "within-tolerance",
+      "startErrorSeconds": -0.010000000000000009,
+      "endErrorSeconds": -0.13000000000000012,
+      "confidence": 0.9990234375
+    },
+    {
+      "id": "EN_S006_A_012",
+      "audioSha256": "2b761ae5978d30873bc1e58b80f0891e964e23a2bac6f3d470f205787f18bf1e",
+      "duration": 2.34,
+      "target": "impact",
+      "humanRange": {
+        "start": 1.02,
+        "end": 1.45
+      },
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "outputSha256": "068eab6e73f60f5c365af316b5be89ad2629725869818f7e60b57fdfda72593e",
+      "status": "within-tolerance",
+      "startErrorSeconds": 0.020000000000000018,
+      "endErrorSeconds": -0.10999999999999988,
+      "confidence": 0.9765625
+    },
+    {
+      "id": "EN_S007_A_013",
+      "audioSha256": "01b838af0c3ef979bc3252593a7eb0b0212ecceaf84f62051d76a97d45f726d8",
+      "duration": 2.46,
+      "target": "import",
+      "humanRange": {
+        "start": 0.64,
+        "end": 1.03
+      },
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "outputSha256": "4e22098edc0e949ebfcaa9b8fc34b854a315be2eaf12a1c1562847e4fe6ed70d",
+      "status": "within-tolerance",
+      "startErrorSeconds": -0.020000000000000018,
+      "endErrorSeconds": -0.07000000000000006,
+      "confidence": 0.94140625
+    },
+    {
+      "id": "EN_S007_A_014",
+      "audioSha256": "7186b0941d7a9b009a265d69aa91cdfa8446b70f216a75337067cdf761da734d",
+      "duration": 2.68,
+      "target": "import",
+      "humanRange": {
+        "start": 0.18,
+        "end": 0.57
+      },
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "outputSha256": "41de50ee328705d3e9bc5f7d3ee34f27071477fd237667599f83268c3e4029fa",
+      "status": "within-tolerance",
+      "startErrorSeconds": 0.020000000000000018,
+      "endErrorSeconds": -0.029999999999999916,
+      "confidence": 0.9931640625
+    },
+    {
+      "id": "EN_S008_A_015",
+      "audioSha256": "bd326d37b09d9942121b668bd8b5283c53dfc2b39c21459cbe4190cc998f7261",
+      "duration": 2.9,
+      "target": "increase",
+      "humanRange": {
+        "start": 0.49,
+        "end": 1.02
+      },
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "outputSha256": "19958d24b9dbb8adaabdea2b34de3afb472aa70c00dcc036b2e2ff0126a8c154",
+      "status": "within-tolerance",
+      "startErrorSeconds": -0.02999999999999997,
+      "endErrorSeconds": -0.040000000000000036,
+      "confidence": 0.99609375
+    },
+    {
+      "id": "EN_S008_A_016",
+      "audioSha256": "e369bf5242301a15a2d9b3268b959285e2e441491e2198f9961e2ae1c182a452",
+      "duration": 2.36,
+      "target": "increase",
+      "humanRange": {
+        "start": 0.5343873466854814,
+        "end": 0.9365984434351938
+      },
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "outputSha256": "7efa092ab66fade8de3ff4c60432490267803fefe034ec8573cf0a09a6b58be8",
+      "status": "within-tolerance",
+      "startErrorSeconds": 0.04561265331451858,
+      "endErrorSeconds": -0.016598443435193788,
+      "confidence": 0.99609375
+    },
+    {
+      "id": "EN_S009_A_017",
+      "audioSha256": "c2ea59d0bc090dbffa63660bdffed1a5362021d48e080ccb1090f8c71c7ead56",
+      "duration": 3.01,
+      "target": "insert",
+      "humanRange": {
+        "start": 1.33,
+        "end": 1.84
+      },
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "outputSha256": "b27478542ebcc6397fbe8e434c933a5a3caff1ac245b8e6751fbc5f514262a8a",
+      "status": "within-tolerance",
+      "startErrorSeconds": 0.04999999999999982,
+      "endErrorSeconds": -0.10000000000000009,
+      "confidence": 0.98583984375
+    },
+    {
+      "id": "EN_S009_A_018",
+      "audioSha256": "bca903fad68d6eab721cab207e1ba12ef8cca768327f5592902c9759732342e2",
+      "duration": 3.05,
+      "target": "insert",
+      "humanRange": {
+        "start": 0.6,
+        "end": 1.05
+      },
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "outputSha256": "d2463ef875f37ddbf0e558099909cebb1bdac51509e7d5f99b2c998988b90421",
+      "status": "within-tolerance",
+      "startErrorSeconds": 0.09999999999999998,
+      "endErrorSeconds": -0.1100000000000001,
+      "confidence": 0.9931640625
+    },
+    {
+      "id": "EN_S010_A_019",
+      "audioSha256": "168a91569e408c66fcfd1b45e164d28554df44d0a52e1614c9a186761affbd60",
+      "duration": 2.9,
+      "target": "insult",
+      "humanRange": {
+        "start": 1.3136910705039269,
+        "end": 1.9354166913709074
+      },
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "outputSha256": "7749cb441ede1b8f1d99b7507014202f89058591f08ec6e0d836550a185884ca",
+      "status": "within-tolerance",
+      "startErrorSeconds": 0.10630892949607307,
+      "endErrorSeconds": -0.1354166913709074,
+      "confidence": 0.9892578125
+    },
+    {
+      "id": "EN_S010_A_020",
+      "audioSha256": "bce31b52126a2e9f18d2d9b068f97499e9d9b56cb83933de1fe71dd2b0cb2e00",
+      "duration": 2.71,
+      "target": "insult",
+      "humanRange": {
+        "start": 0.95,
+        "end": 1.4
+      },
+      "provider": {
+        "id": "command.speech",
+        "provider": "command",
+        "version": "mlx-whisper-0.4.3:silero-6.3"
+      },
+      "outputSha256": "a094c8c439b68be63d58252b11bf7e9e6d354a5665a2aacf81fd9ece92a4bc4f",
+      "status": "within-tolerance",
+      "startErrorSeconds": 0.07000000000000006,
+      "endErrorSeconds": -0.05999999999999983,
+      "confidence": 0.9755859375
+    }
+  ],
+  "limitation": "Read speech in short carrier sentences, one target per sentence; not conversational continuity, dialogue intelligibility, a complete transcript check, native acceptance or population performance. Human correction is upstream, not reverified here. Model declarations do not authenticate loaded bytes; no native operation or subjective listening was performed."
+}
