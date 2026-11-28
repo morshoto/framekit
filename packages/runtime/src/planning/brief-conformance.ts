@@ -1,7 +1,9 @@
 import { isDeepStrictEqual } from "node:util";
 import type { ContextRevision } from "../domain/primitives.js";
 import type { FramekitRenderAndVerifyResult, FramekitRenderArtifactVerifier } from "../render/render-and-verify.js";
-import { createFramekitRenderResult } from "../render/render-contract.js";
+import { createFramekitRenderResult, type FramekitRenderPlan } from "../render/render-contract.js";
+import type { FramekitRenderVerificationCheck } from "../render/render-and-verify.js";
+import { parseRational } from "../timeline/rational-time.js";
 import { assertBriefBinding } from "./creative-brief.js";
 import type { AcceptedCreativeBrief, CreativeBrief } from "./creative-brief.js";
 import { hasValidEditDecisionPlanDigest } from "./edit-decision-plan.js";
@@ -40,6 +42,24 @@ export interface BriefArtifactAssessment {
   reviewPrompts: string[];
 }
 
+/** Cross-check the verifier's decoded count against the immutable render plan. */
+function hasConsistentFrameCount(plan: FramekitRenderPlan, check: FramekitRenderVerificationCheck | undefined): boolean {
+  try {
+    if (!check || typeof check.observed !== "number" || !Number.isSafeInteger(check.observed) || check.observed <= 0
+      || typeof check.expected !== "number" || !Number.isFinite(check.expected)) return false;
+    const duration = parseRational(plan.timeline.sequence.durationTime, "RENDER_INVALID_RESULT");
+    const rate = parseRational(plan.parameters.frameRate, "RENDER_INVALID_RESULT");
+    if (duration.value <= 0n || rate.value <= 0n) return false;
+    const numerator = duration.value * rate.value; const denominator = duration.timescale * rate.timescale;
+    const expected = Number(numerator) / Number(denominator);
+    if (!Number.isFinite(expected) || Math.abs(check.expected - expected) > Math.max(1, expected) * 1e-9) return false;
+    const difference = BigInt(check.observed) * denominator - numerator;
+    const magnitude = difference < 0n ? -difference : difference;
+    // Match the FFmpeg verifier's 1.01-frame tolerance without float rounding.
+    return magnitude * 100n <= denominator * 101n;
+  } catch { return false; }
+}
+
 /** Inspect a previously verified headless result; callers must reverify the file before use. */
 function briefArtifactObservationFromRender(result: FramekitRenderAndVerifyResult): BriefArtifactObservation | undefined {
   try {
@@ -55,7 +75,8 @@ function briefArtifactObservationFromRender(result: FramekitRenderAndVerifyResul
     // Reuse the render contract's digest check before trusting its target or timeline.
     createFramekitRenderResult(plan, render.output);
     const required = ["output-exists", "output-digest", "output-stability", "playable", "format", "dimensions", "frame-rate", "frame-count", "duration"];
-    if (required.some((name) => verification.checks.filter((check) => check.name === name && check.passed).length !== 1)) return undefined;
+    if (required.some((name) => verification.checks.filter((check) => check.name === name && check.passed).length !== 1)
+      || !hasConsistentFrameCount(plan, verification.checks.find((check) => check.name === "frame-count"))) return undefined;
     const artifact = verification.artifact;
     const digestCheck = verification.checks.find((check) => check.name === "output-digest");
     if (digestCheck?.observed !== artifact.fileDigest || !/^[a-f0-9]{64}$/.test(artifact.fileDigest)
