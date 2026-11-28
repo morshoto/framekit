@@ -19,6 +19,15 @@ test('embedded explicit ID survives an independent source-range edit and same-na
   assert.equal(result.name, 'Opening');
 });
 
+test('compares anchored child timing in parent time, rejecting a shifted title and audio', async () => {
+  const { base, external } = await fixtures();
+  const corrected = external.replace('lane="-1" offset="1s"', 'lane="-1" offset="2s"')
+    .replace('lane="2" offset="1s"', 'lane="2" offset="2s"');
+  assert.notEqual(corrected, external);
+  assert.equal(findAnchoredTarget(base, corrected, 'opening-v1', expected).id, 'opening-v1');
+  assert.throws(() => findAnchoredTarget(base, external, 'opening-v1', expected), /structure|timing/);
+});
+
 test('rejects copied, missing and changed anchors and source declarations', async () => {
   const { base, external } = await fixtures();
   assert.throws(() => findAnchoredTarget(base, external.replace('value="inserted-v1"', 'value="opening-v1"'), 'opening-v1', expected), /duplicate/);
