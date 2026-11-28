@@ -304,3 +304,11 @@ test("music preview verifies the mapped speech source before and after preview",
   assert.equal(speechChecks, 2);
   assert.throws(() => planMusic({ ...input, snapshot: { ...current, media: current.media.map((source) => source.mediaId === "video" ? { ...source, sourceDigest: undefined } : source) } }), /INVALID_MUSIC_PLAN/);
 });
+
+test("music gain is not presented as a dialogue-relative level", () => {
+  const plan = planMusic({ ...request, gainDb: -24 });
+  assert.equal(plan.decision, "propose-music");
+  assert.equal(plan.dialogueProtection?.audibility, "unverified");
+  assert.ok(plan.warnings.some((warning) => /gain.*source.*(dialogue|speech)/i.test(warning)),
+    "reviewers need to know static gain is relative to the music source, not dialogue");
+});
