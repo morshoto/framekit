@@ -47,7 +47,10 @@ async function runSupervisedQaPublisherInternal(
     { stopAfterDispatch: true });
 }
 
-/** Internal verification-only seam. The injected gate and verifier are not native authorization evidence. */
+/**
+ * Test-only verification model. A claimed attempt is single-shot even if its
+ * callback fails; production verification recovery is not provided by this harness.
+ */
 export async function resumeSupervisedQaPublisherVerification(
   root: string, manifest: QaRunManifest, artifactPath: string, target: QaPublisherTarget,
   assertReady: (jobId: string, target: Readonly<QaPublisherTarget>) => Promise<void>,
