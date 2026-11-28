@@ -97,3 +97,12 @@ test('synthetic receiver checks target separately from matching generation', asy
   assert.equal(await stale.execute(), 'rejected-stale');
   assert.equal(await readFile(paths.output, 'utf8'), 'target-check\n');
 });
+
+test('matching generation and target alone permit duplicate client execution', async t => {
+  const paths = await setup(t);
+  const request = { ...paths, generationId: '1', mode: 'target-check', target: 'project-a', allowedTarget: 'project-a' };
+  const [first, second] = await Promise.all([startReceiver(request), startReceiver(request)]);
+  const results = await Promise.all([first.execute(), second.execute()]);
+  assert.deepEqual(results, ['executed', 'executed']);
+  assert.equal(await readFile(paths.output, 'utf8'), 'target-check\ntarget-check\n');
+});
