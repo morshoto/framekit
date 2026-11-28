@@ -1,0 +1,27 @@
+/** Compare recognized word multisets; order, speech truth and continuity remain unverified. */
+export function compareRecognizedWords(baseline, cut) {
+  const counts = (words) => {
+    if (!Array.isArray(words)) throw new Error('Invalid words');
+    const map = new Map();
+    for (const word of words) {
+      if (typeof word !== 'string') throw new Error('Invalid word');
+      const value = word.normalize('NFKC').toLocaleLowerCase('und').replace(/^[\p{P}\p{S}\s]+|[\p{P}\p{S}\s]+$/gu,'');
+      if (!value || /\s/u.test(value)) throw new Error('Invalid word');
+      map.set(value,(map.get(value) ?? 0)+1);
+    }
+    return map;
+  };
+  const a = counts(baseline), b = counts(cut);
+  let matchedWords = 0;
+  for (const [word,count] of a) matchedWords += Math.min(count,b.get(word) ?? 0);
+  return {baselineWords:baseline.length,cutWords:cut.length,matchedWords,missingWords:baseline.length-matchedWords,
+    addedWords:cut.length-matchedWords,retention:baseline.length ? matchedWords/baseline.length : null,continuity:'unavailable'};
+}
+
+/** Remove a half-open range from mono signed 16-bit PCM without rounding samples. */
+export function prepareCutPcm(original, firstSample, endSample) {
+  if (!Buffer.isBuffer(original) || original.length === 0 || original.length % 2) throw new Error('Invalid PCM');
+  const samples = original.length / 2;
+  if (!Number.isSafeInteger(firstSample) || !Number.isSafeInteger(endSample) || firstSample < 0 || endSample <= firstSample || endSample > samples) throw new Error('Invalid cut range');
+  return {original:Buffer.from(original),cut:Buffer.concat([original.subarray(0,firstSample*2),original.subarray(endSample*2)])};
+}
