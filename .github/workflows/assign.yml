@@ -19,7 +19,7 @@ on:
 jobs:
     warn-future-blockers:
         if: >-
-            github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+            github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.pr_number == '') ||
             (github.event_name == 'issues' && contains(fromJson('["opened", "reopened", "milestoned", "demilestoned"]'), github.event.action))
         permissions:
             contents: read
@@ -82,7 +82,6 @@ jobs:
                   GITHUB_REPOSITORY: ${{ github.repository }}
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   GITHUB_EVENT_PATH: ${{ github.event_path }}
-                  GITHUB_EVENT_NAME: ${{ github.event_name }}
                   GITHUB_API_URL: ${{ github.api_url }}
 
     sync-project-status:

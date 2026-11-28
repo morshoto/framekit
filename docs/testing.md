@@ -201,6 +201,14 @@ Backlog; closing selects Done. To signal local work before opening a PR, add
 label. Removing the last status label resets it to Backlog. Manual dispatch
 backfills existing issue cards, using a single status label first or seeding a
 missing label from the board. Multiple labels are reported as conflicts.
+To retry milestone synchronization for an open, same-repository PR without
+running the issue backfill, dispatch `gh workflow run assign.yml --ref main -f
+pr_number=123`. The repair reads the current PR body and skips closed, missing,
+or fork PRs. It is an operator-triggered retry; it does not guarantee automatic
+recovery of a missed event. Repository label definitions are reconciled on
+changes to `.github/labels/labels.json`, by `gh workflow run
+repository-labels.yml --ref main`, and on a six-hour schedule. GitHub may delay
+or skip scheduled runs, so the schedule is not a hard recovery deadline.
 
 The `PR project status` workflow updates existing open issue cards referenced
 in a PR body (`Refs #123`, closing keywords, same-repository qualified references
