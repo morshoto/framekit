@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createGitHubRequestPolicy } from './github-request-policy.mjs';
+import { createGitHubRequestPolicy } from '../../../scripts/github-request-policy.mjs';
 
 test('retries transient read failures with bounded injected timing', async () => {
  let calls = 0;
@@ -65,4 +65,35 @@ test('deadline aborts an in-flight read without retrying', async () => {
 test('deadline also bounds reading the response body', async () => {
  const request = createGitHubRequestPolicy({ budgetMs: 30, log: () => {}, fetchImpl: async () => ({ status: 200, ok: true, json: () => new Promise(() => {}) }) });
  await assert.rejects(request('https://api.github.com/test', {}, { readOnly: true }), /deadline/);
+});
+
+test('recovers from transient server, network, and GraphQL execution failures', async () => {
+ for (const first of [
+  () => new Response('{}', { status: 502 }),
+  () => new Response('{}', { status: 503 }),
+  () => new Response('{}', { status: 504 }),
+  () => { throw new Error('offline'); },
+  () => new Response('{"errors":[{"message":"Internal execution error"}]}'),
+  () => new Response('{"errors":[{"message":"internal error"}]}', { status: 502 }),
+ ]) {
+  let calls = 0;
+  const request = createGitHubRequestPolicy({ fetchImpl: async () => ++calls === 1 ? first() : new Response('{"data":{"ok":true}}'), sleep: async () => {}, random: () => 0, log: () => {} });
+  assert.deepEqual(await request('https://api.github.com/graphql', {}, { graphql: true, readOnly: true }), { ok: true });
+  assert.equal(calls, 2);
+ }
+});
+
+test('secondary and primary rate limits honor guidance and stop at attempt limit', async () => {
+ for (const [status, headers, body, expected] of [
+  [403, { 'retry-after': '3' }, '{"message":"secondary rate limit"}', 3000],
+  [403, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '5' }, '{}', 4000],
+  [429, { 'retry-after': '2' }, '{}', 2000],
+ ]) {
+  let calls = 0, clock = 1000;
+  const delays = [];
+  const request = createGitHubRequestPolicy({ fetchImpl: async () => { calls++; return new Response(body, { status, headers }); }, now: () => clock, random: () => 0, sleep: async (ms) => { delays.push(ms); clock += ms; }, log: () => {}, maxAttempts: 2 });
+  await assert.rejects(request('https://api.github.com/test', {}, { readOnly: true }), /exhausted-or-deferred/);
+  assert.equal(calls, 2);
+  assert.deepEqual(delays, [expected]);
+ }
 });
