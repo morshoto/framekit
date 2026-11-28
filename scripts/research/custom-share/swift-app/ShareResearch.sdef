@@ -15,11 +15,15 @@
       <property name="has archive" code="lbha" type="boolean"/>
       <property name="has library description" code="lbhd" type="boolean"/>
     </record-type>
+    <value-type name="user defined record" code="usrf"><cocoa class="NSDictionary"/></value-type>
     <class name="asset" code="aset">
-      <property name="id" code="ID  " type="text" access="r"/>
+      <cocoa class="ResearchAsset"/>
+      <property name="id" code="ID  " type="text" access="r"><cocoa key="uniqueID"/></property>
       <property name="name" code="pnam" type="text" access="r"/>
-      <property name="location info" code="locn" type="asset location" access="r"/>
-      <property name="library info" code="lbry" type="library location" access="r"/>
+      <property name="location info" code="locn" type="asset location" access="r"><cocoa key="locationInfo"/></property>
+      <property name="library info" code="lbry" type="library location" access="r"><cocoa key="libraryInfo"/></property>
+      <property name="metadata" code="meta" type="user defined record" access="rw"/>
+      <property name="data options" code="dopt" type="user defined record" access="rw"><cocoa key="dataOptions"/></property>
     </class>
     <command name="open" code="aevtodoc"><direct-parameter><type type="file" list="yes"/></direct-parameter></command>
     <command name="make" code="corecrel"><parameter name="new" code="kocl" type="type"/><result type="specifier"/></command>
