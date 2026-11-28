@@ -94,3 +94,11 @@ test('labels the quieter gain comparison as exploratory and post hoc', async () 
   assert.equal(config.followUp.gainDb, -36);
   assert.match(config.followUp.designation, /post hoc/i);
 });
+
+test('selects only pinned recognition proxy variants', async () => {
+  const { proxyVariant } = await import('../../../scripts/benchmarks/ai-editing/speech-consistency.mjs');
+  const config = {baselineSha256:'a'.repeat(64),mixedSha256:'b'.repeat(64),followUpMixedSha256:'c'.repeat(64)};
+  assert.equal(proxyVariant(config, undefined).mixedSha256, 'b'.repeat(64));
+  assert.equal(proxyVariant(config, 'quiet').mixedSha256, 'c'.repeat(64));
+  assert.throws(() => proxyVariant(config, 'unknown'), /variant/i);
+});
