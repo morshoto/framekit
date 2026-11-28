@@ -4,6 +4,11 @@ import AppKit
 import Carbon
 import Darwin
 
+let testShareDirectory = ProcessInfo.processInfo.environment["FRAMEKIT_TEST_SHARE_DIR"] ?? "/synthetic/share-output"
+func testSharePath(_ name: String) -> String {
+    URL(fileURLWithPath: testShareDirectory, isDirectory: true).appendingPathComponent("\(name).fcpxml").path
+}
+
 // Test-only conversion for string metadata and the two documented string-list options.
 extension NSDictionary {
     @objc(scriptingUserDefinedRecordWithDescriptor:)
@@ -60,7 +65,7 @@ final class MockAsset: NSObject {
         self.uniqueID = id; self.name = name; self.metadata = metadata as NSDictionary; self.dataOptions = options as NSDictionary
     }
     @objc dynamic var locationInfo: NSDictionary {
-        ["folder": URL(fileURLWithPath: "/synthetic/share-output", isDirectory: true),
+        ["folder": URL(fileURLWithPath: testShareDirectory, isDirectory: true),
          "basename": name, "hasDescription": true, "hasMedia": false]
     }
 }
@@ -119,7 +124,7 @@ final class Receiver: NSObject {
         if let list = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject)), list.descriptorType == DescType(typeAEList) {
             fputs("MOCK OPEN HANDLER INVOKED\n", stderr)
             let matches = MockStore.assets.filter { asset in
-                list.numberOfItems == 1 && list.atIndex(1)?.fileURLValue?.path == "/synthetic/share-output/\(asset.name).fcpxml"
+                list.numberOfItems == 1 && list.atIndex(1)?.fileURLValue?.path == testSharePath(asset.name)
             }
             guard matches.count == 1, let description = NSScriptClassDescription(for: NSApplication.self),
                   let descriptor = NSUniqueIDSpecifier(containerClassDescription: description, containerSpecifier: nil,
@@ -141,7 +146,8 @@ final class MockDelegate: NSObject, NSApplicationDelegate {
         fputs("MOCK DELEGATE OPEN INVOKED\n", stderr)
         guard let reply = NSAppleEventManager.shared().currentReplyAppleEvent else { fputs("MOCK DELEGATE NO CURRENT REPLY\n", stderr); return }
         fputs("MOCK DELEGATE HAS CURRENT REPLY\n", stderr)
-        let matches = MockStore.assets.filter { asset in urls.count == 1 && urls[0].path == "/synthetic/share-output/\(asset.name).fcpxml" }
+        if urls.count == 1 && FileManager.default.fileExists(atPath: urls[0].path) { fputs("MOCK DELEGATE FILE EXISTS\n", stderr) }
+        let matches = MockStore.assets.filter { asset in urls.count == 1 && urls[0].path == testSharePath(asset.name) }
         guard matches.count == 1, let description = NSScriptClassDescription(for: NSApplication.self),
               let descriptor = NSUniqueIDSpecifier(containerClassDescription: description, containerSpecifier: nil,
                   key: "assets", uniqueID: matches[0].uniqueID).descriptor else {
@@ -328,7 +334,7 @@ if args.count == 2 && args[1] == "conversion-control" {
             let coercedLocation = location?.coerce(toDescriptorType: DescType(0x61736c63))
             let emptyLocation = NSAppleEventDescriptor.record().coerce(toDescriptorType: DescType(0x61736c63))
             guard let typedLocation = coercedLocation, typedLocation.descriptorType == DescType(0x61736c63),
-                  typedLocation.forKeyword(AEKeyword(0x61736664))?.fileURLValue?.path == "/synthetic/share-output",
+                  typedLocation.forKeyword(AEKeyword(0x61736664))?.fileURLValue?.path == testShareDirectory,
                   typedLocation.forKeyword(AEKeyword(0x6173626e))?.stringValue == "Synthetic",
                   typedLocation.forKeyword(AEKeyword(0x61736864))?.booleanValue == true,
                   typedLocation.forKeyword(AEKeyword(0x6173686d))?.booleanValue == false else {
@@ -339,7 +345,7 @@ if args.count == 2 && args[1] == "conversion-control" {
             }
             fputs("location-coercion:fields-retained:empty-accepted\n", stderr)
             guard location?.descriptorType == DescType(typeAERecord),
-                  location?.forKeyword(AEKeyword(0x61736664))?.fileURLValue?.path == "/synthetic/share-output",
+                  location?.forKeyword(AEKeyword(0x61736664))?.fileURLValue?.path == testShareDirectory,
                   location?.forKeyword(AEKeyword(0x6173626e))?.stringValue == "Synthetic",
                   location?.forKeyword(AEKeyword(0x61736864))?.booleanValue == true,
                   location?.forKeyword(AEKeyword(0x6173686d))?.booleanValue == false else {
@@ -380,7 +386,7 @@ if args.count == 2 && args[1] == "conversion-control" {
             let openEvent = NSAppleEventDescriptor(eventClass: AEEventClass(kCoreEventClass), eventID: AEEventID(kAEOpenDocuments),
                 targetDescriptor: NSAppleEventDescriptor(processIdentifier: target), returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
             let files = NSAppleEventDescriptor.list()
-            files.insert(NSAppleEventDescriptor(fileURL: URL(fileURLWithPath: "/synthetic/share-output/Synthetic.fcpxml")), at: 1)
+            files.insert(NSAppleEventDescriptor(fileURL: URL(fileURLWithPath: testSharePath("Synthetic"))), at: 1)
             openEvent.setParam(files, forKeyword: AEKeyword(keyDirectObject))
             let openReply = try openEvent.sendEvent(options: [.waitForReply, .neverInteract], timeout: 3)
             let openResult = openReply.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))
@@ -389,7 +395,7 @@ if args.count == 2 && args[1] == "conversion-control" {
                 fputs("unexpected open reply: \(openReply)\n", stderr); exit(1)
             }
             let wrongFiles = NSAppleEventDescriptor.list()
-            wrongFiles.insert(NSAppleEventDescriptor(fileURL: URL(fileURLWithPath: "/synthetic/share-output/Unknown.fcpxml")), at: 1)
+            wrongFiles.insert(NSAppleEventDescriptor(fileURL: URL(fileURLWithPath: testSharePath("Unknown"))), at: 1)
             openEvent.setParam(wrongFiles, forKeyword: AEKeyword(keyDirectObject))
             var openRejected = false
             do {
