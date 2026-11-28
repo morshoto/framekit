@@ -188,7 +188,7 @@ test('rechecks same-repository PR body edits with write permission for milestone
 	assert.doesNotMatch(activeWorkflow, /^[ \t]+pull_request_target:/m);
 	assert.match(activeWorkflow, /sync-pull-request-milestone:/);
 	assert.match(activeWorkflow, /head\.repo\.full_name == github\.repository/);
-	assert.match(activeWorkflow, /ref:\s*\$\{\{\s*github\.sha\s*\}\}/);
+	assert.match(activeWorkflow, /ref:\s*\$\{\{\s*github\.event\.repository\.default_branch\s*\}\}/);
 	assert.match(activeWorkflow, /pull-requests:\s*write/);
 });
 
