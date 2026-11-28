@@ -32,6 +32,14 @@ test('compares anchored child timing in parent time, rejecting a shifted title a
   assert.equal(findAnchoredTarget(base, equivalent, 'opening-v1', expected).id, 'opening-v1');
 });
 
+test('rejects unsupported timed children even when their raw XML is unchanged', async () => {
+  const { base, external } = await fixtures();
+  const insert = value => value.replace('<metadata><md key="com.framekit.id" value="opening-v1"/>', '<marker start="1s" duration="1/30s" value="mark"/><metadata><md key="com.framekit.id" value="opening-v1"/>');
+  assert.throws(() => findAnchoredTarget(insert(base), insert(external), 'opening-v1', expected), /unsupported/);
+  const nested = value => value.replace('<audio ref="m"', '<audio ref="m"').replace('/><title ref="title-effect"', '><title lane="1" offset="1s" duration="1s"/></audio><title ref="title-effect"');
+  assert.throws(() => findAnchoredTarget(nested(base), nested(external), 'opening-v1', expected), /unsupported/);
+});
+
 test('rejects copied, missing and changed anchors and source declarations', async () => {
   const { base, external } = await fixtures();
   assert.throws(() => findAnchoredTarget(base, external.replace('value="inserted-v1"', 'value="opening-v1"'), 'opening-v1', expected), /duplicate/);
