@@ -28,6 +28,24 @@ try manager.createSymbolicLink(at: linkedRoot, withDestinationURL: root)
 require(rejects { _ = try inspectOutput(directory: linkedRoot, name: "Example.fcpxml", expectedDigest: expected) }, "symlink directory accepted")
 require(rejects { _ = try inspectOutput(directory: root, name: "Missing.fcpxml", expectedDigest: expected) }, "missing file accepted")
 
+let foreign = parent.appendingPathComponent("foreign.fcpxml")
+try xml.write(to: foreign)
+let hardLink = root.appendingPathComponent("HardLink.fcpxml")
+try manager.linkItem(at: foreign, to: hardLink)
+let hardLinkResult = try inspectOutput(directory: root, name: "HardLink.fcpxml", expectedDigest: expected)
+require(hardLinkResult.sha256 == expected, "hard-link characterization changed")
+
+let savedFile = root.appendingPathComponent("saved.fcpxml")
+let replacedFile = rejects {
+    _ = try inspectOutput(directory: root, name: "Example.fcpxml", expectedDigest: expected, afterOpen: {
+        try manager.moveItem(at: output, to: savedFile)
+        try xml.write(to: output)
+    })
+}
+require(replacedFile, "replaced file accepted")
+try manager.removeItem(at: output)
+try manager.moveItem(at: savedFile, to: output)
+
 let moved = parent.appendingPathComponent("original", isDirectory: true)
 let outside = parent.appendingPathComponent("other", isDirectory: true)
 try manager.createDirectory(at: outside, withIntermediateDirectories: true)
