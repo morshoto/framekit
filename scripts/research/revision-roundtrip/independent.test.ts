@@ -103,3 +103,29 @@ test('document revision advances within one adapter but resets on a fresh adapte
   assert.notEqual(createHash('sha256').update(before).digest('hex'), createHash('sha256').update(after).digest('hex'));
   assert.equal(freshAdapter.timeline.clips[0]?.name, 'Manually changed');
 });
+
+test('non-overlapping external edit rebases but imported story element blocks recompilation', async () => {
+  const original = (await readFile(fixture, 'utf8')).replace(/<audio ref="m"[^>]*\/>/, '');
+  const external = original.replace('name="Opening" offset="0s" start="1s"', 'name="Opening" offset="0s" start="2s"');
+  assert.equal(digestText(original), 'cbba9ce1a36c907236c12de4db1462addece1df0d65a25523747ef9406c2dfee');
+  assert.equal(digestText(external), '77b308821d72f6a667771940a0786211c65d3a7fe80af1b2e5267dff236fbaa0');
+  const parse = (value: string) => createTimelineIrFromProjectSnapshot(
+    FcpxmlDocumentAdapter.readProjectFromContent('/synthetic/independent.fcpxml', value),
+  );
+  const base = parse(original);
+  const ours = structuredClone(base);
+  ours.sequence.occurrences[0]!.name = 'Agent rename';
+  const theirs = parse(external);
+  theirs.revision = { id: 'synthetic-external', sequence: 1, timestamp: '2026-01-01T00:00:00.000Z' };
+  const result = reconcileTimelineIr({ base, ours, theirs });
+  assert.equal(result.status, 'rebased');
+  assert.deepEqual(result.conflicts, []);
+  assert.ok(result.merged);
+  assert.equal(result.merged.sequence.occurrences[0]?.name, 'Agent rename');
+  assert.deepEqual(result.merged.sequence.occurrences[0]?.sourceStartTime, { value: '2', timescale: '1' });
+  assert.throws(() => compileTimelineIrToFcpxml(result.merged!, { target }), /FCPXML_UNSUPPORTED_TIMELINE_FEATURE: story-element:asset-clip/);
+});
+
+function digestText(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
