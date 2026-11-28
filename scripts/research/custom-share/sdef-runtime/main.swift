@@ -6,6 +6,22 @@ import Darwin
 
 // Test-only encoder for string metadata; it deliberately rejects other types.
 extension NSDictionary {
+    @objc(scriptingUserDefinedRecordWithDescriptor:)
+    class func testUserRecord(with descriptor: NSAppleEventDescriptor) -> NSDictionary? {
+        fputs("MOCK USER RECORD DECODER INVOKED\n", stderr)
+        guard descriptor.descriptorType == DescType(typeAERecord),
+              let fields = descriptor.forKeyword(AEKeyword(keyASUserRecordFields)),
+              fields.descriptorType == DescType(typeAEList), fields.numberOfItems % 2 == 0 else { return nil }
+        var values = [String: String]()
+        var index = 1
+        while index <= fields.numberOfItems {
+            guard let key = fields.atIndex(index)?.stringValue, !key.isEmpty,
+                  let value = fields.atIndex(index + 1)?.stringValue, values[key] == nil else { return nil }
+            values[key] = value
+            index += 2
+        }
+        return values as NSDictionary
+    }
     @objc(scriptingUserDefinedRecordDescriptor)
     func testUserRecordDescriptor() -> NSAppleEventDescriptor? {
         guard let values = self as? [String: String] else { return nil }
@@ -24,9 +40,10 @@ extension NSDictionary {
 
 @objc(MockAsset)
 final class MockAsset: NSObject {
-    @objc dynamic let uniqueID = "asset-1"
-    @objc dynamic let name = "Synthetic"
-    @objc dynamic var metadata: NSDictionary { ["example.test.title": "Synthetic metadata"] }
+    @objc dynamic let uniqueID: String
+    @objc dynamic let name: String
+    @objc dynamic let metadata: NSDictionary
+    init(id: String, name: String, metadata: [String: String]) { self.uniqueID = id; self.name = name; self.metadata = metadata as NSDictionary }
     @objc dynamic var locationInfo: NSDictionary {
         ["folder": URL(fileURLWithPath: "/synthetic/share-output", isDirectory: true),
          "basename": name, "hasDescription": true, "hasMedia": false]
@@ -41,13 +58,19 @@ extension NSApplication {
     }
 }
 @objc(MockMakeCommand)
-final class MockMakeCommand: NSScriptCommand {
+final class MockMakeCommand: NSCreateCommand {
     override func performDefaultImplementation() -> Any? {
         fputs("MOCK MAKE COMMAND INVOKED\n", stderr)
         guard let description = NSScriptClassDescription(for: NSApplication.self) else {
             scriptErrorNumber = Int(errAEEventNotHandled); return nil
         }
-        let asset = MockAsset()
+        let properties = evaluatedArguments?["KeyDictionary"] as? [String: Any]
+        let metadata = properties?["metadata"] as? [String: String]
+        guard properties == nil || properties?["name"] as? String == "Named" && metadata?["example.test.title"] == "Incoming" else {
+            scriptErrorNumber = Int(errAEEventNotHandled); return nil
+        }
+        let asset = MockAsset(id: "asset-\(MockStore.assets.count + 1)", name: properties == nil ? "Synthetic" : "Named",
+            metadata: metadata ?? ["example.test.title": "Synthetic metadata"])
         MockStore.assets.append(asset)
         return NSUniqueIDSpecifier(containerClassDescription: description, containerSpecifier: nil, key: "assets", uniqueID: asset.uniqueID)
     }
@@ -66,6 +89,25 @@ let args = CommandLine.arguments
 if args.count == 2 && args[1] == "conversion-control" {
     let unsupported: NSDictionary = ["synthetic": 42]
     guard unsupported.testUserRecordDescriptor() == nil else { fputs("unsupported metadata accepted\n", stderr); exit(1) }
+    let malformed = NSAppleEventDescriptor.record()
+    let odd = NSAppleEventDescriptor.list()
+    odd.insert(NSAppleEventDescriptor(string: "key"), at: 1)
+    malformed.setDescriptor(odd, forKeyword: AEKeyword(keyASUserRecordFields))
+    guard NSDictionary.testUserRecord(with: malformed) == nil else { fputs("odd metadata accepted\n", stderr); exit(1) }
+    let duplicates = NSAppleEventDescriptor.list()
+    for (index, value) in ["key", "one", "key", "two"].enumerated() {
+        duplicates.insert(NSAppleEventDescriptor(string: value), at: index + 1)
+    }
+    malformed.setDescriptor(duplicates, forKeyword: AEKeyword(keyASUserRecordFields))
+    guard NSDictionary.testUserRecord(with: malformed) == nil else { fputs("duplicate metadata accepted\n", stderr); exit(1) }
+    for invalid in [NSAppleEventDescriptor(int32: 42), NSAppleEventDescriptor(boolean: true),
+                    NSAppleEventDescriptor(fileURL: URL(fileURLWithPath: "/synthetic"))] {
+        let fields = NSAppleEventDescriptor.list()
+        fields.insert(NSAppleEventDescriptor(string: "key"), at: 1)
+        fields.insert(invalid, at: 2)
+        malformed.setDescriptor(fields, forKeyword: AEKeyword(keyASUserRecordFields))
+        guard NSDictionary.testUserRecord(with: malformed) == nil else { fputs("coerced metadata accepted\n", stderr); exit(1) }
+    }
     let app = NSApplication.shared
     app.setActivationPolicy(.prohibited)
     guard let d = NSScriptSuiteRegistry.shared().commandDescription(withAppleEventClass: AEEventClass(0x636f7265), andAppleEventCode: AEEventID(0x6372656c)) else { exit(2) }
@@ -100,15 +142,45 @@ if args.count == 2 && args[1] == "conversion-control" {
         event.setParam(NSAppleEventDescriptor(typeCode: OSType(0x61736574)), forKeyword: AEKeyword(0x6b6f636c))
         if args[3] == "make-properties" {
             let properties = NSAppleEventDescriptor.record()
-            properties.setDescriptor(NSAppleEventDescriptor(string: "Synthetic"), forKeyword: AEKeyword(0x706e616d))
+            properties.setDescriptor(NSAppleEventDescriptor(string: "Named"), forKeyword: AEKeyword(0x706e616d))
+            let fields = NSAppleEventDescriptor.list()
+            fields.insert(NSAppleEventDescriptor(string: "example.test.title"), at: 1)
+            fields.insert(NSAppleEventDescriptor(string: "Incoming"), at: 2)
+            let metadata = NSAppleEventDescriptor.record()
+            metadata.setDescriptor(fields, forKeyword: AEKeyword(keyASUserRecordFields))
+            properties.setDescriptor(metadata, forKeyword: AEKeyword(0x6d657461))
             event.setParam(properties, forKeyword: AEKeyword(0x70726474))
         }
     }
     else { event.setParam(NSAppleEventDescriptor(string: "ping"), forKeyword: AEKeyword(keyDirectObject)) }
     do {
         let reply = try event.sendEvent(options: [.waitForReply, .neverInteract], timeout: 3)
-        if args[3] == "make-properties", reply.paramDescriptor(forKeyword: AEKeyword(keyErrorNumber))?.int32Value == Int32(errAEEventNotHandled) {
-            print("properties-rejected:-1708"); exit(0)
+        if args[3] == "make-properties", let result = reply.paramDescriptor(forKeyword: AEKeyword(keyDirectObject)),
+           result.descriptorType == DescType(typeObjectSpecifier),
+           result.forKeyword(AEKeyword(keyAEDesiredClass))?.typeCodeValue == OSType(0x61736574),
+           result.forKeyword(AEKeyword(keyAEKeyForm))?.typeCodeValue == OSType(formUniqueID),
+           result.forKeyword(AEKeyword(keyAEKeyData))?.stringValue == "asset-2" {
+            let property = NSAppleEventDescriptor.record()
+            property.setDescriptor(NSAppleEventDescriptor(typeCode: OSType(typeProperty)), forKeyword: AEKeyword(keyAEDesiredClass))
+            property.setDescriptor(NSAppleEventDescriptor(typeCode: OSType(formPropertyID)), forKeyword: AEKeyword(keyAEKeyForm))
+            property.setDescriptor(NSAppleEventDescriptor(typeCode: OSType(0x706e616d)), forKeyword: AEKeyword(keyAEKeyData))
+            property.setDescriptor(result, forKeyword: AEKeyword(keyAEContainer))
+            guard let typed = property.coerce(toDescriptorType: DescType(typeObjectSpecifier)) else { exit(1) }
+            let get = NSAppleEventDescriptor(eventClass: AEEventClass(0x636f7265), eventID: AEEventID(0x67657464),
+                targetDescriptor: NSAppleEventDescriptor(processIdentifier: target), returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
+            get.setParam(typed, forKeyword: AEKeyword(keyDirectObject))
+            let getReply = try get.sendEvent(options: [.waitForReply, .neverInteract], timeout: 3)
+            guard getReply.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue == "Named" else { exit(1) }
+            property.setDescriptor(NSAppleEventDescriptor(typeCode: OSType(0x6d657461)), forKeyword: AEKeyword(keyAEKeyData))
+            guard let metadataSpecifier = property.coerce(toDescriptorType: DescType(typeObjectSpecifier)) else { exit(1) }
+            let metadataGet = NSAppleEventDescriptor(eventClass: AEEventClass(0x636f7265), eventID: AEEventID(0x67657464),
+                targetDescriptor: NSAppleEventDescriptor(processIdentifier: target), returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
+            metadataGet.setParam(metadataSpecifier, forKeyword: AEKeyword(keyDirectObject))
+            let metadataReply = try metadataGet.sendEvent(options: [.waitForReply, .neverInteract], timeout: 3)
+            let metadata = metadataReply.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.forKeyword(AEKeyword(keyASUserRecordFields))
+            guard metadata?.numberOfItems == 2, metadata?.atIndex(1)?.stringValue == "example.test.title",
+                  metadata?.atIndex(2)?.stringValue == "Incoming" else { fputs("incoming metadata mismatch: \(metadataReply)\n", stderr); exit(1) }
+            print("properties:asset-2:get:Named:metadata:Incoming"); exit(0)
         }
         if !make, let value = reply.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue, value.hasPrefix("pong:") { print(value); exit(0) }
         if args[3] == "make", let result = reply.paramDescriptor(forKeyword: AEKeyword(keyDirectObject)),
@@ -180,7 +252,6 @@ if args.count == 2 && args[1] == "conversion-control" {
         }
         fputs("unexpected reply: \(reply)\n", stderr); exit(1)
     } catch {
-        if args[3] == "make-properties", (error as NSError).code == Int(errAEEventNotHandled) { print("properties-rejected:-1708"); exit(0) }
         fputs("unexpected error: \(error)\n", stderr); exit(1)
     }
 } else { fputs("invalid arguments\n", stderr); exit(2) }
