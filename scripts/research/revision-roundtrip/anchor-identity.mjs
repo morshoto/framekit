@@ -1,5 +1,15 @@
 // Offline experiment: XML metadata is an unauthenticated claim, not native identity.
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
+function canonicalTime(value, positive = false) {
+  if (typeof value !== 'string' || !/^\d+(?:\/[1-9]\d*)?s$/.test(value)) throw new Error('invalid time');
+  const parts = value.slice(0, -1).split('/');
+  const numerator = BigInt(parts[0]);
+  const denominator = BigInt(parts[1] ?? '1');
+  if (positive && numerator === 0n) throw new Error('invalid duration');
+  let a = numerator, b = denominator;
+  while (b !== 0n) [a, b] = [b, a % b];
+  return `${numerator / a}/${denominator / a}`;
+}
 const array = value => value === undefined ? [] : Array.isArray(value) ? value : [value];
 const one = (value, kind) => {
   const entries = array(value);
@@ -49,6 +59,12 @@ export function findAnchoredTarget(base, external, targetId, manifest) {
   if (!a || !b) throw new Error('missing target anchor');
   if (a.source !== b.source) throw new Error('source mismatch');
   if (a.name !== b.name) throw new Error('rename conflict');
-  if (b.sourceStart !== manifest.sourceStart || b.duration !== manifest.duration) throw new Error('target manifest mismatch');
+  if (canonicalTime(b.sourceStart) !== canonicalTime(manifest.sourceStart)
+      || canonicalTime(b.duration, true) !== canonicalTime(manifest.duration, true)) throw new Error('target manifest mismatch');
+  const sameInterval = (left, right) => left.source === right.source
+    && canonicalTime(left.sourceStart) === canonicalTime(right.sourceStart)
+    && canonicalTime(left.duration, true) === canonicalTime(right.duration, true);
+  if ([...before.anchors.values()].filter(item => sameInterval(item, a)).length !== 1
+      || [...after.anchors.values()].filter(item => sameInterval(item, b)).length !== 1) throw new Error('ambiguous source interval');
   return b;
 }
