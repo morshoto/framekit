@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, generateKeyPairSync } from 'node:crypto';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -37,4 +39,22 @@ test('an output collision retains the claim and never overwrites existing bytes'
   await assert.rejects(commitSignedRevisionB(input), /EEXIST/);
   assert.equal(await readFile(input.output, 'utf8'), 'sentinel');
   await assert.rejects(commitSignedRevisionB({ ...input, output: join(input.claimDirectory, 'other.fcpxml') }), /EEXIST/);
+});
+
+
+test('separate processes share the same one-shot claim', async t => {
+  const input = await fixture(t);
+  const publicPath = join(input.claimDirectory, 'public.pem');
+  const envelopePath = join(input.claimDirectory, 'envelope.json');
+  await writeFile(publicPath, input.trustedKey.export({ type: 'spki', format: 'pem' }));
+  await writeFile(envelopePath, JSON.stringify(input.envelope));
+  const pin = hash(input.trustedKey.export({ type: 'spki', format: 'der' }));
+  const script = new URL('./signed-once-child.mjs', import.meta.url).pathname;
+  const run = promisify(execFile);
+  const args = [script, input.claimDirectory, input.output, envelopePath, publicPath, pin];
+  const results = await Promise.allSettled([run(process.execPath, args), run(process.execPath, args)]);
+  assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
+  assert.equal(results.filter(result => result.status === 'rejected').length, 1);
+  const winner = JSON.parse(results.find(result => result.status === 'fulfilled').value.stdout);
+  assert.equal(winner.digest, hash(await readFile(input.output)));
 });
