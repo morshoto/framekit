@@ -3252,7 +3252,9 @@
       "\"command speech analyzer preserves explicit coverage provenance\"",
       "`persisted ${kind} cache rechecks source bytes after restart`",
       "\"command audio rejects invalid or mismatched occurrence signal provenance\"",
-      "\"command audio bounds source verification before and after the provider\""
+      "\"command audio bounds source verification before and after the provider\"",
+      "\"an explicitly selected analyzer environment binds only variables passed to the child\"",
+      "\"factory runs the analyzer with only the explicitly selected environment\""
     ],
     "tests/speech/revision-bound-analysis.test.ts": [
       "\"speech binding preserves configured model and configuration provenance\"",

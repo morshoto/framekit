@@ -32,6 +32,18 @@ export interface CommandAnalyzerOptions {
   environment?: Record<string, string | undefined>;
 }
 
+/** Select the complete child environment when an operator opts in. */
+export function selectAnalyzerEnvironment(keys: string, source: Record<string, string | undefined>): Record<string, string> {
+  const names = keys.split(",").map((name) => name.trim());
+  if (!names.length || names.some((name) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) || new Set(names).size !== names.length) {
+    throw new Error("ANALYZER_SETUP_REQUIRED: speech environment allowlist must contain unique valid variable names");
+  }
+  if (names.some((name) => !Object.prototype.hasOwnProperty.call(source, name) || typeof source[name] !== "string")) {
+    throw new Error("ANALYZER_SETUP_REQUIRED: every allowlisted speech environment variable must be set");
+  }
+  return Object.fromEntries(names.map((name) => [name, source[name]!]));
+}
+
 interface AnalyzerRequest extends AnalysisInput {
   range?: TimeRange;
 }
@@ -45,6 +57,7 @@ export function createCommandAnalyzers(options: {
   speechVadModelAssetPath?: string;
   speechVadModelAssetSha256?: string;
   speechRequireVad?: boolean;
+  speechEnvironment?: Record<string, string | undefined>;
   audioCommand?: string;
   audioProviderVersion?: string;
   visualCommand?: string;
@@ -67,6 +80,7 @@ export function createCommandAnalyzers(options: {
       speechAnalyzer: new CommandSpeechAnalyzer({
         command: options.speechCommand,
         timeoutMs: options.timeoutMs,
+        ...(options.speechEnvironment !== undefined ? { environment: options.speechEnvironment } : {}),
         ...(options.speechProviderVersion ? { providerVersion: options.speechProviderVersion } : {}),
         ...(options.speechModelIdentity ? { modelIdentity: options.speechModelIdentity } : {}),
         ...(options.speechModelAssetPath !== undefined && options.speechModelAssetSha256 !== undefined
