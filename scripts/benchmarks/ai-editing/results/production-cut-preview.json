@@ -1,0 +1,41 @@
+{
+  "gitHead": "2301c13dee9c70ac8b460c54bfc1e8bc4a443401",
+  "sourceSha256": "b6ce59ff735c234afdd94b13744aa26f6785af746170543fd03b33160e920a6d",
+  "sourceWindowSeconds": [
+    60,
+    120
+  ],
+  "addedTailSeconds": 1,
+  "inputSha256": "f3dba83dfe1994f713d0014d058ad5da8db2eb00a9cc92e72bd4f01dddc5e18b",
+  "declaredModel": "mlx-community/whisper-tiny",
+  "providerVersion": "mlx-whisper-0.4.3:silero-6.3",
+  "screening": {
+    "status": "screened",
+    "candidates": [
+      {
+        "sourceRange": {
+          "start": 98.03333333333333,
+          "end": 99
+        },
+        "confidence": 0.5,
+        "evidence": [
+          "Sentence-ending transcript boundary",
+          "VAD suggests a non-speech gap",
+          "Speech margins retained"
+        ],
+        "reviewRequired": true
+      }
+    ],
+    "speechSafety": "unverified"
+  },
+  "warnings": [
+    "Candidates require review and separate evidence-bound approval before any edit.",
+    "Visual context is unavailable; ranking uses speech evidence only.",
+    "Non-speech gaps remain uncertain and require listening.",
+    "Native operation mapping, separate approval and independent verification are not yet available for these proposals."
+  ],
+  "previewMutationObserved": false,
+  "nativeWrites": false,
+  "nativeAcceptance": "unavailable",
+  "limitation": "One exploratory, read-only production-stdio preview of transformed speech; model bytes and transcript boundaries are unverified. No cut execution, listening, or native acceptance is implied."
+}
