@@ -30,6 +30,7 @@ test('rejects changed artifacts, wrong target, partial record and symlink', asyn
   const directory = await fixture(t);
   const path = join(directory, 'revision.json');
   const bytes = Buffer.from('<fcpxml/>');
+  await assert.rejects(readRevision(join(directory, 'missing.json'), bytes, 'project-a'), /ENOENT/);
   await writeRevision(path, bytes, 'project-a');
   await assert.rejects(readRevision(path, Buffer.from('<fcpxml />'), 'project-a'), /stale/);
   await assert.rejects(readRevision(path, bytes, 'project-b'), /target/);
