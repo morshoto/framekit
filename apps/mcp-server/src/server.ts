@@ -9,6 +9,13 @@ import { z } from "zod/v4";
 import {
   AgentVideoRuntime,
   canonicalSnapshotDigest,
+  pinAnalysisEvidence,
+  sameAnalyzerDescriptor,
+  type AnalyzerDescriptor,
+  verifyLocalMediaSource,
+  timelineIrDigest,
+  type SemanticMediaIndexStore,
+  type AnalysisArtifactStore,
   createCapabilityPreflight,
   resolveEditingIntent,
   serializeCapabilityUnavailableError,
@@ -970,6 +977,8 @@ export interface McpServerOptions {
   materializationDirectory?: string;
   sessionMaterializationPublisher?: SessionMaterializationPublisher;
   headlessProjects?: HeadlessProjectWorkflow;
+  analysisEvidence?: { index: SemanticMediaIndexStore; artifacts: AnalysisArtifactStore;
+    currentProvider(kind: "speech" | "vad" | "audio"): AnalyzerDescriptor | undefined | Promise<AnalyzerDescriptor | undefined> };
   headlessBriefs?: HeadlessCreativeBriefService;
 }
 
@@ -2406,6 +2415,55 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
       range: rangeSchema.optional(),
     },
   }, async ({ mediaId, range }) => jsonResult(await runtime.analyzeVisual(mediaId, range)));
+
+  registerValidatedTool(server, "headless.analysis.pin", {
+    description: "Pin existing provider-reported source analysis for a headless project. This read-only reference does not approve or authorize an edit.",
+    inputSchema: { projectId: z.string().min(1), sequenceId: z.string().min(1), expectedRevision: revisionValueSchema,
+      mediaId: z.string().min(1), kind: z.enum(["speech", "vad", "audio"]), range: rangeSchema },
+  }, async ({ projectId, sequenceId, expectedRevision, mediaId, kind, range }) => sessionResult(async () => {
+    if (!options.analysisEvidence) throw new Error("ANALYSIS_UNAVAILABLE: evidence storage is not configured");
+    const projects = requireHeadlessProjects();
+    const before = await projects.open(projectId);
+    const unchanged = (after: typeof before) => before.timeline.revision.id === after.timeline.revision.id
+      && before.timeline.revision.sequence === after.timeline.revision.sequence
+      && before.timeline.revision.timestamp === after.timeline.revision.timestamp
+      && timelineIrDigest(before.timeline) === timelineIrDigest(after.timeline);
+    if (before.timeline.project.id !== projectId || before.timeline.sequence.id !== sequenceId
+      || JSON.stringify(before.timeline.revision) !== JSON.stringify(expectedRevision)) throw new Error("STALE_CONTEXT: project target or revision changed");
+    const resources = before.timeline.resources.filter((resource) => resource.id === mediaId && resource.sourceKind === "local-file" && resource.sourceDigest);
+    const sources = projectSnapshotFromTimelineIr(before.timeline).media.filter((source) => source.mediaId === mediaId);
+    if (resources.length !== 1 || sources.length !== 1) throw new Error("ANALYSIS_UNAVAILABLE: a unique registered source is required");
+    const source = sources[0]!;
+    const record = await options.analysisEvidence.index.load(source);
+    const matches = record?.analysis.filter((item) => item.capability === (kind === "vad" ? "speech" : kind) && item.status === "analyzed") ?? [];
+    const provider = matches.length === 1 ? matches[0]?.provenance?.analyzer : undefined;
+    if (!provider) throw new Error("ANALYSIS_UNAVAILABLE: unique analysis provenance is required");
+    const configured = await options.analysisEvidence.currentProvider(kind);
+    if (!configured || !sameAnalyzerDescriptor(provider, configured)) {
+      throw new Error("ANALYSIS_STALE_PROVIDER: configured analyzer differs from stored provenance");
+    }
+    const context = { kind, source, provider, revision: expectedRevision, range };
+    const ref = await pinAnalysisEvidence(options.analysisEvidence.index, options.analysisEvidence.artifacts, context, verifyLocalMediaSource);
+    const after = await projects.open(projectId);
+    if (!unchanged(after)) throw new Error("STALE_CONTEXT: project changed during evidence pinning");
+    const currentProvider = await options.analysisEvidence.currentProvider(kind);
+    if (!currentProvider || !sameAnalyzerDescriptor(ref.provider, currentProvider)) {
+      throw new Error("ANALYSIS_STALE_PROVIDER: configured analyzer changed during evidence pinning");
+    }
+    const currentRecord = await options.analysisEvidence.index.load(source);
+    if (!currentRecord || `sha256:${createHash("sha256").update(JSON.stringify(currentRecord)).digest("hex")}` !== ref.artifactDigest) {
+      throw new Error("ANALYSIS_STALE: analysis changed during evidence pinning");
+    }
+    const finalProject = await projects.open(projectId);
+    if (!unchanged(finalProject)) throw new Error("STALE_CONTEXT: project changed during evidence pinning");
+    const finalProvider = await options.analysisEvidence.currentProvider(kind);
+    if (!finalProvider || !sameAnalyzerDescriptor(ref.provider, finalProvider)) {
+      throw new Error("ANALYSIS_STALE_PROVIDER: configured analyzer changed during evidence pinning");
+    }
+    const finalCheckedProject = await projects.open(projectId);
+    if (!unchanged(finalCheckedProject)) throw new Error("STALE_CONTEXT: project changed during evidence pinning");
+    return { ref, notice: "Pinned source evidence is not edit approval or native occurrence proof." };
+  }));
 
   registerValidatedTool(server, "media.understand", {
     description: "Return combined speech, audio, and visual understanding for one media item in the selected editor project or a named headless project.",

@@ -327,8 +327,27 @@ reopened before and after analysis, so an observed missing or changed source or
 project revision fails the request before a new understanding is saved. This is a source-file check, not proof of
 native Final Cut occurrence identity or continuous filesystem fencing.
 
+To pin existing provider-reported analysis, call `headless.analysis.pin` with
+`projectId`, `sequenceId`, the current `expectedRevision`, registered `mediaId`,
+`kind` (`speech`, `vad`, or `audio`), and a source-relative `range`. The tool
+returns a content-addressed `ref` containing source, provider, revision, range,
+and artifact identities. It checks the registered source, current project, and configured analyzer descriptor;
+missing, incomplete, inferred, or conflicting analysis is rejected. Re-analyze when the source, provider, or coverage changes; pin again for the
+current project revision.
+Pinning is not an edit approval, native occurrence proof, or proof of an edited
+mix; editing workflows must verify the reference again at their own boundary.
+
 Pin speech and audio provider/model revisions with
 `FRAMEKIT_SPEECH_ANALYZER_VERSION` and `FRAMEKIT_AUDIO_ANALYZER_VERSION`.
+To include model identity in speech provenance, set
+`FRAMEKIT_SPEECH_ANALYZER_MODEL_ID` to the exact model identity and revision. This is a declared identity; update it
+when the model changes. To additionally check one local model asset, set both
+`FRAMEKIT_SPEECH_MODEL_ASSET_PATH` to its absolute file path and
+`FRAMEKIT_SPEECH_MODEL_ASSET_SHA256` to its lowercase SHA-256. Framekit checks
+that file before and after speech analysis, when reusing cached speech, and
+when pinning speech evidence. Missing or changed bytes are rejected. This is
+point-in-time verification of the configured file: an opaque command may load
+other files or ignore it, so it does not prove the complete model that ran.
 Command providers capture their execution environment and report a
 `configurationDigest` derived from that environment, executable path and
 declared provider version. Configuration changes invalidate incompatible cached
@@ -348,7 +367,8 @@ reports audio unavailable while preserving successful transcription and other
 analysis. Providers may report `sourceTimebase` as a positive rational clock and
 `signalFormat` with positive integer `sampleRate`/`channels` and an optional
 nonempty `channelLayout`. Declared range timing and format are validated and
-retained; absent technical metadata is not inferred.
+retained. `coverageProvenance` distinguishes provider-reported coverage from
+a runtime-inferred range; inferred coverage does not establish observed evidence.
 
 For source-file loudness in a checkout, the optional
 `apps/mcp-server/runtime/ffmpeg-audio-backend.py` command requires Python 3,
@@ -368,7 +388,10 @@ this source measurement cannot verify a timeline gain change.
 The existing Whisper backend can optionally run local Silero VAD. Install
 `silero-vad`/PyTorch and provide a local JIT model through
 `FRAMEKIT_SILERO_VAD_MODEL` plus its required SHA-256 in
-`FRAMEKIT_SILERO_VAD_SHA256`; the backend never downloads a model. Include the
+`FRAMEKIT_SILERO_VAD_SHA256`; the backend never downloads a model. When both
+are set, Framekit also rechecks the VAD file at the provider evidence
+checkpoints. The VAD path must be absolute. As with speech assets, this does
+not prove that an arbitrary command used the file. Include the
 package/model/backend revisions in `FRAMEKIT_SPEECH_ANALYZER_VERSION`.
 For an npm installation, the executables are under
 `node_modules/@morshoto/framekit/dist-package/apps/mcp-server/runtime/`:
@@ -390,6 +413,7 @@ export FRAMEKIT_AUDIO_ANALYZER="$runtime/ffmpeg-audio-backend.py"
 export FRAMEKIT_WHISPER_BACKEND=mlx-whisper
 export FRAMEKIT_WHISPER_MODEL="/absolute/path/to/prepared-local-model"
 export FRAMEKIT_SPEECH_ANALYZER_VERSION="mlx-whisper-0.4.3:YOUR_MODEL_REVISION:silero-6.3"
+export FRAMEKIT_SPEECH_ANALYZER_MODEL_ID="YOUR_MODEL_REVISION"
 export FRAMEKIT_AUDIO_ANALYZER_VERSION="YOUR_FFMPEG_AND_BACKEND_VERSION"
 export FRAMEKIT_SILERO_VAD_MODEL="$(python -c 'import importlib.util,pathlib; print(pathlib.Path(importlib.util.find_spec("silero_vad").origin).parent / "data/silero_vad.jit")')"
 export FRAMEKIT_SILERO_VAD_SHA256="$(shasum -a 256 "$FRAMEKIT_SILERO_VAD_MODEL" | cut -d ' ' -f 1)"

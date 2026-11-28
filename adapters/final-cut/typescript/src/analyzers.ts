@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
+import { isAbsolute } from "node:path";
 import { bindSpeechAnalysis, sameMediaSourceIdentity, validateAudioAnalysisPayload } from "@framekit/runtime";
 import type {
   AnalysisInput,
@@ -21,6 +22,11 @@ export interface CommandAnalyzerOptions {
   command: string;
   timeoutMs?: number;
   providerVersion?: string;
+  modelIdentity?: string;
+  /** Optional operator-pinned asset; opaque commands may still load other files. */
+  modelAsset?: { path: string; sha256: string };
+  /** Optional pinned VAD detector asset; checked independently of speech weights. */
+  vadModelAsset?: { path: string; sha256: string };
   requireVad?: boolean;
   /** Captured at construction and used for both execution and configuration identity. */
   environment?: Record<string, string | undefined>;
@@ -33,6 +39,11 @@ interface AnalyzerRequest extends AnalysisInput {
 export function createCommandAnalyzers(options: {
   speechCommand?: string;
   speechProviderVersion?: string;
+  speechModelIdentity?: string;
+  speechModelAssetPath?: string;
+  speechModelAssetSha256?: string;
+  speechVadModelAssetPath?: string;
+  speechVadModelAssetSha256?: string;
   speechRequireVad?: boolean;
   audioCommand?: string;
   audioProviderVersion?: string;
@@ -45,12 +56,23 @@ export function createCommandAnalyzers(options: {
   visualAnalyzer?: VisualAnalyzer;
   metadataAnalyzer?: MetadataAnalyzer;
 } {
+  if ((options.speechModelAssetPath === undefined) !== (options.speechModelAssetSha256 === undefined)) {
+    throw new Error("ANALYZER_SETUP_REQUIRED: both speech model asset path and SHA-256 are required");
+  }
+  if ((options.speechVadModelAssetPath === undefined) !== (options.speechVadModelAssetSha256 === undefined)) {
+    throw new Error("ANALYZER_SETUP_REQUIRED: both VAD model asset path and SHA-256 are required");
+  }
   return {
     ...(options.speechCommand ? {
       speechAnalyzer: new CommandSpeechAnalyzer({
         command: options.speechCommand,
         timeoutMs: options.timeoutMs,
         ...(options.speechProviderVersion ? { providerVersion: options.speechProviderVersion } : {}),
+        ...(options.speechModelIdentity ? { modelIdentity: options.speechModelIdentity } : {}),
+        ...(options.speechModelAssetPath !== undefined && options.speechModelAssetSha256 !== undefined
+          ? { modelAsset: { path: options.speechModelAssetPath, sha256: options.speechModelAssetSha256 } } : {}),
+        ...(options.speechVadModelAssetPath !== undefined && options.speechVadModelAssetSha256 !== undefined
+          ? { vadModelAsset: { path: options.speechVadModelAssetPath, sha256: options.speechVadModelAssetSha256 } } : {}),
         ...(options.speechRequireVad ? { requireVad: true } : {}),
       }),
     } : {}),
@@ -66,6 +88,11 @@ export class CommandSpeechAnalyzer implements SpeechAnalyzer {
 
   public constructor(private readonly options: CommandAnalyzerOptions) {
     this.options = captureCommandOptions(options);
+    for (const asset of [this.options.modelAsset, this.options.vadModelAsset]) {
+      if (asset && (!isAbsolute(asset.path) || !/^[a-f0-9]{64}$/.test(asset.sha256))) {
+        throw new Error("ANALYZER_SETUP_REQUIRED: model assets require absolute paths and lowercase SHA-256");
+      }
+    }
     if (options.requireVad === true && !options.providerVersion?.trim()) {
       throw new Error("ANALYZER_SETUP_REQUIRED: speech provider version is required when VAD is required");
     }
@@ -73,17 +100,33 @@ export class CommandSpeechAnalyzer implements SpeechAnalyzer {
     this.capabilities = { transcription: true, vad: options.requireVad === true };
   }
 
+  public async verifyProviderIdentity(): Promise<void> {
+    for (const asset of [this.options.modelAsset, this.options.vadModelAsset]) {
+      if (!asset) continue;
+      let actual: string;
+      try { actual = await digestAnalyzerSource(asset.path, "model asset", this.options.timeoutMs ?? 120_000); }
+      catch { throw new Error("ANALYZER_MODEL_UNAVAILABLE: configured model asset cannot be verified"); }
+      if (actual !== asset.sha256) throw new Error("ANALYZER_MODEL_CHANGED: configured model asset digest changed");
+    }
+  }
+
   public async validateSource(input: AnalysisInput): Promise<void> {
+    await this.verifyProviderIdentity();
     await verifyAnalyzerSource(input.media, "speech", this.options.timeoutMs ?? 120_000);
   }
 
   public async analyze(input: AnalysisInput, range?: TimeRange): Promise<SpeechAnalysis> {
+    await this.verifyProviderIdentity();
     const result = await runCommand<unknown>(this.options, { ...input, range }, "speech");
+    await this.verifyProviderIdentity();
     try {
       if (this.options.requireVad) {
         requireStrictSpeechProvenance(result, input, range, this.descriptor);
       }
-      const analysis = bindSpeechAnalysis(withCommandProvenance(result, this.descriptor), { input, range, provider: this.descriptor });
+      const response = withCommandProvenance(result, this.descriptor);
+      const raw = response as Record<string, unknown>;
+      const analysis = bindSpeechAnalysis({ ...raw, coverageProvenance: raw?.coverageProvenance === undefined
+        ? raw?.observedRange === undefined ? "inferred" : "provider" : raw.coverageProvenance }, { input, range, provider: this.descriptor });
       if (this.options.requireVad && analysis.capability !== "transcription-plus-vad") {
         throw new Error("ANALYZER_INVALID_OUTPUT: configured speech provider must return VAD evidence");
       }
@@ -132,7 +175,8 @@ export class CommandMetadataAnalyzer implements MetadataAnalyzer {
 }
 
 function captureCommandOptions(options: CommandAnalyzerOptions): CommandAnalyzerOptions {
-  return { ...options, environment: { ...(options.environment ?? process.env) } };
+  return { ...options, ...(options.modelAsset ? { modelAsset: { ...options.modelAsset } } : {}),
+    ...(options.vadModelAsset ? { vadModelAsset: { ...options.vadModelAsset } } : {}), environment: { ...(options.environment ?? process.env) } };
 }
 
 function commandDescriptor(options: CommandAnalyzerOptions, kind: string): AnalyzerDescriptor {
@@ -140,11 +184,12 @@ function commandDescriptor(options: CommandAnalyzerOptions, kind: string): Analy
     .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
   const configurationDigest = createHash("sha256").update(JSON.stringify({
     command: options.command, environment, requireVad: options.requireVad === true,
-    providerVersion: options.providerVersion,
+    providerVersion: options.providerVersion, modelIdentity: options.modelIdentity, modelAsset: options.modelAsset, vadModelAsset: options.vadModelAsset,
   })).digest("hex");
   return {
     id: `command.${kind}`, provider: "command",
     ...(options.providerVersion ? { version: options.providerVersion } : {}),
+    ...(options.modelIdentity ? { model: options.modelIdentity } : {}),
     configurationDigest,
   };
 }

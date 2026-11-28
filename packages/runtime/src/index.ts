@@ -31,5 +31,6 @@ export * from "./speech/safe-cut-resolver.js";
 export * from "./speech/analysis.js";
 export * from "./speech/mapping.js";
 
+export * from "./planning/analysis-evidence.js";
 export * from "./planning/creative-brief.js";
 export * from "./application/creative-brief-store.js";

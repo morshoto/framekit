@@ -28,7 +28,7 @@ import {
   isFinalCutVideoProbeAvailable,
 } from "@framekit/final-cut";
 import { FixtureAudioAnalyzer, FixtureMetadataAnalyzer, FixtureSpeechAnalyzer, FixtureVisualAnalyzer } from "@framekit/testkit";
-import { AgentVideoRuntime, JsonCreativeBriefStore, JsonSemanticMediaIndexStore } from "@framekit/runtime";
+import { AgentVideoRuntime, FileAnalysisArtifactStore, JsonCreativeBriefStore, JsonSemanticMediaIndexStore } from "@framekit/runtime";
 import { assertCreativeBriefProjectBinding, HeadlessCreativeBriefService, HeadlessProjectService } from "@framekit/headless-application";
 import { createMcpServer } from "./server.js";
 import { createCanonicalSessionChangeSource } from "./headless-sessions.js";
@@ -205,6 +205,13 @@ const analyzers = liveMode
   ? createCommandAnalyzers({
       speechCommand: process.env.FRAMEKIT_SPEECH_ANALYZER,
       speechProviderVersion: process.env.FRAMEKIT_SPEECH_ANALYZER_VERSION,
+      speechModelIdentity: process.env.FRAMEKIT_SPEECH_ANALYZER_MODEL_ID,
+      speechModelAssetPath: process.env.FRAMEKIT_SPEECH_MODEL_ASSET_PATH,
+      speechModelAssetSha256: process.env.FRAMEKIT_SPEECH_MODEL_ASSET_SHA256,
+      speechVadModelAssetPath: process.env.FRAMEKIT_SILERO_VAD_MODEL?.trim() && process.env.FRAMEKIT_SILERO_VAD_SHA256?.trim()
+        ? process.env.FRAMEKIT_SILERO_VAD_MODEL.trim() : undefined,
+      speechVadModelAssetSha256: process.env.FRAMEKIT_SILERO_VAD_MODEL?.trim() && process.env.FRAMEKIT_SILERO_VAD_SHA256?.trim()
+        ? process.env.FRAMEKIT_SILERO_VAD_SHA256.trim().toLowerCase() : undefined,
       speechRequireVad: process.env.FRAMEKIT_SPEECH_REQUIRE_VAD === "1",
       audioCommand: process.env.FRAMEKIT_AUDIO_ANALYZER,
       audioProviderVersion: process.env.FRAMEKIT_AUDIO_ANALYZER_VERSION,
@@ -219,9 +226,10 @@ const analyzers = liveMode
       metadataAnalyzer: new FixtureMetadataAnalyzer(),
     };
 
+const semanticMediaIndexStore = new JsonSemanticMediaIndexStore(join(framekitStateDirectory, "semantic-media-index.json"));
 const runtime = new AgentVideoRuntime(editor, {
   ...analyzers,
-  semanticMediaIndexStore: new JsonSemanticMediaIndexStore(join(framekitStateDirectory, "semantic-media-index.json")),
+  semanticMediaIndexStore,
 });
 const headlessProjects = new HeadlessProjectService({
   directory: join(framekitStateDirectory, "projects"),
@@ -302,6 +310,14 @@ const videoExporter = liveMode && !headlessFinalCut && process.env.FRAMEKIT_FINA
       nativeOperationLease,
     })
   : undefined;
+const currentAnalysisProvider = async (kind: "speech" | "vad" | "audio") => {
+  const analyzer = kind === "audio" ? analyzers.audioAnalyzer : analyzers.speechAnalyzer;
+  if (analyzer && "verifyProviderIdentity" in analyzer && typeof analyzer.verifyProviderIdentity === "function") {
+    await analyzer.verifyProviderIdentity();
+  }
+  return analyzer?.descriptor;
+};
+
 const server = createMcpServer(runtime, {
   processMode: liveMode && !headlessFinalCut ? "headed" : "headless",
   connectionStatus: () => connection?.ensureConnected(),
@@ -320,6 +336,8 @@ const server = createMcpServer(runtime, {
   sessionChangeSource: createCanonicalSessionChangeSource(() => runtime.inspectProject()),
   materializationDirectory: join(framekitStateDirectory, "materializations"),
   headlessProjects,
+  analysisEvidence: { index: semanticMediaIndexStore, artifacts: new FileAnalysisArtifactStore(join(framekitStateDirectory, "analysis-artifacts")),
+    currentProvider: currentAnalysisProvider },
   headlessBriefs: new HeadlessCreativeBriefService({
     openProject: (projectId) => headlessProjects.open(projectId),
     withProjectLock: (projectId, operation) => headlessProjects.withProjectLock(projectId, operation),

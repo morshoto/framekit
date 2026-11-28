@@ -87,6 +87,18 @@ test("command speech analyzer keeps transcription-only output distinct", async (
   assert.equal(result.vadSegments, undefined);
 });
 
+test("command speech analyzer preserves explicit coverage provenance", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-coverage-provenance-"));
+  try {
+    const mediaPath = join(directory, "media.wav"); await writeFile(mediaPath, "media");
+    const wrapper = await createWrapper(directory, { words: [], observedRange: { start: 0, end: 12 }, coverageProvenance: "inferred" });
+    const result = await new CommandSpeechAnalyzer({ command: wrapper }).analyze(createInput(mediaPath));
+    assert.equal(result.coverageProvenance, "inferred");
+    const invalid = await createWrapper(directory, { words: [], observedRange: { start: 0, end: 12 }, coverageProvenance: "invalid" });
+    await assert.rejects(new CommandSpeechAnalyzer({ command: invalid }).analyze(createInput(mediaPath)), /ANALYZER_INVALID_OUTPUT/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("configured local speech analyzer requires VAD and reports provider version", async () => {
   const directory = await mkdtemp(join(os.tmpdir(), "framekit-speech-vad-provider-"));
   const mediaPath = join(directory, "interview.wav");
@@ -439,4 +451,43 @@ test("command audio bounds source verification before and after the provider", {
     assert.equal(result.code, 0, result.output);
     assert.match(result.output, /ANALYZER_TIMEOUT: audio source verification/, phase);
   }
+});
+
+test("configured speech model asset is checked before and after provider execution", async () => {
+  const directory = await mkdtemp(join(os.tmpdir(), "framekit-model-asset-"));
+  try {
+    const media = join(directory, "source.wav"); const model = join(directory, "model.bin"); const capture = join(directory, "started.json");
+    await writeFile(media, "media"); await writeFile(model, "model-original");
+    const digest = createHash("sha256").update("model-original").digest("hex");
+    const wrapper = await createWrapper(directory, { words: [{ text: "hello", start: 0, end: 1, confidence: 0.9 }] }, capture);
+    assert.throws(() => new CommandSpeechAnalyzer({ command: wrapper, modelAsset: { path: "relative.bin", sha256: digest } }), /ANALYZER_SETUP_REQUIRED/);
+    assert.throws(() => new CommandSpeechAnalyzer({ command: wrapper, modelAsset: { path: model, sha256: "invalid" } }), /ANALYZER_SETUP_REQUIRED/);
+    const vadModel = join(directory, "vad-model.bin"); await writeFile(vadModel, "vad-original");
+    const vadDigest = createHash("sha256").update("vad-original").digest("hex");
+    const configuredAsset = { path: model, sha256: digest }; const configuredVad = { path: vadModel, sha256: vadDigest };
+    const analyzer = new CommandSpeechAnalyzer({ command: wrapper, modelAsset: configuredAsset, vadModelAsset: configuredVad });
+    configuredAsset.path = join(directory, "other.bin"); configuredAsset.sha256 = "f".repeat(64);
+    configuredVad.path = join(directory, "other-vad.bin"); configuredVad.sha256 = "e".repeat(64);
+    await analyzer.verifyProviderIdentity();
+    await writeFile(vadModel, "vad-modified");
+    await assert.rejects(analyzer.verifyProviderIdentity(), /ANALYZER_MODEL_CHANGED/);
+    await assert.rejects(analyzer.analyze(createInput(media)), /ANALYZER_MODEL_CHANGED/);
+    await assert.rejects(readFile(capture), { code: "ENOENT" });
+    await writeFile(vadModel, "vad-original");
+    await writeFile(model, "model-modified");
+    await assert.rejects(analyzer.verifyProviderIdentity(), /ANALYZER_MODEL_CHANGED/);
+    await assert.rejects(analyzer.analyze(createInput(media)), /ANALYZER_MODEL_CHANGED/);
+    await assert.rejects(readFile(capture), { code: "ENOENT" });
+    await rm(model);
+    await assert.rejects(analyzer.verifyProviderIdentity(), /ANALYZER_MODEL_UNAVAILABLE/);
+    await writeFile(model, "model-original");
+    const source = await readFile(wrapper, "utf8");
+    await writeFile(wrapper, source.replace("const request = JSON.parse(input);", `const request = JSON.parse(input); await writeFile(${JSON.stringify(model)}, "changed-during-analysis");`));
+    await assert.rejects(analyzer.analyze(createInput(media)), /ANALYZER_MODEL_CHANGED/);
+    await writeFile(model, "model-original"); await rm(vadModel);
+    await assert.rejects(analyzer.verifyProviderIdentity(), /ANALYZER_MODEL_UNAVAILABLE/);
+    await writeFile(vadModel, "vad-original");
+    await writeFile(wrapper, source.replace("const request = JSON.parse(input);", `const request = JSON.parse(input); await writeFile(${JSON.stringify(vadModel)}, "changed-during-analysis");`));
+    await assert.rejects(analyzer.analyze(createInput(media)), /ANALYZER_MODEL_CHANGED/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });

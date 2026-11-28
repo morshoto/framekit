@@ -94,6 +94,7 @@ test("speech binding attaches revision, range, identity, provider, and source ti
 
   assert.deepEqual(result, {
     schemaVersion: 1,
+    coverageProvenance: "inferred",
     mediaId: sourceIdentity.mediaId,
     sourceIdentity,
     revision: input.project.revision,

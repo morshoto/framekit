@@ -38,6 +38,7 @@ export function bindSpeechAnalysis(
   if (record.schemaVersion !== undefined && record.schemaVersion !== SPEECH_ANALYSIS_SCHEMA_VERSION) {
     throw new Error("ANALYSIS_INVALID: unsupported speech analysis schema version");
   }
+  if (record.coverageProvenance !== undefined && record.coverageProvenance !== "provider" && record.coverageProvenance !== "inferred") throw new Error("ANALYSIS_INVALID: invalid coverage provenance");
   const inputIdentity = sourceIdentityOf(context.input.media);
   const mediaId = optionalString(record.mediaId, "speech media ID");
   if (mediaId !== undefined && mediaId !== inputIdentity.mediaId) {
@@ -77,6 +78,7 @@ export function bindSpeechAnalysis(
 
   return {
     schemaVersion: SPEECH_ANALYSIS_SCHEMA_VERSION,
+    coverageProvenance: record.coverageProvenance === "provider" && record.observedRange !== undefined ? "provider" : "inferred",
     mediaId: inputIdentity.mediaId,
     sourceIdentity: structuredClone(sourceIdentity),
     requestedRange: structuredClone(requestedRange),
