@@ -3381,6 +3381,7 @@
       "\"speech occurrence mapping refuses unobserved source coverage\"",
       "`speech mapping rejects contradictory ${label} timing`",
       "\"source range translation rejects conflicting exact evidence coordinates\"",
+      "\"speech mapping treats exact occurrence endpoints as half-open\"",
       "\"speech mapping retains the declared source clock at fractional frame offsets\"",
       "\"speech mapping rejects evidence outside its declared source clock\"",
       "\"speech mapping uses the analysis clock independently of the editor source clock\"",
