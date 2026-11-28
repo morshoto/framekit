@@ -66,3 +66,9 @@ require(firstAsset.value(forKey: "libraryInfo") is NSDictionary, "KVC library un
 require(firstAsset.value(forKey: "metadata") is NSDictionary, "KVC metadata unavailable")
 require(firstAsset.value(forKey: "dataOptions") is NSDictionary, "KVC data options unavailable")
 print("Swift mock asset, callback controls and fail-closed Apple Event handler passed")
+
+let description = NSScriptClassDescription(suiteName: "Research Share", className: "application", dictionary: [:])!
+let made = registry.makeSpecifier(name: "New Asset", containerDescription: description)!
+require(made.specifier.key == "assets", "specifier container key mismatch")
+require(made.specifier.uniqueID as? String == made.asset.uniqueID, "specifier does not bind asset id")
+require(registry.makeSpecifier(name: "../escape", containerDescription: description) == nil, "invalid make accepted")
