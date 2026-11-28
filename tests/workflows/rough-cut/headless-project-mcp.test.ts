@@ -1736,6 +1736,7 @@ test("headless project media can be understood and planned without a Final Cut c
     const captions = decision.plan.decisions.filter((item: any) => item.kind === "caption");
     const captionPreview = payload(await client.callTool({ name: "headless.decision.preview-captions", arguments: { ...decisionInput, planDigest: decision.plan.planDigest } }));
     assert.equal(captionPreview.scope, "headless-preview");
+    assert.match(captionPreview.notice, /outline.*headless.*FCPXML/i);
     assert.deepEqual(captionPreview.preview.after.timeline.sequence.titles.map((title: any) => title.text), captions.map((item: any) => item.group.lines.join("\n")));
     assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId: freshTimeline.project.id } })).timeline, beforePlan.timeline);
     const modelApproval = payload(await client.callTool({ name: "headless.decision.approved-preview-captions", arguments: { ...decisionInput, planDigest: decision.plan.planDigest } }));
