@@ -3089,17 +3089,6 @@
   },
   "recordedAtCommit": "37a92fa1",
   "addedTestNames": {
-    "tests/integration/publisher-e2e.test.ts": [
-      "\"publisher handles a missing dispatch response without permitting retry\"",
-      "\"publisher handles a missing verification response without permitting retry\"",
-      "\"publisher binds inputs before asynchronous preview\"",
-      "\"publisher stage recorder cannot change the prepared job identity\"",
-      "\"publisher stage recorder cannot erase a recovery reservation\"",
-      "\"publisher waits for asynchronous stage recording before proceeding\"",
-      "\"publisher never starts verification when recording dispatch fails\"",
-      "\"publisher never treats failed verified-stage recording as permission to redispatch\"",
-      "\"publisher reports lost verification response without allowing redispatch\""
-    ],
     "tests/integration/headless-session-mcp.test.ts": [
       "\"analysis pin rejects a configured provider changed while publishing evidence\"",
       "\"analysis pin rejects index changes while publishing evidence\"",

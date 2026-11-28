@@ -1,6 +1,6 @@
 // Test-only fault-injection harness. No production entry point imports this module.
 import { join } from "node:path";
-import { runPublishStages } from "../../scripts/final-cut-publisher-verification.mjs";
+import { runPublishStages } from "./native-qa-publish-stages.mjs";
 import { claimDispatchIntent, inspectRun, type QaRunManifest } from "../../scripts/native-qa/run-store.js";
 import { readQaPublisherStages, recordQaPublisherStage, type PublisherStage } from "../../scripts/native-qa/publisher-stages.js";
 import { verifyQaPublisherSourcesWithEntries } from "../../scripts/native-qa/publisher-source-evidence.js";

@@ -15,11 +15,12 @@ import { InMemoryEditorAdapter } from "@framekit/testkit";
 import { FinalCutProjectPublisher } from "@framekit/final-cut";
 import { createMcpServer } from "../../../apps/mcp-server/src/server.js";
 import { bindQaAuthorization, claimDispatchIntent, createOrInspectRun, inspectRun, markDispatchUncertain } from "../../../scripts/native-qa/run-store.js";
-import { runPublishStages } from "../../../scripts/final-cut-publisher-verification.mjs";
+import { runPublishStages } from "../../support/native-qa-publish-stages.mjs";
 import { readQaEvidence, resumeHeadlessQaRun, startQaRun } from "../../../scripts/native-qa/supervisor.js";
 import { publishQaRecord } from "../../../scripts/native-qa/atomic-record.js";
 import { readQaArtifactEvidence, verifyQaArtifact } from "../../../scripts/native-qa/artifact-evidence.js";
 import { inspectQaPublisher, inspectQaPublisherFromStore } from "../../../scripts/native-qa/publisher-inspection.js";
+import { readPersistedFinalCutPublishJobStatus } from "../../../scripts/native-qa/publisher-store-status.js";
 import { verifyQaPublisherFixture, readQaPublisherFixtureEvidence } from "../../../scripts/native-qa/publisher-fixture-evidence.js";
 import { verifyQaPublisherSources, readQaPublisherSourceEvidence } from "../../../scripts/native-qa/publisher-source-evidence.js";
 import { recordQaPublisherStage, readQaPublisherStages } from "../../../scripts/native-qa/publisher-stages.js";
@@ -2003,6 +2004,23 @@ test("publisher inspection uses the production MCP status tool without executing
   }
 });
 
+
+test("status-only reader prioritizes a pending modern record over verified legacy data", async () => {
+  const store = await mkdtemp(join(tmpdir(), "framekit-qa-status-priority-"));
+  try {
+    const jobId = "publish-job-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+    const artifactDigest = "a".repeat(64);
+    const target = { kind: "editor.project", projectId: "p", sequenceId: "s" };
+    const legacy = { jobId, artifactDigest, state: "verified", createdTarget: target, result: { verified: true, createdTarget: target } };
+    const current = { version: 1, job: { jobId, artifactDigest, state: "verification-pending", handoff: {} }, runtime: {} };
+    const modernPath = join(store, `${jobId}.json`);
+    await writeFile(modernPath, JSON.stringify(current));
+    await writeFile(join(store, `${createHash("sha256").update(jobId).digest("hex")}.json`), JSON.stringify(legacy));
+    assert.deepEqual(await readPersistedFinalCutPublishJobStatus(store, jobId), { jobId, artifactDigest, state: "verification-pending" });
+    await rm(modernPath);
+    assert.deepEqual(await readPersistedFinalCutPublishJobStatus(store, jobId), { jobId, artifactDigest, state: "verified" });
+  } finally { await rm(store, { recursive: true, force: true }); }
+});
 
 test("publisher inspection reads a persisted fixture without changing its store", async () => {
   const root = await mkdtemp(join(tmpdir(), "framekit-qa-store-status-"));

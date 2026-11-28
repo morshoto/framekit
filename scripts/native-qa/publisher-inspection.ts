@@ -1,5 +1,5 @@
 import { inspectRun, type QaRunManifest } from "./run-store.js";
-import { readPersistedFinalCutPublishJobStatus } from "../../adapters/final-cut/typescript/src/publisher.js";
+import { readPersistedFinalCutPublishJobStatus } from "./publisher-store-status.js";
 
 const states = ["awaiting-confirmation", "awaiting-final-cut", "verification-pending", "verified", "failed"] as const;
 type PublisherState = typeof states[number];
