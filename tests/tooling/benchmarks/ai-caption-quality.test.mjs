@@ -61,3 +61,10 @@ test('reports automated boundary disagreement for matched words without assertin
   assert.equal(screenWordTiming(ref, [], 0.2).withinTolerance, 0);
   assert.throws(() => screenWordTiming(ref, [{text: 'hello', start: 2, end: 1}], 0.2), /timing/i);
 });
+
+test('uses published subtitle text without inventing word-level reference times', async () => {
+  const { subtitleWords } = await import('../../../scripts/benchmarks/ai-editing/caption-quality.mjs');
+  const srt = '1\n00:00:00,000 --> 00:00:02,000\nHello, um.\n\n2\n00:00:02,000 --> 00:00:03,000\nWorld!\n';
+  assert.deepEqual(subtitleWords(srt), ['Hello,', 'um.', 'World!']);
+  assert.throws(() => subtitleWords('No timestamps here'), /subtitle/i);
+});
