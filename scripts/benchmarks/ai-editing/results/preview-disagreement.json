@@ -1,0 +1,39 @@
+{
+  "gitHead": "07c8b107a8da1ab6594c31c824d5951243589f9c",
+  "inputSha256": "f3dba83dfe1994f713d0014d058ad5da8db2eb00a9cc92e72bd4f01dddc5e18b",
+  "candidateRelativeSeconds": {
+    "start": 38.03333333333333,
+    "end": 39
+  },
+  "originalSourceOffsetSeconds": 60,
+  "primaryModel": "mlx-community/whisper-tiny",
+  "declaredSecondaryModel": "mlx-community/whisper-large-v3-turbo",
+  "secondaryProvider": {
+    "id": "command.speech",
+    "provider": "command",
+    "version": "mlx-whisper-0.4.3:silero-6.3"
+  },
+  "backendOutputSha256": "d8c6bf3ecd9983cf62fc34a7d4e932c833bf744cca722732bd8661bdd01d3209",
+  "recognizedWords": 104,
+  "screening": {
+    "status": "no-overlap-observed",
+    "conflicts": [],
+    "safety": "unverified"
+  },
+  "adjacentWords": {
+    "before": {
+      "text": "documents.",
+      "start": 37.12,
+      "end": 37.56,
+      "confidence": 0.99658203125
+    },
+    "after": {
+      "text": "I'll",
+      "start": 39.14,
+      "end": 39.74,
+      "confidence": 0.9873046875
+    }
+  },
+  "adjacentWordsDesignation": "Post hoc context; not verified boundaries.",
+  "limitation": "Model outputs are not independent human annotations. Any overlap is a disagreement requiring review, not proof of speech clipping or safety. Same transformed input and requested duration; model declarations do not authenticate loaded bytes. No native execution or listening was performed."
+}

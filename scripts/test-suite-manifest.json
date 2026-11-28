@@ -3167,6 +3167,21 @@
       "network": "none"
     },
     {
+      "path": "tests/tooling/benchmarks/ai-evidence-quality.test.mjs",
+      "owner": "scripts/benchmarks",
+      "reviewed": true,
+      "tags": [
+        "unit"
+      ],
+      "evidence": "fixture",
+      "dependsOn": ["scripts/benchmarks", "packages/runtime"],
+      "requires": [],
+      "platforms": [
+        "any"
+      ],
+      "network": "none"
+    },
+    {
       "path": "tests/tooling/ci/ci-policy.test.mjs",
       "tags": [
         "documentation",

@@ -1,0 +1,113 @@
+import { fileURLToPath } from 'node:url';
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { compareProviderCuts } from '../../../scripts/benchmarks/ai-editing/evidence-quality.mjs';
+
+const digest = 'a'.repeat(64);
+const candidate = {start: 5.2, end: 5.7};
+const evidence = {sourceSha256: digest, coverage: {start: 0, end: 10}, words: [{text: 'regarding', start: 5.6, end: 6.2, confidence: 0.3}]};
+
+test('surfaces even low-confidence provider words that overlap a candidate', () => {
+  const result = compareProviderCuts([candidate], digest, evidence);
+  assert.equal(result.status, 'disagreement');
+  assert.equal(result.conflicts[0].words[0].confidence, 0.3);
+  assert.equal(result.safety, 'unverified');
+});
+
+test('reports adjacent model words as context without claiming safety', async () => {
+  const { adjacentCandidateWords } = await import('../../../scripts/benchmarks/ai-editing/evidence-quality.mjs');
+  const words=[{text:'before',start:3,end:4,confidence:0.8},{text:'after',start:6,end:7,confidence:0.4}];
+  assert.deepEqual(adjacentCandidateWords(candidate,words),{before:words[0],after:words[1]});
+  assert.deepEqual(adjacentCandidateWords(candidate,[]),{before:null,after:null});
+});
+
+test('does not infer safety from absent or partially covered secondary evidence', () => {
+  assert.equal(compareProviderCuts([candidate], digest, {...evidence, coverage: {start: 0, end: 5.5}}).status, 'unavailable');
+  const result = compareProviderCuts([candidate], digest, {...evidence, words: []});
+  assert.equal(result.status, 'no-overlap-observed');
+  assert.equal(result.safety, 'unverified');
+  assert.equal(compareProviderCuts([], digest, evidence).status, 'unavailable');
+});
+
+test('rejects mismatched source identities and invalid timing', () => {
+  assert.equal(compareProviderCuts([candidate], 'b'.repeat(64), evidence).status, 'unavailable');
+  assert.throws(() => compareProviderCuts([{start: 2, end: 1}], digest, evidence), /range/i);
+});
+
+test('provider comparison case fixes media, cut and context before execution', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const config = JSON.parse(await readFile(new URL('../../../scripts/benchmarks/ai-editing/disagreement-case.json', import.meta.url)));
+  assert.equal(config.meeting, 'TS3003a');
+  assert.deepEqual(config.secondaryWindowSeconds, [72, 82]);
+  assert.equal(config.candidate.start, 77.2);
+  assert.equal(config.secondaryModel, 'mlx-community/whisper-large-v3-turbo');
+  assert.match(config.interpretation, /not proof/i);
+});
+
+test('production preview comparison fixes transformed input and candidate', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const config=JSON.parse(await readFile(new URL('../../../scripts/benchmarks/ai-editing/preview-disagreement-case.json', import.meta.url)));
+  assert.match(config.designation,/post hoc/i);
+  assert.equal(config.inputSha256,'f3dba83dfe1994f713d0014d058ad5da8db2eb00a9cc92e72bd4f01dddc5e18b');
+  assert.deepEqual(config.candidate,{start:38.03333333333333,end:39});
+  assert.equal(config.model,'mlx-community/whisper-large-v3-turbo');
+  assert.match(config.interpretation,/not proof/i);
+});
+
+test('preview disagreement runner rejects missing source before invoking a model', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const runner = new URL('../../../scripts/benchmarks/ai-editing/run-preview-disagreement.mjs', import.meta.url);
+  assert.throws(()=>execFileSync(process.execPath,[fileURLToPath(runner),'/missing/source','python'],{stdio:'pipe'}),/ENOENT/);
+});
+
+test('provider runner verifies source before invoking a model', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const runner = new URL('../../../scripts/benchmarks/ai-editing/run-disagreement.mjs', import.meta.url);
+  assert.throws(() => execFileSync(process.execPath, [fileURLToPath(runner), '/missing/source', 'python'], {stdio:'pipe'}), /ENOENT/);
+});
+
+test('production evidence probe accepts only the expected typed rejection', async () => {
+  const { isEvidenceRejection } = await import('../../../scripts/benchmarks/ai-editing/evidence-quality.mjs');
+  const response = (isError, code) => ({isError,content:[{type:'text',text:JSON.stringify({code,message:code})}]});
+  assert.equal(isEvidenceRejection(response(true,'STALE_DECISION_PLAN'),'STALE_DECISION_PLAN'), true);
+  assert.equal(isEvidenceRejection(response(true,'MEDIA_CHANGED'),'MEDIA_CHANGED'), true);
+  assert.equal(isEvidenceRejection(response(true,'INPUT_INVALID'),'STALE_DECISION_PLAN'), false);
+  assert.equal(isEvidenceRejection(response(false,'STALE_DECISION_PLAN'),'STALE_DECISION_PLAN'), false);
+  assert.equal(isEvidenceRejection({isError:true,content:[{type:'text',text:'not json'}]},'MEDIA_CHANGED'), false);
+  assert.equal(isEvidenceRejection(response(true,'INPUT_INVALID'),'INPUT_INVALID'), false);
+});
+
+test('real-evidence probe detects changed bytes, provider, revision and incomplete coverage', async () => {
+  const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const { createHash } = await import('node:crypto');
+  const { exerciseEvidence } = await import('../../../scripts/benchmarks/ai-editing/evidence-probe.mjs');
+  const directory = await mkdtemp(join(tmpdir(), 'framekit-evidence-quality-'));
+  try {
+    const path = join(directory, 'source.wav');
+    const bytes = Buffer.from('test audio');
+    await writeFile(path, bytes);
+    const media = {mediaId:'source', source:path, sourceDigest:createHash('sha256').update(bytes).digest('hex'), mediaKind:'audio', duration:10};
+    const revision = {id:'r1',sequence:1,timestamp:'2026-01-01T00:00:00.000Z'};
+    const provider = {id:'speech',provider:'command',version:'v1',model:'example',configurationDigest:'config'};
+    const payload = {words:[{text:'hello',start:1,end:2,confidence:0.9}],vadSegments:[{kind:'speech',start:1,end:2}],requestedRange:{start:0,end:10},observedRange:{start:0,end:10}};
+    const result = await exerciseEvidence(media, revision, provider, payload);
+    assert.match(result.artifactDigestScope, /disposable source path/i);
+    assert.deepEqual(result.statuses, {original:'verified', staleProvider:'invalid', staleRevision:'invalid', missingArtifact:'unavailable', tamperedArtifact:'invalid', changedSource:'invalid', partialCoverage:'rejected'});
+    assert.deepEqual(await readFile(path), bytes);
+  } finally { await rm(directory,{recursive:true,force:true}); }
+});
+
+test('rejects secondary words with invalid confidence or outside observed coverage', () => {
+  const badConfidence = {...evidence, words:[{text:'word', start:5.3, end:5.5, confidence:NaN}]};
+  const outsideCoverage = {...evidence, words:[{text:'word', start:9.8, end:10.2, confidence:0.5}]};
+  assert.equal(compareProviderCuts([candidate], digest, badConfidence).status, 'unavailable');
+  assert.equal(compareProviderCuts([candidate], digest, outsideCoverage).status, 'unavailable');
+});
+
+test('does not misreport unrelated probe errors as partial coverage rejection', async () => {
+  const { classifyPartialRejection } = await import('../../../scripts/benchmarks/ai-editing/evidence-probe.mjs');
+  assert.equal(classifyPartialRejection(new Error('ANALYSIS_INVALID: speech coverage is incomplete or not provider-reported')), 'rejected');
+  assert.throws(() => classifyPartialRejection(new Error('disk unavailable')), /disk unavailable/);
+});

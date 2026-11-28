@@ -1,0 +1,59 @@
+{
+  "gitHead": "94b5bb3b3399b00fe401d1d19613d0a032988407",
+  "sourceSha256": "b6ce59ff735c234afdd94b13744aa26f6785af746170543fd03b33160e920a6d",
+  "decodedSha256": "14ab75d872b512f1963ed940f042a2d54bc8e5049965dab6559e41174189d396",
+  "backendOutputSha256": "b2ac50bdf7d8072f29a27929be36f6035d72e281c89d0774de1edbcb19debe4e",
+  "secondaryProvider": {
+    "id": "command.speech",
+    "provider": "command",
+    "version": "mlx-whisper-0.4.3:silero-6.3"
+  },
+  "declaredSecondaryModel": "mlx-community/whisper-large-v3-turbo",
+  "primaryModel": "mlx-community/whisper-tiny",
+  "primaryWindowSeconds": [
+    60,
+    120
+  ],
+  "secondaryWindowSeconds": [
+    72,
+    82
+  ],
+  "candidate": {
+    "start": 77.2,
+    "end": 77.66666666666667
+  },
+  "evidenceChecks": {
+    "artifactDigest": "sha256:a6b4210a6a056e84215f172b617c3e522f4fc402fb79b348063f65053387995e",
+    "artifactDigestScope": "Includes a disposable source path; digest is run-specific.",
+    "statuses": {
+      "original": "verified",
+      "staleProvider": "invalid",
+      "staleRevision": "invalid",
+      "missingArtifact": "unavailable",
+      "tamperedArtifact": "invalid",
+      "partialCoverage": "rejected",
+      "changedSource": "invalid"
+    }
+  },
+  "screening": {
+    "status": "disagreement",
+    "conflicts": [
+      {
+        "cut": {
+          "start": 77.2,
+          "end": 77.66666666666667
+        },
+        "words": [
+          {
+            "text": "there",
+            "start": 77.6,
+            "end": 78.3,
+            "confidence": 0.5986328125
+          }
+        ]
+      }
+    ],
+    "safety": "unverified"
+  },
+  "limitation": "Different model and context windows can disagree. This is not proof of speech clipping or safety; listening and independently checked boundaries are required. Provider model declarations do not authenticate the loaded model bytes. Evidence checks use a reconstructed index and disposable source, not a production MCP approval. No native execution occurred."
+}
