@@ -1,12 +1,12 @@
 {
-  "gitHead": "3ab7a36d1453532f4af01c2ea54f1243e5baf9b1",
+  "gitHead": "2bbe3878bbd100d740d76e32c21f2b7717e7ae11",
   "sourceSha256": "2d1304cfebf10290acd74b1a8bdce638ce94c58f5cfa8950a288d44d8e138c5f",
   "sourceWindowSeconds": [
     0,
     30
   ],
   "derivedSha256": "6ab7bb46733218c6f070a9560f3a32ea077c8a4285ac62a218b2d08df80b04c3",
-  "backendOutputSha256": "c9a56e8f875498936587b9d4828dd31bc4818f32d3ea306a99a20e9db9527046",
+  "backendOutputSha256": "bda4fc5cc9d6d036d239e0ca4b228067a3a778424b98f71821990d1ad7ca42b8",
   "declaredModel": "mlx-community/whisper-tiny",
   "provider": {
     "id": "command.speech",
@@ -193,6 +193,9 @@
   },
   "visualSample": {
     "midpointSeconds": 0.6833333333333333,
+    "expectedLines": [
+      "So what was the significance"
+    ],
     "sha256": "9f9c580381df9b7df5af3abd3fdcf57acce498b331977a88d397dfc262ee7d45"
   },
   "limitation": "No independently checked transcript or word boundaries. Plan coverage is relative to recognized words only; it does not verify caption rendering or native acceptance. Declared model identity does not authenticate loaded bytes.",
@@ -201,7 +204,7 @@
     "sampleSha256": "9f9c580381df9b7df5af3abd3fdcf57acce498b331977a88d397dfc262ee7d45",
     "outputResolution": "320x180",
     "judgment": "fail for this sampled frame",
-    "rationale": "White centered caption crosses a bright background and faces, making parts hard to read.",
+    "rationale": "The white centered caption crosses a bright background and faces, making parts of the expected text hard to read; exact glyph correctness remains uncertain.",
     "scope": "One sampled frame only; no speech listening, full-output or native acceptance."
   }
 }
