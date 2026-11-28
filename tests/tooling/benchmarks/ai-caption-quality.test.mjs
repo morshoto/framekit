@@ -68,3 +68,15 @@ test('uses published subtitle text without inventing word-level reference times'
   assert.deepEqual(subtitleWords(srt), ['Hello,', 'um.', 'World!']);
   assert.throws(() => subtitleWords('No timestamps here'), /subtitle/i);
 });
+
+test('pins a single-speaker source and its coarse subtitle revision', async () => {
+  const { loadCorpus } = await import('../../../scripts/benchmarks/ai-editing/corpus.mjs');
+  const corpus = await loadCorpus();
+  const source = corpus.supplementalAssets.find((asset) => asset.id === 'nespoli-voice');
+  const subtitle = corpus.supplementalAssets.find((asset) => asset.id === 'nespoli-subtitles');
+  assert.match(source.sha256, /^[a-f0-9]{64}$/);
+  assert.match(source.license, /CC BY-SA/);
+  assert.match(subtitle.sha256, /^[a-f0-9]{64}$/);
+  assert.match(subtitle.url, /oldid=269864367/);
+  assert.match(subtitle.timing, /not word-level/i);
+});
