@@ -7,10 +7,13 @@ import Foundation
 private let assetType = OSType(0x61736574) // aset
 private let objectClass = AEKeyword(0x6b6f636c) // kocl
 private let makeEvent = AEEventID(0x6372656c) // crel
+private let getEvent = AEEventID(0x67657464) // getd
+private let locationProperty = OSType(0x6c6f636e) // locn
 
 final class TestMakeReceiver: NSObject {
     static var active: TestMakeReceiver?
     let containerDescription: NSScriptClassDescription
+    var issued = Set<String>()
     override init() {
         let asset = NSScriptClassDescription(suiteName: "Mock IPC", className: "MockAsset", dictionary: ["AppleEventCode": "aset"])!
         NSScriptSuiteRegistry.shared().register(asset)
@@ -31,14 +34,34 @@ final class TestMakeReceiver: NSObject {
             reply.setParam(NSAppleEventDescriptor(int32: Int32(errAEEventNotHandled)), forKeyword: AEKeyword(keyErrorNumber))
             return
         }
+        let id = "test-asset-" + UUID().uuidString.lowercased()
         let specifier = NSUniqueIDSpecifier(containerClassDescription: containerDescription,
-            containerSpecifier: nil, key: "assets", uniqueID: "test-asset-" + UUID().uuidString.lowercased())
+            containerSpecifier: nil, key: "assets", uniqueID: id)
         guard let descriptor = specifier.descriptor else {
             reply.setParam(NSAppleEventDescriptor(int32: Int32(errAEEventNotHandled)), forKeyword: AEKeyword(keyErrorNumber))
             return
         }
+        issued.insert(id)
+        NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(TestMakeReceiver.handleGet(_:withReplyEvent:)),
+            forEventClass: AEEventClass(kCoreEventClass), andEventID: getEvent)
         reply.setParam(descriptor, forKeyword: AEKeyword(keyDirectObject))
         fputs("make replied\n", stderr)
+    }
+    @objc func handleGet(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {
+        let property = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))
+        let asset = property?.forKeyword(AEKeyword(keyAEContainer))
+        guard property?.descriptorType == DescType(typeObjectSpecifier),
+              property?.forKeyword(AEKeyword(keyAEDesiredClass))?.typeCodeValue == OSType(typeProperty),
+              property?.forKeyword(AEKeyword(keyAEKeyForm))?.typeCodeValue == OSType(formPropertyID),
+              property?.forKeyword(AEKeyword(keyAEKeyData))?.typeCodeValue == locationProperty,
+              asset?.descriptorType == DescType(typeObjectSpecifier),
+              asset?.forKeyword(AEKeyword(keyAEDesiredClass))?.typeCodeValue == assetType,
+              asset?.forKeyword(AEKeyword(keyAEKeyForm))?.typeCodeValue == OSType(formUniqueID),
+              let id = asset?.forKeyword(AEKeyword(keyAEKeyData))?.stringValue, issued.contains(id) else {
+            reply.setParam(NSAppleEventDescriptor(int32: Int32(errAEEventNotHandled)), forKeyword: AEKeyword(keyErrorNumber))
+            return
+        }
+        reply.setParam(NSAppleEventDescriptor(string: "mock-location"), forKeyword: AEKeyword(keyDirectObject))
     }
 }
 
@@ -85,7 +108,42 @@ if args.count == 2 && args[1] == "listen" {
               id.hasPrefix("test-asset-"), UUID(uuidString: String(id.dropFirst("test-asset-".count))) != nil else {
             fputs("invalid specifier response\n", stderr); exit(1)
         }
-        print("specifier:aset:ID  :\(id)")
+        let record = NSAppleEventDescriptor.record()
+        record.setDescriptor(NSAppleEventDescriptor(typeCode: OSType(typeProperty)), forKeyword: AEKeyword(keyAEDesiredClass))
+        record.setDescriptor(NSAppleEventDescriptor(typeCode: OSType(formPropertyID)), forKeyword: AEKeyword(keyAEKeyForm))
+        record.setDescriptor(NSAppleEventDescriptor(typeCode: locationProperty), forKeyword: AEKeyword(keyAEKeyData))
+        record.setDescriptor(result, forKeyword: AEKeyword(keyAEContainer))
+        guard let property = record.coerce(toDescriptorType: DescType(typeObjectSpecifier)) else {
+            fputs("cannot construct property specifier\n", stderr); exit(1)
+        }
+        let get = NSAppleEventDescriptor(eventClass: AEEventClass(kCoreEventClass), eventID: getEvent,
+            targetDescriptor: address, returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
+        get.setParam(property, forKeyword: AEKeyword(keyDirectObject))
+        let getReply = try get.sendEvent(options: [.waitForReply, .neverInteract], timeout: 3)
+        guard getReply.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue == "mock-location" else {
+            fputs("invalid property response\n", stderr); exit(1)
+        }
+        let wrongAsset = NSAppleEventDescriptor.record()
+        wrongAsset.setDescriptor(NSAppleEventDescriptor(typeCode: assetType), forKeyword: AEKeyword(keyAEDesiredClass))
+        wrongAsset.setDescriptor(NSAppleEventDescriptor(typeCode: OSType(formUniqueID)), forKeyword: AEKeyword(keyAEKeyForm))
+        wrongAsset.setDescriptor(NSAppleEventDescriptor(string: "test-asset-00000000-0000-0000-0000-000000000000"), forKeyword: AEKeyword(keyAEKeyData))
+        guard let parent = result.forKeyword(AEKeyword(keyAEContainer)),
+              let fake = wrongAsset.coerce(toDescriptorType: DescType(typeObjectSpecifier)) else {
+            fputs("cannot construct invalid asset specifier\n", stderr); exit(1)
+        }
+        fake.setDescriptor(parent, forKeyword: AEKeyword(keyAEContainer))
+        record.setDescriptor(fake, forKeyword: AEKeyword(keyAEContainer))
+        guard let invalidProperty = record.coerce(toDescriptorType: DescType(typeObjectSpecifier)) else { exit(1) }
+        let invalidGet = NSAppleEventDescriptor(eventClass: AEEventClass(kCoreEventClass), eventID: getEvent,
+            targetDescriptor: address, returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
+        invalidGet.setParam(invalidProperty, forKeyword: AEKeyword(keyDirectObject))
+        var rejected = false
+        do {
+            let invalidReply = try invalidGet.sendEvent(options: [.waitForReply, .neverInteract], timeout: 3)
+            rejected = invalidReply.paramDescriptor(forKeyword: AEKeyword(keyErrorNumber))?.int32Value == Int32(errAEEventNotHandled)
+        } catch { rejected = (error as NSError).code == Int(errAEEventNotHandled) }
+        guard rejected else { fputs("unknown asset was not rejected\n", stderr); exit(1) }
+        print("specifier:aset:ID  :\(id):location:mock-location:unknown-rejected")
     } catch {
         if args[1] == "send-invalid", (error as NSError).code == Int(errAEEventNotHandled) {
             print("invalid rejected"); exit(0)

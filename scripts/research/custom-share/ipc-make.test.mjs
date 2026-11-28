@@ -41,7 +41,7 @@ test('characterizes a synthetic make exchange between test-owned processes', { s
       t.diagnostic('inconclusive: make timed out without observed handler entry');
     }
     if (response) {
-      assert.match(response.stdout.trim(), /^specifier:aset:ID  :test-asset-[0-9a-f-]{36}:location:mock-location$/);
+      assert.match(response.stdout.trim(), /^specifier:aset:ID  :test-asset-[0-9a-f-]{36}:location:mock-location:unknown-rejected$/);
       t.diagnostic('make specifier resolved by a subsequent synthetic get');
     }
   } finally {
