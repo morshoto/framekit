@@ -909,3 +909,102 @@ test("headless execution preserves committed Undo data across verifier mutation"
     assert.equal(uncloneable.edit.undoId, "recoverable");
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
+
+test("optional filler observations bind speech and remain unavailable for execution", async () => {
+  const f = await fixture();
+  try {
+    const speech = { ...f.record.speech, words: [
+      { text: "Hello.", start: 1, end: 2, confidence: 0.98 },
+      { text: "um,", start: 3, end: 3.3, confidence: 0.99, filler: true },
+      { text: "uh,", start: 4, end: 4.3, confidence: 0.55 },
+      { text: "Again", start: 5, end: 6, confidence: 0.96 },
+    ], protectedSegments: [{ kind: "speech" as const, start: 3.9, end: 4.4 }] };
+    await f.index.save({ ...f.record, speech });
+    const speechRef = await pinAnalysisEvidence(f.index, f.artifacts, f.request.speechContext, verifyLocalMediaSource);
+    const request = { ...f.request, speechRef, vadRef: undefined, vadContext: undefined };
+    const original = structuredClone(request.snapshot);
+    const normal = await createEditDecisionPlan(request, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    const observed = await createEditDecisionPlan({ ...request, includeFillerObservations: true }, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(normal.status, "available"); assert.equal(observed.status, "available");
+    if (normal.status !== "available" || observed.status !== "available") return;
+    assert.equal(normal.plan.decisions.some((item) => item.kind === "filler-observation"), false);
+    const fillers = observed.plan.decisions.filter((item) => item.kind === "filler-observation");
+    assert.equal(fillers.length, 2);
+    assert.ok(fillers.every((item) => item.support === "unavailable" && item.reviewRequired === true));
+    assert.deepEqual(fillers.map((item) => item.word.text), ["um,", "uh,"]);
+    assert.deepEqual(fillers[0]?.word, { text: "um,", start: 3, end: 3.3, confidence: 0.99 });
+    assert.ok(fillers[0]?.reasonCodes.includes("ANALYZER_MARKED_FILLER"));
+    assert.ok(fillers.every((item) => item.reasonCodes.includes("VOCABULARY_MATCH")));
+    assert.deepEqual(fillers.map((item) => item.confidenceStatus), ["meets-threshold", "below-threshold"]);
+    assert.deepEqual(fillers.map((item) => item.protection), ["not-evaluated", "overlaps-protected"]);
+    assert.ok(fillers.every((item) => item.analysisRef.artifactDigest === speechRef.artifactDigest));
+    assert.ok(observed.plan.warnings.some((warning) => /not.*(safe|remov)/i.test(warning)));
+    assert.ok(observed.plan.warnings.some((warning) => /transcription may omit fillers/i.test(warning)));
+    assert.notEqual(normal.plan.planDigest, observed.plan.planDigest);
+    assert.deepEqual(request.snapshot, original);
+    await writeFile(f.path, "changed source");
+    assert.notEqual((await createEditDecisionPlan({ ...request, includeFillerObservations: true }, f.artifacts, verifyLocalMediaSource, f.briefStore)).status, "available");
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test("filler observations warn that transcription can omit fillers", async () => {
+  const f = await fixture();
+  try {
+    const speech = { ...f.record.speech, words: [{ text: "Hello.", start: 1, end: 2, confidence: 0.98 }] };
+    await f.index.save({ ...f.record, speech });
+    const speechRef = await pinAnalysisEvidence(f.index, f.artifacts, f.request.speechContext, verifyLocalMediaSource);
+    const request = { ...f.request, speechRef, vadRef: undefined, vadContext: undefined };
+    const normal = await createEditDecisionPlan(request, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    const observed = await createEditDecisionPlan({ ...request, includeFillerObservations: true }, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(normal.status, "available"); assert.equal(observed.status, "available");
+    if (normal.status !== "available" || observed.status !== "available") return;
+    assert.equal(observed.plan.decisions.some((item) => item.kind === "filler-observation"), false);
+    assert.ok(observed.plan.warnings.some((warning) => /transcription may omit fillers/i.test(warning)));
+    assert.equal(normal.plan.warnings.some((warning) => /transcription may omit fillers/i.test(warning)), false);
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test("filler observations fail closed without complete source-bound speech", async () => {
+  const f = await fixture();
+  try {
+    const invalid = await createEditDecisionPlan({ ...f.request, includeFillerObservations: "yes" } as unknown as typeof f.request, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(invalid.status, "unavailable");
+    const noSpeech = { ...f.request, includeFillerObservations: true, speechRef: undefined, speechContext: undefined, vadRef: undefined, vadContext: undefined };
+    const missing = await createEditDecisionPlan(noSpeech, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(missing.status, "available");
+    if (missing.status !== "available") return;
+    assert.ok(missing.plan.decisions.some((item) => item.kind === "filler-unavailable"));
+    assert.equal(missing.plan.decisions.some((item) => item.kind === "filler-observation"), false);
+    const partialContext = { ...f.request.speechContext, range: { start: 0, end: 3 } };
+    const partialRef = await pinAnalysisEvidence(f.index, f.artifacts, partialContext, verifyLocalMediaSource);
+    const partial = await createEditDecisionPlan({ ...noSpeech, speechRef: partialRef, speechContext: partialContext }, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    if (partial.status === "available") {
+      assert.ok(partial.plan.decisions.some((item) => item.kind === "filler-unavailable"));
+      assert.equal(partial.plan.decisions.some((item) => item.kind === "filler-observation"), false);
+    } else {
+      assert.match(partial.reason, /coverage|cover/i);
+    }
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test("filler observations map the selected repeated occurrence without editing it", async () => {
+  const f = await fixture();
+  try {
+    const speech = { ...f.record.speech, words: [{ text: "um", start: 3, end: 3.3, confidence: 0.95 }] };
+    await f.index.save({ ...f.record, speech });
+    const speechRef = await pinAnalysisEvidence(f.index, f.artifacts, f.request.speechContext, verifyLocalMediaSource);
+    const snapshot = structuredClone(f.request.snapshot);
+    snapshot.timeline.clips[0] = { ...snapshot.timeline.clips[0]!, start: 2, startTime: { value: "2", timescale: "1" },
+      sourceStart: 2.5, sourceStartTime: { value: "5", timescale: "2" }, duration: 5, durationTime: { value: "5", timescale: "1" } };
+    snapshot.timeline.clips.push({ ...snapshot.timeline.clips[0]!, id: "other", start: 7, startTime: { value: "7", timescale: "1" } });
+    const before = structuredClone(snapshot);
+    const result = await createEditDecisionPlan({ ...f.request, snapshot, speechRef, vadRef: undefined, vadContext: undefined, includeFillerObservations: true }, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(result.status, "available");
+    if (result.status !== "available") return;
+    const filler = result.plan.decisions.find((item) => item.kind === "filler-observation");
+    assert.ok(filler && filler.kind === "filler-observation");
+    assert.equal(filler.range.start, 2.5);
+    assert.equal(filler.sourceRange.start, 3);
+    assert.deepEqual(snapshot, before);
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});

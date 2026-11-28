@@ -5,6 +5,8 @@ import type { MediaSourceIdentity, MediaUnderstanding, SpeechOccurrenceMapping }
 import type { ContextRevision, TimeRange } from "../domain/primitives.js";
 import type { ProjectSnapshot } from "../domain/project.js";
 import { bindSpeechAnalysis } from "../speech/analysis.js";
+import { FillerDetector } from "../speech/filler-detector.js";
+import type { FillerReasonCode } from "../speech/filler-detector.js";
 import { mapSpeechAnalysisToOccurrence } from "../speech/mapping.js";
 import { assertCurrentAcceptedBrief } from "../application/creative-brief-store.js";
 import type { CreativeBriefStore } from "../application/creative-brief-store.js";
@@ -34,10 +36,13 @@ export interface EditDecisionPlanRequest {
   speechContext?: AnalysisEvidenceContext;
   vadContext?: AnalysisEvidenceContext;
   audioContext?: AnalysisEvidenceContext;
+  includeFillerObservations?: boolean;
   caption: Omit<CaptionPlanRequest, "snapshot" | "projectId" | "timelineId" | "revision" | "occurrenceId">;
   music: Omit<MusicPlanRequest, "snapshot" | "projectId" | "timelineId" | "revision" | "brief" | "accepted">;
 }
 export type EditDecision =
+  | { kind: "filler-observation"; support: "unavailable"; rationale: string; reviewRequired: true; reasonCodes: FillerReasonCode[]; confidenceStatus: "meets-threshold" | "below-threshold"; protection: "overlaps-protected" | "not-evaluated"; range: TimeRange; sourceRange: TimeRange; word: { text: string; start: number; end: number; confidence: number }; analysisRef: AnalysisRef }
+  | { kind: "filler-unavailable"; support: "unavailable"; rationale: string }
   | { kind: "cut"; support: "unavailable"; rationale: string; range: TimeRange; candidate: NarrativeCutCandidate; analysisRef: AnalysisRef }
   | { kind: "caption"; support: "unavailable"; rationale: string; range: TimeRange; group: CaptionGroup; analysisRef: AnalysisRef }
   | { kind: "cut-unavailable"; support: "unavailable"; rationale: string }
@@ -91,6 +96,7 @@ export async function createEditDecisionPlan(request: EditDecisionPlanRequest, a
       verifySource = (source) => delegate(structuredClone(source));
     }
     if (!briefStore) return { status: "unavailable", reason: "Authoritative creative brief store is required." };
+    if (request.includeFillerObservations !== undefined && typeof request.includeFillerObservations !== "boolean") return { status: "unavailable", reason: "Filler observation option must be boolean." };
     assertBriefBinding(request.accepted, request.brief);
     await assertCurrentAcceptedBrief(briefStore, request.projectId, request.accepted);
     const snapshot = request.snapshot;
@@ -139,6 +145,34 @@ export async function createEditDecisionPlan(request: EditDecisionPlanRequest, a
     if (request.speechRef && speechContext) {
       const speechEvidence = await verifyAnalysisEvidence(artifacts, request.speechRef, speechContext, verifySource);
       if (speechEvidence.status !== "verified") return { status: "unavailable", reason: `Speech evidence: ${speechEvidence.reason}` };
+    }
+    const fillerDecisions: EditDecision[] = [];
+    const fillerWarnings: string[] = [];
+    if (request.includeFillerObservations === true) {
+      const sourceStart = clip.sourceStart ?? 0;
+      const sourceEnd = sourceStart + clip.duration;
+      if (!request.speechRef || !speechContext || speechContext.range.start > sourceStart || speechContext.range.end < sourceEnd) {
+        fillerDecisions.push({ kind: "filler-unavailable", support: "unavailable", rationale: "Complete pinned speech evidence for the occurrence is required." });
+      } else {
+        const bytes = await artifacts.get(request.speechRef.artifactDigest);
+        if (!bytes || `sha256:${createHash("sha256").update(bytes).digest("hex")}` !== request.speechRef.artifactDigest) return { status: "unavailable", reason: "Filler speech artifact changed or disappeared." };
+        const record = JSON.parse(Buffer.from(bytes).toString("utf8")) as MediaUnderstanding;
+        if (!record.speech) return { status: "unavailable", reason: "Filler speech artifact is missing speech analysis." };
+        const bound = bindSpeechAnalysis(record.speech, { input: { project: { ...snapshot, revision: request.speechRef.analysisRevision }, media: source }, provider: speechContext.provider });
+        if (bound.requestedRange.start > sourceStart || bound.requestedRange.end < sourceEnd || bound.observedRange.start > sourceStart || bound.observedRange.end < sourceEnd) {
+          fillerDecisions.push({ kind: "filler-unavailable", support: "unavailable", rationale: "Complete speech coverage for the occurrence is required." });
+        } else {
+          const candidates = new FillerDetector().detect({ previewId: request.speechRef.artifactDigest,
+            analysis: bound, targetRange: { start: clip.start, end: clip.start + clip.duration }, revisionId: request.revision.id,
+            occurrence: { occurrenceId: clip.id, mediaId: source.mediaId, sourceRange: { start: sourceStart, end: sourceEnd }, sequenceRange: { start: clip.start, end: clip.start + clip.duration } } });
+          fillerDecisions.push(...candidates.map((candidate): EditDecision => ({ kind: "filler-observation", support: "unavailable", reviewRequired: true,
+            reasonCodes: structuredClone(candidate.reasonCodes), confidenceStatus: candidate.eligible ? "meets-threshold" : "below-threshold", protection: bound.protectedSegments?.some((segment) => segment.start < candidate.sourceRange.end && candidate.sourceRange.start < segment.end) ? "overlaps-protected" : "not-evaluated",
+            rationale: "Potential filler observation only; this is not a safe removal or an executable edit.", range: structuredClone(candidate.sequenceRange),
+            sourceRange: structuredClone(candidate.sourceRange), word: { text: candidate.word.text, start: candidate.word.start, end: candidate.word.end, confidence: candidate.word.confidence }, analysisRef: structuredClone(request.speechRef!) })));
+          fillerWarnings.push("Filler observations are not safe removals; review speech, protection and context separately before any edit.");
+          fillerWarnings.push("Transcription may omit fillers; observations do not establish that all fillers were found.");
+        }
+      }
     }
     const cutDecisions: EditDecision[] = [];
     const cutWarnings: string[] = [];
@@ -199,6 +233,7 @@ export async function createEditDecisionPlan(request: EditDecisionPlanRequest, a
       revision: request.revision, brief: request.brief, accepted: request.accepted });
     const decisions: EditDecision[] = [
       ...cutDecisions,
+      ...fillerDecisions,
       ...captionDecisions,
       music.decision === "omit-music"
         ? { kind: "music-omission", support: "no-op", rationale: music.reason, musicPlan: music, ...(request.audioRef ? { audioRef: structuredClone(request.audioRef) } : {}) }
@@ -210,7 +245,7 @@ export async function createEditDecisionPlan(request: EditDecisionPlanRequest, a
       ...(source.mediaKind !== undefined ? { mediaKind: source.mediaKind } : {}), ...(source.duration !== undefined ? { duration: source.duration } : {}) };
     const content = { projectId: request.projectId, timelineId: request.timelineId, occurrenceId: request.occurrenceId, source: sourceIdentity,
       revision: structuredClone(request.revision), acceptedBrief: structuredClone(request.accepted), inputDigest: digest(request),
-      reviewRequired: true as const, decisions, warnings: [...cutWarnings, ...captionWarnings, ...music.warnings,
+      reviewRequired: true as const, decisions, warnings: [...cutWarnings, ...fillerWarnings, ...captionWarnings, ...music.warnings,
         ...(pinnedMusicSpeech ? ["Music speech overlap is derived from pinned VAD; audibility remains unverified."] : []),
         ...(request.music.context.audioEvidence === "available" && !request.audioRef ? ["Supplied audio context is unverified because no pinned audio reference was provided."] : []),
         ...(request.audioRef ? ["Source audio evidence does not verify the edited mix or dialogue audibility; supplied speech context is not derived from this evidence."] : []),
