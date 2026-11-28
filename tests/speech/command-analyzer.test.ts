@@ -5,7 +5,7 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { CommandAudioAnalyzer, CommandSpeechAnalyzer } from "@framekit/final-cut";
+import { CommandAudioAnalyzer, CommandSpeechAnalyzer, createCommandAnalyzers, selectAnalyzerEnvironment } from "@framekit/final-cut";
 import { AgentVideoRuntime, JsonSemanticMediaIndexStore, type AnalysisInput } from "@framekit/runtime";
 import { InMemoryEditorAdapter } from "@framekit/testkit";
 
@@ -490,4 +490,18 @@ test("configured speech model asset is checked before and after provider executi
     await writeFile(wrapper, source.replace("const request = JSON.parse(input);", `const request = JSON.parse(input); await writeFile(${JSON.stringify(vadModel)}, "changed-during-analysis");`));
     await assert.rejects(analyzer.analyze(createInput(media)), /ANALYZER_MODEL_CHANGED/);
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+
+test("an explicitly selected analyzer environment binds only variables passed to the child", () => {
+  const first = selectAnalyzerEnvironment("PATH,MODEL_SETTING", { PATH: "/usr/bin", MODEL_SETTING: "alpha", SHELL_SESSION: "first" });
+  const second = selectAnalyzerEnvironment("MODEL_SETTING,PATH", { PATH: "/usr/bin", MODEL_SETTING: "alpha", SHELL_SESSION: "second" });
+  assert.deepEqual(first, { PATH: "/usr/bin", MODEL_SETTING: "alpha" });
+  assert.deepEqual(second, first);
+  const descriptor = (environment: Record<string, string | undefined>) => createCommandAnalyzers({ speechCommand: "/provider", speechEnvironment: environment }).speechAnalyzer!.descriptor;
+  assert.deepEqual(descriptor(first), descriptor(second));
+  assert.notDeepEqual(descriptor(first), descriptor({ ...first, MODEL_SETTING: "beta" }));
+  assert.throws(() => selectAnalyzerEnvironment("PATH,MISSING", { PATH: "/usr/bin" }), /ANALYZER_SETUP_REQUIRED/);
+  assert.throws(() => selectAnalyzerEnvironment("PATH,BAD-NAME", { PATH: "/usr/bin" }), /ANALYZER_SETUP_REQUIRED/);
+  assert.throws(() => selectAnalyzerEnvironment("", {}), /ANALYZER_SETUP_REQUIRED/);
 });
