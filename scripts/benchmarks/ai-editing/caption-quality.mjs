@@ -148,3 +148,12 @@ export function sampleFreeWordIndices(words, frameRate) {
     return firstFrame / frameRate >= word.end - 1e-9 ? [index] : [];
   });
 }
+
+/** Select predeclared windows only; later windows are post hoc exploratory cases. */
+export function talkingHeadWindow(asset, selection) {
+  const indices = {second:0,third:1};
+  if (selection !== undefined && !Object.hasOwn(indices,selection)) throw new Error('Unknown talking-head window');
+  const range = selection === undefined ? asset.windowSeconds : asset.additionalWindowsSeconds?.[indices[selection]];
+  if (!Array.isArray(range) || range.length !== 2 || !range.every(Number.isFinite) || range[0] < 0 || range[1] - range[0] !== 30) throw new Error('Invalid talking-head window');
+  return [...range];
+}

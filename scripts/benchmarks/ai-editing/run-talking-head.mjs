@@ -1,4 +1,4 @@
-// Usage: node --import tsx run-talking-head.mjs SOURCE_WEBM PYTHON [NEW_OUTPUT_DIRECTORY]
+// Usage: node --import tsx run-talking-head.mjs SOURCE_WEBM PYTHON [NEW_OUTPUT_DIRECTORY|-] [second|third]
 // Configure the production speech backend through FRAMEKIT_* environment variables.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -9,16 +9,18 @@ import { fileURLToPath } from 'node:url';
 import { loadCorpus, verifyAsset } from './corpus.mjs';
 import { probeCaptionPlan } from './caption-plan-probe.mjs';
 import { renderCaptionProbe } from './caption-render-probe.mjs';
-import { captionSampleMetadata } from './caption-quality.mjs';
+import { captionSampleMetadata, talkingHeadWindow } from './caption-quality.mjs';
 
-const [file,python,outputDirectory] = process.argv.slice(2);
+const [file,python,outputArgument,selection] = process.argv.slice(2);
+const outputDirectory = outputArgument === '-' ? undefined : outputArgument;
 if (!file || !python) throw new Error('Expected interview video and Python');
 const asset = (await loadCorpus()).supplementalAssets.find((item)=>item.id==='novara-interview');
 await verifyAsset(file,asset.sha256);
+const sourceWindow = talkingHeadWindow(asset,selection);
 const directory = await mkdtemp(join(tmpdir(),'framekit-talking-head-'));
 try {
   const sample = join(directory,'sample.mp4');
-  execFileSync('ffmpeg',['-v','error','-ss','0','-i',file,'-t','30','-vf','scale=640:360,fps=30','-c:v','libx264','-preset','ultrafast','-threads','1','-c:a','aac','-ac','2','-ar','48000',sample]);
+  execFileSync('ffmpeg',['-v','error','-ss',String(sourceWindow[0]),'-i',file,'-t','30','-vf','scale=640:360,fps=30','-c:v','libx264','-preset','ultrafast','-threads','1','-c:a','aac','-ac','2','-ar','48000',sample]);
   const hash = (bytes)=>createHash('sha256').update(bytes).digest('hex');
   const sampleDigest = hash(await readFile(sample));
   const media = {mediaId:asset.id,source:sample,sourceDigest:sampleDigest,mediaKind:'video',duration:30};
@@ -44,7 +46,7 @@ try {
     visualSample = {...metadata,sha256:hash(await readFile(sampleImage))};
   }
   const report = {gitHead:execFileSync('git',['rev-parse','HEAD'],{cwd:repository,encoding:'utf8'}).trim(),sourceSha256:asset.sha256,
-    sourceWindowSeconds:asset.windowSeconds,derivedSha256:sampleDigest,backendOutputSha256:hash(child.stdout),declaredModel:model,provider:output.provider,plan,...(rendered ? {rendered,visualSample} : {}),
+    sourceWindowSeconds:sourceWindow,derivedSha256:sampleDigest,backendOutputSha256:hash(child.stdout),declaredModel:model,provider:output.provider,plan,...(rendered ? {rendered,visualSample} : {}),
     limitation:'No independently checked transcript or word boundaries. Plan coverage is relative to recognized words only; it does not verify caption rendering or native acceptance. Declared model identity does not authenticate loaded bytes.'};
   if (outputDirectory && rendered) await writeFile(join(outputDirectory,'report.json'),`${JSON.stringify(report,null,2)}\n`);
   process.stdout.write(`${JSON.stringify(report,null,2)}\n`);
