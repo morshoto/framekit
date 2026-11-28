@@ -33,12 +33,14 @@ test('screens AMI transcript ordering and leaves automatic timing unverified', a
     {start: 59.9, end: 60.1, text: 'cut', speaker: 'A', verification: 'automatic-alignment'},
     {start: 60.1, end: 60.4, text: 'um', speaker: 'A', verification: 'automatic-alignment'},
   ];
-  const result = assessAmiTranscript(ref, [{text: 'Um,', confidence: 0.9}, {text: 'hello', confidence: 0.2}], 60, 60);
+  const result = assessAmiTranscript(ref, [{text: 'Um,', start: 0.1, end: 0.4, confidence: 0.9}, {text: 'hello', start: 0.2, end: 0.7, confidence: 0.2}], 60, 60);
   assert.equal(result.wordErrorRate, 0);
   assert.equal(result.referenceBoundaryWordsExcluded, 1);
   assert.equal(result.overlappingReferencePairs, 1);
   assert.equal(result.lowConfidenceWords, 1);
   assert.equal(result.timingStatus, 'unavailable');
+  assert.equal(result.timingScreening.matchedWords, 2);
+  assert.equal(result.timingScreening.withinTolerance, 2);
 });
 
 test('reports automated boundary disagreement for matched words without asserting accuracy', async () => {
