@@ -48,6 +48,7 @@ function parse(bytes, projectUid, sourceDigests) {
 }
 
 export function createRevisionB({ baseline, external, baselineDigest, externalDigest, projectUid, sourceDigests, targetIndex, name }) {
+  if (!/^[a-f0-9]{64}$/.test(baselineDigest ?? '') || !/^[a-f0-9]{64}$/.test(externalDigest ?? '')) throw new Error('invalid digest');
   bindRevision(baseline, baselineDigest);
   bindRevision(external, externalDigest);
   if (typeof projectUid !== 'string' || !projectUid || !Number.isSafeInteger(targetIndex) || targetIndex < 0
