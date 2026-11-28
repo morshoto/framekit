@@ -43,12 +43,13 @@ test('characterizes Cocoa scripting in an uninstalled test app', { skip: process
     try { make = await run(binary, ['send', String(child.pid), 'make'], { timeout: 5000 }); }
     catch (error) {
       assert.match(error.stderr ?? '', /errAETimeout/);
+      assert.doesNotMatch(error.stderr ?? '', /make-response-received/);
       t.diagnostic('inconclusive: make timed out');
       return;
     }
-    assert.equal(make.stdout.trim(), 'make:asset-1:get:Synthetic:location:aslc:unknown-rejected');
+    assert.equal(make.stdout.trim(), 'make:asset-1:get:Synthetic:location:reco:unknown-rejected');
     assert.match(stderr, /MOCK MAKE COMMAND INVOKED/);
-    t.diagnostic('SDEF-backed Cocoa make and get resolved the test asset');
+    t.diagnostic('SDEF-backed Cocoa make and get resolved the test asset and generic location record');
   } finally {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
     await exited;

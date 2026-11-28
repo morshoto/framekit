@@ -8,6 +8,10 @@ import Darwin
 final class MockAsset: NSObject {
     @objc dynamic let uniqueID = "asset-1"
     @objc dynamic let name = "Synthetic"
+    @objc dynamic var locationInfo: NSDictionary {
+        ["folder": URL(fileURLWithPath: "/synthetic/share-output", isDirectory: true),
+         "basename": name, "hasDescription": true, "hasMedia": false]
+    }
 }
 enum MockStore { static var assets: [MockAsset] = [] }
 extension NSApplication {
@@ -67,6 +71,7 @@ if args.count == 2 && args[1] == "listen" {
            result.forKeyword(AEKeyword(keyAEDesiredClass))?.typeCodeValue == OSType(0x61736574),
            result.forKeyword(AEKeyword(keyAEKeyForm))?.typeCodeValue == OSType(formUniqueID),
            result.forKeyword(AEKeyword(keyAEKeyData))?.stringValue == "asset-1" {
+            fputs("make-response-received\n", stderr)
             let property = NSAppleEventDescriptor.record()
             property.setDescriptor(NSAppleEventDescriptor(typeCode: OSType(typeProperty)), forKeyword: AEKeyword(keyAEDesiredClass))
             property.setDescriptor(NSAppleEventDescriptor(typeCode: OSType(formPropertyID)), forKeyword: AEKeyword(keyAEKeyForm))
@@ -80,6 +85,21 @@ if args.count == 2 && args[1] == "listen" {
             guard getReply.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue == "Synthetic" else {
                 fputs("unexpected get reply: \(getReply)\n", stderr); exit(1)
             }
+            property.setDescriptor(NSAppleEventDescriptor(typeCode: OSType(0x6c6f636e)), forKeyword: AEKeyword(keyAEKeyData))
+            guard let locationSpecifier = property.coerce(toDescriptorType: DescType(typeObjectSpecifier)) else { exit(1) }
+            let locationGet = NSAppleEventDescriptor(eventClass: AEEventClass(0x636f7265), eventID: AEEventID(0x67657464),
+                targetDescriptor: NSAppleEventDescriptor(processIdentifier: target), returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
+            locationGet.setParam(locationSpecifier, forKeyword: AEKeyword(keyDirectObject))
+            let locationReply = try locationGet.sendEvent(options: [.waitForReply, .neverInteract], timeout: 3)
+            let location = locationReply.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))
+            guard location?.descriptorType == DescType(typeAERecord),
+                  location?.forKeyword(AEKeyword(0x61736664))?.fileURLValue?.path == "/synthetic/share-output",
+                  location?.forKeyword(AEKeyword(0x6173626e))?.stringValue == "Synthetic",
+                  location?.forKeyword(AEKeyword(0x61736864))?.booleanValue == true,
+                  location?.forKeyword(AEKeyword(0x6173686d))?.booleanValue == false else {
+                fputs("unexpected location reply: \(locationReply)\n", stderr); exit(1)
+            }
+            property.setDescriptor(NSAppleEventDescriptor(typeCode: OSType(0x706e616d)), forKeyword: AEKeyword(keyAEKeyData))
             let wrong = NSAppleEventDescriptor.record()
             wrong.setDescriptor(NSAppleEventDescriptor(typeCode: OSType(0x61736574)), forKeyword: AEKeyword(keyAEDesiredClass))
             wrong.setDescriptor(NSAppleEventDescriptor(typeCode: OSType(formUniqueID)), forKeyword: AEKeyword(keyAEKeyForm))
@@ -98,7 +118,7 @@ if args.count == 2 && args[1] == "listen" {
                 rejected = invalidReply.paramDescriptor(forKeyword: AEKeyword(keyErrorNumber))?.int32Value == Int32(errAENoSuchObject)
             } catch { rejected = (error as NSError).code == Int(errAENoSuchObject) }
             guard rejected else { fputs("unknown asset did not produce errAENoSuchObject\n", stderr); exit(1) }
-            print("make:asset-1:get:Synthetic:unknown-rejected"); exit(0)
+            print("make:asset-1:get:Synthetic:location:reco:unknown-rejected"); exit(0)
         }
         fputs("unexpected reply\n", stderr); exit(1)
     } catch {
