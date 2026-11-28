@@ -1,0 +1,44 @@
+{
+  "gitHead": "70164b43aecadeaae14060066dc358b1e5b374b5",
+  "sourceSha256": "2d1304cfebf10290acd74b1a8bdce638ce94c58f5cfa8950a288d44d8e138c5f",
+  "sourceWindowSeconds": [
+    0,
+    30
+  ],
+  "derivedSha256": "6ab7bb46733218c6f070a9560f3a32ea077c8a4285ac62a218b2d08df80b04c3",
+  "backendOutputSha256": "8a1c8004dab4e2be8a6577d931ec3de4e07aeb650b18f1422fe357c0912a4f34",
+  "declaredModel": "mlx-community/whisper-tiny",
+  "provider": {
+    "id": "command.speech",
+    "provider": "command",
+    "version": "mlx-whisper-0.4.3:silero-6.3"
+  },
+  "plan": {
+    "planStatus": "available",
+    "groups": 14,
+    "warnings": [
+      "Transcript and emphasis require human review; native editable title support is not established.",
+      "Caption group timing uses sampled frames rather than outward rounding and may start up to one frame after a word begins; review timing.",
+      "Word timing was rounded outward to the sequence frame grid.",
+      "Low-confidence transcript words require correction before use."
+    ],
+    "nativeTitleStatus": "unavailable",
+    "recognizedWords": 70,
+    "lowConfidenceWords": 13,
+    "assessment": {
+      "status": "pass",
+      "referenceWords": 70,
+      "missingWords": 0,
+      "duplicateWords": 0,
+      "timingFailures": 0,
+      "textMismatches": 0,
+      "lineMismatches": 0,
+      "malformed": 0,
+      "toleranceSeconds": 0.03333333333333333,
+      "renderedTextStatus": "unavailable"
+    },
+    "renderedTextStatus": "unavailable",
+    "transcriptionAccuracy": "unavailable"
+  },
+  "limitation": "No independently checked transcript or word boundaries. Plan coverage is relative to recognized words only; it does not verify caption rendering or native acceptance. Declared model identity does not authenticate loaded bytes."
+}
