@@ -43,3 +43,11 @@ test('rejects equal source intervals even when unique IDs were exchanged', async
   const duplicate = external.replace('</spine>', '<asset-clip ref="a" name="Opening" offset="0s" start="4/2s" duration="2/2s"><metadata><md key="com.framekit.id" value="another-v1"/></metadata></asset-clip></spine>');
   assert.throws(() => findAnchoredTarget(base, duplicate, 'opening-v1', expected), /ambiguous/);
 });
+
+test('rejects an anchored replacement that loses title and music structure', async () => {
+  const { base, external } = await fixtures();
+  const altered = external.replace(/<asset-clip ref="a" name="Opening" offset="0s" start="2s" duration="1s">[\s\S]*?<\/asset-clip>/,
+    '<asset-clip ref="a" name="Opening" offset="0s" start="2s" duration="1s"><metadata><md key="com.framekit.id" value="opening-v1"/></metadata></asset-clip>');
+  assert.notEqual(altered, external);
+  assert.throws(() => findAnchoredTarget(base, altered, 'opening-v1', expected), /structure/);
+});
