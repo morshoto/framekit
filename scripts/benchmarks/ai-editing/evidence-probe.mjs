@@ -43,6 +43,6 @@ export async function exerciseEvidence(media, revision, provider, payload) {
     catch (error) { statuses.partialCoverage=classifyPartialRejection(error); }
     await writeFile(path, 'tampered source');
     statuses.changedSource = (await check(artifacts,context)).status;
-    return {artifactDigest:reference.artifactDigest,statuses};
+    return {artifactDigest:reference.artifactDigest,artifactDigestScope:'Includes a disposable source path; digest is run-specific.',statuses};
   } finally { await rm(directory,{recursive:true,force:true}); }
 }
