@@ -27,7 +27,6 @@ let linkedRoot = parent.appendingPathComponent("linked", isDirectory: true)
 try manager.createSymbolicLink(at: linkedRoot, withDestinationURL: root)
 require(rejects { _ = try inspectOutput(directory: linkedRoot, name: "Example.fcpxml", expectedDigest: expected) }, "symlink directory accepted")
 require(rejects { _ = try inspectOutput(directory: root, name: "Missing.fcpxml", expectedDigest: expected) }, "missing file accepted")
-print("Swift descriptor-relative output controls passed")
 
 let moved = parent.appendingPathComponent("original", isDirectory: true)
 let outside = parent.appendingPathComponent("other", isDirectory: true)
@@ -39,3 +38,5 @@ let swapped = rejects {
     })
 }
 require(swapped, "replaced directory accepted")
+
+print("Swift descriptor-relative output controls passed")

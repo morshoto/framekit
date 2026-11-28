@@ -10,7 +10,7 @@ struct OutputObservation {
 
 enum OutputInspectionError: Error { case invalidInput, unavailable, changed, digestMismatch }
 
-func inspectOutput(directory: URL, name: String, expectedDigest: String) throws -> OutputObservation {
+func inspectOutput(directory: URL, name: String, expectedDigest: String, afterOpen: (() throws -> Void)? = nil) throws -> OutputObservation {
     guard directory.isFileURL,
           name.range(of: "^[A-Za-z0-9][A-Za-z0-9._ -]{0,127}$", options: .regularExpression) != nil,
           expectedDigest.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil else {
@@ -19,9 +19,12 @@ func inspectOutput(directory: URL, name: String, expectedDigest: String) throws 
     let directoryFD = open(directory.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
     guard directoryFD >= 0 else { throw OutputInspectionError.unavailable }
     defer { close(directoryFD) }
+    var directoryBefore = stat()
+    guard fstat(directoryFD, &directoryBefore) == 0 else { throw OutputInspectionError.unavailable }
     let fileFD = openat(directoryFD, name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
     guard fileFD >= 0 else { throw OutputInspectionError.unavailable }
     defer { close(fileFD) }
+    try afterOpen?() // deterministic test barrier, never used by an event handler
     var before = stat()
     guard fstat(fileFD, &before) == 0, (before.st_mode & S_IFMT) == S_IFREG,
           before.st_size >= 0, before.st_size <= 16 * 1024 * 1024 else { throw OutputInspectionError.unavailable }
@@ -38,7 +41,10 @@ func inspectOutput(directory: URL, name: String, expectedDigest: String) throws 
     }
     var after = stat()
     var current = stat()
-    guard fstat(fileFD, &after) == 0, fstatat(directoryFD, name, &current, AT_SYMLINK_NOFOLLOW) == 0,
+    var directoryCurrent = stat()
+    guard lstat(directory.path, &directoryCurrent) == 0,
+          directoryBefore.st_dev == directoryCurrent.st_dev, directoryBefore.st_ino == directoryCurrent.st_ino,
+          fstat(fileFD, &after) == 0, fstatat(directoryFD, name, &current, AT_SYMLINK_NOFOLLOW) == 0,
           before.st_dev == current.st_dev, before.st_ino == current.st_ino,
           before.st_size == after.st_size, total == after.st_size,
           before.st_mtimespec.tv_sec == after.st_mtimespec.tv_sec,
