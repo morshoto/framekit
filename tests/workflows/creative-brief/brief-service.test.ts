@@ -58,9 +58,15 @@ test("brief render inspection binds current project and reverified artifact with
     const observation = { status: "passed", target: { projectId: "p", sequenceId: "t" }, revision, fileDigest: "b".repeat(64), durationSeconds: 45, width: 1080, height: 1920 };
     let record = structuredClone(stored);
     let verified = true;
+    let missingRecord = false;
+    let badRecord = false;
     let verificationCount = 0;
     let driftOnSecond = false;
-    const service = f.withRender({ inspect: async () => structuredClone(record), reverify: async () => {
+    const service = f.withRender({ inspect: async () => {
+      if (missingRecord) throw new Error("HEADLESS_RENDER_NOT_FOUND: missing record");
+      if (badRecord) throw new Error("HEADLESS_RENDER_CORRUPT: invalid record");
+      return structuredClone(record);
+    }, reverify: async () => {
       verificationCount++;
       if (!verified || (driftOnSecond && verificationCount % 2 === 0)) return { renderId: "render-fixture", status: "unavailable" };
       return { renderId: "render-fixture", status: "verified", observation: structuredClone(observation) };
@@ -98,6 +104,12 @@ test("brief render inspection binds current project and reverified artifact with
     assert.equal((await service.inspectRender({ ...target, renderId: "render-fixture" })).status, "unavailable");
     assert.equal((await service.previewRenderCorrection({ ...target, renderId: "render-fixture" })).status, "unavailable");
     verified = true;
+    missingRecord = true;
+    assert.equal((await service.inspectRender({ ...target, renderId: "render-fixture" })).status, "unavailable");
+    assert.equal((await service.previewRenderCorrection({ ...target, renderId: "render-fixture" })).status, "unavailable");
+    missingRecord = false; badRecord = true;
+    await assert.rejects(() => service.inspectRender({ ...target, renderId: "render-fixture" }), /HEADLESS_RENDER_CORRUPT/);
+    badRecord = false;
     record.outcome.plan.timeline.sequence.id = "other";
     assert.equal((await service.inspectRender({ ...target, renderId: "render-fixture" })).status, "unavailable");
   } finally { await rm(f.dir, { recursive: true, force: true }); }

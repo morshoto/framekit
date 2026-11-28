@@ -2315,6 +2315,13 @@ test("production stdio MCP persists and reopens the headless project and render 
     const reopenedRender = payload(await client.callTool({ name: "headless.render.inspect", arguments: { renderId: render.renderId } }));
     assert.equal(reopenedRender.status, "passed");
     assert.equal(reopenedRender.outcome.render.projectRevision.id, finished.after.timeline.revision.id);
+    const missingRenderId = "render-00000000-0000-4000-8000-000000000000";
+    const missing = payload(await client.callTool({ name: "headless.render.reverify", arguments: { renderId: missingRenderId } }));
+    assert.equal(missing.status, "unavailable");
+    assert.equal((await client.callTool({ name: "headless.render.inspect", arguments: { renderId: missingRenderId } })).isError, true);
+    const invalid = await client.callTool({ name: "headless.render.reverify", arguments: { renderId: "invalid" } });
+    assert.equal(invalid.isError, true);
+    assert.match(toolErrorText(invalid), /HEADLESS_RENDER_INVALID/);
     const reverified = payload(await client.callTool({ name: "headless.render.reverify", arguments: { renderId: render.renderId } }));
     assert.equal(reverified.status, "verified");
     assert.equal(reverified.observation.fileDigest, render.outcome.verification.artifact.fileDigest);
