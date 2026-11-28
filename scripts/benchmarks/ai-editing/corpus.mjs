@@ -29,3 +29,15 @@ export async function parseAmiWords(xml, speaker) {
     return [{ start, end, text: String(word['#text'] ?? ''), speaker, verification: 'automatic-alignment' }];
   });
 }
+
+/** Report automatic-alignment disagreements, never interpret them as confirmed clipping. */
+export function screenAlignedCuts(candidates, offset, words) {
+  if (!Number.isFinite(offset) || offset < 0) throw new Error('Invalid source offset');
+  return candidates.map((candidate) => {
+    const { start, end } = candidate.sourceRange;
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) throw new Error('Invalid candidate range');
+    const sourceStart = start + offset;
+    const sourceEnd = end + offset;
+    return { start: sourceStart, end: sourceEnd, overlaps: words.filter((word) => word.start < sourceEnd && sourceStart < word.end) };
+  });
+}
