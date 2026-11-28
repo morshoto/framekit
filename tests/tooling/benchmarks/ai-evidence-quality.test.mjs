@@ -62,3 +62,10 @@ test('real-evidence probe detects changed bytes, provider, revision and incomple
     assert.deepEqual(await readFile(path), bytes);
   } finally { await rm(directory,{recursive:true,force:true}); }
 });
+
+test('rejects secondary words with invalid confidence or outside observed coverage', () => {
+  const badConfidence = {...evidence, words:[{text:'word', start:5.3, end:5.5, confidence:NaN}]};
+  const outsideCoverage = {...evidence, words:[{text:'word', start:9.8, end:10.2, confidence:0.5}]};
+  assert.equal(compareProviderCuts([candidate], digest, badConfidence).status, 'unavailable');
+  assert.equal(compareProviderCuts([candidate], digest, outsideCoverage).status, 'unavailable');
+});
