@@ -5,7 +5,7 @@ import { access, link, lstat, mkdtemp, readFile, rename, rm, stat, unlink, write
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { inspectTitleFont as inspectTitleFontBytes, titleGlyphProblem, titleFitProblem } from "./title-glyphs.js";
+import { basicTitleOutlineWidth, inspectTitleFont as inspectTitleFontBytes, titleGlyphProblem, titleFitProblem } from "./title-glyphs.js";
 import { HEADLESS_AUDIO_CHANNELS, HEADLESS_AUDIO_CODEC, HEADLESS_AUDIO_SAMPLE_RATE } from "./audio-output.js";
 import {
   createFramekitRenderResult,
@@ -65,7 +65,7 @@ export class FfmpegTimelineRenderer implements FramekitRenderProvider {
 
   public constructor(options: FfmpegTimelineRendererOptions = {}) {
     this.ffmpegPath = options.ffmpegPath ?? process.env.FFMPEG_BIN ?? "ffmpeg";
-    this.version = options.version ?? "0.1.0";
+    this.version = options.version ?? "0.3.0";
     this.environment = { ...process.env, ...options.env };
     this.fontFile = resolveFontFile(options.env?.FRAMEKIT_RENDER_FONT ?? process.env.FRAMEKIT_RENDER_FONT);
   }
@@ -613,7 +613,7 @@ function addTitleOverlays(
     );
     const style = title.style;
     const color = escapeFilterValue(style?.color ?? "white");
-    const basicDefault = style === undefined && title.position === undefined;
+    const basicDefault = style === undefined;
     const size = formatNumber(style?.fontSize ?? (basicDefault ? model.height * 44 / 720 : 32));
     const x = title.position
       ? `${formatNumber(model.width / 2 + title.position.x * model.width / 2)}-(text_w/2)`
@@ -621,11 +621,12 @@ function addTitleOverlays(
     const y = title.position
       ? `${formatNumber(model.height / 2 - title.position.y * model.height / 2)}-(text_h/2)`
       : basicDefault ? "h/2-text_h" : "(h-text_h)/2";
+    const outline = basicDefault ? `:borderw=${basicTitleOutlineWidth(model.height)}:bordercolor=black` : "";
     const output = `title-${index}`;
     const font = fontFile ? `fontfile='${escapeFilterValue(fontFile)}':` : "";
     const textFile = titleTextFiles[index];
     if (!textFile) throw new FfmpegRenderError("HEADLESS_RENDER_FAILED", `title text file is missing: ${index}`);
-    filters.push(`[${current}]drawtext=${font}textfile='${textFile}':expansion=none:fontcolor=${color}:fontsize=${size}:x=${x}:y=${y}:enable='gte(n,${startFrame})*lt(n,${endFrame})'[${output}]`);
+    filters.push(`[${current}]drawtext=${font}textfile='${textFile}':expansion=none:fontcolor=${color}:fontsize=${size}${outline}:x=${x}:y=${y}:enable='gte(n,${startFrame})*lt(n,${endFrame})'[${output}]`);
     current = output;
   }
   return current;

@@ -951,6 +951,17 @@
       "network": "none"
     },
     {
+      "path": "tests/adapters/final-cut/positioned-title-export.test.ts",
+      "owner": "adapters/final-cut/typescript",
+      "reviewed": true,
+      "tags": ["unit"],
+      "evidence": "fixture",
+      "dependsOn": ["adapters/final-cut/typescript", "packages/runtime"],
+      "requires": [],
+      "platforms": ["any"],
+      "network": "none"
+    },
+    {
       "path": "tests/adapters/final-cut/project-catalog-reconciliation.test.ts",
       "owner": "packages/runtime",
       "tags": [

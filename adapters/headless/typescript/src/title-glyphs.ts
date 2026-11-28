@@ -46,6 +46,11 @@ export function titleGlyphProblem(fontFile: string | undefined, texts: readonly 
   }
 }
 
+/** Canvas-scaled outline for the default headless title, in output pixels. */
+export function basicTitleOutlineWidth(height: number): number {
+  return Math.max(1, Math.round(height / 360));
+}
+
 /** Conservatively check shaped text bounds against the requested canvas. */
 export function titleFitProblem(bytes: Buffer, titles: readonly TimelineIrTitle[], width: number, height: number): string | undefined {
   try {
@@ -55,8 +60,9 @@ export function titleFitProblem(bytes: Buffer, titles: readonly TimelineIrTitle[
     const bounds = font.bbox;
     if (![bounds.minX, bounds.maxX, bounds.minY, bounds.maxY, font.ascent, font.descent, font.lineGap].every(Number.isFinite)) return "title font bounds are unavailable";
     for (const title of titles) {
-      const basicDefault = title.style === undefined && title.position === undefined;
+      const basicDefault = title.style === undefined;
       const size = title.style?.fontSize ?? (basicDefault ? height * 44 / 720 : 32);
+      const outline = basicDefault ? basicTitleOutlineWidth(height) : 0;
       const center = title.position ? width / 2 + title.position.x * width / 2 : width / 2;
       const available = title.position ? 2 * Math.min(center, width - center)
         : title.style?.alignment === "left" || title.style?.alignment === "right" ? width - 20 : width;
@@ -65,7 +71,7 @@ export function titleFitProblem(bytes: Buffer, titles: readonly TimelineIrTitle[
       const availableHeight = title.position ? 2 * Math.min(verticalCenter, height - verticalCenter) : basicDefault ? height / 2 : height;
       const lineHeight = Math.max(bounds.maxY - bounds.minY, font.ascent - font.descent + Math.max(0, font.lineGap));
       const verticalPixels = lineHeight * size / font.unitsPerEm * lines.length;
-      if (!Number.isFinite(verticalPixels) || !Number.isFinite(availableHeight) || verticalPixels * 1.05 + 4 > availableHeight) return "title text cannot fit vertically in the requested output";
+      if (!Number.isFinite(verticalPixels) || !Number.isFinite(availableHeight) || verticalPixels * 1.05 + 4 + 2 * outline > availableHeight) return "title text cannot fit vertically in the requested output";
       for (const line of lines) {
         const run = font.layout(line);
         let pen = 0; let minimum = 0; let maximum = 0;
@@ -81,7 +87,7 @@ export function titleFitProblem(bytes: Buffer, titles: readonly TimelineIrTitle[
         }
         const pixels = (Math.max(maximum, pen) - Math.min(minimum, 0)) * size / font.unitsPerEm;
         // Leave room for rasterization and conservative font-metric differences.
-        if (!Number.isFinite(pixels) || !Number.isFinite(available) || pixels * 1.05 + 4 > available) return "title text cannot fit horizontally in the requested output";
+        if (!Number.isFinite(pixels) || !Number.isFinite(available) || pixels * 1.05 + 4 + 2 * outline > available) return "title text cannot fit horizontally in the requested output";
       }
     }
     return undefined;

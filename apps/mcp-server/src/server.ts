@@ -2628,7 +2628,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
     if (current.status !== "available" || current.plan.planDigest !== planDigest) throw new Error("STALE_DECISION_PLAN: inputs changed during preview");
     const after = await service.open(input.projectId);
     if (!samePreviewBase(after.timeline, preview.before.timeline)) throw new Error("STALE_DECISION_PLAN: project changed during preview");
-    return { scope: "headless-preview", planDigest, preview, notice: "Basic text only; emphasis is a review suggestion. This is not approval or native title proof." };
+    return { scope: "headless-preview", planDigest, preview, notice: "Basic text only; emphasis is a review suggestion. The outline is headless-only and is not encoded in FCPXML; native appearance is unverified. This is not approval." };
   };
   registerValidatedTool(server, "headless.decision.preview-captions", {
     description: "Preview reviewed basic captions in a Framekit-owned headless timeline without executing edits.",

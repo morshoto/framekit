@@ -3346,6 +3346,8 @@
       "\"FFmpeg renderer refuses an unimplemented nonzero source origin\"",
       "\"FFmpeg renderer rejects an explicit nonzero sequence timecode origin\"",
       "\"media probe retains declared video color metadata\"",
+      "\"basic titles retain contrast over bright and dark footage\"",
+      "\"changed basic title rendering rejects old renderer plans\"",
       "\"basic 720p title fits the observed Final Cut bounds\"",
       "\"BT.709 dissolve samples meet the 720p Final Cut reference bounds\""
     ],

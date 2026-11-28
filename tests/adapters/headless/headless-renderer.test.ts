@@ -283,6 +283,75 @@ test("FFmpeg renders a supported mixed-script title without tofu", async () => {
   }
 });
 
+test("basic titles retain contrast over bright and dark footage", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-basic-title-contrast-"));
+  try {
+    for (const color of ["white", "black"]) {
+      const media = join(directory, `${color}.mp4`);
+      await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-f", "lavfi", "-i", `color=${color}:s=320x180:r=30:d=2`,
+        "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono", "-t", "2", "-c:v", "libx264", "-threads", "1", "-c:a", "aac", media]);
+      const source = await timeline(media, media);
+      source.sequence.transitions = [];
+      delete source.sequence.occurrences[0]!.transform;
+      source.sequence.titles = [{ id: "caption", text: "READABLE WORDS", startTime: { value: "1", timescale: "4" }, durationTime: { value: "1", timescale: "2" }, lane: 1 }];
+      const output = join(directory, `${color}-title.mp4`);
+      const renderer = new FfmpegTimelineRenderer();
+      const request = createFramekitRenderRequest({ timeline: source, target: { projectId: source.project.id, sequenceId: source.sequence.id }, parameters: parameters(output) });
+      await renderer.render(createFramekitRenderPlan(request, renderer.capabilities(request)));
+      const active = await frameAt(output, 0.4, directory, `${color}-active`);
+      const inactive = await frameAt(output, 0.8, directory, `${color}-inactive`);
+      let visible = 0; let outside = 0;
+      for (let y = 55; y < 95; y++) for (let x = 60; x < 260; x++) {
+        const a = ppmPixel(active, x, y); const b = ppmPixel(inactive, x, y);
+        if (color === "white" ? Math.max(a.r, a.g, a.b) < 120 : Math.min(a.r, a.g, a.b) > 180) visible++;
+        if (color === "white" ? Math.max(b.r, b.g, b.b) < 120 : Math.min(b.r, b.g, b.b) > 180) outside++;
+      }
+      assert.ok(visible > 25, `${color} footage must show contrasting title pixels: ${visible}`);
+      assert.equal(outside, 0, "title contrast must disappear outside its interval");
+      if (color === "white") {
+        const positioned = structuredClone(source);
+        positioned.sequence.titles![0]!.position = { x: 0, y: -0.55 };
+        const positionedOutput = join(directory, "positioned-title.mp4");
+        const positionedRequest = createFramekitRenderRequest({ timeline: positioned, target: { projectId: positioned.project.id, sequenceId: positioned.sequence.id }, parameters: parameters(positionedOutput) });
+        await renderer.render(createFramekitRenderPlan(positionedRequest, renderer.capabilities(positionedRequest)));
+        const positionedActive = await frameAt(positionedOutput, 0.4, directory, "positioned-active");
+        const positionedInactive = await frameAt(positionedOutput, 1.4, directory, "positioned-inactive");
+        let positionedVisible = 0; let positionedOutside = 0;
+        for (let y = 115; y < 165; y++) for (let x = 40; x < 280; x++) {
+          const a = ppmPixel(positionedActive, x, y); const b = ppmPixel(positionedInactive, x, y);
+          if (Math.max(a.r, a.g, a.b) < 120) positionedVisible++;
+          if (Math.max(b.r, b.g, b.b) < 120) positionedOutside++;
+        }
+        assert.ok(positionedVisible > 25, `positioned text must retain its dark outline: ${positionedVisible}`);
+        assert.equal(positionedOutside, 0);
+        const storyboard = await new FfmpegStoryboardRenderer().render(source, { width: 320, height: 180 });
+        const index = storyboard.samples.findIndex((sample) => sample.kind === "title");
+        assert.ok(index >= 0);
+        const sheet = join(directory, "storyboard.png"); const cropped = join(directory, "storyboard.ppm");
+        await writeFile(sheet, Buffer.from(storyboard.data, "base64"));
+        await execFileAsync(process.env.FFMPEG_BIN || "ffmpeg", ["-v", "error", "-i", sheet, "-vf", `crop=640:360:${index * 640}:0`, "-frames:v", "1", cropped]);
+        const sample = await readFile(cropped); let dark = 0;
+        for (let y = 110; y < 190; y++) for (let x = 120; x < 520; x++) {
+          const pixel = ppmPixel(sample, x, y); if (Math.max(pixel.r, pixel.g, pixel.b) < 120) dark++;
+        }
+        assert.ok(dark > 100, `storyboard must show contrasting title pixels: ${dark}`);
+        assert.ok(storyboard.limitations.some((text) => /outline.*headless.*FCPXML/i.test(text)));
+      }
+    }
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("changed basic title rendering rejects old renderer plans", async () => {
+  const timeline = timelineWithoutMedia();
+  const request = createFramekitRenderRequest({ timeline, target: { projectId: timeline.project.id, sequenceId: timeline.sequence.id }, parameters: parameters("/tmp/framekit-title-old-plan.mp4") });
+  const current = new FfmpegTimelineRenderer();
+  for (const version of ["0.1.0", "0.2.0"]) {
+    const previous = new FfmpegTimelineRenderer({ version });
+    const oldPlan = createFramekitRenderPlan(request, previous.capabilities(request));
+    await assert.rejects(current.render(oldPlan), /HEADLESS_RENDER_PLAN_MISMATCH.*renderer version/);
+  }
+});
+
 test("basic 720p title fits the observed Final Cut bounds", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-title-720-parity-"));
   try {
