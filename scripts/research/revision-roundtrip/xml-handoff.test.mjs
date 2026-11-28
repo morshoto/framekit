@@ -70,3 +70,13 @@ test('anchored handoff retains an externally shifted target and same-name insert
   assert.throws(() => createAnchoredRevisionB({ ...options, external: Buffer.from(swapped), externalDigest: hash(swapped) }), /manifest/);
   assert.throws(() => createAnchoredRevisionB({ ...options, manifest: undefined }), /manifest/);
 });
+
+test('range handoff rejects unexamined spine occurrences in either input', async () => {
+  const value = await input();
+  const addClip = bytes => bytes.toString().replace('</spine>', '<clip name="Opening" offset="3s" duration="1s"><video ref="a" offset="0s" start="1s" duration="1s"/></clip></spine>');
+  const alteredExternal = addClip(value.external);
+  assert.notEqual(alteredExternal, value.external.toString());
+  assert.throws(() => createRevisionB({ ...value, external: Buffer.from(alteredExternal), externalDigest: hash(alteredExternal) }), /unsupported spine/);
+  const alteredBase = addClip(value.baseline);
+  assert.throws(() => createRevisionB({ ...value, baseline: Buffer.from(alteredBase), baselineDigest: hash(alteredBase) }), /unsupported spine/);
+});

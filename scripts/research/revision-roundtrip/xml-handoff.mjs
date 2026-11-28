@@ -25,6 +25,12 @@ function parse(bytes, projectUid, sourceDigests) {
   if (project[':@']?.['@_uid'] !== projectUid) throw new Error('project mismatch');
   const sequence = only(project.project, 'sequence');
   const spine = only(sequence.sequence, 'spine');
+  for (const node of spine.spine) {
+    for (const [key, value] of Object.entries(node)) {
+      if (key === ':@' || key === 'asset-clip' || (key === '#text' && typeof value === 'string' && !value.trim())) continue;
+      throw new Error(`unsupported spine child: ${key}`);
+    }
+  }
   const assets = new Map();
   for (const asset of children(resources.resources, 'asset')) {
     const id = asset[':@']?.['@_id'];
