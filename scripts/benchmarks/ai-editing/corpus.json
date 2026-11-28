@@ -111,6 +111,22 @@
       "credit": "Wikimedia Commons subtitle contributors",
       "license": "See Wikimedia Commons timed text page",
       "timing": "Coarse subtitle cues, not word-level reference timings."
+    },
+    {
+      "id": "novara-interview",
+      "filename": "novara-interview.webm",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/d/df/Interview_with_Naomi_Klein_at_The_World_Transformed.webm",
+      "descriptionUrl": "https://commons.wikimedia.org/wiki/File:Interview_with_Naomi_Klein_at_The_World_Transformed.webm",
+      "sha256": "2d1304cfebf10290acd74b1a8bdce638ce94c58f5cfa8950a288d44d8e138c5f",
+      "credit": "Novara Media",
+      "license": "CC BY 3.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/3.0/",
+      "windowSeconds": [
+        0,
+        30
+      ],
+      "referenceText": "unavailable",
+      "designation": "Exploratory fixed first 30 seconds; no independently checked transcript or word boundaries."
     }
   ]
 }
