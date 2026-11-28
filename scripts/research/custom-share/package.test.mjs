@@ -15,8 +15,8 @@ test('research bundle describes a fail-closed scripting endpoint', { skip: proce
   const plist = join(root, 'Info.plist');
   const sdef = join(root, 'ShareResearch.sdef');
   await run('plutil', ['-lint', plist]);
-  const capability = await run('plutil', ['-extract', 'com.apple.proapps.MediaAssetProtocol', 'json', '-o', '-', plist]);
-  assert.deepEqual(JSON.parse(capability.stdout), {});
+  const capability = await run('plutil', ['-convert', 'json', '-o', '-', plist]);
+  assert.deepEqual(JSON.parse(capability.stdout)['com.apple.proapps.MediaAssetProtocol'], {});
   const scripting = await run('plutil', ['-extract', 'NSScriptingDefinition', 'raw', '-o', '-', plist]);
   assert.equal(scripting.stdout.trim(), 'ShareResearch.sdef');
   await run('xmllint', ['--noout', '--dtdvalid', '/System/Library/DTDs/sdef.dtd', sdef]);

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dictionary SYSTEM "file:///System/Library/DTDs/sdef.dtd">
+<dictionary>
+  <!-- Research-only syntax skeleton; no Cocoa asset or make implementation. -->
+  <suite name="Research Share" code="pvam" description="Incomplete research terminology">
+    <record-type name="asset location" code="aslc">
+      <property name="folder" code="asfd" type="file"/>
+      <property name="base name" code="asbn" type="text"/>
+      <property name="has media" code="ashm" type="boolean"/>
+      <property name="has description" code="ashd" type="boolean"/>
+    </record-type>
+    <record-type name="library location" code="lblc">
+      <property name="library folder" code="lbfd" type="file"/>
+      <property name="library base name" code="lbbn" type="text"/>
+      <property name="has archive" code="lbha" type="boolean"/>
+      <property name="has library description" code="lbhd" type="boolean"/>
+    </record-type>
+    <class name="asset" code="aset">
+      <property name="id" code="ID  " type="text" access="r"/>
+      <property name="name" code="pnam" type="text" access="r"/>
+      <property name="location info" code="locn" type="asset location" access="r"/>
+      <property name="library info" code="lbry" type="library location" access="r"/>
+    </class>
+    <command name="open" code="aevtodoc"><direct-parameter><type type="file" list="yes"/></direct-parameter></command>
+    <command name="make" code="corecrel"><parameter name="new" code="kocl" type="type"/><result type="specifier"/></command>
+  </suite>
+</dictionary>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>org.framekit.research.shareprototype</string>
+<key>CFBundleName</key><string>Framekit Share Research</string>
+<key>CFBundleExecutable</key><string>ShareResearch</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleVersion</key><string>1</string>
+<key>NSAppleScriptEnabled</key><true/>
+<key>NSScriptingDefinition</key><string>ShareResearch.sdef</string>
+<key>com.apple.proapps.MediaAssetProtocol</key><dict/>
+</dict></plist>
