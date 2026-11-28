@@ -91,3 +91,11 @@ test('signed edited bytes do not bypass referenced title effect comparison', asy
   const envelope = signFixtureClaim({ ...input.claim, externalDigest: hash(external) }, input.privateKey);
   assert.throws(() => createSignedRevisionB({ ...input, external, envelope }), /title effect changed/);
 });
+
+test('signed external bytes cannot hide a changed attached audio asset declaration', async () => {
+  const input = await fixture();
+  const external = Buffer.from(input.external.toString().replace('name="Music" start="0s" duration="10s"', 'name="Music" start="0s" duration="2s"'));
+  assert.notDeepEqual(external, input.external);
+  const envelope = signFixtureClaim({ ...input.claim, externalDigest: hash(external) }, input.privateKey);
+  assert.throws(() => createSignedRevisionB({ ...input, external, envelope }), /asset declaration changed/);
+});

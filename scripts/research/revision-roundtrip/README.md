@@ -35,6 +35,8 @@ A second, narrowly scoped experiment preserves explicit `com.framekit.id` metada
 
 The matcher also resolves each target title's effect reference to exactly one XML resource and compares that declaration between revisions. Previously the same title `ref` could point to a changed effect UID while the target structure still matched. A changed, missing or duplicate referenced effect now fails, including when the external bytes are freshly signed by the test key. This checks XML declarations only: it does not authenticate effect files, resolve dependencies, or prove editable rendering in Final Cut.
 
+For the anchored target, the matcher now compares the referenced video and direct audio asset declarations across revisions as well as their source URLs. Previously changes to asset start or duration passed with the same URL; a freshly signed changed external revision also passes signature verification but now fails the declaration comparison. An omitted original-media `kind` is normalized to its explicit default. This conservative check can reject harmless declaration edits and does not authenticate media, validate referenced format resources, or establish arbitrary FCPXML preservation.
+
 `external-process.test.mjs` starts a separate Python process that reads authored A, applies a fixed in-point change and same-name insertion, and writes a new XML artifact; the Node handoff signs its digest with an ephemeral test key and produces B, then a separate Python manifest verifier checks B. This is a synthetic scripted editor, not a human, a third-party application or a Final Cut export; its keys and source bytes are synthetic. To reproduce with the local 1.11 DTD as an additional check:
 
 ```sh

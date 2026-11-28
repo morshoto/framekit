@@ -61,7 +61,10 @@ function inspect(xml) {
     const src = rep['@_src'];
     if ((rep['@_kind'] ?? 'original-media') !== 'original-media') throw new Error('unsupported media representation');
     if (typeof id !== 'string' || !id || assets.has(id) || typeof src !== 'string' || !src) throw new Error('invalid source');
-    assets.set(id, src);
+    const declaration = structuredClone(asset);
+    // An omitted kind is the 1.11 DTD default, original-media.
+    delete declaration['media-rep']['@_kind'];
+    assets.set(id, { src, declaration: JSON.stringify(declaration) });
   }
   const anchors = new Map();
   for (const clip of array(spine['asset-clip'])) {
@@ -79,8 +82,13 @@ function inspect(xml) {
     const id = entries[0]['@_value'];
     if (typeof id !== 'string' || !/^[a-z0-9-]{1,80}$/.test(id)) throw new Error('invalid anchor');
     if (anchors.has(id)) throw new Error('duplicate anchor');
-    const source = assets.get(clip['@_ref']);
-    if (!source) throw new Error('invalid source');
+    const sourceAsset = assets.get(clip['@_ref']);
+    if (!sourceAsset) throw new Error('invalid source');
+    const audioAssets = array(clip.audio).map(audio => {
+      const asset = assets.get(audio['@_ref']);
+      if (!asset) throw new Error('invalid audio source');
+      return asset.declaration;
+    });
     const structure = structuredClone(clip);
     // The fixture supports only direct audio/title anchors. Compare their
     // placement in the parent's local timeline, not their raw offsets.
@@ -92,7 +100,7 @@ function inspect(xml) {
     delete structure['@_start'];
     delete structure['@_offset'];
     delete structure['@_duration'];
-    anchors.set(id, { id, source, name: clip['@_name'], sourceStart: clip['@_start'], duration: clip['@_duration'], structure: JSON.stringify(structure), titleEffects });
+    anchors.set(id, { id, source: sourceAsset.src, assetDeclaration: sourceAsset.declaration, audioAssets, name: clip['@_name'], sourceStart: clip['@_start'], duration: clip['@_duration'], structure: JSON.stringify(structure), titleEffects });
   }
   return { uid, anchors };
 }
@@ -115,6 +123,7 @@ export function findAnchoredTarget(base, external, targetId, manifest) {
   if ([...before.anchors.values()].filter(item => sameInterval(item, a)).length !== 1
       || [...after.anchors.values()].filter(item => sameInterval(item, b)).length !== 1) throw new Error('ambiguous source interval');
   if (a.structure !== b.structure) throw new Error('target structure changed');
+  if (a.assetDeclaration !== b.assetDeclaration || JSON.stringify(a.audioAssets) !== JSON.stringify(b.audioAssets)) throw new Error('asset declaration changed');
   if (JSON.stringify(a.titleEffects) !== JSON.stringify(b.titleEffects)) throw new Error('title effect changed');
   return b;
 }

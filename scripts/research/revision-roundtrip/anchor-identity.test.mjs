@@ -116,3 +116,15 @@ test('rejects changed or ambiguous referenced title effect resources', async () 
   const missing = external.replace(/<effect id="title-effect"[^>]*\/>/, '');
   assert.throws(() => findAnchoredTarget(base, missing, 'opening-v1', expected), /title effect/);
 });
+
+test('rejects changes to video or attached audio asset declarations', async () => {
+  const { base, external } = await fixtures();
+  for (const [from, to] of [
+    ['name="Interview" start="0s"', 'name="Interview" start="1s"'],
+    ['name="Music" start="0s" duration="10s"', 'name="Music" start="0s" duration="2s"'],
+  ]) {
+    const changed = external.replace(from, to);
+    assert.notEqual(changed, external);
+    assert.throws(() => findAnchoredTarget(base, changed, 'opening-v1', expected), /asset declaration/);
+  }
+});
