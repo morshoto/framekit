@@ -30,3 +30,11 @@ test('revision binds exact artifact bytes and rejects stale baseline', () => {
   assert.equal(bindRevision(Buffer.from('<fcpxml/>'), revision.digest).digest, revision.digest);
   assert.throws(() => bindRevision(Buffer.from('<fcpxml />'), revision.digest), /stale/);
 });
+
+test('matches equivalent rational intervals and rejects invalid ranges', () => {
+  assert.deepEqual(reconcileOccurrences([clip('base', '2/2', { duration: '6/2' })], [clip('observed', '1/1')]).matches,
+    [{ baseId: 'base', observedId: 'observed' }]);
+  assert.throws(() => reconcileOccurrences([clip('base', '-1/1')], []), /invalid/);
+  assert.throws(() => reconcileOccurrences([clip('base', '1/1', { duration: '0/1' })], []), /invalid/);
+  assert.throws(() => reconcileOccurrences([clip('base', '1/1', { duration: '-1/1' })], []), /invalid/);
+});
