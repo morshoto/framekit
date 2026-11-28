@@ -1,0 +1,58 @@
+{
+  "gitHead": "51cf9e4b146eb89020f975d8818d8ebe1e1e367c",
+  "sourceSha256": "b6ce59ff735c234afdd94b13744aa26f6785af746170543fd03b33160e920a6d",
+  "decodedSha256": "14ab75d872b512f1963ed940f042a2d54bc8e5049965dab6559e41174189d396",
+  "backendOutputSha256": "bb75db0b2b854fdae968016ec3ac8126300b165e90868db3e043fb1c5f3f4640",
+  "secondaryProvider": {
+    "id": "command.speech",
+    "provider": "command",
+    "version": "mlx-whisper-0.4.3:silero-6.3"
+  },
+  "declaredSecondaryModel": "mlx-community/whisper-large-v3-turbo",
+  "primaryModel": "mlx-community/whisper-tiny",
+  "primaryWindowSeconds": [
+    60,
+    120
+  ],
+  "secondaryWindowSeconds": [
+    72,
+    82
+  ],
+  "candidate": {
+    "start": 77.2,
+    "end": 77.66666666666667
+  },
+  "evidenceChecks": {
+    "artifactDigest": "sha256:348752bdce475f0836a99e383a384e2619b0bae0f6df1dd1362f865c07fe2e8c",
+    "statuses": {
+      "original": "verified",
+      "staleProvider": "invalid",
+      "staleRevision": "invalid",
+      "missingArtifact": "unavailable",
+      "tamperedArtifact": "invalid",
+      "partialCoverage": "rejected",
+      "changedSource": "invalid"
+    }
+  },
+  "screening": {
+    "status": "disagreement",
+    "conflicts": [
+      {
+        "cut": {
+          "start": 77.2,
+          "end": 77.66666666666667
+        },
+        "words": [
+          {
+            "text": "there",
+            "start": 77.6,
+            "end": 78.3,
+            "confidence": 0.5986328125
+          }
+        ]
+      }
+    ],
+    "safety": "unverified"
+  },
+  "limitation": "Different model and context windows can disagree. This is not proof of speech clipping or safety; listening and independently checked boundaries are required. Provider model declarations do not authenticate the loaded model bytes. Evidence checks use a reconstructed index and disposable source, not a production MCP approval. No native execution occurred."
+}
