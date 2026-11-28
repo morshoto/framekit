@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { startSender } from './harness.mjs';
 import { claim, inspect, initialize } from './sqlite-journal.mjs';
 
 async function setup(t) {
@@ -60,4 +61,32 @@ test('claimed operation remains uncertain after its owning process is killed', a
   assert.equal(signal, 'SIGKILL');
   assert.deepEqual(await inspect(path, request.operation), { ...request, state: 'possibly-dispatched' });
   assert.equal((await claim(path, request)).status, 'existing');
+});
+
+
+test('claim prevents mock redispatch but cannot fence downstream queued work', async t => {
+  const path = await setup(t);
+  const directory = dirname(path);
+  const output = join(directory, 'output');
+  const trigger = join(directory, 'trigger');
+  const sentinel = join(directory, 'unrelated');
+  const request = { operation: 'operation-queued', target: 'target-a', digest: 'a'.repeat(64), generation: 1 };
+  await writeFile(sentinel, 'untouched');
+  await initialize(path);
+  assert.equal((await claim(path, request)).status, 'claimed');
+  const sender = await startSender({ output, trigger });
+  await sender.dispatch();
+  await sender.kill();
+  assert.equal((await claim(path, request)).status, 'existing');
+  assert.equal((await inspect(path, request.operation)).state, 'possibly-dispatched');
+  await writeFile(trigger, 'continue');
+  let actual;
+  for (let i = 0; i < 100; i++) {
+    try { actual = await readFile(output, 'utf8'); break; }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  assert.equal(actual, 'delayed receiver executed\n');
+  assert.equal(await readFile(sentinel, 'utf8'), 'untouched');
+  assert.equal((await inspect(path, request.operation)).state, 'possibly-dispatched');
 });
