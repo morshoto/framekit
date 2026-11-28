@@ -1,7 +1,7 @@
 import { InMemorySemanticMediaIndexStore, InMemoryAnalysisArtifactStore, pinAnalysisEvidence, verifyLocalMediaSource } from '../../../packages/runtime/src/index.ts';
 import { bindSpeechAnalysis } from '../../../packages/runtime/src/speech/analysis.ts';
 import { planCaptionGroups } from '../../../packages/runtime/src/planning/caption-planning.ts';
-import { assessCaptionPlan } from './caption-quality.mjs';
+import { assessCaptionPlan, sampleFreeWordIndices } from './caption-quality.mjs';
 
 /** Plan against a verified local source and provider output; this is not output or native verification. */
 export async function probeCaptionPlan(source, revision, provider, payload, options = {}) {
@@ -22,6 +22,6 @@ export async function probeCaptionPlan(source, revision, provider, payload, opti
   const result = await planCaptionGroups(request,ref,current,artifacts,verifyLocalMediaSource);
   const groups = result.status === 'available' ? result.plan.groups : null;
   return {planStatus:result.status,...(result.status === 'available' ? {groups:groups.length,warnings:result.plan.warnings,nativeTitleStatus:result.plan.nativeTitleStatus} : {reason:result.reason}),
-    recognizedWords:speech.words.length,lowConfidenceWords:speech.words.filter((word)=>word.confidence < 0.8).length,
+    recognizedWords:speech.words.length,sampleFreeWordIndices:sampleFreeWordIndices(speech.words,30),lowConfidenceWords:speech.words.filter((word)=>word.confidence < 0.8).length,
     assessment:assessCaptionPlan(speech.words,groups,1/30), ...(options.includeGroups && groups ? {captionGroups:groups} : {}), renderedTextStatus:'unavailable',transcriptionAccuracy:'unavailable'};
 }

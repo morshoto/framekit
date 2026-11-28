@@ -138,3 +138,13 @@ export function captionSampleMetadata(group) {
     || !Array.isArray(group.lines) || !group.lines.length || group.lines.some((line)=>typeof line !== 'string' || !line.trim())) throw new Error('Invalid caption sample');
   return {midpointSeconds:(range.start+range.end)/2,expectedLines:[...group.lines]};
 }
+
+/** Find word intervals containing no frame start; timestamps are provider estimates. */
+export function sampleFreeWordIndices(words, frameRate) {
+  if (!Array.isArray(words) || !Number.isFinite(frameRate) || frameRate <= 0) throw new Error('Invalid word timing');
+  return words.flatMap((word,index) => {
+    if (!Number.isFinite(word.start) || !Number.isFinite(word.end) || word.start < 0 || word.end <= word.start) throw new Error('Invalid word timing');
+    const firstFrame = Math.ceil(word.start * frameRate - 1e-9);
+    return firstFrame / frameRate >= word.end - 1e-9 ? [index] : [];
+  });
+}
