@@ -1,3 +1,11 @@
+import { isDeepStrictEqual } from 'node:util';
+
+/** Preserve both declarations; a match does not authenticate loaded model bytes. */
+export function compareRecognitionProviders(original, cut) {
+  const valid=(value)=>value && typeof value==='object' && ['id','provider','version'].every((key)=>typeof value[key]==='string' && value[key].trim());
+  return {original:original ?? null,cut:cut ?? null,status:!valid(original) || !valid(cut) ? 'unavailable' : isDeepStrictEqual(original,cut) ? 'match' : 'mismatch'};
+}
+
 /** Compare recognized word multisets; order, speech truth and continuity remain unverified. */
 export function compareRecognizedWords(baseline, cut) {
   const counts = (words) => {

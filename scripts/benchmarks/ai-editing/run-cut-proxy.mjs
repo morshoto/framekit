@@ -6,7 +6,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadCorpus, verifyAsset } from './corpus.mjs';
-import { compareRecognizedWords, pcmWav, prepareCutPcm } from './cut-proxy.mjs';
+import { compareRecognitionProviders, compareRecognizedWords, pcmWav, prepareCutPcm } from './cut-proxy.mjs';
 
 const [sourcePath,python,outputArg] = process.argv.slice(2);
 if (!sourcePath || !python || !outputArg) throw new Error('Expected source, Python and new output directory');
@@ -45,7 +45,7 @@ const cut = recognize(cutPath,cutWav,'cut');
 const comparison = compareRecognizedWords(original.tokens,cut.tokens);
 const report = {gitHead:execFileSync('git',['rev-parse','HEAD'],{cwd:repository,encoding:'utf8'}).trim(),
   sourceSha256:source.sha256,windowSamples:config.windowSamples,removedSamples:config.removedSamples,sampleRate:config.sampleRate,
-  originalWavSha256:hash(originalWav),cutWavSha256:hash(cutWav),model,provider:original.provider ?? null,declaredAnalyzerVersion:process.env.FRAMEKIT_SPEECH_ANALYZER_VERSION ?? null,
+  originalWavSha256:hash(originalWav),cutWavSha256:hash(cutWav),model,providers:compareRecognitionProviders(original.provider,cut.provider),declaredAnalyzerVersion:process.env.FRAMEKIT_SPEECH_ANALYZER_VERSION ?? null,
   ffmpegVersion:execFileSync('ffmpeg',['-version'],{encoding:'utf8'}).split('\n')[0],
   originalAnalysisSha256:original.analysisSha256,cutAnalysisSha256:cut.analysisSha256,
   originalLowConfidenceWords:original.lowConfidenceWords,cutLowConfidenceWords:cut.lowConfidenceWords,comparison,

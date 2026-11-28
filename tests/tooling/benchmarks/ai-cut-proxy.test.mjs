@@ -14,6 +14,15 @@ test('counts missing and added recognized words without claiming continuity', ()
   assert.equal(compareRecognizedWords([], ['new']).retention,null);
 });
 
+test('records both provider declarations and flags mismatch or missing provenance', async () => {
+  const { compareRecognitionProviders } = await import('../../../scripts/benchmarks/ai-editing/cut-proxy.mjs');
+  const a={id:'speech',provider:'command',version:'v1'}, b={id:'speech',provider:'command',version:'v2'};
+  assert.deepEqual(compareRecognitionProviders(a,a),{original:a,cut:a,status:'match'});
+  assert.deepEqual(compareRecognitionProviders(a,b),{original:a,cut:b,status:'mismatch'});
+  assert.deepEqual(compareRecognitionProviders(a,undefined),{original:a,cut:null,status:'unavailable'});
+  assert.equal(compareRecognitionProviders(a,{id:'speech'}).status,'unavailable');
+});
+
 test('prepares an exact sample cut and rejects invalid boundaries', () => {
   const input = Buffer.from([1,0,2,0,3,0,4,0,5,0]);
   const pair = prepareCutPcm(input,1,3);
