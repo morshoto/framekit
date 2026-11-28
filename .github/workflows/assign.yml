@@ -125,7 +125,7 @@ jobs:
                   GITHUB_REPOSITORY: ${{ github.repository }}
 
     assign-author:
-        if: ${{ (github.event_name == 'pull_request' || (github.event_name == 'issues' && github.event.action == 'opened')) && ! contains(fromJson('["renovate[bot]", "dependabot[bot]"]'), github.actor) }}
+        if: ${{ ((github.event_name == 'pull_request' && (github.event.action == 'opened' || github.event.action == 'reopened')) || (github.event_name == 'issues' && github.event.action == 'opened')) && ! contains(fromJson('["renovate[bot]", "dependabot[bot]"]'), github.actor) }}
         permissions:
             issues: write
             pull-requests: write
