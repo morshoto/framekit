@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { createFramekitRenderPlan, createFramekitRenderRequest } from '../../../packages/runtime/src/index.ts';
 import { FfmpegTimelineRenderer } from '../../../adapters/headless/typescript/src/index.ts';
 import { loadCorpus, verifyAsset } from './corpus.mjs';
-import { measureMix } from './music-quality.mjs';
+import { estimateOffsetFrames, measureMix } from './music-quality.mjs';
 
 const [speechFile, musicFile, outputArg] = process.argv.slice(2);
 if (!speechFile || !musicFile || !outputArg) throw new Error('Expected speech, music and new output directory');
@@ -61,13 +61,15 @@ if (a.length !== b.length || a.length !== c.length) throw new Error('Decoded com
 const window = (values, from, to) => values.subarray(Math.round(from*48000),Math.round(to*48000));
 const measurements = config.scenario.measurementWindowsSeconds.map(([from,to]) => ({rangeSeconds:[from,to],...measureMix(window(a,from,to),window(b,from,to),window(c,from,to))}));
 const rms = (samples) => Math.sqrt(samples.reduce((sum, sample) => sum + sample*sample, 0) / samples.length);
-const inputMusicRms = rms(decode(resolve(musicFile), 1, 4));
+const musicReference = decode(resolve(musicFile), 1, 4);
+const inputMusicRms = rms(musicReference);
+const placement = estimateOffsetFrames(musicReference, b, 3 * 48000, 1600, 5);
 const renderedMusicRms = rms(window(b,3,7));
 const repository = fileURLToPath(new URL('../../../', import.meta.url));
 const report = {gitHead:execFileSync('git',['rev-parse','HEAD'],{cwd:repository,encoding:'utf8'}).trim(), speechSha256:speech.sha256, musicSha256:config.music.sha256,
   preparedSpeechSha256:speechDigest, outputs:{speech:sha(await readFile(speechRender)),music:sha(await readFile(musicRender)),mixed:sha(await readFile(mixedRender))},
   ffmpegVersion:execFileSync(ffmpeg,['-version'],{encoding:'utf8'}).split('\n')[0], sampleRate:48000, measurements,
-  requestedGainDb:-24, observedMusicGainDb:20*Math.log10(renderedMusicRms/inputMusicRms),
+  placement, requestedGainDb:-24, observedMusicGainDb:20*Math.log10(renderedMusicRms/inputMusicRms),
   limitation:'Decoded isolated component levels and lossy-encoding residuals do not establish dialogue intelligibility, creative suitability or native acceptance.'};
 await writeFile(join(output,'report.json'), `${JSON.stringify(report,null,2)}\n`);
 process.stdout.write(`${JSON.stringify(report,null,2)}\n`);

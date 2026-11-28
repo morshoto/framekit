@@ -19,3 +19,23 @@ export function measureMix(speech, music, mix) {
     intelligibility: 'unavailable',
   };
 }
+
+/** Estimate alignment relative to an expected start, in whole frames. */
+export function estimateOffsetFrames(reference, rendered, expectedStart, frameSamples, searchFrames) {
+  if (!reference.length || !Number.isInteger(expectedStart) || !Number.isInteger(frameSamples) || frameSamples < 1 || !Number.isInteger(searchFrames) || searchFrames < 0) throw new Error('Invalid alignment');
+  let best = null;
+  for (let offset = -searchFrames; offset <= searchFrames; offset++) {
+    const start = expectedStart + offset * frameSamples;
+    if (start < 0 || start + reference.length > rendered.length) continue;
+    let xy = 0, xx = 0, yy = 0;
+    for (let i = 0; i < reference.length; i++) {
+      const x = reference[i], y = rendered[start + i];
+      if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error('Invalid alignment samples');
+      xy += x*y; xx += x*x; yy += y*y;
+    }
+    if (!xx || !yy) continue;
+    const correlation = xy / Math.sqrt(xx*yy);
+    if (best === null || correlation > best.correlation) best = {offsetFrames:offset, correlation};
+  }
+  return best;
+}
