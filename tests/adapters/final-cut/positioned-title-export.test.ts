@@ -32,6 +32,11 @@ test("positioned titles export height-normalized transforms with explicit native
   const center = fixture(); center.sequence.titles![0]!.position = { x: 0, y: 0 };
   assert.match(compileTimelineIrToFcpxml(center, { target }).xml, /<adjust-transform position="0 0"\s*\/>/);
   assert.ok(!artifact.coverage.exact.includes("native-title-position"));
+  const mixed = fixture();
+  mixed.sequence.durationTime = { value: "3", timescale: "1" };
+  mixed.resources.push({ ...structuredClone(mixed.resources[0]!), id: "second", name: "Second", metadata: { durationTime: { value: "2", timescale: "1" }, streams: [{ kind: "video", width: 640, height: 480, frameRate: { value: "30", timescale: "1" } }] } });
+  mixed.sequence.occurrences.push({ ...structuredClone(mixed.sequence.occurrences[0]!), id: "second-clip", mediaId: "second", startTime: { value: "2", timescale: "1" }, durationTime: { value: "1", timescale: "1" } });
+  assert.throws(() => compileTimelineIrToFcpxml(mixed, { target }), /FCPXML_TITLE_POSITION_FORMAT_AMBIGUOUS/);
   const noDimensions = fixture();
   delete noDimensions.resources[0]!.metadata!.streams[0]!.width;
   delete noDimensions.resources[0]!.metadata!.streams[0]!.height;
