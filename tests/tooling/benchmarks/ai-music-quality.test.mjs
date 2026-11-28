@@ -113,3 +113,19 @@ test('recognition proxy accepts only explicitly configured models', async () => 
   assert.throws(() => proxyModel(config, 'other'), /model/i);
   assert.throws(() => proxyModel({model:'tiny'}, 'secondary'), /model/i);
 });
+
+test('restricts speech proxy to the active music window and counts boundary words', async () => {
+  const { proxyWindowWords } = await import('../../../scripts/benchmarks/ai-editing/speech-consistency.mjs');
+  const words = [
+    {text:'before', start:0.5, end:1},
+    {text:'crossing', start:1.9, end:2.1},
+    {text:'inside', start:2.1, end:2.5},
+    {text:'end', start:7.9, end:8.1},
+    {text:'after', start:9, end:9.5},
+  ];
+  const result = proxyWindowWords(words,{start:2,end:8});
+  assert.deepEqual(result.tokens,['inside']);
+  assert.equal(result.excludedBoundaryWords,2);
+  assert.equal(result.outsideWords,2);
+  assert.throws(() => proxyWindowWords([{text:'bad',start:2,end:1}],{start:2,end:8}), /word/i);
+});
