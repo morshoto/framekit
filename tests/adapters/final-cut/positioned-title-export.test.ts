@@ -37,6 +37,8 @@ test("positioned titles export height-normalized transforms with explicit native
   mixed.resources.push({ ...structuredClone(mixed.resources[0]!), id: "second", name: "Second", metadata: { durationTime: { value: "2", timescale: "1" }, streams: [{ kind: "video", width: 640, height: 480, frameRate: { value: "30", timescale: "1" } }] } });
   mixed.sequence.occurrences.push({ ...structuredClone(mixed.sequence.occurrences[0]!), id: "second-clip", mediaId: "second", startTime: { value: "2", timescale: "1" }, durationTime: { value: "1", timescale: "1" } });
   assert.throws(() => compileTimelineIrToFcpxml(mixed, { target }), /FCPXML_TITLE_POSITION_FORMAT_AMBIGUOUS/);
+  mixed.resources[1]!.metadata!.streams[0]!.width = 1920; mixed.resources[1]!.metadata!.streams[0]!.height = 1080;
+  assert.match(compileTimelineIrToFcpxml(mixed, { target }).xml, /<adjust-transform position="44\.444444 -25"\s*\/>/);
   const noDimensions = fixture();
   delete noDimensions.resources[0]!.metadata!.streams[0]!.width;
   delete noDimensions.resources[0]!.metadata!.streams[0]!.height;

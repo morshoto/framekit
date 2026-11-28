@@ -196,6 +196,16 @@ export function compileTimelineIrToFcpxml(
   if (titles.some((title) => title.position !== undefined) && (!projectVideo?.width || !projectVideo.height)) {
     throw new Error("FCPXML_TITLE_POSITION_DIMENSIONS_UNAVAILABLE: positioned titles require an explicit project video format");
   }
+  if (titles.some((title) => title.position !== undefined)) {
+    const primaryMediaIds = new Set(timeline.sequence.occurrences.filter((occurrence) => occurrence.track === 0
+      && (occurrence.role === undefined || occurrence.role === "video")).map((occurrence) => occurrence.mediaId));
+    for (const mediaId of primaryMediaIds) {
+      const video = resources.find((resource) => resource.id === mediaId)?.metadata?.streams.find((stream) => stream.kind === "video");
+      if (!video?.width || !video.height || video.width !== projectVideo!.width || video.height !== projectVideo!.height) {
+        throw new Error("FCPXML_TITLE_POSITION_FORMAT_AMBIGUOUS: positioned titles require matching dimensions for all primary video sources");
+      }
+    }
+  }
   const projectDimensions = projectVideo?.width && projectVideo.height
     ? ` width="${projectVideo.width}" height="${projectVideo.height}"`
     : "";
