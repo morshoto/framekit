@@ -1,0 +1,30 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+test("session evidence requires a contiguous approved chain and its own verified render", async () => {
+  const { HeadlessSessionEvidenceLedger } = await import("../../../apps/mcp-server/src/headless-session-evidence.js");
+  const { createHash } = await import("node:crypto");
+  const digest = (timeline: unknown) => createHash("sha256").update(JSON.stringify(timeline)).digest("hex");
+  const revision = (sequence: number) => ({ id: `r${sequence}`, sequence, timestamp: `2026-01-01T00:00:0${sequence}Z` });
+  const timeline = (sequence: number) => ({ project: { id: "p" }, sequence: { id: "s" }, revision: revision(sequence), payload: sequence });
+  const bind = (n: number) => ({ projectId: "p", sequenceId: "s", revision: revision(n), timelineDigest: digest(timeline(n)), briefDigest: "a".repeat(64) });
+  const edit = (before: number, after: number) => ({ committed: true as const, undoId: `undo-${after}`, before: { timeline: timeline(before) }, after: { timeline: timeline(after) } });
+  const render = { renderId: "render-1", projectId: "p", sequenceId: "s", status: "passed", requestedRevision: revision(2), outcome: { plan: { timeline: timeline(2) } } };
+  const ledger = new HeadlessSessionEvidenceLedger();
+  const session = ledger.begin(bind(0), true);
+  ledger.recordEdit("p", "s", edit(0, 1), "approved-edit");
+  ledger.recordEdit("p", "s", edit(1, 2), "approved-decision", "sha256:" + "c".repeat(64));
+  ledger.recordRender("p", "s", render);
+  const result = ledger.inspect(session, bind(2), render);
+  assert.equal(result.status, "observed");
+  assert.equal(result.steps?.length, 2);
+  assert.match(result.notice, /not.*(native|human)/i);
+  assert.equal(ledger.inspect(session, bind(1), render).status, "unavailable");
+  assert.equal(ledger.inspect(session, bind(2), { ...render, renderId: "forged" }).status, "unavailable");
+  const gap = ledger.begin(bind(0), true);
+  ledger.recordEdit("p", "s", edit(1, 2), "approved-edit");
+  ledger.recordRender("p", "s", render);
+  assert.equal(ledger.inspect(gap, bind(2), render).status, "unavailable");
+  assert.equal(new HeadlessSessionEvidenceLedger().inspect(session, bind(2), render).status, "unavailable");
+  assert.throws(() => ledger.begin(bind(0), false), /CONFIRM/);
+});
