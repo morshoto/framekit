@@ -17,13 +17,28 @@ test('test-owned receiver rejects a real interprocess Open Document event', { sk
   await run('xcrun', ['swiftc', join(here, 'SwiftReceiver.swift'), join(here, 'ipc/main.swift'), '-o', binary]);
   const child = spawn(binary, ['listen'], { stdio: ['ignore', 'pipe', 'pipe'] });
   const exited = once(child, 'exit');
+  let output = '';
+  child.stdout.on('data', chunk => { output += chunk.toString(); });
   try {
-    const ready = once(child.stdout, 'data').then(([chunk]) => chunk.toString().trim());
-    const marker = await Promise.race([ready, exited.then(() => 'exited'), new Promise(resolve => setTimeout(() => resolve('timeout'), 5000))]);
+    const ready = once(child.stdout, 'data').then(([chunk]) => chunk.toString().split('\n')[0]);
+    let readyTimer;
+    let marker;
+    try { marker = await Promise.race([ready, exited.then(() => 'exited'), new Promise(resolve => { readyTimer = setTimeout(() => resolve('timeout'), 5000); })]); }
+    finally { clearTimeout(readyTimer); }
     assert.equal(marker, 'ready');
     assert.equal(child.exitCode, null);
-    const sent = await run(binary, ['send', String(child.pid)], { timeout: 5000 });
-    assert.equal(sent.stdout.trim(), 'rejected:-1708');
+    await assert.rejects(run(binary, ['send', String(process.pid), 'mock-0'], { timeout: 5000 }), /target is not the test executable/);
+    const responses = await Promise.all(Array.from({ length: 3 }, (_, i) => run(binary, ['send', String(child.pid), `mock-${i}`], { timeout: 5000 })));
+    assert.deepEqual(responses.map(response => response.stdout.trim()), Array(3).fill('rejected:-1708'));
+    for (let i = 0; i < 100 && ![0, 1, 2].every(id => output.includes(`handled:mock-${id}:`)); i++) {
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    for (const id of [0, 1, 2]) {
+      const observations = output.split('\n').filter(line => line.startsWith(`handled:mock-${id}:`));
+      const count = observations.length;
+      assert.ok(count >= 1, `missing handler observation for mock-${id}`);
+      t.diagnostic(`mock-${id} handler observations: ${observations.join(', ')}`);
+    }
   } finally {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
     await exited;
