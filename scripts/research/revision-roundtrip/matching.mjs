@@ -8,9 +8,10 @@ export function bindRevision(bytes, expectedDigest) {
   return { digest };
 }
 
-function rational(value) {
+function rational(value, positive = false) {
   if (typeof value !== 'string' || !/^-?\d+\/[1-9]\d*$/.test(value)) throw new Error('invalid rational');
   let [numerator, denominator] = value.split('/').map(BigInt);
+  if (numerator < 0n || (positive && numerator === 0n)) throw new Error('invalid range');
   let a = numerator < 0n ? -numerator : numerator;
   let b = denominator;
   while (b !== 0n) [a, b] = [b, a % b];
@@ -25,7 +26,7 @@ function index(items) {
     if (!item || typeof item.id !== 'string' || !item.id || ids.has(item.id)
         || typeof item.sourceDigest !== 'string' || !/^[a-f0-9]{64}$/.test(item.sourceDigest)) throw new Error('invalid occurrence');
     ids.add(item.id);
-    const key = JSON.stringify([item.sourceDigest, rational(item.sourceStart), rational(item.duration)]);
+    const key = JSON.stringify([item.sourceDigest, rational(item.sourceStart), rational(item.duration, true)]);
     if (keys.has(key)) throw new Error('ambiguous source interval');
     keys.set(key, item.id);
   }
