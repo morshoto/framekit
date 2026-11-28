@@ -3,7 +3,8 @@ export function compareProviderCuts(candidates, sourceSha256, evidence) {
   const validRange = (value) => value && Number.isFinite(value.start) && Number.isFinite(value.end) && value.start >= 0 && value.end > value.start;
   if (!Array.isArray(candidates) || candidates.some((range) => !validRange(range))) throw new Error('Invalid candidate range');
   if (!/^[a-f0-9]{64}$/.test(sourceSha256) || !evidence || evidence.sourceSha256 !== sourceSha256 || !validRange(evidence.coverage)
-    || !Array.isArray(evidence.words) || evidence.words.some((word) => !validRange(word)) || !candidates.length
+    || !Array.isArray(evidence.words) || evidence.words.some((word) => !validRange(word) || word.start < evidence.coverage.start || word.end > evidence.coverage.end
+      || typeof word.text !== 'string' || !word.text.trim() || !Number.isFinite(word.confidence) || word.confidence < 0 || word.confidence > 1) || !candidates.length
     || candidates.some((cut) => cut.start < evidence.coverage.start || cut.end > evidence.coverage.end)) {
     return {status:'unavailable', conflicts:[], safety:'unverified'};
   }
