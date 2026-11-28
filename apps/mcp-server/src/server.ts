@@ -1656,7 +1656,7 @@ export function createMcpServer(runtime: AgentVideoRuntime, options: McpServerOp
   }, async ({ projectId, sequenceId, expectedRevision, parameters }) => {
     try {
       const record = await requireHeadlessProjects().render(projectId, sequenceId, parameters, expectedRevision);
-      return { ...jsonResult(record), ...(record.status === "failed" ? { isError: true } : {}) };
+      return { ...jsonResult(record), ...(record.status !== "passed" ? { isError: true } : {}) };
     } catch (error) {
       return sessionResult(async () => { throw error; });
     }

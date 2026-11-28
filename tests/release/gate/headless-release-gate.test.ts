@@ -350,7 +350,7 @@ test("production stdio MCP completes the v0.1.15 headless edit-to-video release 
         name: "headless.project.inspect",
         arguments: { projectId },
       }));
-      const unsupportedRender = payload(await second.client.callTool({
+      const unsupportedResponse = await second.client.callTool({
         name: "headless.render",
         arguments: {
           projectId,
@@ -358,7 +358,9 @@ test("production stdio MCP completes the v0.1.15 headless edit-to-video release 
           expectedRevision: unsupportedProject.after.timeline.revision,
           parameters: { outputPath: join(directory, "unsupported.mp4"), format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } },
         },
-      }));
+      });
+      assert.equal(unsupportedResponse.isError, true);
+      const unsupportedRender = JSON.parse((unsupportedResponse.content as Array<{ text: string }>)[0]!.text);
       assert.equal(unsupportedRender.status, "unavailable", JSON.stringify(unsupportedRender));
       assert.equal(unsupportedRender.error?.code ?? unsupportedRender.outcome?.error?.code, "RENDER_CAPABILITY_UNAVAILABLE", JSON.stringify(unsupportedRender));
       await assert.rejects(stat(join(directory, "unsupported.mp4")), { code: "ENOENT" });

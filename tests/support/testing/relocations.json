@@ -3162,6 +3162,7 @@
       "\"a scoped lock reports a failed unawaited save\""
     ],
     "tests/integration/headless-project-mcp.test.ts": [
+      "\"production MCP reports an unavailable render as an error\"",
       "\"production decision planning pins real FFmpeg source audio\"",
       "\"a lost save acknowledgement preserves recovery information for a committed headless edit\"",
       "\"reviewed music decision previews the exact headless placement without changing the project\"",

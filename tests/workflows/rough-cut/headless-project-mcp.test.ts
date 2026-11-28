@@ -2188,6 +2188,48 @@ test("production rough-cut MCP workflow previews and commits B-A-C video, title,
   }
 });
 
+test("production MCP reports an unavailable render as an error", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "framekit-unavailable-mcp-"));
+  const here = dirname(fileURLToPath(import.meta.url));
+  const environment = { ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    FRAMEKIT_EDITOR: "final-cut-live", FRAMEKIT_AUTO_CONNECT: "0", FRAMEKIT_FINAL_CUT_HEADLESS: "1", FRAMEKIT_FINAL_CUT_NATIVE_WRITES: "0",
+    FRAMEKIT_FINAL_CUT_SOCKET: join(directory, "missing.sock"), FRAMEKIT_STATE_DIR: join(directory, "state") };
+  let connection: Awaited<ReturnType<typeof connectProductionClient>> | undefined;
+  try {
+    await execFileAsync(process.execPath, ["scripts/generate-headless-render-fixtures.mjs", directory], { cwd: process.cwd(), env: process.env });
+    connection = await connectProductionClient(here, environment);
+    const { client } = connection;
+    const projectId = "mcp-headless-project"; const sequenceId = "mcp-headless-sequence";
+    const created = payload(await client.callTool({ name: "headless.project.create", arguments: { timeline: emptyTimeline() } }));
+    const registered = payload(await client.callTool({ name: "headless.media.register", arguments: {
+      projectId, sourcePath: join(directory, "fixture-red-440hz.mp4"), expectedRevision: created.timeline.revision,
+    } }));
+    const gapped = payload(await client.callTool({ name: "headless.edit.execute", arguments: {
+      projectId, sequenceId, expectedRevision: registered.project.timeline.revision,
+      operations: [
+        { type: "insert-occurrence", occurrence: occurrence("first", registered.resource.id) },
+        { type: "insert-occurrence", occurrence: { ...occurrence("second", registered.resource.id), startTime: { value: "2", timescale: "1" } } },
+      ],
+    } }));
+    const outputPath = join(directory, "unsupported-gap.mp4");
+    const unavailable = await client.callTool({ name: "headless.render", arguments: {
+      projectId, sequenceId, expectedRevision: gapped.after.timeline.revision,
+      parameters: { outputPath, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } },
+    } });
+    assert.equal(unavailable.isError, true, "an unavailable render is a tool-level error");
+    const record = JSON.parse(toolErrorText(unavailable));
+    assert.equal(record.status, "unavailable");
+    assert.equal(record.outcome.error.code, "HEADLESS_RENDER_UNSUPPORTED");
+    assert.equal(existsSync(outputPath), false);
+    const stored = payload(await client.callTool({ name: "headless.render.inspect", arguments: { renderId: record.renderId } }));
+    assert.equal(stored.status, "unavailable");
+    assert.equal(stored.outcome.error.code, "HEADLESS_RENDER_UNSUPPORTED");
+    assert.deepEqual(payload(await client.callTool({ name: "headless.project.inspect", arguments: { projectId } })).timeline, gapped.after.timeline);
+  } finally {
+    await connection?.client.close(); await connection?.transport.close(); await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("production stdio MCP persists and reopens the headless project and render record", async () => {
   const directory = await mkdtemp(join(tmpdir(), "framekit-headless-mcp-"));
   const here = dirname(fileURLToPath(import.meta.url));
@@ -3389,7 +3431,8 @@ test("external JSON binds one font through preview, render and FCPXML", async ()
     const renderArgs = { projectId, sequenceId, expectedRevision: executed.after.timeline.revision, parameters: { outputPath: output, format: "mp4", width: 320, height: 180, frameRate: { value: "30", timescale: "1" } } };
     await writeFile(fontPath, Buffer.concat([fontBytes, Buffer.from([0])]));
     const wrongFont = await client.callTool({ name: "headless.render", arguments: renderArgs });
-    assert.equal(payload(wrongFont).status, "unavailable");
+    assert.equal(wrongFont.isError, true);
+    assert.equal(JSON.parse(toolErrorText(wrongFont)).status, "unavailable");
     assert.equal(existsSync(output), false);
     await writeFile(fontPath, fontBytes);
     const rendered = payload(await client.callTool({ name: "headless.render", arguments: renderArgs }));
