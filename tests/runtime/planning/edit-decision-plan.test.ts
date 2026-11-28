@@ -944,6 +944,23 @@ test("optional filler observations bind speech and remain unavailable for execut
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
+test("filler observations warn that transcription can omit fillers", async () => {
+  const f = await fixture();
+  try {
+    const speech = { ...f.record.speech, words: [{ text: "Hello.", start: 1, end: 2, confidence: 0.98 }] };
+    await f.index.save({ ...f.record, speech });
+    const speechRef = await pinAnalysisEvidence(f.index, f.artifacts, f.request.speechContext, verifyLocalMediaSource);
+    const request = { ...f.request, speechRef, vadRef: undefined, vadContext: undefined };
+    const normal = await createEditDecisionPlan(request, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    const observed = await createEditDecisionPlan({ ...request, includeFillerObservations: true }, f.artifacts, verifyLocalMediaSource, f.briefStore);
+    assert.equal(normal.status, "available"); assert.equal(observed.status, "available");
+    if (normal.status !== "available" || observed.status !== "available") return;
+    assert.equal(observed.plan.decisions.some((item) => item.kind === "filler-observation"), false);
+    assert.ok(observed.plan.warnings.some((warning) => /transcription may omit fillers/i.test(warning)));
+    assert.equal(normal.plan.warnings.some((warning) => /transcription may omit fillers/i.test(warning)), false);
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
 test("filler observations fail closed without complete source-bound speech", async () => {
   const f = await fixture();
   try {
