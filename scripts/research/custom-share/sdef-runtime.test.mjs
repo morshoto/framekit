@@ -59,8 +59,9 @@ async function exercise(t, writableName = false) {
     }
     assert.match(make.stderr, /location-coercion:fields-retained:empty-accepted/);
     t.diagnostic(make.stderr.trim());
-    assert.equal(make.stdout.trim(), 'make:asset-1:get:Synthetic:location:reco:metadata:verified:unknown-rejected');
+    assert.equal(make.stdout.trim(), 'make:asset-1:get:Synthetic:location:reco:metadata:verified:unknown-rejected:open:asset-1:open-unknown-rejected');
     assert.match(stderr, /MOCK MAKE COMMAND INVOKED/);
+    assert.match(stderr, /MOCK OPEN HANDLER INVOKED/);
     const countBefore = stderr.split('MOCK MAKE COMMAND INVOKED').length - 1;
     const withProperties = await run(binary, ['send', String(child.pid), 'make-properties'], { timeout: 5000 });
     assert.equal(withProperties.stdout.trim(), 'properties:asset-2:get:Named:metadata:Incoming:options:verified');

@@ -68,6 +68,10 @@ enum MockStore { static var assets: [MockAsset] = [] }
 extension NSApplication {
     @objc dynamic var assets: [MockAsset] { MockStore.assets }
     @objc(valueInAssetsWithUniqueID:) func asset(withID id: String) -> MockAsset? {
+        if let receiver = Receiver.active {
+            NSAppleEventManager.shared().setEventHandler(receiver, andSelector: #selector(Receiver.ping(_:withReplyEvent:)),
+                forEventClass: AEEventClass(kCoreEventClass), andEventID: AEEventID(kAEOpenDocuments))
+        }
         let matches = MockStore.assets.filter { $0.uniqueID == id }
         return matches.count == 1 ? matches[0] : nil
     }
@@ -95,7 +99,20 @@ final class MockMakeCommand: NSCreateCommand {
     }
 }
 final class Receiver: NSObject {
+    static var active: Receiver?
     @objc func ping(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {
+        if let list = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject)), list.descriptorType == DescType(typeAEList) {
+            fputs("MOCK OPEN HANDLER INVOKED\n", stderr)
+            let matches = MockStore.assets.filter { asset in
+                list.numberOfItems == 1 && list.atIndex(1)?.fileURLValue?.path == "/synthetic/share-output/\(asset.name).fcpxml"
+            }
+            guard matches.count == 1, let description = NSScriptClassDescription(for: NSApplication.self),
+                  let descriptor = NSUniqueIDSpecifier(containerClassDescription: description, containerSpecifier: nil,
+                      key: "assets", uniqueID: matches[0].uniqueID).descriptor else {
+                reply.setParam(NSAppleEventDescriptor(int32: Int32(errAEEventNotHandled)), forKeyword: AEKeyword(keyErrorNumber)); return
+            }
+            reply.setParam(descriptor, forKeyword: AEKeyword(keyDirectObject)); return
+        }
         let registry = NSScriptSuiteRegistry.shared()
         let loaded = registry.suiteNames.contains { $0 == "Mock Suite" || $0 == "MockSuite" }
         let commandDescription = registry.commandDescription(withAppleEventClass: AEEventClass(0x636f7265), andAppleEventCode: AEEventID(0x6372656c))
@@ -165,6 +182,7 @@ if args.count == 2 && args[1] == "conversion-control" {
     let app = NSApplication.shared
     app.setActivationPolicy(.prohibited)
     let receiver = Receiver()
+    Receiver.active = receiver
     DispatchQueue.main.async {
         NSAppleEventManager.shared().setEventHandler(receiver, andSelector: #selector(Receiver.ping(_:withReplyEvent:)),
             forEventClass: AEEventClass(kCoreEventClass), andEventID: AEEventID(kAEOpenDocuments))
@@ -322,7 +340,27 @@ if args.count == 2 && args[1] == "conversion-control" {
                 rejected = invalidReply.paramDescriptor(forKeyword: AEKeyword(keyErrorNumber))?.int32Value == Int32(errAENoSuchObject)
             } catch { rejected = (error as NSError).code == Int(errAENoSuchObject) }
             guard rejected else { fputs("unknown asset did not produce errAENoSuchObject\n", stderr); exit(1) }
-            print("make:asset-1:get:Synthetic:location:reco:metadata:verified:unknown-rejected"); exit(0)
+            let openEvent = NSAppleEventDescriptor(eventClass: AEEventClass(kCoreEventClass), eventID: AEEventID(kAEOpenDocuments),
+                targetDescriptor: NSAppleEventDescriptor(processIdentifier: target), returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
+            let files = NSAppleEventDescriptor.list()
+            files.insert(NSAppleEventDescriptor(fileURL: URL(fileURLWithPath: "/synthetic/share-output/Synthetic.fcpxml")), at: 1)
+            openEvent.setParam(files, forKeyword: AEKeyword(keyDirectObject))
+            let openReply = try openEvent.sendEvent(options: [.waitForReply, .neverInteract], timeout: 3)
+            let openResult = openReply.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))
+            guard openResult?.descriptorType == DescType(typeObjectSpecifier),
+                  openResult?.forKeyword(AEKeyword(keyAEKeyData))?.stringValue == "asset-1" else {
+                fputs("unexpected open reply: \(openReply)\n", stderr); exit(1)
+            }
+            let wrongFiles = NSAppleEventDescriptor.list()
+            wrongFiles.insert(NSAppleEventDescriptor(fileURL: URL(fileURLWithPath: "/synthetic/share-output/Unknown.fcpxml")), at: 1)
+            openEvent.setParam(wrongFiles, forKeyword: AEKeyword(keyDirectObject))
+            var openRejected = false
+            do {
+                let invalidReply = try openEvent.sendEvent(options: [.waitForReply, .neverInteract], timeout: 3)
+                openRejected = invalidReply.paramDescriptor(forKeyword: AEKeyword(keyErrorNumber))?.int32Value == Int32(errAEEventNotHandled)
+            } catch { openRejected = (error as NSError).code == Int(errAEEventNotHandled) }
+            guard openRejected else { fputs("unknown output not rejected\n", stderr); exit(1) }
+            print("make:asset-1:get:Synthetic:location:reco:metadata:verified:unknown-rejected:open:asset-1:open-unknown-rejected"); exit(0)
         }
         fputs("unexpected reply: \(reply)\n", stderr); exit(1)
     } catch {
