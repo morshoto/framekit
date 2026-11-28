@@ -120,3 +120,23 @@ The same characterization also builds a manually corrected, fixture-specific IR 
 `render-preview.test.ts` builds a deliberately fixture-specific **preview-only** projection from signed synthetic B, while leaving its XML bytes unchanged. It runs both an authored external fixture and a separate Python-process edit of A; in each case the handoff binds generated video and audio bytes to the signed claim before producing B. It maps the verified direct audio/title positions to independent IR elements, omits the source attachment in the preview and uses the existing headless renderer on generated color video and a tone. The test checks three output colors across the expected cut times, audio RMS during and after the audio interval, and a title-on/title-off frame difference. Run `./node_modules/.bin/tsx --test scripts/research/revision-roundtrip/render-preview.test.ts` with FFmpeg, ffprobe, Python and a renderer-compatible font available; the test skips if FFmpeg tools are missing, so inspect the diagnostic. Set `FRAMEKIT_RESEARCH_DTD` to the 1.11 DTD URI shown above to additionally validate the process-generated A, external XML and B.
 
 This is a narrow visual/audio smoke test, not a general FCPXML interpreter: the independent XML verifier first limits it to this known authored fixture, and the projection does not preserve attachment in the rendered preview, replicate Final Cut title styling, establish text legibility, or establish native import/playback/editability. It does not replace the unchanged XML handoff, authenticate a user or source, or repair the adapter or renderer. All generated media and renders are disposable temporary files.
+
+### Third-party Pipeline Neo conversion (fixture only)
+
+Pipeline Neo release 2.5.2, commit `1319934e6afadf5c51333ffede78ebb6bea8da17`, builds here with Apple Swift 6.1.2 and Xcode 16.4. Its same-version conversion independently renames the project and writes 1.11 after DTD validation. For this pre-authored edited fixture, the output retained the three clips, anchor metadata, title and negative-lane audio; `findAnchoredTarget` accepted the intended occurrence with an independently supplied range. This is a third-party XML conversion following our authored edit, not an independently performed cut, native Final Cut export, or proof that metadata survives a real editor. The source URLs are nonexistent synthetic paths; conversion does not open media. The newer OpenFCPXMLKit main at `1e4b53422c1402061329f46bfa5e0c26aec10eca` requires Swift tools 6.3 and was not built with this machine's selected toolchain.
+
+The following uses a disposable checkout and output, with the exact resolved dependency graph used for the observed build. Review the third-party source before running external code. From the repository root:
+
+```sh
+research_dir=$(mktemp -d -t framekit-pipeline-neo)
+git clone https://github.com/TheAcharya/OpenFCPXMLKit.git "$research_dir/repo"
+git -C "$research_dir/repo" checkout 1319934e6afadf5c51333ffede78ebb6bea8da17
+cp scripts/research/revision-roundtrip/pipeline-neo.Package.resolved "$research_dir/repo/Package.resolved"
+(cd "$research_dir/repo" && swift build --disable-automatic-resolution --product pipeline-neo --scratch-path "$research_dir/build")
+mkdir "$research_dir/input" "$research_dir/output"
+cp scripts/research/revision-roundtrip/anchored-edit.fcpxml "$research_dir/input/edited.fcpxml"
+"$research_dir/build/debug/pipeline-neo" --convert-version 1.11 --extension-type fcpxml "$research_dir/input/edited.fcpxml" "$research_dir/output"
+FRAMEKIT_PIPELINE_OUTPUT="$research_dir/output/edited (Converted-1.11).fcpxml" node --input-type=module -e 'import {readFileSync} from "node:fs"; import {findAnchoredTarget} from "./scripts/research/revision-roundtrip/anchor-identity.mjs"; const a=readFileSync("scripts/research/revision-roundtrip/anchored-base.fcpxml","utf8"); const b=readFileSync(process.env.FRAMEKIT_PIPELINE_OUTPUT,"utf8"); console.log(findAnchoredTarget(a,b,"opening-v1",{sourceStart:"2s",duration:"1s"}).id)'
+```
+
+The observed edited input SHA-256 was `623ac3f65c4206d79ad41c56ab7cc020e0011ee64969bb7519e20253cdd29bcb`; output SHA-256 was `388f9b069b424914f130274597fdfaa42832e022374cc15374d129260f4b6804`. Serialization bytes may vary by platform. The accepted result is specific to the fixture and supplied manifest and does not establish authenticated occurrence identity or native editability.
