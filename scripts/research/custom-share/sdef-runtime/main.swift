@@ -270,6 +270,19 @@ if args.count == 2 && args[1] == "conversion-control" {
             locationGet.setParam(locationSpecifier, forKeyword: AEKeyword(keyDirectObject))
             let locationReply = try locationGet.sendEvent(options: [.waitForReply, .neverInteract], timeout: 3)
             let location = locationReply.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))
+            let coercedLocation = location?.coerce(toDescriptorType: DescType(0x61736c63))
+            let emptyLocation = NSAppleEventDescriptor.record().coerce(toDescriptorType: DescType(0x61736c63))
+            guard let typedLocation = coercedLocation, typedLocation.descriptorType == DescType(0x61736c63),
+                  typedLocation.forKeyword(AEKeyword(0x61736664))?.fileURLValue?.path == "/synthetic/share-output",
+                  typedLocation.forKeyword(AEKeyword(0x6173626e))?.stringValue == "Synthetic",
+                  typedLocation.forKeyword(AEKeyword(0x61736864))?.booleanValue == true,
+                  typedLocation.forKeyword(AEKeyword(0x6173686d))?.booleanValue == false else {
+                fputs("location coercion lost fields\n", stderr); exit(1)
+            }
+            guard emptyLocation?.descriptorType == DescType(0x61736c63), emptyLocation?.numberOfItems == 0 else {
+                fputs("empty record coercion changed behavior\n", stderr); exit(1)
+            }
+            fputs("location-coercion:fields-retained:empty-accepted\n", stderr)
             guard location?.descriptorType == DescType(typeAERecord),
                   location?.forKeyword(AEKeyword(0x61736664))?.fileURLValue?.path == "/synthetic/share-output",
                   location?.forKeyword(AEKeyword(0x6173626e))?.stringValue == "Synthetic",

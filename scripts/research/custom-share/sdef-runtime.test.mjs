@@ -57,6 +57,8 @@ async function exercise(t, writableName = false) {
       t.diagnostic('inconclusive: make timed out');
       return;
     }
+    assert.match(make.stderr, /location-coercion:fields-retained:empty-accepted/);
+    t.diagnostic(make.stderr.trim());
     assert.equal(make.stdout.trim(), 'make:asset-1:get:Synthetic:location:reco:metadata:verified:unknown-rejected');
     assert.match(stderr, /MOCK MAKE COMMAND INVOKED/);
     const countBefore = stderr.split('MOCK MAKE COMMAND INVOKED').length - 1;
