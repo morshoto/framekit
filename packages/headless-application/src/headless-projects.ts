@@ -204,6 +204,10 @@ export interface HeadlessRenderRecord {
   outcome: unknown;
 }
 
+export function isMissingHeadlessRenderRecord(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith("HEADLESS_RENDER_NOT_FOUND: ");
+}
+
 export interface HeadlessRenderReverification {
   renderId: string;
   status: "verified" | "unavailable";
@@ -1087,7 +1091,9 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     const unavailable = (): HeadlessRenderReverification => ({ renderId, status: "unavailable", notice });
     validateRenderId(renderId);
     if (!this.verifier) return unavailable();
-    const record = await this.inspectRender(renderId);
+    let record: HeadlessRenderRecord;
+    try { record = await this.inspectRender(renderId); }
+    catch (error) { if (isMissingHeadlessRenderRecord(error)) return unavailable(); throw error; }
     if (!record || record.renderId !== renderId || record.status !== "passed" || !record.outcome || typeof record.outcome !== "object") return unavailable();
     const outcome = record.outcome as FramekitRenderAndVerifyResult;
     if (!outcome.plan || record.projectId !== outcome.plan.target?.projectId || record.sequenceId !== outcome.plan.target?.sequenceId
@@ -1096,7 +1102,7 @@ export class HeadlessProjectService implements HeadlessProjectWorkflow {
     if (!observation) return unavailable();
     try {
       if (!isDeepStrictEqual(record, await this.inspectRender(renderId))) return unavailable();
-    } catch { return unavailable(); }
+    } catch (error) { if (isMissingHeadlessRenderRecord(error)) return unavailable(); throw error; }
     return { renderId, status: "verified", observation, notice };
   }
 

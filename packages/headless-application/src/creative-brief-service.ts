@@ -4,6 +4,7 @@ import { acceptCreativeBrief, assertBriefSourceCoverage, inspectBriefTimelineCov
 import type { CreativeBrief, CreativeBriefProjectBinding, CreativeBriefReview, CreativeBriefStore, FramekitProjectDocument, MediaSourceIdentity, StoredCreativeBrief, ContextRevision } from "@framekit/runtime";
 import type { FramekitRenderAndVerifyResult } from "@framekit/runtime";
 import type { HeadlessRenderRecord, HeadlessRenderReverification } from "./headless-projects.js";
+import { isMissingHeadlessRenderRecord } from "./headless-projects.js";
 
 export interface CreativeBriefTarget {
   projectId: string;
@@ -97,7 +98,12 @@ export class HeadlessCreativeBriefService {
     return store.withAcceptedBrief(input.projectId, record.accepted, async () => {
       const before = await this.openTarget(input);
       assertCreativeBriefProjectBinding(record.projectBinding!, before);
-      const original = await render.inspect(input.renderId);
+      const readRecord = async (): Promise<HeadlessRenderRecord | undefined> => {
+        try { return await render.inspect(input.renderId); }
+        catch (error) { if (isMissingHeadlessRenderRecord(error)) return undefined; throw error; }
+      };
+      const original = await readRecord();
+      if (!original) return unavailable();
       const outcome = original.outcome as FramekitRenderAndVerifyResult | undefined;
       if (original.renderId !== input.renderId || original.status !== "passed" || original.projectId !== input.projectId
         || original.sequenceId !== input.sequenceId || !isDeepStrictEqual(original.requestedRevision, before.timeline.revision)
@@ -111,12 +117,12 @@ export class HeadlessCreativeBriefService {
         || !Number.isSafeInteger(observation.width) || observation.width <= 0 || !Number.isSafeInteger(observation.height) || observation.height <= 0) return unavailable();
       const after = await this.openTarget(input);
       assertCreativeBriefProjectBinding(record.projectBinding!, after);
-      if (!isDeepStrictEqual(before.timeline, after.timeline) || !isDeepStrictEqual(original, await render.inspect(input.renderId))) return unavailable();
+      if (!isDeepStrictEqual(before.timeline, after.timeline) || !isDeepStrictEqual(original, await readRecord())) return unavailable();
       const finalVerification = await render.reverify(input.renderId);
       if (finalVerification.renderId !== input.renderId || finalVerification.status !== "verified" || !isDeepStrictEqual(observation, finalVerification.observation)) return unavailable();
       const finalProject = await this.openTarget(input);
       assertCreativeBriefProjectBinding(record.projectBinding!, finalProject);
-      if (!isDeepStrictEqual(before.timeline, finalProject.timeline) || !isDeepStrictEqual(original, await render.inspect(input.renderId))) return unavailable();
+      if (!isDeepStrictEqual(before.timeline, finalProject.timeline) || !isDeepStrictEqual(original, await readRecord())) return unavailable();
       const duration = record.brief.durationSeconds;
       checks[0]!.status = observation.durationSeconds >= duration.min && observation.durationSeconds <= duration.max ? "matches" : "does-not-match";
       checks[0]!.detail = "Reverified output duration compared with the accepted range.";
