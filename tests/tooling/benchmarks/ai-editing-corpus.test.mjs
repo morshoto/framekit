@@ -54,3 +54,12 @@ test('compares chunk-relative proposals with source-relative reference words', a
   assert.deepEqual(result[0].overlaps.map((word) => word.text), ['word']);
   assert.throws(() => screenAlignedCuts([{sourceRange: {start: 2, end: 1}}], 60, []), /range/i);
 });
+
+test('runner rejects unknown recordings and out-of-corpus windows before invoking providers', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const runner = new URL('../../../scripts/benchmarks/ai-editing/run-ami.mjs', import.meta.url);
+  const invoke = (id, start) => execFileSync(process.execPath, ['--import', 'tsx', runner.pathname, '/missing', id, start, 'python'], {encoding: 'utf8', stdio: 'pipe'});
+  assert.throws(() => invoke('unknown', '0'), /unknown corpus audio/i);
+  assert.throws(() => invoke('EN2002a', '600'), /outside corpus/i);
+  assert.throws(() => invoke('EN2002a', '0.1'), /60-second/i);
+});
