@@ -76,7 +76,13 @@ jobs:
                   GITHUB_API_URL: ${{ github.api_url }}
 
     sync-project-status:
-        if: ${{ github.event_name == 'issues' || github.event_name == 'workflow_dispatch' }}
+        if: >-
+            github.event_name == 'workflow_dispatch' ||
+            (github.event_name == 'issues' && (
+              contains(fromJSON('["opened","reopened","closed","milestoned","demilestoned"]'), github.event.action) ||
+              (contains(fromJSON('["labeled","unlabeled"]'), github.event.action) &&
+               contains(fromJSON('["Status: Backlog","Status: In progress","Status: In review","Status: Pending","Status: Done"]'), github.event.label.name))
+            ))
         permissions:
             contents: read
         concurrency:

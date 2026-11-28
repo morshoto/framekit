@@ -25,10 +25,8 @@ test('repository label definitions reconcile on configuration changes and repair
 
 test('issue project sync starts only for lifecycle or status-label events and manual repair', () => {
  const condition = readWorkflow('assign').jobs['sync-project-status'].if;
- for (const action of ['opened', 'reopened', 'closed', 'labeled', 'unlabeled']) assert.ok(condition.includes(`"${action}"`), action);
+ for (const action of ['opened', 'reopened', 'closed', 'milestoned', 'demilestoned', 'labeled', 'unlabeled']) assert.ok(condition.includes(`"${action}"`), action);
  for (const label of ['Status: Backlog', 'Status: In progress', 'Status: In review', 'Status: Pending', 'Status: Done']) assert.ok(condition.includes(label), label);
  assert.ok(condition.includes('github.event.label.name'));
  assert.ok(condition.includes("github.event_name == 'workflow_dispatch'"));
- assert.equal(condition.includes("'milestoned'"), false);
- assert.equal(condition.includes("'demilestoned'"), false);
 });
