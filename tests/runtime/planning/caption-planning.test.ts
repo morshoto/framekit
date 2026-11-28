@@ -278,6 +278,8 @@ test("reviewers can correct caption words without changing transcript evidence o
     assert.notEqual(corrected.plan.inputDigest, original.plan.inputDigest);
     assert.ok(corrected.plan.warnings.some((warning) => /correction.*review/i.test(warning)));
     assert.ok(corrected.plan.warnings.some((warning) => /confidence.*original/i.test(warning)));
+    const regenerated = await planCaptionGroups(f.request, f.ref, f.current, f.artifacts, verifyLocalMediaSource);
+    assert.deepEqual(regenerated, original, "omitting a correction on regeneration uses unchanged ASR evidence");
     for (const wordCorrections of [[{ wordIndex: 99, text: "bad" }], [{ wordIndex: 0, text: "" }],
       [{ wordIndex: 0, text: "one" }, { wordIndex: 0, text: "two" }], [{ wordIndex: 0, text: "bad\ntext" }]]) {
       assert.notEqual((await planCaptionGroups({ ...f.request, wordCorrections }, f.ref, f.current, f.artifacts, verifyLocalMediaSource)).status, "available");
