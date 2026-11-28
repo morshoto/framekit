@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "designation": "exploratory; this case was examined before this protocol",
+  "meeting": "TS3003a",
+  "primaryWindowSeconds": [60, 120],
+  "candidate": {"start": 77.2, "end": 77.66666666666667},
+  "primaryModel": "mlx-community/whisper-tiny",
+  "secondaryWindowSeconds": [72, 82],
+  "secondaryModel": "mlx-community/whisper-large-v3-turbo",
+  "expected": "Report any secondary word overlapping the review-only candidate, including low-confidence words; missing or incomplete secondary coverage is unavailable.",
+  "interpretation": "Different model and context windows can disagree. This is not proof of speech clipping or safety; listening and independently checked boundaries are required."
+}
